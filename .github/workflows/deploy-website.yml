@@ -1,0 +1,32 @@
+# Deploy static site files to shared hosting (e.g. HostGator) over FTP when you push to `main`.
+#
+# GitHub repo → Settings → Secrets and variables → Actions → New repository secret:
+#   FTP_SERVER    — e.g. ftp.rorhoff.com or your server IP (from cPanel)
+#   FTP_USERNAME  — cPanel FTP username
+#   FTP_PASSWORD  — FTP password (not your cPanel login if they differ)
+#
+# Optional: change local-dir / server-dir below if your host uses a different remote path.
+
+name: Deploy website
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  ftp-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Upload static site to hosting
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          # Files in ./static/ go to the folder below on the server (site root for many accounts).
+          local-dir: ./static/
+          server-dir: ./public_html/
+          # Danger zone: set true to delete remote files not present locally (keeps server mirror of repo folder).
+          dangerous-clean-slate: false
