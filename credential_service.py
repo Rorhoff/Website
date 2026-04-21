@@ -1,0 +1,202 @@
+"""
+API credential lifecycle: memory (dev) or MySQL + bcrypt (production).
+"""
+
+from __future__ import annotations
+
+import logging
+import os
+import secrets
+from datetime import datetime, timedelta
+from threading import Lock
+from typing import Any
+
+from passlib.hash import bcrypt as bcrypt_hasher
+from sqlalchemy import delete, select
+from sqlalchemy.orm import Session
+
+from database import Base, SessionLocal, engine
+from models import ApiCredential, BrowserSession
+
+log = logging.getLogger("webapi-testing")
+
+_cred_lock = Lock()
+
+# Memory fallback (no DATABASE_URL)
+_mem_key: str = ""
+_mem_secret: str = ""
+
+SESSION_HOURS = int(os.getenv("SESSION_HOURS", "8"))
+COOKIE_NAME = "wapi_session"
+
+
+def _generate_pair() -> tuple[str, str]:
+    return secrets.token_urlsafe(48), secrets.token_urlsafe(48)
+
+
+def _hash_secret(plain: str) -> str:
+    return bcrypt_hasher.hash(plain)
+
+
+def _verify_secret(plain: str, secret_hash: str) -> bool:
+    try:
+        return bcrypt_hasher.verify(plain, secret_hash)
+    except ValueError:
+        return False
+
+
+def database_enabled() -> bool:
+    return engine is not None
+
+
+def create_tables() -> None:
+    if engine is None:
+        return
+    Base.metadata.create_all(bind=engine)
+
+
+def init_credentials() -> dict[str, str] | None:
+    """
+    Initialize credential store. Returns {"api_key", "api_secret"} once when newly created
+    (for logging), else None.
+    """
+    global _mem_key, _mem_secret
+    if not database_enabled():
+        env_k, env_s = os.getenv("API_KEY"), os.getenv("API_SECRET")
+        if env_k and env_s:
+            _mem_key, _mem_secret = env_k, env_s
+        else:
+            _mem_key, _mem_secret = _generate_pair()
+        return {"api_key": _mem_key, "api_secret": _mem_secret}
+
+    if SessionLocal is None:
+        return None
+    db = SessionLocal()
+    try:
+        row = db.scalars(select(ApiCredential).limit(1)).first()
+        if row is not None:
+            return None
+        pub, sec = _generate_pair()
+        row = ApiCredential(public_key=pub, secret_hash=_hash_secret(sec))
+        db.add(row)
+        db.commit()
+        return {"api_key": pub, "api_secret": sec}
+    finally:
+        db.close()
+
+
+def _get_credential_row(db: Session) -> ApiCredential | None:
+    return db.scalars(select(ApiCredential).limit(1)).first()
+
+
+def verify_headers(api_key: str | None, api_secret: str | None) -> bool:
+    if not api_key or not api_secret:
+        return False
+    if not database_enabled():
+        with _cred_lock:
+            try:
+                return secrets.compare_digest(
+                    api_key.encode("utf-8"), _mem_key.encode("utf-8")
+                ) and secrets.compare_digest(
+                    api_secret.encode("utf-8"), _mem_secret.encode("utf-8")
+                )
+            except ValueError:
+                return False
+
+    db = SessionLocal()
+    try:
+        row = _get_credential_row(db)
+        if row is None:
+            return False
+        try:
+            if not secrets.compare_digest(
+                api_key.encode("utf-8"), row.public_key.encode("utf-8")
+            ):
+                return False
+        except ValueError:
+            return False
+        return _verify_secret(api_secret, row.secret_hash)
+    finally:
+        db.close()
+
+
+def rotate_credentials() -> dict[str, str]:
+    """Invalidate current pair and browser sessions; return new api_key and api_secret (plaintext once)."""
+    global _mem_key, _mem_secret
+    new_k, new_s = _generate_pair()
+    if not database_enabled():
+        with _cred_lock:
+            _mem_key, _mem_secret = new_k, new_s
+        return {"api_key": new_k, "api_secret": new_s}
+
+    db = SessionLocal()
+    try:
+        db.execute(delete(BrowserSession))
+        row = _get_credential_row(db)
+        if row is None:
+            row = ApiCredential(public_key=new_k, secret_hash=_hash_secret(new_s))
+            db.add(row)
+        else:
+            row.public_key = new_k
+            row.secret_hash = _hash_secret(new_s)
+        db.commit()
+        return {"api_key": new_k, "api_secret": new_s}
+    finally:
+        db.close()
+
+
+def create_browser_session() -> tuple[str, datetime]:
+    token = secrets.token_urlsafe(32)
+    expires = datetime.utcnow() + timedelta(hours=SESSION_HOURS)
+    if SessionLocal is None:
+        raise RuntimeError("Session store unavailable")
+    db = SessionLocal()
+    try:
+        db.add(BrowserSession(token=token, expires_at=expires))
+        db.commit()
+        return token, expires
+    finally:
+        db.close()
+
+
+def delete_session_token(token: str | None) -> None:
+    if not token or SessionLocal is None:
+        return
+    db = SessionLocal()
+    try:
+        row = db.get(BrowserSession, token)
+        if row:
+            db.delete(row)
+            db.commit()
+    finally:
+        db.close()
+
+
+def verify_session_token(token: str | None) -> bool:
+    if not token or SessionLocal is None:
+        return False
+    db = SessionLocal()
+    try:
+        row = db.get(BrowserSession, token)
+        if row is None:
+            return False
+        if row.expires_at < datetime.utcnow():
+            db.delete(row)
+            db.commit()
+            return False
+        return True
+    finally:
+        db.close()
+
+
+def purge_expired_sessions() -> None:
+    if SessionLocal is None:
+        return
+    db = SessionLocal()
+    try:
+        db.execute(
+            delete(BrowserSession).where(BrowserSession.expires_at < datetime.utcnow())
+        )
+        db.commit()
+    finally:
+        db.close()

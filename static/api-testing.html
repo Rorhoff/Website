@@ -1,0 +1,562 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>API Testing — Dashboard</title>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --surface: #1a2332;
+      --border: #2d3a4d;
+      --text: #e7ecf3;
+      --muted: #8b9cb3;
+      --accent: #3d9cf0;
+      --ok: #3ecf8e;
+      --warn: #f0b429;
+      --err: #f06b6b;
+      --mono: "Consolas", "Monaco", "Courier New", monospace;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+    }
+    .site-nav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.65rem 1.25rem;
+      padding: 0.75rem 1.5rem;
+      border-bottom: 1px solid var(--border);
+      background: #121922;
+      align-items: center;
+    }
+    .site-nav a {
+      color: var(--muted);
+      text-decoration: none;
+      font-size: 0.9rem;
+      font-weight: 500;
+    }
+    .site-nav a:hover { color: var(--accent); }
+    .site-nav a.active {
+      color: var(--text);
+      border-bottom: 2px solid var(--accent);
+      padding-bottom: 0.1rem;
+    }
+    header {
+      padding: 1.25rem 1.5rem;
+      border-bottom: 1px solid var(--border);
+      background: linear-gradient(180deg, #151c28 0%, var(--bg) 100%);
+    }
+    header h1 {
+      margin: 0;
+      font-size: 1.25rem;
+      font-weight: 600;
+    }
+    header p {
+      margin: 0.35rem 0 0;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+    main {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 1.25rem 1.5rem 2rem;
+    }
+    .grid {
+      display: grid;
+      gap: 1rem;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1rem 1.1rem;
+    }
+    .card h2 {
+      margin: 0 0 0.75rem;
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .stat {
+      font-size: 1.75rem;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+    }
+    .stat small {
+      display: block;
+      font-size: 0.8rem;
+      font-weight: 400;
+      color: var(--muted);
+      margin-top: 0.25rem;
+    }
+    .pill {
+      display: inline-block;
+      padding: 0.15rem 0.5rem;
+      border-radius: 6px;
+      font-size: 0.75rem;
+      font-family: var(--mono);
+      background: #243044;
+      color: var(--accent);
+    }
+    .endpoints { font-size: 0.85rem; }
+    .endpoints ul {
+      margin: 0;
+      padding-left: 1.1rem;
+      color: var(--muted);
+    }
+    .endpoints code {
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 0.82rem;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.8rem;
+    }
+    th, td {
+      text-align: left;
+      padding: 0.45rem 0.5rem;
+      border-bottom: 1px solid var(--border);
+    }
+    th {
+      color: var(--muted);
+      font-weight: 600;
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+    tr:hover td { background: rgba(255,255,255,0.02); }
+    .method { font-family: var(--mono); font-weight: 600; }
+    .m-GET { color: var(--ok); }
+    .m-POST { color: var(--accent); }
+    .m-PUT, .m-PATCH { color: var(--warn); }
+    .m-DELETE { color: var(--err); }
+    .status-2xx { color: var(--ok); }
+    .status-4xx { color: var(--warn); }
+    .status-5xx { color: var(--err); }
+    .scroll { max-height: 360px; overflow: auto; }
+    .bar-row {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 0.35rem;
+      font-size: 0.8rem;
+    }
+    .bar-row span.path {
+      flex: 0 0 42%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-family: var(--mono);
+      color: var(--text);
+    }
+    .bar {
+      flex: 1;
+      height: 8px;
+      background: #243044;
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    .bar > i {
+      display: block;
+      height: 100%;
+      background: linear-gradient(90deg, #2a7cc7, var(--accent));
+      border-radius: 4px;
+    }
+    .error-banner {
+      display: none;
+      margin-bottom: 1rem;
+      padding: 0.65rem 0.9rem;
+      background: #3a2020;
+      border: 1px solid #6b3030;
+      border-radius: 8px;
+      color: #ffb4b4;
+      font-size: 0.9rem;
+    }
+    .error-banner.visible { display: block; }
+    .auth-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      align-items: center;
+      margin-bottom: 0.5rem;
+    }
+    .auth-row label { font-size: 0.8rem; color: var(--muted); min-width: 5rem; }
+    .auth-row input {
+      flex: 1;
+      min-width: 140px;
+      padding: 0.4rem 0.5rem;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: #0f1419;
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 0.85rem;
+    }
+    .btn {
+      padding: 0.4rem 0.75rem;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: #243044;
+      color: var(--text);
+      font-size: 0.85rem;
+      cursor: pointer;
+    }
+    .btn:hover { background: #2d3f5c; }
+    .hint { font-size: 0.75rem; color: var(--muted); margin-top: 0.35rem; }
+    .auth-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.5rem; align-items: center; }
+    .success-banner {
+      display: none;
+      margin-bottom: 1rem;
+      padding: 0.65rem 0.9rem;
+      background: #1a2e24;
+      border: 1px solid #2d6b4a;
+      border-radius: 8px;
+      color: #9ee2c0;
+      font-size: 0.9rem;
+    }
+    .success-banner.visible { display: block; }
+  </style>
+</head>
+<body>
+  <nav class="site-nav" aria-label="Primary">
+    <a href="index.html">About</a>
+    <a href="api-testing.html" class="active">API Testing</a>
+    <a href="https://www.linkedin.com/in/rorhoff" target="_blank" rel="noopener noreferrer">LinkedIn</a>
+    <a href="lost-in-space.html">Lost in Space Game</a>
+  </nav>
+  <header>
+    <h1>Web API Testing</h1>
+    <p>
+      Base URL for Postman: <span class="pill" id="baseUrl"></span>
+      · Docs: <a href="/docs" style="color: var(--accent);">OpenAPI (Swagger)</a>
+    </p>
+  </header>
+  <main>
+    <section class="card" style="margin-bottom: 1rem;">
+      <h2>API credentials</h2>
+      <p class="hint">
+        <strong>Production (MySQL configured):</strong> paste the key and secret once, then click <strong>Sign in (httpOnly cookie)</strong>.
+        The browser stores an opaque session cookie — not the secret in <code>sessionStorage</code>. Use <strong>Sign out</strong> to clear it.
+      </p>
+      <p class="hint">
+        <strong>No database (local dev):</strong> click <strong>Save (headers only)</strong> — credentials stay in <code>sessionStorage</code> for this tab only.
+      </p>
+      <p class="hint">
+        <strong>Postman:</strong> always send <code>X-API-Key</code> and <code>X-API-Secret</code>. After rotation, update both from the JSON response.
+      </p>
+      <p class="hint">
+        <strong>Rotate:</strong> <code>GET /api/credentials/rotate</code> or <code>GET /api/health?exchange=true</code> returns a new pair; previous headers and browser sessions stop working.
+      </p>
+      <div class="auth-row">
+        <label for="apiKey">X-API-Key</label>
+        <input id="apiKey" type="password" autocomplete="off" spellcheck="false" placeholder="Paste from server log" />
+      </div>
+      <div class="auth-row">
+        <label for="apiSecret">X-API-Secret</label>
+        <input id="apiSecret" type="password" autocomplete="off" spellcheck="false" placeholder="Paste from server log" />
+      </div>
+      <div class="auth-actions">
+        <button type="button" class="btn" id="saveCreds">Sign in (httpOnly cookie)</button>
+        <button type="button" class="btn" id="saveHeadersDev">Save (headers only, dev)</button>
+        <button type="button" class="btn" id="btnLogout">Sign out</button>
+        <button type="button" class="btn" id="btnRotate">Generate new pair (rotate)</button>
+        <button type="button" class="btn" id="btnHealthExchange">New pair via health (GET ?exchange=true)</button>
+      </div>
+    </section>
+    <div class="success-banner" id="authOk"></div>
+    <div class="error-banner" id="err"></div>
+    <section class="grid">
+      <div class="card">
+        <h2>Traffic</h2>
+        <div class="stat" id="reqTotal">—<small>Total requests recorded</small></div>
+      </div>
+      <div class="card">
+        <h2>Server</h2>
+        <div class="stat" id="uptime">—<small>Uptime (seconds)</small></div>
+      </div>
+      <div class="card">
+        <h2>Quick test routes</h2>
+        <div class="endpoints">
+          <ul>
+            <li><code>GET /api/health</code> · <code>GET /api/health?exchange=true</code> (returns new key pair)</li>
+            <li><code>GET /api/credentials/rotate</code> (new key pair)</li>
+            <li><code>POST /api/echo</code> JSON body <code>{"message":"hi"}</code></li>
+            <li><code>GET /api/items/42?detail=true</code></li>
+            <li><code>POST /api/items</code> any JSON</li>
+            <li><code>DELETE /api/items/1</code></li>
+            <li><code>GET /api/slow?delay_ms=800</code></li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="card" style="margin-top: 1rem;">
+      <h2>Analytics — methods &amp; status codes</h2>
+      <div class="grid" style="margin-top: 0.5rem;">
+        <div>
+          <div style="color: var(--muted); font-size: 0.8rem; margin-bottom: 0.35rem;">By HTTP method</div>
+          <pre id="byMethod" style="margin:0; font-family: var(--mono); font-size: 0.85rem; color: var(--text);"></pre>
+        </div>
+        <div>
+          <div style="color: var(--muted); font-size: 0.8rem; margin-bottom: 0.35rem;">By status code</div>
+          <pre id="byStatus" style="margin:0; font-family: var(--mono); font-size: 0.85rem; color: var(--text);"></pre>
+        </div>
+      </div>
+    </section>
+
+    <section class="card" style="margin-top: 1rem;">
+      <h2>Analytics — top paths</h2>
+      <div id="topPaths" style="margin-top: 0.5rem;"></div>
+    </section>
+
+    <section class="card" style="margin-top: 1rem;">
+      <h2>Analytics — recent requests</h2>
+      <div class="scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Method</th>
+              <th>Path</th>
+              <th>Query</th>
+              <th>Status</th>
+              <th>ms</th>
+              <th>Client</th>
+            </tr>
+          </thead>
+          <tbody id="recentBody"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+  <script>
+    const base = `${window.location.protocol}//${window.location.host}`;
+    document.getElementById("baseUrl").textContent = base;
+
+    const SK_KEY = "webapi_x_api_key";
+    const SK_SECRET = "webapi_x_api_secret";
+
+    function loadCreds() {
+      const k = sessionStorage.getItem(SK_KEY);
+      const s = sessionStorage.getItem(SK_SECRET);
+      document.getElementById("apiKey").value = k || "";
+      document.getElementById("apiSecret").value = s || "";
+    }
+
+    function applyNewCreds(apiKey, apiSecret) {
+      const k = (apiKey || "").trim();
+      const s = (apiSecret || "").trim();
+      sessionStorage.setItem(SK_KEY, k);
+      sessionStorage.setItem(SK_SECRET, s);
+      document.getElementById("apiKey").value = k;
+      document.getElementById("apiSecret").value = s;
+    }
+
+    function authHeaders() {
+      const k = sessionStorage.getItem(SK_KEY) || "";
+      const s = sessionStorage.getItem(SK_SECRET) || "";
+      return {
+        "X-API-Key": k,
+        "X-API-Secret": s,
+      };
+    }
+
+    function showAuthOk(msg) {
+      const el = document.getElementById("authOk");
+      el.textContent = msg;
+      el.classList.add("visible");
+      setTimeout(() => el.classList.remove("visible"), 6000);
+    }
+
+    function authFetchInit(extra = {}) {
+      const headers = authHeaders();
+      const hasHeaders = headers["X-API-Key"] && headers["X-API-Secret"];
+      return {
+        credentials: "same-origin",
+        ...extra,
+        ...(hasHeaders ? { headers: { ...headers, ...(extra.headers || {}) } } : {}),
+      };
+    }
+
+    document.getElementById("saveCreds").addEventListener("click", async () => {
+      const k = document.getElementById("apiKey").value.trim();
+      const s = document.getElementById("apiSecret").value.trim();
+      if (!k || !s) {
+        document.getElementById("err").textContent = "Enter both key and secret.";
+        document.getElementById("err").classList.add("visible");
+        return;
+      }
+      document.getElementById("err").classList.remove("visible");
+      const r = await fetch("/api/session/login", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ api_key: k, api_secret: s }),
+      });
+      if (r.ok) {
+        sessionStorage.removeItem(SK_KEY);
+        sessionStorage.removeItem(SK_SECRET);
+        document.getElementById("apiKey").value = "";
+        document.getElementById("apiSecret").value = "";
+        showAuthOk("Signed in — httpOnly cookie set. Secrets removed from browser storage.");
+        tick();
+        return;
+      }
+      if (r.status === 503) {
+        applyNewCreds(k, s);
+        showAuthOk("No DB — using header mode (dev). Stored in sessionStorage for this tab.");
+        tick();
+        return;
+      }
+      document.getElementById("err").textContent = "Sign-in failed (HTTP " + r.status + ").";
+      document.getElementById("err").classList.add("visible");
+    });
+
+    document.getElementById("saveHeadersDev").addEventListener("click", () => {
+      applyNewCreds(
+        document.getElementById("apiKey").value,
+        document.getElementById("apiSecret").value
+      );
+      showAuthOk("Saved headers in this tab (dev / fallback).");
+      tick();
+    });
+
+    document.getElementById("btnLogout").addEventListener("click", async () => {
+      await fetch("/api/session/logout", { method: "POST", credentials: "same-origin" });
+      sessionStorage.removeItem(SK_KEY);
+      sessionStorage.removeItem(SK_SECRET);
+      showAuthOk("Signed out.");
+      tick();
+    });
+
+    async function rotateVia(path) {
+      const errEl = document.getElementById("err");
+      errEl.classList.remove("visible");
+      const r = await fetch(path, authFetchInit());
+      if (r.status === 401) {
+        errEl.textContent =
+          "HTTP 401 — paste the current key/secret from the server log (or your last rotation response), then Save.";
+        errEl.classList.add("visible");
+        return;
+      }
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      const data = await r.json();
+      const newK = data.api_key ?? data.credentials?.api_key;
+      const newS = data.api_secret ?? data.credentials?.api_secret;
+      if (!newK || !newS) throw new Error("Response missing api_key / api_secret");
+      applyNewCreds(newK, newS);
+      showAuthOk("New credentials applied. Use these in Postman for your next requests.");
+      tick();
+    }
+
+    document.getElementById("btnRotate").addEventListener("click", () => {
+      rotateVia("/api/credentials/rotate").catch((e) => {
+        document.getElementById("err").textContent = e.message;
+        document.getElementById("err").classList.add("visible");
+      });
+    });
+
+    document.getElementById("btnHealthExchange").addEventListener("click", () => {
+      rotateVia("/api/health?exchange=true").catch((e) => {
+        document.getElementById("err").textContent = e.message;
+        document.getElementById("err").classList.add("visible");
+      });
+    });
+
+    loadCreds();
+
+    function statusClass(code) {
+      if (code >= 500) return "status-5xx";
+      if (code >= 400) return "status-4xx";
+      return "status-2xx";
+    }
+
+    function methodClass(m) {
+      const k = "m-" + m;
+      return ["GET","POST","PUT","PATCH","DELETE"].includes(m) ? k : "";
+    }
+
+    async function tick() {
+      const errEl = document.getElementById("err");
+      try {
+        let r = await fetch("/api/analytics", { credentials: "same-origin" });
+        if (r.status === 401) {
+          r = await fetch("/api/analytics", {
+            credentials: "same-origin",
+            headers: authHeaders(),
+          });
+        }
+        if (r.status === 401)
+          throw new Error(
+            "HTTP 401 — paste X-API-Key and X-API-Secret from the uvicorn terminal log (or your last rotation), then Save."
+          );
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        const data = await r.json();
+        errEl.classList.remove("visible");
+
+        document.getElementById("reqTotal").innerHTML =
+          data.totals.requests + "<small>Total requests recorded</small>";
+        document.getElementById("uptime").innerHTML =
+          data.server.uptime_s + "<small>Uptime (seconds)</small>";
+
+        document.getElementById("byMethod").textContent = JSON.stringify(
+          data.totals.by_method,
+          null,
+          2
+        );
+        document.getElementById("byStatus").textContent = JSON.stringify(
+          data.totals.by_status,
+          null,
+          2
+        );
+
+        const top = data.totals.top_paths || [];
+        const max = top.length ? Math.max(...top.map((x) => x[1])) : 1;
+        document.getElementById("topPaths").innerHTML = top
+          .map(
+            ([path, count]) => `
+          <div class="bar-row">
+            <span class="path" title="${path}">${path}</span>
+            <div class="bar"><i style="width:${(count / max) * 100}%"></i></div>
+            <span style="font-variant-numeric:tabular-nums;color:var(--muted)">${count}</span>
+          </div>`
+          )
+          .join("") || '<p style="color:var(--muted);margin:0">No data yet — send a request from Postman.</p>';
+
+        const tbody = document.getElementById("recentBody");
+        tbody.innerHTML = (data.recent || [])
+          .map(
+            (row) => `
+          <tr>
+            <td>${row.time_iso || ""}</td>
+            <td class="method ${methodClass(row.method)}">${row.method}</td>
+            <td style="font-family:var(--mono);font-size:0.78rem">${row.path}</td>
+            <td style="font-family:var(--mono);font-size:0.72rem;color:var(--muted)">${row.query || "—"}</td>
+            <td class="${statusClass(row.status)}">${row.status}</td>
+            <td>${row.duration_ms}</td>
+            <td style="color:var(--muted);font-size:0.75rem">${row.client || "—"}</td>
+          </tr>`
+          )
+          .join("");
+      } catch (e) {
+        errEl.textContent = "Could not load analytics (is the server running?). " + e.message;
+        errEl.classList.add("visible");
+      }
+    }
+
+    tick();
+    setInterval(tick, 2000);
+  </script>
+</body>
+</html>
