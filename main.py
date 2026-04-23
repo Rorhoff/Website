@@ -17,7 +17,7 @@ from typing import Annotated, Any
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, Field
@@ -296,6 +296,16 @@ app.mount(
     StaticFiles(directory=str(STATIC_DIR / "classifieds"), html=True),
     name="classifieds",
 )
+app.mount(
+    "/api-testing",
+    StaticFiles(directory=str(STATIC_DIR / "api-testing"), html=True),
+    name="api_testing",
+)
+app.mount(
+    "/lost-in-space",
+    StaticFiles(directory=str(STATIC_DIR / "lost-in-space"), html=True),
+    name="lost_in_space",
+)
 
 
 def _static(name: str) -> FileResponse:
@@ -308,16 +318,14 @@ def root():
     return _static("index.html")
 
 
-@app.get("/api-testing")
 @app.get("/api-testing.html")
-def api_testing_page():
-    return _static("api-testing.html")
+def api_testing_legacy():
+    return RedirectResponse(url="/api-testing/", status_code=301)
 
 
-@app.get("/lost-in-space")
 @app.get("/lost-in-space.html")
-def lost_in_space_page():
-    return _static("lost-in-space.html")
+def lost_in_space_legacy():
+    return RedirectResponse(url="/lost-in-space/", status_code=301)
 
 
 if __name__ == "__main__":

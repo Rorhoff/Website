@@ -105,10 +105,6 @@
     .overlay-menu-layer {
       z-index: 120;
     }
-    /* Opaque so nothing from the game shows through. */
-    #settingsOverlay {
-      background: rgb(12, 16, 24);
-    }
     .overlay h1 { margin: 0 0 1rem; font-size: 1.4rem; }
     .overlay p { margin: 0 0 1rem; color: var(--muted); font-size: 0.95rem; max-width: 22rem; }
     .btn {
@@ -302,17 +298,16 @@
     }
     #popup.show { display: block; }
     #popup p { margin: 0 0 0.75rem; font-size: 0.95rem; }
-    #settingsPanel label { display: block; text-align: left; margin: 0.75rem 0; font-size: 0.9rem; color: var(--muted); }
   </style>
 </head>
 <body>
   <div id="app">
     <nav class="site-nav" aria-label="Primary">
-      <a href="index.html">About</a>
-      <a href="api-testing.html">API Testing</a>
+      <a href="../index.html">About</a>
+      <a href="../api-testing/">API Testing</a>
       <a href="https://www.linkedin.com/in/rorhoff" target="_blank" rel="noopener noreferrer">LinkedIn</a>
-      <a href="lost-in-space.html" class="active">Lost in Space Game</a>
-      <a href="classifieds/index.html">Classifieds</a>
+      <a href="./" class="active">Lost in Space Game</a>
+      <a href="../classifieds/index.html">Classifieds</a>
     </nav>
 
     <div id="gameStack">
@@ -353,7 +348,6 @@
           <p>Stranded. Repair your ship, cross the rift, hunt, and survive.</p>
           <button type="button" class="btn primary" id="btnNew">New Game</button>
           <button type="button" class="btn" id="btnLoad">Load Game</button>
-          <button type="button" class="btn" id="btnSettings">Settings</button>
         </div>
 
         <div id="colorOverlay" class="overlay overlay-menu-layer" hidden>
@@ -366,15 +360,6 @@
 
         <div id="crashOverlay" class="overlay overlay-menu-layer" hidden>
           <div class="crash-text" id="crashText">You're experiencing a crash, please remain calm!</div>
-        </div>
-
-        <div id="settingsOverlay" class="overlay overlay-menu-layer" hidden>
-          <h1>Settings</h1>
-          <div id="settingsPanel">
-            <label><input type="checkbox" id="setReduceMotion" /> Reduce motion (less screen shake)</label>
-            <label><input type="checkbox" id="setHints" checked /> Show HUD hints</label>
-          </div>
-          <button type="button" class="btn" id="btnSettingsClose">Back</button>
         </div>
 
         <div id="popup">
@@ -429,21 +414,12 @@
   const craftPanel = document.getElementById("craftPanel");
   const popup = document.getElementById("popup");
   const popupText = document.getElementById("popupText");
-  const settingsOverlay = document.getElementById("settingsOverlay");
 
   const colors = ["#38bdf8", "#f472b6", "#4ade80", "#fbbf24", "#fb7185", "#a78bfa", "#2dd4bf", "#f97316"];
 
   let screen = "menu";
   let selectedColor = null;
-  let reduceMotion = false;
-  let showHints = true;
-  try {
-    const prefs = JSON.parse(localStorage.getItem("lost_in_space_prefs_v1") || "{}");
-    if (typeof prefs.reduceMotion === "boolean") reduceMotion = prefs.reduceMotion;
-    if (typeof prefs.showHints === "boolean") showHints = prefs.showHints;
-  } catch (e) {
-    /* keep defaults */
-  }
+  const reduceMotion = false;
 
   /** Mobile Chrome often delivers touches to the full-screen canvas unless it is explicitly inert. */
   function updateInputCapture() {
@@ -1054,45 +1030,6 @@
     resize();
     if (daySystemOn) dayHud.classList.add("show");
     updateInputCapture();
-  });
-
-  function openSettings() {
-    hidePopup();
-    craftPanel.classList.remove("open");
-    crashOverlay.hidden = true;
-    gameStack.classList.remove("crash-shake");
-    menuOverlay.hidden = true;
-    settingsOverlay.hidden = false;
-    const rm = document.getElementById("setReduceMotion");
-    const hints = document.getElementById("setHints");
-    if (rm) rm.checked = reduceMotion;
-    if (hints) hints.checked = showHints;
-    updateInputCapture();
-  }
-
-  function closeSettings() {
-    const rm = document.getElementById("setReduceMotion");
-    const hints = document.getElementById("setHints");
-    if (rm) reduceMotion = rm.checked;
-    if (hints) showHints = hints.checked;
-    try {
-      localStorage.setItem("lost_in_space_prefs_v1", JSON.stringify({ reduceMotion, showHints }));
-    } catch (e) {
-      /* ignore */
-    }
-    settingsOverlay.hidden = true;
-    menuOverlay.hidden = false;
-    crashOverlay.hidden = true;
-    updateInputCapture();
-  }
-
-  document.getElementById("btnSettings").addEventListener("click", openSettings);
-
-  const btnSettingsClose = document.getElementById("btnSettingsClose");
-  btnSettingsClose.addEventListener("click", (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    closeSettings();
   });
 
   document.getElementById("popupOk").addEventListener("click", hidePopup);
