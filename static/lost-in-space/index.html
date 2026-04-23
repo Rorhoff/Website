@@ -147,24 +147,6 @@
       padding: 0;
     }
     .swatch.selected { border-color: #fff; box-shadow: 0 0 0 2px var(--accent); }
-    #gameStack.crash-shake {
-      animation: crashShake 0.12s infinite;
-    }
-    @keyframes crashShake {
-      0% { transform: translate(0, 0) rotate(0deg); }
-      25% { transform: translate(-6px, 4px) rotate(-1deg); }
-      50% { transform: translate(5px, -5px) rotate(1deg); }
-      75% { transform: translate(-4px, -3px) rotate(-0.5deg); }
-      100% { transform: translate(0, 0) rotate(0deg); }
-    }
-    .crash-text {
-      font-size: clamp(1rem, 4vw, 1.35rem);
-      font-weight: 700;
-      color: #fecaca;
-      text-shadow: 0 0 20px rgba(220, 38, 38, 0.8);
-      padding: 0 1rem;
-      line-height: 1.35;
-    }
     #hud {
       position: absolute;
       top: 0;
@@ -363,10 +345,6 @@
           <button type="button" class="btn" id="btnBackMenu">Back</button>
         </div>
 
-        <div id="crashOverlay" class="overlay overlay-menu-layer" hidden>
-          <div class="crash-text" id="crashText">You're experiencing a crash, please remain calm!</div>
-        </div>
-
         <div id="popup">
           <p id="popupText"></p>
           <button type="button" class="btn primary" id="popupOk">OK</button>
@@ -411,8 +389,6 @@
   const dayNumEl = document.getElementById("dayNum");
   const menuOverlay = document.getElementById("menuOverlay");
   const colorOverlay = document.getElementById("colorOverlay");
-  const crashOverlay = document.getElementById("crashOverlay");
-  const gameStack = document.getElementById("gameStack");
   const gameWrap = document.getElementById("gameWrap");
   const stickZone = document.getElementById("stickZone");
   const stickKnob = document.getElementById("stickKnob");
@@ -424,7 +400,6 @@
 
   let screen = "menu";
   let selectedColor = null;
-  const reduceMotion = false;
 
   /** Mobile Chrome often delivers touches to the full-screen canvas unless it is explicitly inert. */
   function updateInputCapture() {
@@ -917,8 +892,6 @@
           hud.classList.remove("visible");
           controls.classList.remove("visible");
           localStorage.removeItem(SAVE_KEY);
-          crashOverlay.hidden = true;
-          gameStack.classList.remove("crash-shake");
           updateInputCapture();
           showPopup("You didn't hunt in time. Game over.");
           return;
@@ -950,36 +923,24 @@
     if (energy <= 0) {
       screen = "menu";
       menuOverlay.hidden = false;
+      colorOverlay.hidden = true;
       hud.classList.remove("visible");
       controls.classList.remove("visible");
       localStorage.removeItem(SAVE_KEY);
-      crashOverlay.hidden = true;
-      gameStack.classList.remove("crash-shake");
       updateInputCapture();
       showPopup("Out of energy. Game over.");
     }
   }
 
-  const CRASH_SHAKE_MS = 3000;
-
-  function startCrashThenPlay() {
+  function enterPlayModeFromNewGame() {
     menuOverlay.hidden = true;
     colorOverlay.hidden = true;
-    crashOverlay.hidden = false;
-    gameStack.classList.toggle("crash-shake", !reduceMotion);
+    screen = "play";
+    hud.classList.add("visible");
+    controls.classList.add("visible");
+    resize();
     updateInputCapture();
-    setTimeout(() => {
-      crashOverlay.hidden = true;
-      gameStack.classList.remove("crash-shake");
-      screen = "play";
-      menuOverlay.hidden = true;
-      colorOverlay.hidden = true;
-      hud.classList.add("visible");
-      controls.classList.add("visible");
-      resize();
-      updateInputCapture();
-      saveGame();
-    }, CRASH_SHAKE_MS);
+    saveGame();
   }
 
   function initColorRow() {
@@ -1003,8 +964,6 @@
   document.getElementById("btnNew").addEventListener("click", () => {
     menuOverlay.hidden = true;
     colorOverlay.hidden = false;
-    crashOverlay.hidden = true;
-    gameStack.classList.remove("crash-shake");
     initColorRow();
     selectedColor = null;
     document.getElementById("btnConfirmColor").disabled = true;
@@ -1014,7 +973,7 @@
   document.getElementById("btnConfirmColor").addEventListener("click", () => {
     if (!selectedColor) return;
     resetWorldForNewGame(selectedColor);
-    startCrashThenPlay();
+    enterPlayModeFromNewGame();
   });
 
   document.getElementById("btnBackMenu").addEventListener("click", () => {
@@ -1031,8 +990,6 @@
     screen = "play";
     menuOverlay.hidden = true;
     colorOverlay.hidden = true;
-    crashOverlay.hidden = true;
-    gameStack.classList.remove("crash-shake");
     hud.classList.add("visible");
     controls.classList.add("visible");
     resize();
@@ -1145,8 +1102,6 @@
   resize();
   menuOverlay.hidden = false;
   colorOverlay.hidden = true;
-  crashOverlay.hidden = true;
-  gameStack.classList.remove("crash-shake");
   updateInputCapture();
   requestAnimationFrame(loop);
 })();
