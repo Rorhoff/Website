@@ -10,7 +10,7 @@
   - Saves: localStorage key SAVE_KEY — bump version string if you change save JSON shape.
   - Menus: #menuOverlay, #colorOverlay; overlays must keep .overlay[hidden]{display:none!important}
     or hidden="" will not work (display:flex wins otherwise).
-  - Movement: keyboard = one fixed step per keydown in applyKeyboardStep (e.repeat ignored);
+  - Movement: keyboard queues one step per animation frame (queueKeyboardStep + loop flush) to avoid pivot teleports;
     thumbstick = smooth velocity in loop(). Do not mix both for the same frame without intent.
   - World layout: placePickupsForNewGame, spawnSticksInWorld, SHIP / START coordinates.
   - Fog: FOG_CELL / FOG_REVEAL_RADIUS + fogBytes in save; drawWorld draws fog over unexplored cells.
@@ -469,7 +469,7 @@
   const START = { x: MAP_W - 120, y: MAP_H - 140 };
   const INTERACT_RANGE = 78;
   const FOG_CELL = 48;
-  const FOG_REVEAL_RADIUS = 130;
+  const FOG_REVEAL_RADIUS = 142;
   const fogCols = Math.ceil(MAP_W / FOG_CELL);
   const fogRows = Math.ceil(MAP_H / FOG_CELL);
   const fogCellCount = fogCols * fogRows;
@@ -550,8 +550,10 @@
 
   let stickTouchId = null;
   let stickCx = 0, stickCy = 0, stickDx = 0, stickDy = 0;
+  /** Latest movement key queued for this frame; flushed once in loop (avoids double-step when switching keys). */
+  let pendingKeyboardStep = null;
 
-  // --- Keyboard: one fixed KEYBOARD_STEP_PX per keydown; e.repeat does not add steps ---
+  // --- Keyboard: queue on keydown, one step per rAF (e.repeat ignored) ---
 
   function stepDirectionFromEvent(e) {
     switch (e.code) {
@@ -578,14 +580,7 @@
     }
   }
 
-  /**
-   * Discrete keyboard move: one step per key press only (no teleport; repeat events ignored).
-   * @returns {boolean} true if this was a movement key (consume default browser behavior).
-   */
-  function applyKeyboardStep(e) {
-    const dir = stepDirectionFromEvent(e);
-    if (!dir) return false;
-    if (e.repeat) return true;
+  function executeKeyboardNudge(dir) {
     const L = Math.hypot(dir.dx, dir.dy) || 1;
     const nx = (dir.dx / L) * KEYBOARD_STEP_PX;
     const ny = (dir.dy / L) * KEYBOARD_STEP_PX;
@@ -599,12 +594,23 @@
     energy = Math.max(0, energy - ENERGY_MOVE_DRAIN * Math.hypot(nx, ny));
     checkCrackCrossedForEnergyHud();
     saveGame();
+  }
+
+  /**
+   * @returns {boolean} true if movement key (consume default browser behavior).
+   */
+  function queueKeyboardStep(e) {
+    const dir = stepDirectionFromEvent(e);
+    if (!dir) return false;
+    if (e.repeat) return true;
+    pendingKeyboardStep = dir;
     return true;
   }
 
   function resetMovementInput() {
     stickTouchId = null;
     stickEnd();
+    pendingKeyboardStep = null;
   }
 
   // --- Fog of war (bit-packed grid; persisted in save; reveal disk follows player) ---
@@ -621,6 +627,24 @@
 
   function fogCellIndex(cx, cy) {
     return cx + cy * fogCols;
+  }
+
+  /** Cardinal neighbors that are explored (for soft fog edges). */
+  function fogCardinalExploredCount(cx, cy) {
+    let c = 0;
+    if (cx > 0 && fogGet(fogCellIndex(cx - 1, cy))) c++;
+    if (cx < fogCols - 1 && fogGet(fogCellIndex(cx + 1, cy))) c++;
+    if (cy > 0 && fogGet(fogCellIndex(cx, cy - 1))) c++;
+    if (cy < fogRows - 1 && fogGet(fogCellIndex(cx, cy + 1))) c++;
+    return c;
+  }
+
+  function fogEdgeAlpha(cardinalExplored) {
+    if (cardinalExplored <= 0) return 0.94;
+    if (cardinalExplored === 1) return 0.8;
+    if (cardinalExplored === 2) return 0.58;
+    if (cardinalExplored === 3) return 0.36;
+    return 0.2;
   }
 
   function resetFog() {
@@ -959,11 +983,19 @@
       ctx.strokeRect(attackBox.x, attackBox.y, attackBox.w, attackBox.h);
     }
 
-    ctx.fillStyle = "rgba(4, 4, 8, 0.96)";
+    const fogPad = 1.25;
     for (let cy = 0; cy < fogRows; cy++) {
       for (let cx = 0; cx < fogCols; cx++) {
         if (fogGet(fogCellIndex(cx, cy))) continue;
-        ctx.fillRect(cx * FOG_CELL, cy * FOG_CELL, FOG_CELL + 1, FOG_CELL + 1);
+        const en = fogCardinalExploredCount(cx, cy);
+        const a = fogEdgeAlpha(en);
+        ctx.fillStyle = `rgba(6, 5, 14, ${a})`;
+        ctx.fillRect(
+          cx * FOG_CELL - fogPad,
+          cy * FOG_CELL - fogPad,
+          FOG_CELL + fogPad * 2,
+          FOG_CELL + fogPad * 2
+        );
       }
     }
 
@@ -994,12 +1026,15 @@
     for (let cy = 0; cy < fogRows; cy++) {
       for (let cx = 0; cx < fogCols; cx++) {
         if (fogGet(fogCellIndex(cx, cy))) continue;
-        mctx.fillStyle = "rgba(0,0,0,0.88)";
+        const en = fogCardinalExploredCount(cx, cy);
+        const a = fogEdgeAlpha(en) * 0.92;
+        mctx.fillStyle = `rgba(4,3,10,${a})`;
+        const pad = 1;
         mctx.fillRect(
-          cx * FOG_CELL * sx,
-          cy * FOG_CELL * sy,
-          Math.ceil(FOG_CELL * sx) + 1,
-          Math.ceil(FOG_CELL * sy) + 1
+          cx * FOG_CELL * sx - pad,
+          cy * FOG_CELL * sy - pad,
+          Math.ceil(FOG_CELL * sx) + pad * 2,
+          Math.ceil(FOG_CELL * sy) + pad * 2
         );
       }
     }
@@ -1206,11 +1241,17 @@
     refreshBagPanel();
   }
 
-  // --- Main loop: thumbstick movement only; keyboard steps run in applyKeyboardStep on keydown ---
+  // --- Main loop: at most one keyboard nudge per frame, then thumbstick ---
 
   function loop() {
     requestAnimationFrame(loop);
     if (screen !== "play") return;
+
+    if (pendingKeyboardStep) {
+      const kd = pendingKeyboardStep;
+      pendingKeyboardStep = null;
+      executeKeyboardNudge(kd);
+    }
 
     const w = gameWrap.clientWidth;
     const h = gameWrap.clientHeight;
@@ -1446,7 +1487,7 @@
 
   window.addEventListener("keydown", (e) => {
     if (screen !== "play") return;
-    if (applyKeyboardStep(e)) {
+    if (queueKeyboardStep(e)) {
       e.preventDefault();
       return;
     }
