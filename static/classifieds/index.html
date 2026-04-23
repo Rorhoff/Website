@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Classifieds App</title>
+  <link rel="stylesheet" href="styles.css" />
+  <style>
+    .site-nav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.65rem 1.25rem;
+      padding: 0.75rem 1.5rem;
+      border-bottom: 1px solid #2a3548;
+      background: #0f141c;
+      align-items: center;
+    }
+    .site-nav a {
+      color: #94a3b8;
+      text-decoration: none;
+      font-size: 0.9rem;
+      font-weight: 500;
+    }
+    .site-nav a:hover { color: #38bdf8; }
+    .site-nav a.active {
+      color: #f1f5f9;
+      border-bottom: 2px solid #38bdf8;
+      padding-bottom: 0.1rem;
+    }
+  </style>
+</head>
+<body>
+  <nav class="site-nav" aria-label="Primary">
+    <a href="../index.html">About</a>
+    <a href="../api-testing.html">API Testing</a>
+    <a href="https://www.linkedin.com/in/rorhoff" target="_blank" rel="noopener noreferrer">LinkedIn</a>
+    <a href="../lost-in-space.html">Lost in Space Game</a>
+    <a href="index.html" class="active">Classifieds</a>
+  </nav>
+  <header class="topbar">
+    <h1>Classifieds Board</h1>
+    <div class="topbar-actions">
+      <div id="authStatus"></div>
+      <div id="menuWrapper" class="menu-wrapper" hidden>
+        <button id="menuToggleBtn" class="hamburger-btn" type="button" aria-label="Open profile menu">☰</button>
+        <div id="menuPanel" class="menu-panel" hidden>
+          <p id="menuProfileDetails" class="hint"></p>
+          <button id="enterProfileBtn" type="button">Enter Profile</button>
+          <button id="exitProfileBtn" type="button">Exit Profile</button>
+          <button id="logoutBtn" class="secondary" type="button">Logout</button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main class="container">
+    <section id="authSection" class="auth-grid">
+      <section class="card">
+        <h2>Register</h2>
+        <form id="registerForm">
+          <label for="registerUsername">Username</label>
+          <input id="registerUsername" name="username" required minlength="3" />
+
+          <label for="registerEmail">Email (required)</label>
+          <input id="registerEmail" name="email" type="email" required />
+
+          <label for="registerPhone">Phone number (required)</label>
+          <input id="registerPhone" name="phone" type="tel" required autocomplete="tel" placeholder="(555) 555-5555" />
+
+          <label for="registerState">What state do you live in?</label>
+          <select id="registerState" name="state" required>
+            <option value="">Select your state</option>
+            <option value="Alabama">Alabama</option><option value="Arizona">Arizona</option><option value="Arkansas">Arkansas</option>
+            <option value="California">California</option><option value="Colorado">Colorado</option><option value="Connecticut">Connecticut</option>
+            <option value="Delaware">Delaware</option><option value="Florida">Florida</option><option value="Georgia">Georgia</option>
+            <option value="Hawaii">Hawaii</option><option value="Idaho">Idaho</option><option value="Illinois">Illinois</option>
+            <option value="Indiana">Indiana</option><option value="Iowa">Iowa</option><option value="Kansas">Kansas</option>
+            <option value="Kentucky">Kentucky</option><option value="Louisiana">Louisiana</option><option value="Maine">Maine</option>
+            <option value="Maryland">Maryland</option><option value="Massachusetts">Massachusetts</option><option value="Michigan">Michigan</option>
+            <option value="Minnesota">Minnesota</option><option value="Mississippi">Mississippi</option><option value="Missouri">Missouri</option>
+            <option value="Montana">Montana</option><option value="Nebraska">Nebraska</option><option value="Nevada">Nevada</option>
+            <option value="New Hampshire">New Hampshire</option><option value="New Jersey">New Jersey</option><option value="New Mexico">New Mexico</option>
+            <option value="New York">New York</option><option value="North Carolina">North Carolina</option><option value="North Dakota">North Dakota</option>
+            <option value="Ohio">Ohio</option><option value="Oklahoma">Oklahoma</option><option value="Oregon">Oregon</option>
+            <option value="Pennsylvania">Pennsylvania</option><option value="Rhode Island">Rhode Island</option><option value="South Carolina">South Carolina</option>
+            <option value="South Dakota">South Dakota</option><option value="Tennessee">Tennessee</option><option value="Texas">Texas</option>
+            <option value="Utah">Utah</option><option value="Vermont">Vermont</option><option value="Virginia">Virginia</option>
+            <option value="Washington">Washington</option><option value="West Virginia">West Virginia</option><option value="Wisconsin">Wisconsin</option>
+            <option value="Wyoming">Wyoming</option>
+          </select>
+
+          <label for="registerPassword">Password</label>
+          <input id="registerPassword" name="password" type="password" required minlength="4" />
+
+          <button type="submit">Create Account</button>
+        </form>
+      </section>
+
+      <section class="card">
+        <h2>Login</h2>
+        <form id="loginForm">
+          <label for="loginUsername">Username</label>
+          <input id="loginUsername" name="username" required />
+
+          <label for="loginPassword">Password</label>
+          <input id="loginPassword" name="password" type="password" required />
+
+          <button type="submit">Login</button>
+        </form>
+        <p id="profileHint" class="hint">Log in, then use the top-right menu to enter your profile.</p>
+      </section>
+
+      <section class="card">
+        <h2>Account Recovery</h2>
+        <form id="recoveryForm">
+          <label for="recoveryEmail">Email on file</label>
+          <input id="recoveryEmail" name="email" type="email" required />
+          <button type="submit">Email Username + Reset Link</button>
+        </form>
+        <p class="hint">
+          This demo opens your email app with a pre-filled message. A real site needs a backend to send email automatically.
+        </p>
+      </section>
+    </section>
+
+    <section id="postAdSection" class="post-ad-grid" hidden>
+      <section class="card">
+        <h2>Profile</h2>
+        <form id="profileForm">
+          <label for="profileState">Change your state</label>
+          <select id="profileState" name="state" required>
+            <option value="">Select your state</option>
+            <option value="Alabama">Alabama</option><option value="Arizona">Arizona</option><option value="Arkansas">Arkansas</option>
+            <option value="California">California</option><option value="Colorado">Colorado</option><option value="Connecticut">Connecticut</option>
+            <option value="Delaware">Delaware</option><option value="Florida">Florida</option><option value="Georgia">Georgia</option>
+            <option value="Hawaii">Hawaii</option><option value="Idaho">Idaho</option><option value="Illinois">Illinois</option>
+            <option value="Indiana">Indiana</option><option value="Iowa">Iowa</option><option value="Kansas">Kansas</option>
+            <option value="Kentucky">Kentucky</option><option value="Louisiana">Louisiana</option><option value="Maine">Maine</option>
+            <option value="Maryland">Maryland</option><option value="Massachusetts">Massachusetts</option><option value="Michigan">Michigan</option>
+            <option value="Minnesota">Minnesota</option><option value="Mississippi">Mississippi</option><option value="Missouri">Missouri</option>
+            <option value="Montana">Montana</option><option value="Nebraska">Nebraska</option><option value="Nevada">Nevada</option>
+            <option value="New Hampshire">New Hampshire</option><option value="New Jersey">New Jersey</option><option value="New Mexico">New Mexico</option>
+            <option value="New York">New York</option><option value="North Carolina">North Carolina</option><option value="North Dakota">North Dakota</option>
+            <option value="Ohio">Ohio</option><option value="Oklahoma">Oklahoma</option><option value="Oregon">Oregon</option>
+            <option value="Pennsylvania">Pennsylvania</option><option value="Rhode Island">Rhode Island</option><option value="South Carolina">South Carolina</option>
+            <option value="South Dakota">South Dakota</option><option value="Tennessee">Tennessee</option><option value="Texas">Texas</option>
+            <option value="Utah">Utah</option><option value="Vermont">Vermont</option><option value="Virginia">Virginia</option>
+            <option value="Washington">Washington</option><option value="West Virginia">West Virginia</option><option value="Wisconsin">Wisconsin</option>
+            <option value="Wyoming">Wyoming</option>
+          </select>
+
+          <label for="profilePhone">Phone number</label>
+          <input id="profilePhone" name="phone" type="tel" placeholder="(555) 555-5555" />
+
+          <label for="profileEmail">Email</label>
+          <input id="profileEmail" name="email" type="email" required />
+
+          <button type="submit">Save Profile</button>
+        </form>
+      </section>
+
+      <section class="card">
+        <h2>Post an Ad</h2>
+        <form id="adForm">
+          <label for="adTitle">Title</label>
+          <input id="adTitle" name="title" required />
+
+          <label for="adState">State</label>
+          <select id="adState" name="state" required>
+            <option value="">Select ad state</option>
+            <option value="Alabama">Alabama</option><option value="Arizona">Arizona</option><option value="Arkansas">Arkansas</option>
+            <option value="California">California</option><option value="Colorado">Colorado</option><option value="Connecticut">Connecticut</option>
+            <option value="Delaware">Delaware</option><option value="Florida">Florida</option><option value="Georgia">Georgia</option>
+            <option value="Hawaii">Hawaii</option><option value="Idaho">Idaho</option><option value="Illinois">Illinois</option>
+            <option value="Indiana">Indiana</option><option value="Iowa">Iowa</option><option value="Kansas">Kansas</option>
+            <option value="Kentucky">Kentucky</option><option value="Louisiana">Louisiana</option><option value="Maine">Maine</option>
+            <option value="Maryland">Maryland</option><option value="Massachusetts">Massachusetts</option><option value="Michigan">Michigan</option>
+            <option value="Minnesota">Minnesota</option><option value="Mississippi">Mississippi</option><option value="Missouri">Missouri</option>
+            <option value="Montana">Montana</option><option value="Nebraska">Nebraska</option><option value="Nevada">Nevada</option>
+            <option value="New Hampshire">New Hampshire</option><option value="New Jersey">New Jersey</option><option value="New Mexico">New Mexico</option>
+            <option value="New York">New York</option><option value="North Carolina">North Carolina</option><option value="North Dakota">North Dakota</option>
+            <option value="Ohio">Ohio</option><option value="Oklahoma">Oklahoma</option><option value="Oregon">Oregon</option>
+            <option value="Pennsylvania">Pennsylvania</option><option value="Rhode Island">Rhode Island</option><option value="South Carolina">South Carolina</option>
+            <option value="South Dakota">South Dakota</option><option value="Tennessee">Tennessee</option><option value="Texas">Texas</option>
+            <option value="Utah">Utah</option><option value="Vermont">Vermont</option><option value="Virginia">Virginia</option>
+            <option value="Washington">Washington</option><option value="West Virginia">West Virginia</option><option value="Wisconsin">Wisconsin</option>
+            <option value="Wyoming">Wyoming</option>
+          </select>
+
+          <label for="adCategory">Category</label>
+          <select id="adCategory" name="category" required>
+            <option value="">Select category</option>
+            <option value="Clothing and Fashion">Clothing and Fashion</option>
+            <option value="Collectibles">Collectibles</option>
+            <option value="Electronics">Electronics</option>
+            <option value="Home and Garden">Home and Garden</option>
+            <option value="Jobs">Jobs</option>
+            <option value="Pets">Pets</option>
+            <option value="Real Estate">Real Estate</option>
+            <option value="Services">Services</option>
+            <option value="Sports and Outdoors">Sports and Outdoors</option>
+            <option value="Vehicles">Vehicles</option>
+          </select>
+
+          <label for="adSubCategory">Sub Category</label>
+          <select id="adSubCategory" name="subCategory" required>
+            <option value="">Select category first</option>
+          </select>
+
+          <label for="adPrice">Price</label>
+          <input id="adPrice" name="price" required placeholder="$100" />
+
+          <label for="adDescription">Description</label>
+          <textarea id="adDescription" name="description" rows="4" required></textarea>
+
+          <label for="adImages">Pictures (1-10)</label>
+          <input id="adImages" name="images" type="file" accept="image/*" multiple required />
+
+          <fieldset class="gold-frame-fieldset">
+            <legend>Gold frame (optional)</legend>
+            <p class="hint">Gold listings stay at the top until they expire. Demo checkout — no real charge.</p>
+            <label for="adGoldTier">Boost duration</label>
+            <select id="adGoldTier" name="goldTier">
+              <option value="">No gold frame</option>
+              <option value="d3">3 days — $10</option>
+              <option value="d7">7 days — $20</option>
+              <option value="d14">14 days — $30</option>
+            </select>
+          </fieldset>
+
+          <button type="submit">Post Ad</button>
+        </form>
+        <p class="hint">Profile mode is required for posting.</p>
+      </section>
+    </section>
+
+    <section class="card full">
+      <h2 id="adsSectionTitle">Currently selected state</h2>
+      <p id="adsScopeHint" class="hint"></p>
+      <div id="adsFiltersWrap" class="ads-filters-wrap" hidden>
+        <label for="homeCategoryFilter" class="ads-filter-label">Category</label>
+        <select id="homeCategoryFilter" class="ads-category-filter" aria-label="Filter ads by category"></select>
+      </div>
+      <div id="adsList" class="ads-list"></div>
+    </section>
+
+    <section id="adminDashboardSection" class="card full admin-dashboard" hidden>
+      <h2>Admin analytics</h2>
+      <p class="hint admin-dashboard-hint">QA account: <code>qa_admin</code> / <code>qa_admin_demo</code></p>
+      <div id="adminStatsGrid" class="admin-stats-grid"></div>
+      <div id="adminSpamQueue" class="admin-spam-queue"></div>
+    </section>
+  </main>
+
+  <div id="adDetailModal" class="modal-backdrop" hidden>
+    <div id="detailModalCard" class="modal-card modal-ad-card">
+      <button id="closeAdDetailBtn" class="secondary" type="button">Close</button>
+      <p id="detailGoldBanner" class="detail-gold-banner" hidden></p>
+      <img id="detailHeroImage" class="detail-hero-image" alt="" />
+      <div id="detailThumbnails" class="detail-thumbnails"></div>
+      <div class="detail-modal-title-row">
+        <h3 id="detailTitle"></h3>
+        <p id="detailPrice" class="detail-price"></p>
+      </div>
+      <p id="detailPhone" class="detail-phone"></p>
+      <p id="detailDescription" class="detail-description"></p>
+      <div id="detailModalActions" class="detail-modal-actions" hidden>
+        <button type="button" id="detailReportBtn" class="ad-report-btn">Report spam/scam</button>
+        <button type="button" id="detailAdminDeleteBtn" class="secondary ad-admin-delete-btn" hidden>Delete (admin)</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="resetModal" class="modal-backdrop" hidden>
+    <div class="modal-card">
+      <h3>Reset Password</h3>
+      <p id="resetModalHint" class="hint"></p>
+      <form id="resetPasswordForm">
+        <label for="resetNewPassword">New password</label>
+        <input id="resetNewPassword" name="newPassword" type="password" required minlength="4" />
+        <button type="submit">Update Password</button>
+      </form>
+      <button id="cancelResetBtn" class="secondary" type="button">Cancel</button>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" hidden></div>
+  <script src="app.js"></script>
+</body>
+</html>

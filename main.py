@@ -288,6 +288,11 @@ def slow(delay_ms: int = 500):
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
 app.mount("/assets", StaticFiles(directory=str(STATIC_DIR)), name="assets")
+app.mount(
+    "/classifieds",
+    StaticFiles(directory=str(STATIC_DIR / "classifieds"), html=True),
+    name="classifieds",
+)
 
 
 def _static(name: str) -> FileResponse:
