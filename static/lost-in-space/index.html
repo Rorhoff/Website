@@ -370,9 +370,11 @@
   const ATTACK_W = 36;
   const ATTACK_H = 28;
   const DAY_MS = 70000;
-  const ENERGY_MAX = 100;
+  const ENERGY_MAX = 200;
   const ENERGY_MOVE_DRAIN = 0.018;
-  const MEAL_ENERGY = 45;
+  const MEAL_ENERGY = 90;
+  /** Extra sticks scattered at new game (not only after ship repair). */
+  const EARLY_WORLD_STICKS = 14;
   const SHIP_ROCKS = 3;
   const SHIP_STICKS = 3;
   const BRIDGE_STICKS = 5;
@@ -432,6 +434,35 @@
 
   let stickTouchId = null;
   let stickCx = 0, stickCy = 0, stickDx = 0, stickDy = 0;
+  const MOVE_KEYS = new Set();
+  let keyboardVecX = 0;
+  let keyboardVecY = 0;
+
+  function refreshKeyboardVector() {
+    let dx = 0;
+    let dy = 0;
+    if (MOVE_KEYS.has("a") || MOVE_KEYS.has("arrowleft")) dx -= 1;
+    if (MOVE_KEYS.has("d") || MOVE_KEYS.has("arrowright")) dx += 1;
+    if (MOVE_KEYS.has("w") || MOVE_KEYS.has("arrowup")) dy -= 1;
+    if (MOVE_KEYS.has("s") || MOVE_KEYS.has("arrowdown")) dy += 1;
+    const L = Math.hypot(dx, dy);
+    if (L > 0.001) {
+      keyboardVecX = dx / L;
+      keyboardVecY = dy / L;
+      facingX = dx;
+      facingY = dy;
+    } else {
+      keyboardVecX = 0;
+      keyboardVecY = 0;
+    }
+  }
+
+  function resetMovementInput() {
+    MOVE_KEYS.clear();
+    refreshKeyboardVector();
+    stickTouchId = null;
+    stickEnd();
+  }
 
   function inCrack(x, y) {
     return x >= CRACK_X0 && x <= CRACK_X1;
@@ -465,18 +496,31 @@
     const lootY = START.y - 240;
     near(lootX, lootY, SHIP_ROCKS, "rock");
     near(lootX - 70, lootY + 50, SHIP_STICKS, "stick");
+    spawnSticksInWorld(EARLY_WORLD_STICKS, 200);
   }
 
-  function spawnExplorationSticks() {
+  function spawnSticksInWorld(count, minDistFromShip) {
     let placed = 0;
-    while (placed < BRIDGE_STICKS + 3) {
+    let attempts = 0;
+    const maxAttempts = count * 100;
+    while (placed < count && attempts < maxAttempts) {
+      attempts++;
       const x = 120 + Math.random() * (MAP_W - 240);
       const y = 120 + Math.random() * (MAP_H - 240);
       if (inCrack(x, y)) continue;
-      if (dist(x, y, SHIP.x, SHIP.y) < 180) continue;
-      pickups.push({ id: "e" + placed + Math.random().toString(36).slice(2), type: "stick", x, y });
+      if (dist(x, y, SHIP.x, SHIP.y) < minDistFromShip) continue;
+      pickups.push({
+        id: "st" + placed + "_" + attempts + "_" + Math.random().toString(36).slice(2),
+        type: "stick",
+        x,
+        y,
+      });
       placed++;
     }
+  }
+
+  function spawnExplorationSticks() {
+    spawnSticksInWorld(BRIDGE_STICKS + 3, 180);
   }
 
   function spawnSlimes() {
@@ -565,7 +609,7 @@
       daySystemOn = !!data.daySystemOn;
       dayIndex = data.dayIndex || 1;
       killThisDay = !!data.killThisDay;
-      energy = data.energy ?? ENERGY_MAX;
+      energy = Math.min(ENERGY_MAX, Math.max(0, data.energy ?? ENERGY_MAX));
       pickups = Array.isArray(data.pickups) ? data.pickups : [];
       slimes = Array.isArray(data.slimes) ? data.slimes : [];
       if (daySystemOn) {
@@ -887,8 +931,15 @@
     const w = gameWrap.clientWidth;
     const h = gameWrap.clientHeight;
     const sp = 2.15;
-    let mx = stickDx * sp;
-    let my = stickDy * sp;
+    let mx;
+    let my;
+    if (Math.hypot(keyboardVecX, keyboardVecY) > 0.05) {
+      mx = keyboardVecX * sp;
+      my = keyboardVecY * sp;
+    } else {
+      mx = stickDx * sp;
+      my = stickDy * sp;
+    }
     if (Math.hypot(mx, my) > 0.1) {
       facingX = mx;
       facingY = my;
@@ -908,6 +959,7 @@
       if (elapsed >= DAY_MS) {
         if (!killThisDay) {
           screen = "menu";
+          resetMovementInput();
           menuOverlay.hidden = false;
           colorOverlay.hidden = true;
           hud.classList.remove("visible");
@@ -933,7 +985,7 @@
 
     if (attackFlash > 0) attackFlash -= 16;
 
-    energyBar.style.width = Math.max(0, energy) + "%";
+    energyBar.style.width = Math.max(0, (energy / ENERGY_MAX) * 100) + "%";
     if (daySystemOn) {
       dayNumEl.textContent = String(dayIndex);
       dayBar.style.width = dayBarPercent() * 100 + "%";
@@ -943,6 +995,7 @@
 
     if (energy <= 0) {
       screen = "menu";
+      resetMovementInput();
       menuOverlay.hidden = false;
       colorOverlay.hidden = true;
       hud.classList.remove("visible");
@@ -954,6 +1007,7 @@
   }
 
   function enterPlayModeFromNewGame() {
+    resetMovementInput();
     menuOverlay.hidden = true;
     colorOverlay.hidden = true;
     screen = "play";
@@ -1008,6 +1062,7 @@
       showPopup("No save found on this device.");
       return;
     }
+    resetMovementInput();
     screen = "play";
     menuOverlay.hidden = true;
     colorOverlay.hidden = true;
@@ -1096,27 +1151,26 @@
   window.addEventListener("keydown", (e) => {
     if (screen !== "play") return;
     const k = e.key.toLowerCase();
-    let dx = 0, dy = 0;
-    if (k === "w" || k === "arrowup") dy = -1;
-    if (k === "s" || k === "arrowdown") dy = 1;
-    if (k === "a" || k === "arrowleft") dx = -1;
-    if (k === "d" || k === "arrowright") dx = 1;
-    if (dx || dy) {
-      const L = Math.hypot(dx, dy);
-      stickDx = dx / L;
-      stickDy = dy / L;
-      facingX = dx;
-      facingY = dy;
+    if (["w", "a", "s", "d", "arrowup", "arrowdown", "arrowleft", "arrowright"].includes(k)) {
+      MOVE_KEYS.add(k);
+      refreshKeyboardVector();
+      e.preventDefault();
     }
     if (k === "e" || k === " ") interactOrAttack();
   });
 
   window.addEventListener("keyup", (e) => {
+    if (screen !== "play") return;
     const k = e.key.toLowerCase();
-    if (["w","a","s","d","arrowup","arrowdown","arrowleft","arrowright"].includes(k)) {
-      stickDx = 0;
-      stickDy = 0;
+    if (["w", "a", "s", "d", "arrowup", "arrowdown", "arrowleft", "arrowright"].includes(k)) {
+      MOVE_KEYS.delete(k);
+      refreshKeyboardVector();
     }
+  });
+
+  window.addEventListener("blur", () => {
+    MOVE_KEYS.clear();
+    refreshKeyboardVector();
   });
 
   window.addEventListener("resize", resize);
