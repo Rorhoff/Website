@@ -68,9 +68,17 @@
       align-items: center;
       justify-content: center;
       padding: 1rem;
+      padding-bottom: max(1rem, env(safe-area-inset-bottom, 0px));
       background: rgba(8, 10, 18, 0.92);
       z-index: 20;
       text-align: center;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      pointer-events: auto;
+    }
+    /* Full-screen menus must sit above in-game UI (craft panel, popups). */
+    .overlay-menu-layer {
+      z-index: 120;
     }
     .overlay h1 { margin: 0 0 1rem; font-size: 1.4rem; }
     .overlay p { margin: 0 0 1rem; color: var(--muted); font-size: 0.95rem; max-width: 22rem; }
@@ -311,7 +319,7 @@
         <button type="button" class="btn primary" id="popupOk">OK</button>
       </div>
 
-      <div id="menuOverlay" class="overlay">
+      <div id="menuOverlay" class="overlay overlay-menu-layer">
         <h1>Lost in Space</h1>
         <p>Stranded. Repair your ship, cross the rift, hunt, and survive.</p>
         <button type="button" class="btn primary" id="btnNew">New Game</button>
@@ -319,7 +327,7 @@
         <button type="button" class="btn" id="btnSettings">Settings</button>
       </div>
 
-      <div id="colorOverlay" class="overlay" hidden>
+      <div id="colorOverlay" class="overlay overlay-menu-layer" hidden>
         <h1>Choose your suit</h1>
         <p>Pick a color for your astronaut.</p>
         <div class="color-row" id="colorRow"></div>
@@ -327,11 +335,11 @@
         <button type="button" class="btn" id="btnBackMenu">Back</button>
       </div>
 
-      <div id="crashOverlay" class="overlay" hidden>
+      <div id="crashOverlay" class="overlay overlay-menu-layer" hidden>
         <div class="crash-text" id="crashText">You're experiencing a crash, please remain calm!</div>
       </div>
 
-      <div id="settingsOverlay" class="overlay" hidden>
+      <div id="settingsOverlay" class="overlay overlay-menu-layer" hidden>
         <h1>Settings</h1>
         <div id="settingsPanel">
           <label><input type="checkbox" id="setReduceMotion" /> Reduce motion (less screen shake)</label>
@@ -392,6 +400,14 @@
   let screen = "menu";
   let selectedColor = null;
   let reduceMotion = false;
+  let showHints = true;
+  try {
+    const prefs = JSON.parse(localStorage.getItem("lost_in_space_prefs_v1") || "{}");
+    if (typeof prefs.reduceMotion === "boolean") reduceMotion = prefs.reduceMotion;
+    if (typeof prefs.showHints === "boolean") showHints = prefs.showHints;
+  } catch (e) {
+    /* keep defaults */
+  }
 
   let px = START.x, py = START.y;
   let vx = 0, vy = 0;
@@ -986,17 +1002,34 @@
     if (daySystemOn) dayHud.classList.add("show");
   });
 
-  document.getElementById("btnSettings").addEventListener("click", () => {
+  function openSettings() {
+    hidePopup();
+    craftPanel.classList.remove("open");
     menuOverlay.hidden = true;
     settingsOverlay.hidden = false;
-    document.getElementById("setReduceMotion").checked = reduceMotion;
-  });
+    const rm = document.getElementById("setReduceMotion");
+    const hints = document.getElementById("setHints");
+    if (rm) rm.checked = reduceMotion;
+    if (hints) hints.checked = showHints;
+  }
 
-  document.getElementById("btnSettingsClose").addEventListener("click", () => {
-    reduceMotion = document.getElementById("setReduceMotion").checked;
+  function closeSettings() {
+    const rm = document.getElementById("setReduceMotion");
+    const hints = document.getElementById("setHints");
+    if (rm) reduceMotion = rm.checked;
+    if (hints) showHints = hints.checked;
+    try {
+      localStorage.setItem("lost_in_space_prefs_v1", JSON.stringify({ reduceMotion, showHints }));
+    } catch (e) {
+      /* ignore */
+    }
     settingsOverlay.hidden = true;
     menuOverlay.hidden = false;
-  });
+  }
+
+  document.getElementById("btnSettings").addEventListener("click", openSettings);
+
+  document.getElementById("btnSettingsClose").addEventListener("click", closeSettings);
 
   document.getElementById("popupOk").addEventListener("click", hidePopup);
 
