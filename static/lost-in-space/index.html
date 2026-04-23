@@ -101,11 +101,16 @@
       -webkit-overflow-scrolling: touch;
       pointer-events: auto;
     }
+    /* .overlay sets display:flex, which otherwise overrides the [hidden] attribute. */
+    .overlay[hidden] {
+      display: none !important;
+      pointer-events: none;
+    }
     /* Full-screen menus must sit above in-game UI (craft panel, popups). */
     .overlay-menu-layer {
       z-index: 120;
     }
-    .overlay h1 { margin: 0 0 1rem; font-size: 1.4rem; }
+    .overlay h1 { margin: 0 0 1rem; font-size: 1.4rem; color: var(--heading); }
     .overlay p { margin: 0 0 1rem; color: var(--muted); font-size: 0.95rem; max-width: 22rem; }
     .btn {
       display: block;
@@ -908,6 +913,7 @@
         if (!killThisDay) {
           screen = "menu";
           menuOverlay.hidden = false;
+          colorOverlay.hidden = true;
           hud.classList.remove("visible");
           controls.classList.remove("visible");
           localStorage.removeItem(SAVE_KEY);
@@ -954,27 +960,26 @@
     }
   }
 
+  const CRASH_SHAKE_MS = 3000;
+
   function startCrashThenPlay() {
+    menuOverlay.hidden = true;
     colorOverlay.hidden = true;
     crashOverlay.hidden = false;
     gameStack.classList.toggle("crash-shake", !reduceMotion);
     updateInputCapture();
-    let t = 0;
-    const iv = setInterval(() => {
-      t += 1;
-      if (t > 28) {
-        clearInterval(iv);
-        crashOverlay.hidden = true;
-        gameStack.classList.remove("crash-shake");
-        screen = "play";
-        menuOverlay.hidden = true;
-        hud.classList.add("visible");
-        controls.classList.add("visible");
-        resize();
-        updateInputCapture();
-        saveGame();
-      }
-    }, 90);
+    setTimeout(() => {
+      crashOverlay.hidden = true;
+      gameStack.classList.remove("crash-shake");
+      screen = "play";
+      menuOverlay.hidden = true;
+      colorOverlay.hidden = true;
+      hud.classList.add("visible");
+      controls.classList.add("visible");
+      resize();
+      updateInputCapture();
+      saveGame();
+    }, CRASH_SHAKE_MS);
   }
 
   function initColorRow() {
@@ -1025,6 +1030,9 @@
     }
     screen = "play";
     menuOverlay.hidden = true;
+    colorOverlay.hidden = true;
+    crashOverlay.hidden = true;
+    gameStack.classList.remove("crash-shake");
     hud.classList.add("visible");
     controls.classList.add("visible");
     resize();
@@ -1135,6 +1143,8 @@
 
   window.addEventListener("resize", resize);
   resize();
+  menuOverlay.hidden = false;
+  colorOverlay.hidden = true;
   crashOverlay.hidden = true;
   gameStack.classList.remove("crash-shake");
   updateInputCapture();
