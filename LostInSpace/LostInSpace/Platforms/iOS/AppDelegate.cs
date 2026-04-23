@@ -2,6 +2,7 @@ using Foundation;
 
 namespace LostInSpace;
 
+// DEV: iOS app delegate; CreateMauiApp wires DI — same as MauiProgram.
 [Register("AppDelegate")]
 public class AppDelegate : MauiUIApplicationDelegate
 {

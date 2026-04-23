@@ -2,6 +2,8 @@ using Microsoft.Maui.Graphics;
 
 namespace LostInSpace.Game;
 
+// DEV: All drawing for GameCanvas; reads GameSession state. Replace procedural fills with IImage
+// sprites by loading from Resources/Raw if you add artwork.
 public sealed class GamePainter : IDrawable
 {
     public GameSession? Session { get; set; }

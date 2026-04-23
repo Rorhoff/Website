@@ -1,4 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    DEV: .NET MAUI single project. Targets: Android + iOS only.
+    Bump ApplicationDisplayVersion / ApplicationId for store releases; add MauiImage/MauiAsset for art.
+  -->
 
   <PropertyGroup>
     <TargetFrameworks>net8.0-android;net8.0-ios</TargetFrameworks>

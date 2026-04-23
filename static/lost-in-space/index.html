@@ -1,4 +1,20 @@
 <!DOCTYPE html>
+<!--
+  =========================================================================
+  DEV — Lost in Space (browser prototype, single-file)
+  =========================================================================
+  Served at /lost-in-space/ via FastAPI mount in main.py (static/lost-in-space/).
+
+  Quick edit map:
+  - Game balance: <script> constants (MAP_W/H, ENERGY_*, KEYBOARD_STEP_PX, SHIP_*, BRIDGE_STICKS, …).
+  - Saves: localStorage key SAVE_KEY — bump version string if you change save JSON shape.
+  - Menus: #menuOverlay, #colorOverlay; overlays must keep .overlay[hidden]{display:none!important}
+    or hidden="" will not work (display:flex wins otherwise).
+  - Movement: keyboard = one fixed step per keydown in applyKeyboardStep (e.repeat ignored);
+    thumbstick = smooth velocity in loop(). Do not mix both for the same frame without intent.
+  - World layout: placePickupsForNewGame, spawnSticksInWorld, SHIP / START coordinates.
+  =========================================================================
+-->
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -6,7 +22,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <title>Lost in Space</title>
   <style>
-    /* Match About page (index.html) tokens for shared chrome */
+    /* DEV: Shared nav tokens — align with static/index.html :root for consistent site chrome. */
     :root {
       --bg: #0c0f14;
       --surface: #141c2c;
@@ -288,6 +304,7 @@
   </style>
 </head>
 <body>
+  <!-- DEV: #app = nav + #gameStack; game canvas lives in #gameWrap; menus in #menuLayer above canvas. -->
   <div id="app">
     <nav class="site-nav" aria-label="Primary">
       <a href="../index.html">About</a>
@@ -355,6 +372,12 @@
 
   <script>
 (function () {
+  /*
+   * DEV — Script layout (search for section headers below):
+   *   CONSTANTS & DOM refs → player/inventory state → input (keyboard step + joystick)
+   *   → world (collision, spawns) → save/load → render → pickups/interact/combat
+   *   → main loop → menu UI wiring → events
+   */
   const SAVE_KEY = "lost_in_space_save_v1";
   const MAP_W = 3200;
   const MAP_H = 2200;
@@ -375,11 +398,15 @@
   const MEAL_ENERGY = 90;
   /** Extra sticks scattered at new game (not only after ship repair). */
   const EARLY_WORLD_STICKS = 14;
+  /** One arrow/WASD press = exactly this many world pixels (auto-repeat does not add steps). */
+  const KEYBOARD_STEP_PX = 22;
   const SHIP_ROCKS = 3;
   const SHIP_STICKS = 3;
   const BRIDGE_STICKS = 5;
   const SLIME_HP = 5;
   const DMG = { hands: 1, stick: 2, club: 5 };
+
+  // --- DOM references (add new UI: give id, query here, wire in menu/loop as needed) ---
 
   const canvas = document.getElementById("gameCanvas");
   const ctx = canvas.getContext("2d");
@@ -434,78 +461,63 @@
 
   let stickTouchId = null;
   let stickCx = 0, stickCy = 0, stickDx = 0, stickDy = 0;
-  const MOVE_KEYS = new Set();
-  /** Last keydown time per key — when opposite keys overlap, newest press wins (fixes arrow/WASD reverse “skips”). */
-  const keyDownAt = new Map();
-  let keyboardVecX = 0;
-  let keyboardVecY = 0;
 
-  const KEYS_LEFT = ["a", "arrowleft"];
-  const KEYS_RIGHT = ["d", "arrowright"];
-  const KEYS_UP = ["w", "arrowup"];
-  const KEYS_DOWN = ["s", "arrowdown"];
-  const ALL_MOVE_KEYS = [...KEYS_LEFT, ...KEYS_RIGHT, ...KEYS_UP, ...KEYS_DOWN];
+  // --- Keyboard: one fixed KEYBOARD_STEP_PX per keydown; e.repeat does not add steps ---
 
-  /** Prefer e.code so ArrowUp / WASD stay consistent across layouts and browsers. */
-  function moveKeyFromEvent(e) {
+  function stepDirectionFromEvent(e) {
     switch (e.code) {
-      case "KeyW": return "w";
-      case "KeyA": return "a";
-      case "KeyS": return "s";
-      case "KeyD": return "d";
-      case "ArrowUp": return "arrowup";
-      case "ArrowDown": return "arrowdown";
-      case "ArrowLeft": return "arrowleft";
-      case "ArrowRight": return "arrowright";
+      case "ArrowRight":
+      case "KeyD":
+        return { dx: 1, dy: 0 };
+      case "ArrowLeft":
+      case "KeyA":
+        return { dx: -1, dy: 0 };
+      case "ArrowDown":
+      case "KeyS":
+        return { dx: 0, dy: 1 };
+      case "ArrowUp":
+      case "KeyW":
+        return { dx: 0, dy: -1 };
       default: {
         const k = e.key.toLowerCase();
-        return ALL_MOVE_KEYS.includes(k) ? k : null;
+        if (k === "d" || k === "arrowright") return { dx: 1, dy: 0 };
+        if (k === "a" || k === "arrowleft") return { dx: -1, dy: 0 };
+        if (k === "s" || k === "arrowdown") return { dx: 0, dy: 1 };
+        if (k === "w" || k === "arrowup") return { dx: 0, dy: -1 };
+        return null;
       }
     }
   }
 
-  function newestDownTime(keyList) {
-    let t = 0;
-    for (const key of keyList) {
-      if (MOVE_KEYS.has(key)) t = Math.max(t, keyDownAt.get(key) || 0);
-    }
-    return t;
-  }
-
-  function refreshKeyboardVector() {
-    let dx = 0;
-    let dy = 0;
-    const left = KEYS_LEFT.some((key) => MOVE_KEYS.has(key));
-    const right = KEYS_RIGHT.some((key) => MOVE_KEYS.has(key));
-    if (left && !right) dx -= 1;
-    else if (right && !left) dx += 1;
-    else if (left && right) dx = newestDownTime(KEYS_LEFT) >= newestDownTime(KEYS_RIGHT) ? -1 : 1;
-
-    const up = KEYS_UP.some((key) => MOVE_KEYS.has(key));
-    const down = KEYS_DOWN.some((key) => MOVE_KEYS.has(key));
-    if (up && !down) dy -= 1;
-    else if (down && !up) dy += 1;
-    else if (up && down) dy = newestDownTime(KEYS_UP) >= newestDownTime(KEYS_DOWN) ? -1 : 1;
-
-    const L = Math.hypot(dx, dy);
-    if (L > 0.001) {
-      keyboardVecX = dx / L;
-      keyboardVecY = dy / L;
-      facingX = dx;
-      facingY = dy;
-    } else {
-      keyboardVecX = 0;
-      keyboardVecY = 0;
-    }
+  /**
+   * Discrete keyboard move: one step per key press only (no teleport; repeat events ignored).
+   * @returns {boolean} true if this was a movement key (consume default browser behavior).
+   */
+  function applyKeyboardStep(e) {
+    const dir = stepDirectionFromEvent(e);
+    if (!dir) return false;
+    if (e.repeat) return true;
+    const L = Math.hypot(dir.dx, dir.dy) || 1;
+    const nx = (dir.dx / L) * KEYBOARD_STEP_PX;
+    const ny = (dir.dy / L) * KEYBOARD_STEP_PX;
+    let npx = px + nx;
+    let npy = py + ny;
+    if (!blockedAt(npx, py)) px = npx;
+    if (!blockedAt(px, npy)) py = npy;
+    autoPickupOnOverlap();
+    facingX = dir.dx;
+    facingY = dir.dy;
+    energy = Math.max(0, energy - ENERGY_MOVE_DRAIN * Math.hypot(nx, ny));
+    saveGame();
+    return true;
   }
 
   function resetMovementInput() {
-    MOVE_KEYS.clear();
-    keyDownAt.clear();
-    refreshKeyboardVector();
     stickTouchId = null;
     stickEnd();
   }
+
+  // --- World geometry & movement blocking (rift needs bridgeBuilt to cross) ---
 
   function inCrack(x, y) {
     return x >= CRACK_X0 && x <= CRACK_X1;
@@ -520,6 +532,8 @@
   function dist(ax, ay, bx, by) {
     return Math.hypot(ax - bx, ay - by);
   }
+
+  // --- Pickup & slime spawning (tweak positions for level design) ---
 
   function placePickupsForNewGame() {
     pickups = [];
@@ -595,11 +609,15 @@
     spawnSlimes();
   }
 
+  // --- Combat helpers ---
+
   function weaponDamage() {
     if (equipped === "club") return DMG.club;
     if (equipped === "stick") return DMG.stick;
     return DMG.hands;
   }
+
+  // --- Save / load (JSON in localStorage; keep `v` field for migrations) ---
 
   function saveGame() {
     const data = {
@@ -670,6 +688,8 @@
     }
   }
 
+  // --- Canvas sizing (DPR-aware); camera is computed in loop from player + viewport ---
+
   function resize() {
     const r = gameWrap.getBoundingClientRect();
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -683,6 +703,8 @@
   function worldToScreen(camX, camY, wx, wy) {
     return { x: wx - camX, y: wy - camY };
   }
+
+  // --- Rendering (2D canvas world; procedural art — swap for sprites by drawing images) ---
 
   function drawWorld(camX, camY, w, h) {
     ctx.save();
@@ -796,6 +818,8 @@
     mctx.fillRect(px * sx - 2, py * sy - 2, 4, 4);
   }
 
+  // --- Pickups: walk-over + button interact range ---
+
   function applyPickup(p) {
     if (p.type === "rock") inventory.rocks++;
     if (p.type === "stick") {
@@ -833,6 +857,8 @@
     }
     return false;
   }
+
+  // --- Ship repair, cooking, bridge build (order matters in interactOrAttack) ---
 
   function tryShipInteract() {
     if (dist(px, py, SHIP.x + SHIP.w / 2, SHIP.y + SHIP.h / 2) > INTERACT_RANGE + 30) return false;
@@ -876,6 +902,8 @@
     showPopup(`Need ${BRIDGE_STICKS} sticks at the rift to build the bridge.`);
     return true;
   }
+
+  // --- Attack box vs slimes; sets attackFlash for drawWorld ---
 
   function doAttack() {
     const len = Math.hypot(facingX, facingY) || 1;
@@ -947,6 +975,8 @@
     popup.classList.remove("show");
   }
 
+  // --- Crafting recipes (UI in #craftPanel) ---
+
   function craft(kind) {
     if (kind === "rope" && inventory.sticks >= 2) {
       inventory.sticks -= 2;
@@ -967,6 +997,8 @@
     craftPanel.classList.remove("open");
   }
 
+  // --- Main loop: thumbstick movement only; keyboard steps run in applyKeyboardStep on keydown ---
+
   function loop() {
     requestAnimationFrame(loop);
     if (screen !== "play") return;
@@ -974,15 +1006,8 @@
     const w = gameWrap.clientWidth;
     const h = gameWrap.clientHeight;
     const sp = 2.15;
-    let mx;
-    let my;
-    if (Math.hypot(keyboardVecX, keyboardVecY) > 0.05) {
-      mx = keyboardVecX * sp;
-      my = keyboardVecY * sp;
-    } else {
-      mx = stickDx * sp;
-      my = stickDy * sp;
-    }
+    const mx = stickDx * sp;
+    const my = stickDy * sp;
     if (Math.hypot(mx, my) > 0.1) {
       facingX = mx;
       facingY = my;
@@ -1048,6 +1073,8 @@
       showPopup("Out of energy. Game over.");
     }
   }
+
+  // --- New game flow: resetWorldForNewGame then this; Load Game skips color menu ---
 
   function enterPlayModeFromNewGame() {
     resetMovementInput();
@@ -1128,6 +1155,8 @@
 
   document.getElementById("btnAction").addEventListener("click", interactOrAttack);
 
+  // --- Virtual thumbstick (touch + mouse) ---
+
   function stickStart(clientX, clientY) {
     const r = stickZone.getBoundingClientRect();
     stickCx = r.left + r.width / 2;
@@ -1191,45 +1220,23 @@
     window.addEventListener("mouseup", mu);
   });
 
+  // --- Global keys: movement swallowed here; E / Space call interactOrAttack ---
+
   window.addEventListener("keydown", (e) => {
     if (screen !== "play") return;
-    const k = moveKeyFromEvent(e);
-    if (k) {
-      if (MOVE_KEYS.has(k)) {
-        e.preventDefault();
-        return;
-      }
-      MOVE_KEYS.add(k);
-      keyDownAt.set(k, performance.now());
-      refreshKeyboardVector();
+    if (applyKeyboardStep(e)) {
       e.preventDefault();
       return;
     }
     if (e.code === "KeyE" || e.key === " " || e.code === "Space") interactOrAttack();
   });
 
-  window.addEventListener("keyup", (e) => {
-    if (screen !== "play") return;
-    const k = moveKeyFromEvent(e);
-    if (k) {
-      MOVE_KEYS.delete(k);
-      keyDownAt.delete(k);
-      refreshKeyboardVector();
-    }
-  });
-
   window.addEventListener("blur", () => {
-    MOVE_KEYS.clear();
-    keyDownAt.clear();
-    refreshKeyboardVector();
+    resetMovementInput();
   });
 
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "hidden") {
-      MOVE_KEYS.clear();
-      keyDownAt.clear();
-      refreshKeyboardVector();
-    }
+    if (document.visibilityState === "hidden") resetMovementInput();
   });
 
   window.addEventListener("resize", resize);

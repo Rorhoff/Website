@@ -1,4 +1,12 @@
-"""Classifieds: users and ads persisted in PostgreSQL; Bearer session tokens for the SPA."""
+"""
+Classifieds: users and ads persisted in PostgreSQL; Bearer session tokens for the SPA.
+
+Developer notes:
+- Requires DATABASE_URL (503 if missing). All routes use classifieds_db dependency.
+- Auth: Authorization: Bearer <token> from /register or /login.
+- JSON field names in responses use camelCase for ad fields (subCategory, createdAt) — keep static/classifieds in sync.
+- To add fields: extend models.Classified*, Pydantic bodies here, and the frontend app.js if needed.
+"""
 
 from __future__ import annotations
 
@@ -18,6 +26,8 @@ from database import SessionLocal
 from models import ClassifiedAd, ClassifiedSession, ClassifiedUser
 
 router = APIRouter(prefix="/api/classifieds", tags=["classifieds"])
+
+# --- Password hashing & DB session dependency ---
 
 
 def _hash_password(plain: str) -> str:
@@ -69,12 +79,18 @@ def _ad_out(row: ClassifiedAd) -> dict[str, Any]:
     }
 
 
+# --- Session token issuance ---
+
+
 def _create_session(db: Session, user_id: int) -> str:
     token = secrets.token_urlsafe(32)
     expires = datetime.utcnow() + timedelta(hours=credential_service.SESSION_HOURS)
     db.add(ClassifiedSession(token=token, user_id=user_id, expires_at=expires))
     db.commit()
     return token
+
+
+# --- Bearer token → ClassifiedUser (used as Depends(...) on protected routes) ---
 
 
 def get_current_classified_user(
@@ -116,6 +132,9 @@ def get_current_classified_user(
     return user
 
 
+# --- Request bodies (validate user input / API contract) ---
+
+
 class RegisterBody(BaseModel):
     username: str = Field(min_length=3, max_length=64)
     email: str = Field(min_length=3, max_length=255)
@@ -143,6 +162,9 @@ class CreateAdBody(BaseModel):
     price: str = Field(min_length=1, max_length=100)
     description: str = Field(min_length=1, max_length=50_000)
     images: list[str] = Field(min_length=1, max_length=10)
+
+
+# --- Auth: register, login, logout, profile ---
 
 
 @router.post("/register")
@@ -224,6 +246,9 @@ def classifieds_patch_me(
     db.commit()
     db.refresh(user)
     return _user_out(user)
+
+
+# --- Ads: list (filtered by user state) and create ---
 
 
 @router.get("/ads")

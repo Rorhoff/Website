@@ -2,6 +2,8 @@ using LostInSpace.Game;
 
 namespace LostInSpace;
 
+// DEV: Binds XAML controls to GameSession; drives timer loop, saves, joystick, menus.
+// XAML layout: MainPage.xaml — keep names in sync with fields used here.
 public partial class MainPage : ContentPage
 {
     readonly GameSession _game = new();

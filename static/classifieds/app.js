@@ -1,3 +1,8 @@
+/**
+ * DEV: Classifieds SPA client. API base: /api/classifieds (see classifieds_routes.py).
+ * Token: localStorage CLASSIFIED_TOKEN_KEY; sent as Authorization: Bearer.
+ * When adding endpoints, mirror paths here and in FastAPI router.
+ */
 const CLASSIFIED_TOKEN_KEY = "classified_api_session";
 const PROFILE_ACTIVE_KEY = "classified_profile_active";
 

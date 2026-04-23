@@ -1,4 +1,11 @@
-"""SQLAlchemy engine and session factory (PostgreSQL via psycopg 3)."""
+"""
+SQLAlchemy engine and session factory (PostgreSQL via psycopg 3).
+
+Developer notes:
+- Set DATABASE_URL in the environment (Neon/Render/Heroku URLs are normalized to postgresql+psycopg).
+- Import ``get_db`` as a FastAPI dependency where you need a request-scoped Session.
+- ``engine`` / ``SessionLocal`` are None when DATABASE_URL is missing (classifieds and DB auth disable).
+"""
 
 from __future__ import annotations
 

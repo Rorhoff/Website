@@ -1,4 +1,13 @@
-"""Database models."""
+"""
+SQLAlchemy ORM models (PostgreSQL).
+
+Developer notes:
+- Schema changes: update classes here; production DBs need migrations (Alembic or manual ALTER).
+  ``create_all`` only creates missing tables — it does not alter existing columns.
+- Classifieds: ClassifiedUser / ClassifiedSession / ClassifiedAd must stay aligned with
+  classifieds_routes.py request bodies and JSON field names.
+- API dashboard auth: ApiCredential (single row) + BrowserSession (cookie tokens).
+"""
 
 from __future__ import annotations
 

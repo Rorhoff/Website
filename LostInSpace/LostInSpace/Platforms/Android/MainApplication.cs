@@ -3,6 +3,7 @@ using Android.Runtime;
 
 namespace LostInSpace;
 
+// DEV: Android Application subclass — CreateMauiApp bootstraps the MAUI host.
 [Application]
 public class MainApplication : MauiApplication
 {

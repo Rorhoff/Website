@@ -1,3 +1,6 @@
+# Python deps for FastAPI backend (pip install -r requirements.txt).
+# Add packages here when extending main.py or routers; pin versions for production deploys.
+
 fastapi==0.115.6
 uvicorn[standard]==0.34.0
 python-multipart==0.0.20

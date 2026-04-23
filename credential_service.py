@@ -1,5 +1,11 @@
 """
 API credential lifecycle: memory (dev) or PostgreSQL + bcrypt (production).
+
+Developer notes:
+- Without DATABASE_URL: credentials live in process memory (or API_KEY/API_SECRET env override).
+- With DATABASE_URL: single ApiCredential row + BrowserSession table for httpOnly cookies.
+- Session length: SESSION_HOURS; cookie name: COOKIE_NAME (keep in sync with main.py imports).
+- Rotation wipes BrowserSession rows when using the database.
 """
 
 from __future__ import annotations
@@ -29,6 +35,8 @@ _mem_secret: str = ""
 SESSION_HOURS = int(os.getenv("SESSION_HOURS", "8"))
 COOKIE_NAME = "wapi_session"
 
+# --- Secret generation & verification ---
+
 
 def _generate_pair() -> tuple[str, str]:
     return secrets.token_urlsafe(48), secrets.token_urlsafe(48)
@@ -53,6 +61,9 @@ def create_tables() -> None:
     if engine is None:
         return
     Base.metadata.create_all(bind=engine)
+
+
+# --- Bootstrap: first-run credential row or memory pair ---
 
 
 def init_credentials() -> dict[str, str] | None:
@@ -83,6 +94,9 @@ def init_credentials() -> dict[str, str] | None:
         return {"api_key": pub, "api_secret": sec}
     finally:
         db.close()
+
+
+# --- Header verification (Postman / programmatic clients) ---
 
 
 def _get_credential_row(db: Session) -> ApiCredential | None:
@@ -120,6 +134,9 @@ def verify_headers(api_key: str | None, api_secret: str | None) -> bool:
         db.close()
 
 
+# --- Credential rotation (invalidates browser sessions in DB mode) ---
+
+
 def rotate_credentials() -> dict[str, str]:
     """Invalidate current pair and browser sessions; return new api_key and api_secret (plaintext once)."""
     global _mem_key, _mem_secret
@@ -143,6 +160,9 @@ def rotate_credentials() -> dict[str, str]:
         return {"api_key": new_k, "api_secret": new_s}
     finally:
         db.close()
+
+
+# --- httpOnly cookie sessions (dashboard) ---
 
 
 def create_browser_session() -> tuple[str, datetime]:
@@ -187,6 +207,9 @@ def verify_session_token(token: str | None) -> bool:
         return True
     finally:
         db.close()
+
+
+# --- Session cleanup ---
 
 
 def purge_expired_sessions() -> None:

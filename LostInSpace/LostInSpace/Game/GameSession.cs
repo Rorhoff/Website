@@ -1,3 +1,5 @@
+// DEV: Core game rules, world constants, save/load DTOs. Tune MapW/H, StartX/Y, Crack*, economy
+// constants here; UI flow is driven from MainPage.xaml.cs (phase changes). Save format: SaveDto.Version.
 using System.Text.Json;
 using System.Text.Json.Serialization;
 

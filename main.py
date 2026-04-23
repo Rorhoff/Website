@@ -1,5 +1,14 @@
 """
 Web API playground: production mode uses PostgreSQL + bcrypt for secrets and httpOnly sessions for the browser.
+
+Developer notes (manual edits):
+- Environment: DATABASE_URL (Postgres), CORS_ORIGINS, SESSION_HOURS, SESSION_COOKIE_SECURE,
+  APP_ENV, optional API_KEY/API_SECRET when DATABASE_URL is unset (in-memory credentials).
+- Authentication: API tools use X-API-Key + X-API-Secret; browser dashboard uses POST /api/session/login
+  then the httpOnly cookie (see credential_service.COOKIE_NAME).
+- Adding HTTP routes: define handlers on ``app``; use Depends(authenticate) unless the route is public.
+- Static sites: files live under static/; each SPA gets an app.mount(...) — mirror that pattern for new pages.
+- Classifieds REST API: implemented in classifieds_routes.py (prefix /api/classifieds), not in this file.
 """
 
 from __future__ import annotations
@@ -43,6 +52,8 @@ _recent: deque[dict[str, Any]] = deque(maxlen=RECENT_LIMIT)
 _api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 _api_secret_header = APIKeyHeader(name="X-API-Secret", auto_error=False)
 
+# --- Config & logging helpers ---
+
 
 def _cors_origins() -> list[str]:
     raw = os.getenv(
@@ -71,6 +82,9 @@ def _log_initial_credentials(api_key: str, api_secret: str) -> None:
     )
 
 
+# --- HTTP authentication (header pair or session cookie) ---
+
+
 def authenticate(
     request: Request,
     x_api_key: Annotated[str | None, Depends(_api_key_header)],
@@ -87,6 +101,9 @@ def authenticate(
         detail="Missing or invalid authentication (headers or session cookie)",
         headers={"WWW-Authenticate": "ApiKey"},
     )
+
+
+# --- In-memory request analytics (dashboard: GET /api/analytics) ---
 
 
 def _record_request(
@@ -114,6 +131,9 @@ def _record_request(
                 "client": client,
             }
         )
+
+
+# --- Application lifespan (DB tables + API credentials on startup) ---
 
 
 @asynccontextmanager
@@ -145,6 +165,8 @@ app.add_middleware(
 
 app.include_router(classifieds_router)
 
+# --- Cross-origin and per-request analytics middleware ---
+
 
 @app.middleware("http")
 async def analytics_middleware(request: Request, call_next):
@@ -166,6 +188,9 @@ async def analytics_middleware(request: Request, call_next):
     return response
 
 
+# --- Shared request/response models ---
+
+
 class EchoBody(BaseModel):
     message: str = Field(default="hello", max_length=4000)
     tags: list[str] = Field(default_factory=list)
@@ -174,6 +199,9 @@ class EchoBody(BaseModel):
 class SessionLoginBody(BaseModel):
     api_key: str = Field(min_length=8, max_length=256)
     api_secret: str = Field(min_length=8, max_length=256)
+
+
+# --- Browser session cookie (dashboard “Save in browser”) ---
 
 
 @app.post("/api/session/login")
@@ -204,6 +232,9 @@ def session_logout(request: Request, response: Response):
     credential_service.delete_session_token(request.cookies.get(COOKIE_NAME))
     response.delete_cookie(COOKIE_NAME, path="/")
     return {"ok": True}
+
+
+# --- Authenticated demo API (Postman / dashboard) ---
 
 
 @app.get("/api/health", dependencies=[Depends(authenticate)])
@@ -288,6 +319,9 @@ def slow(delay_ms: int = 500):
     return {"waited_ms": delay_ms}
 
 
+# --- Static files: site root + mounted SPAs (paths must match nav links in static HTML) ---
+
+
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
 app.mount("/assets", StaticFiles(directory=str(STATIC_DIR)), name="assets")
@@ -326,6 +360,9 @@ def api_testing_legacy():
 @app.get("/lost-in-space.html")
 def lost_in_space_legacy():
     return RedirectResponse(url="/lost-in-space/", status_code=301)
+
+
+# --- Local dev entrypoint ---
 
 
 if __name__ == "__main__":
