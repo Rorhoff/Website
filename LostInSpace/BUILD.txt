@@ -1,0 +1,21 @@
+Lost in Space — .NET MAUI (C#)
+================================
+
+Requirements:
+  - .NET 8 SDK: https://dotnet.microsoft.com/download
+  - MAUI workload:  dotnet workload install maui
+  - For iOS: Xcode on macOS + Apple developer signing
+  - For Android: Android SDK (installed with Visual Studio or Android Studio)
+
+From this folder:
+  cd LostInSpace
+  dotnet build -f net8.0-android
+  dotnet build -f net8.0-ios
+
+Run on a device/emulator from Visual Studio 2022 (Windows + Mac pair for iOS), or:
+  dotnet build -t:Run -f net8.0-android
+
+Saves: JSON in FileSystem.AppDataDirectory (persists per app install on iPhone/Android).
+
+Optional art: add PNGs under LostInSpace/Resources/Raw/ and load with FileSystem.OpenAppPackageFileAsync;
+  the game currently draws rocks, sticks, and slimes procedurally to match your design.

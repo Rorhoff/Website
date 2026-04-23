@@ -1,0 +1,132 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="LostInSpace.MainPage"
+             BackgroundColor="#0c0f14"
+             Shell.NavBarIsVisible="False">
+
+    <Grid x:Name="RootGrid" IgnoreSafeArea="True">
+        <GraphicsView x:Name="GameCanvas"
+                      InputTransparent="False"
+                      HorizontalOptions="Fill"
+                      VerticalOptions="Fill" />
+
+        <!-- HUD (playing only) -->
+        <VerticalStackLayout x:Name="HudPanel"
+                             IsVisible="False"
+                             Margin="12,52,12,0"
+                             VerticalOptions="Start"
+                             InputTransparent="True">
+            <Label Text="Energy" TextColor="#94a3b8" FontSize="11" />
+            <ProgressBar x:Name="EnergyBar" Progress="1" ProgressColor="#38bdf8" HeightRequest="8" />
+            <VerticalStackLayout x:Name="DayHud" IsVisible="False" Spacing="2">
+                <Label x:Name="DayLabel" Text="Day 1" TextColor="#94a3b8" FontSize="11" />
+                <ProgressBar x:Name="DayBar" Progress="1" ProgressColor="#fbbf24" HeightRequest="8" />
+            </VerticalStackLayout>
+        </VerticalStackLayout>
+
+        <!-- Virtual joystick (playing) -->
+        <Border x:Name="JoyZone"
+                IsVisible="False"
+                WidthRequest="140"
+                HeightRequest="140"
+                Stroke="#55ffffff"
+                StrokeThickness="2"
+                BackgroundColor="#22ffffff"
+                HorizontalOptions="Start"
+                VerticalOptions="End"
+                Margin="16,0,0,24"
+                StrokeShape="RoundRectangle 70">
+            <Ellipse x:Name="JoyKnob"
+                     WidthRequest="52"
+                     HeightRequest="52"
+                     Fill="#a78bfacc"
+                     HorizontalOptions="Center"
+                     VerticalOptions="Center" />
+        </Border>
+
+        <!-- Action buttons -->
+        <VerticalStackLayout x:Name="ActionButtons"
+                             IsVisible="False"
+                             HorizontalOptions="End"
+                             VerticalOptions="End"
+                             Margin="0,0,16,24"
+                             Spacing="10">
+            <Button x:Name="BtnCraft" Text="Craft" Clicked="OnCraftClicked"
+                    BackgroundColor="#1e293b" TextColor="White" CornerRadius="12" WidthRequest="120" />
+            <Button x:Name="BtnAction" Text="Interact / Attack" Clicked="OnActionClicked"
+                    BackgroundColor="#b91c1c" TextColor="White" CornerRadius="12" WidthRequest="120" />
+        </VerticalStackLayout>
+
+        <!-- Craft panel -->
+        <Border x:Name="CraftPanel"
+                IsVisible="False"
+                BackgroundColor="#0f172a"
+                Stroke="#334155"
+                Padding="16"
+                Margin="24"
+                VerticalOptions="Center"
+                HorizontalOptions="Center"
+                StrokeShape="RoundRectangle 12"
+                ZIndex="50">
+            <VerticalStackLayout Spacing="8" WidthRequest="280">
+                <Label Text="Crafting" FontSize="18" TextColor="White" FontAttributes="Bold" />
+                <Button Text="Rope (2 sticks)" Clicked="OnCraftRope" />
+                <Button Text="Trap (2 sticks + rope)" Clicked="OnCraftTrap" />
+                <Button Text="Club (2 sticks + rock)" Clicked="OnCraftClub" />
+                <Button Text="Close" Clicked="OnCraftClose" BackgroundColor="#334155" />
+            </VerticalStackLayout>
+        </Border>
+
+        <!-- Main menu -->
+        <Grid x:Name="MenuOverlay" BackgroundColor="#dd0c0f14" ZIndex="100">
+            <VerticalStackLayout VerticalOptions="Center" HorizontalOptions="Center" Spacing="12" WidthRequest="280">
+                <Label Text="Lost in Space" FontSize="26" TextColor="White" FontAttributes="Bold" HorizontalOptions="Center" />
+                <Label Text="Repair the ship, cross the rift, hunt, survive." TextColor="#94a3b8" HorizontalTextAlignment="Center" />
+                <Button Text="New Game" Clicked="OnNewGame" BackgroundColor="#0369a1" TextColor="White" />
+                <Button Text="Load Game" Clicked="OnLoadGame" BackgroundColor="#1e293b" TextColor="White" />
+            </VerticalStackLayout>
+        </Grid>
+
+        <!-- Color pick -->
+        <Grid x:Name="ColorOverlay" IsVisible="False" BackgroundColor="#ee0c0f14" ZIndex="110">
+            <VerticalStackLayout VerticalOptions="Center" HorizontalOptions="Center" Spacing="12" WidthRequest="300">
+                <Label Text="Choose your suit" FontSize="22" TextColor="White" FontAttributes="Bold" HorizontalOptions="Center" />
+                <FlexLayout x:Name="ColorFlex" Wrap="Wrap" JustifyContent="Center" AlignItems="Center" />
+                <Button x:Name="BtnConfirmColor" Text="Confirm" IsEnabled="False" Clicked="OnConfirmColor"
+                        BackgroundColor="#0369a1" TextColor="White" />
+                <Button Text="Back" Clicked="OnColorBack" BackgroundColor="#334155" TextColor="White" />
+            </VerticalStackLayout>
+        </Grid>
+
+        <!-- Crash -->
+        <Grid x:Name="CrashOverlay" IsVisible="False" BackgroundColor="#ee000000" ZIndex="120">
+            <Label x:Name="CrashLabel"
+                   Text="You're experiencing a crash, please remain calm!"
+                   TextColor="#fecaca"
+                   FontSize="18"
+                   FontAttributes="Bold"
+                   HorizontalOptions="Center"
+                   VerticalOptions="Center"
+                   HorizontalTextAlignment="Center"
+                   Margin="24" />
+        </Grid>
+
+        <!-- Popup -->
+        <Border x:Name="PopupPanel"
+                IsVisible="False"
+                ZIndex="130"
+                BackgroundColor="#1e1b4b"
+                Stroke="#818cf8"
+                Padding="20"
+                Margin="32"
+                VerticalOptions="Center"
+                HorizontalOptions="Center"
+                StrokeShape="RoundRectangle 12">
+            <VerticalStackLayout Spacing="12" WidthRequest="260">
+                <Label x:Name="PopupLabel" TextColor="White" HorizontalTextAlignment="Center" />
+                <Button Text="OK" Clicked="OnPopupOk" BackgroundColor="#4f46e5" TextColor="White" />
+            </VerticalStackLayout>
+        </Border>
+    </Grid>
+</ContentPage>
