@@ -1,6 +1,4 @@
-const USERS_KEY = "classified_users";
-const ADS_KEY = "classified_ads";
-const CURRENT_USER_KEY = "classified_current_user";
+const CLASSIFIED_TOKEN_KEY = "classified_api_session";
 const PROFILE_ACTIVE_KEY = "classified_profile_active";
 
 const registerForm = document.getElementById("registerForm");
@@ -16,62 +14,35 @@ const enterProfileBtn = document.getElementById("enterProfileBtn");
 const exitProfileBtn = document.getElementById("exitProfileBtn");
 const logoutBtn = document.getElementById("logoutBtn");
 const profileStateSelect = document.getElementById("profileState");
+const profileEmailInput = document.getElementById("profileEmail");
+const profilePhoneInput = document.getElementById("profilePhone");
 const adStateSelect = document.getElementById("adState");
 const adImagesInput = document.getElementById("adImages");
 const adsList = document.getElementById("adsList");
+const adsBrowseSection = document.getElementById("adsBrowseSection");
 const adsScopeHint = document.getElementById("adsScopeHint");
 const authStatus = document.getElementById("authStatus");
 const profileHint = document.getElementById("profileHint");
 const toast = document.getElementById("toast");
 
-function readJSON(key, fallback) {
-  try {
-    return JSON.parse(localStorage.getItem(key)) ?? fallback;
-  } catch {
-    return fallback;
+let sessionToken = localStorage.getItem(CLASSIFIED_TOKEN_KEY);
+let cachedUser = null;
+
+function setSessionToken(token) {
+  sessionToken = token || null;
+  if (sessionToken) {
+    localStorage.setItem(CLASSIFIED_TOKEN_KEY, sessionToken);
+  } else {
+    localStorage.removeItem(CLASSIFIED_TOKEN_KEY);
   }
-}
-
-function writeJSON(key, value) {
-  localStorage.setItem(key, JSON.stringify(value));
-}
-
-function getUsers() {
-  return readJSON(USERS_KEY, []);
-}
-
-function writeUsers(users) {
-  writeJSON(USERS_KEY, users);
-}
-
-function getAds() {
-  return readJSON(ADS_KEY, []);
-}
-
-function writeAds(ads) {
-  writeJSON(ADS_KEY, ads);
 }
 
 function getCurrentUser() {
-  return localStorage.getItem(CURRENT_USER_KEY);
-}
-
-function setCurrentUser(username) {
-  if (username) {
-    localStorage.setItem(CURRENT_USER_KEY, username);
-  } else {
-    localStorage.removeItem(CURRENT_USER_KEY);
-  }
-}
-
-function normalizeState(value) {
-  return String(value).trim().toLowerCase();
+  return cachedUser?.username ?? null;
 }
 
 function getCurrentUserRecord() {
-  const currentUser = getCurrentUser();
-  if (!currentUser) return null;
-  return getUsers().find((user) => user.username === currentUser) || null;
+  return cachedUser;
 }
 
 function isProfileActive() {
@@ -80,10 +51,6 @@ function isProfileActive() {
 
 function setProfileActive(active) {
   localStorage.setItem(PROFILE_ACTIVE_KEY, active ? "true" : "false");
-}
-
-function hashPassword(password) {
-  return btoa(password);
 }
 
 function showToast(message) {
@@ -112,12 +79,67 @@ function setAuthSectionVisibility(isVisible) {
   authSection.style.display = isVisible ? "grid" : "none";
 }
 
+function detailMessage(payload, fallback) {
+  const detail = payload?.detail;
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    return detail
+      .map((d) => (typeof d === "object" && d?.msg ? d.msg : JSON.stringify(d)))
+      .join("; ");
+  }
+  return fallback || "Request failed.";
+}
+
+async function classifiedsApi(path, { method = "GET", jsonBody, withAuth = true } = {}) {
+  const headers = {};
+  if (jsonBody !== undefined) {
+    headers["Content-Type"] = "application/json";
+  }
+  if (withAuth && sessionToken) {
+    headers.Authorization = `Bearer ${sessionToken}`;
+  }
+  const r = await fetch(`/api/classifieds${path}`, {
+    method,
+    headers,
+    body: jsonBody !== undefined ? JSON.stringify(jsonBody) : undefined,
+    credentials: "same-origin",
+  });
+  let payload = {};
+  try {
+    payload = await r.json();
+  } catch {
+    payload = {};
+  }
+  if (!r.ok) {
+    const msg = detailMessage(payload, r.statusText || `HTTP ${r.status}`);
+    const err = new Error(msg);
+    err.status = r.status;
+    err.payload = payload;
+    throw err;
+  }
+  return payload;
+}
+
+async function refreshMe() {
+  if (!sessionToken) {
+    cachedUser = null;
+    return null;
+  }
+  try {
+    cachedUser = await classifiedsApi("/me");
+    return cachedUser;
+  } catch {
+    cachedUser = null;
+    setSessionToken(null);
+    return null;
+  }
+}
+
 function updateAuthUI() {
   const currentUser = getCurrentUser();
   const userRecord = getCurrentUserRecord();
   const profileActive = Boolean(userRecord) && isProfileActive();
 
-  // Hide register/login immediately whenever a user is logged in.
   setAuthSectionVisibility(!currentUser);
   menuWrapper.hidden = !userRecord;
   postAdSection.hidden = !profileActive;
@@ -131,48 +153,49 @@ function updateAuthUI() {
     profileHint.textContent = "Use the top-right menu to enter your profile.";
     profileStateSelect.value = userRecord.state;
     adStateSelect.value = userRecord.state;
+    if (profileEmailInput) profileEmailInput.value = userRecord.email || "";
+    if (profilePhoneInput) profilePhoneInput.value = userRecord.phone || "";
   } else {
     authStatus.textContent = "Not logged in";
     profileHint.textContent = "Log in, then use the top-right menu to enter your profile.";
     closeMenu();
   }
+
+  const showAdsBrowse = Boolean(userRecord) && !isProfileActive();
+  if (adsBrowseSection) {
+    adsBrowseSection.hidden = !showAdsBrowse;
+    adsBrowseSection.style.display = showAdsBrowse ? "" : "none";
+  }
 }
 
-function renderAds() {
+async function renderAds() {
   const userRecord = getCurrentUserRecord();
-  if (!userRecord) {
-    adsScopeHint.textContent = "Log in to see ads from your state.";
-    adsList.innerHTML = "<p>Please log in to view local ads.</p>";
+  if (!userRecord || isProfileActive()) {
+    adsList.innerHTML = "";
+    if (adsScopeHint) adsScopeHint.textContent = "";
     return;
   }
 
-  const profileActive = isProfileActive();
-  const ads = getAds()
-    .filter((ad) => {
-      if (profileActive) {
-        return ad.author === userRecord.username;
-      }
-      return normalizeState(ad.state) === normalizeState(userRecord.state);
-    })
-    .sort((a, b) => b.createdAt - a.createdAt);
+  try {
+    const ads = await classifiedsApi("/ads");
+    ads.sort((a, b) => b.createdAt - a.createdAt);
 
-  adsScopeHint.textContent = profileActive
-    ? "Showing your ads from newest to oldest."
-    : `Showing newest ads for ${userRecord.state}.`;
-  if (!ads.length) {
-    adsList.innerHTML = profileActive
-      ? "<p>You have not posted any ads yet.</p>"
-      : `<p>No ads posted yet for ${escapeHTML(userRecord.state)}.</p>`;
-    return;
-  }
+    adsScopeHint.textContent = `Showing newest ads for ${userRecord.state}.`;
+    if (!ads.length) {
+      adsList.innerHTML = `<p>No ads posted yet for ${escapeHTML(userRecord.state)}.</p>`;
+      return;
+    }
 
-  adsList.innerHTML = ads
-    .map((ad) => {
-      const imageBlock = ad.images
-        .map((img, index) => `<img src="${img}" alt="Ad image ${index + 1}" loading="lazy" />`)
-        .join("");
+    adsList.innerHTML = ads
+      .map((ad) => {
+        const imageBlock = (ad.images || [])
+          .map(
+            (img, index) =>
+              `<img src="${String(img).replace(/"/g, "&quot;")}" alt="Ad image ${index + 1}" loading="lazy" />`
+          )
+          .join("");
 
-      return `
+        return `
       <article class="ad-item">
         <div class="ad-title-row">
           <span>${escapeHTML(ad.title)}</span>
@@ -186,8 +209,12 @@ function renderAds() {
         <div class="image-grid">${imageBlock}</div>
       </article>
     `;
-    })
-    .join("");
+      })
+      .join("");
+  } catch (error) {
+    adsList.innerHTML = `<p class="hint">Could not load ads: ${escapeHTML(error.message)}</p>`;
+    if (adsScopeHint) adsScopeHint.textContent = "";
+  }
 }
 
 function filesToDataUrls(fileList) {
@@ -205,52 +232,60 @@ function filesToDataUrls(fileList) {
   );
 }
 
-registerForm.addEventListener("submit", (event) => {
+registerForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const formData = new FormData(registerForm);
   const username = String(formData.get("username")).trim().toLowerCase();
   const state = String(formData.get("state")).trim();
   const password = String(formData.get("password"));
+  const email = String(formData.get("email")).trim();
+  const phone = String(formData.get("phone")).trim();
 
   if (!state) {
     showToast("Please select your state.");
     return;
   }
 
-  const users = getUsers();
-  const exists = users.some((user) => user.username === username);
-  if (exists) {
-    showToast("Username is already taken.");
-    return;
+  try {
+    const data = await classifiedsApi("/register", {
+      method: "POST",
+      withAuth: false,
+      jsonBody: { username, state, password, email, phone },
+    });
+    setSessionToken(data.token);
+    cachedUser = data.user;
+    registerForm.reset();
+    setProfileActive(false);
+    updateAuthUI();
+    await renderAds();
+    showToast("Account created. You are logged in.");
+  } catch (error) {
+    showToast(error.message || "Registration failed.");
   }
-
-  users.push({ username, state, passwordHash: hashPassword(password) });
-  writeUsers(users);
-  registerForm.reset();
-  showToast("Account created. You can login now.");
 });
 
-loginForm.addEventListener("submit", (event) => {
+loginForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const formData = new FormData(loginForm);
   const username = String(formData.get("username")).trim().toLowerCase();
   const password = String(formData.get("password"));
 
-  const matchingUser = getUsers().find(
-    (user) => user.username === username && user.passwordHash === hashPassword(password)
-  );
-
-  if (!matchingUser) {
-    showToast("Invalid username or password.");
-    return;
+  try {
+    const data = await classifiedsApi("/login", {
+      method: "POST",
+      withAuth: false,
+      jsonBody: { username, password },
+    });
+    setSessionToken(data.token);
+    cachedUser = data.user;
+    setProfileActive(false);
+    loginForm.reset();
+    updateAuthUI();
+    await renderAds();
+    showToast("Logged in successfully.");
+  } catch (error) {
+    showToast(error.message || "Login failed.");
   }
-
-  setCurrentUser(username);
-  setProfileActive(false);
-  loginForm.reset();
-  updateAuthUI();
-  renderAds();
-  showToast("Logged in successfully.");
 });
 
 menuToggleBtn.addEventListener("click", () => {
@@ -263,7 +298,7 @@ document.addEventListener("click", (event) => {
   }
 });
 
-enterProfileBtn.addEventListener("click", () => {
+enterProfileBtn.addEventListener("click", async () => {
   const currentUser = getCurrentUser();
   if (!currentUser) {
     showToast("Log in first.");
@@ -272,43 +307,53 @@ enterProfileBtn.addEventListener("click", () => {
   setProfileActive(true);
   closeMenu();
   updateAuthUI();
+  await renderAds();
   showToast("Profile mode enabled.");
 });
 
-exitProfileBtn.addEventListener("click", () => {
-  // Exit profile mode but keep the user logged in.
+exitProfileBtn.addEventListener("click", async () => {
   setProfileActive(false);
   closeMenu();
   updateAuthUI();
-  renderAds();
+  await renderAds();
   showToast("Exited profile mode.");
 });
 
-logoutBtn.addEventListener("click", () => {
-  setCurrentUser(null);
+logoutBtn.addEventListener("click", async () => {
+  try {
+    await classifiedsApi("/logout", { method: "POST" });
+  } catch {
+    /* still clear client */
+  }
+  setSessionToken(null);
+  cachedUser = null;
   setProfileActive(false);
   closeMenu();
   updateAuthUI();
-  renderAds();
+  await renderAds();
   showToast("Logged out.");
 });
 
-profileForm.addEventListener("submit", (event) => {
+profileForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const currentUser = getCurrentUser();
   const newState = String(new FormData(profileForm).get("state")).trim();
+  const email = String(new FormData(profileForm).get("email")).trim();
+  const phone = String(new FormData(profileForm).get("phone")).trim();
   if (!currentUser || !newState) return;
 
-  const users = getUsers();
-  const userIndex = users.findIndex((user) => user.username === currentUser);
-  if (userIndex === -1) return;
-
-  users[userIndex].state = newState;
-  writeUsers(users);
-  adStateSelect.value = newState;
-  updateAuthUI();
-  renderAds();
-  showToast("Profile state updated.");
+  try {
+    cachedUser = await classifiedsApi("/me", {
+      method: "PATCH",
+      jsonBody: { state: newState, email, phone },
+    });
+    adStateSelect.value = newState;
+    updateAuthUI();
+    await renderAds();
+    showToast("Profile updated.");
+  } catch (error) {
+    showToast(error.message || "Could not update profile.");
+  }
 });
 
 adForm.addEventListener("submit", async (event) => {
@@ -343,28 +388,29 @@ adForm.addEventListener("submit", async (event) => {
 
   try {
     const images = await filesToDataUrls(files);
-    const ads = getAds();
-    ads.push({
-      id: crypto.randomUUID(),
-      title,
-      state,
-      category,
-      subCategory,
-      price,
-      description,
-      images,
-      author: userRecord.username,
-      createdAt: Date.now(),
+    await classifiedsApi("/ads", {
+      method: "POST",
+      jsonBody: {
+        title,
+        state,
+        category,
+        subCategory,
+        price,
+        description,
+        images,
+      },
     });
-    writeAds(ads);
     adForm.reset();
     adStateSelect.value = getCurrentUserRecord()?.state || "";
-    renderAds();
+    await renderAds();
     showToast("Ad posted.");
   } catch (error) {
-    showToast("One or more images could not be processed.");
+    showToast(error.message || "Could not post ad.");
   }
 });
 
-updateAuthUI();
-renderAds();
+(async function initClassifieds() {
+  await refreshMe();
+  updateAuthUI();
+  await renderAds();
+})();

@@ -23,6 +23,7 @@ from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, Field
 
 import credential_service
+from classifieds_routes import router as classifieds_router
 from credential_service import COOKIE_NAME
 
 load_dotenv()
@@ -141,6 +142,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(classifieds_router)
 
 
 @app.middleware("http")
