@@ -435,16 +435,58 @@
   let stickTouchId = null;
   let stickCx = 0, stickCy = 0, stickDx = 0, stickDy = 0;
   const MOVE_KEYS = new Set();
+  /** Last keydown time per key — when opposite keys overlap, newest press wins (fixes arrow/WASD reverse “skips”). */
+  const keyDownAt = new Map();
   let keyboardVecX = 0;
   let keyboardVecY = 0;
+
+  const KEYS_LEFT = ["a", "arrowleft"];
+  const KEYS_RIGHT = ["d", "arrowright"];
+  const KEYS_UP = ["w", "arrowup"];
+  const KEYS_DOWN = ["s", "arrowdown"];
+  const ALL_MOVE_KEYS = [...KEYS_LEFT, ...KEYS_RIGHT, ...KEYS_UP, ...KEYS_DOWN];
+
+  /** Prefer e.code so ArrowUp / WASD stay consistent across layouts and browsers. */
+  function moveKeyFromEvent(e) {
+    switch (e.code) {
+      case "KeyW": return "w";
+      case "KeyA": return "a";
+      case "KeyS": return "s";
+      case "KeyD": return "d";
+      case "ArrowUp": return "arrowup";
+      case "ArrowDown": return "arrowdown";
+      case "ArrowLeft": return "arrowleft";
+      case "ArrowRight": return "arrowright";
+      default: {
+        const k = e.key.toLowerCase();
+        return ALL_MOVE_KEYS.includes(k) ? k : null;
+      }
+    }
+  }
+
+  function newestDownTime(keyList) {
+    let t = 0;
+    for (const key of keyList) {
+      if (MOVE_KEYS.has(key)) t = Math.max(t, keyDownAt.get(key) || 0);
+    }
+    return t;
+  }
 
   function refreshKeyboardVector() {
     let dx = 0;
     let dy = 0;
-    if (MOVE_KEYS.has("a") || MOVE_KEYS.has("arrowleft")) dx -= 1;
-    if (MOVE_KEYS.has("d") || MOVE_KEYS.has("arrowright")) dx += 1;
-    if (MOVE_KEYS.has("w") || MOVE_KEYS.has("arrowup")) dy -= 1;
-    if (MOVE_KEYS.has("s") || MOVE_KEYS.has("arrowdown")) dy += 1;
+    const left = KEYS_LEFT.some((key) => MOVE_KEYS.has(key));
+    const right = KEYS_RIGHT.some((key) => MOVE_KEYS.has(key));
+    if (left && !right) dx -= 1;
+    else if (right && !left) dx += 1;
+    else if (left && right) dx = newestDownTime(KEYS_LEFT) >= newestDownTime(KEYS_RIGHT) ? -1 : 1;
+
+    const up = KEYS_UP.some((key) => MOVE_KEYS.has(key));
+    const down = KEYS_DOWN.some((key) => MOVE_KEYS.has(key));
+    if (up && !down) dy -= 1;
+    else if (down && !up) dy += 1;
+    else if (up && down) dy = newestDownTime(KEYS_UP) >= newestDownTime(KEYS_DOWN) ? -1 : 1;
+
     const L = Math.hypot(dx, dy);
     if (L > 0.001) {
       keyboardVecX = dx / L;
@@ -459,6 +501,7 @@
 
   function resetMovementInput() {
     MOVE_KEYS.clear();
+    keyDownAt.clear();
     refreshKeyboardVector();
     stickTouchId = null;
     stickEnd();
@@ -1150,27 +1193,43 @@
 
   window.addEventListener("keydown", (e) => {
     if (screen !== "play") return;
-    const k = e.key.toLowerCase();
-    if (["w", "a", "s", "d", "arrowup", "arrowdown", "arrowleft", "arrowright"].includes(k)) {
+    const k = moveKeyFromEvent(e);
+    if (k) {
+      if (MOVE_KEYS.has(k)) {
+        e.preventDefault();
+        return;
+      }
       MOVE_KEYS.add(k);
+      keyDownAt.set(k, performance.now());
       refreshKeyboardVector();
       e.preventDefault();
+      return;
     }
-    if (k === "e" || k === " ") interactOrAttack();
+    if (e.code === "KeyE" || e.key === " " || e.code === "Space") interactOrAttack();
   });
 
   window.addEventListener("keyup", (e) => {
     if (screen !== "play") return;
-    const k = e.key.toLowerCase();
-    if (["w", "a", "s", "d", "arrowup", "arrowdown", "arrowleft", "arrowright"].includes(k)) {
+    const k = moveKeyFromEvent(e);
+    if (k) {
       MOVE_KEYS.delete(k);
+      keyDownAt.delete(k);
       refreshKeyboardVector();
     }
   });
 
   window.addEventListener("blur", () => {
     MOVE_KEYS.clear();
+    keyDownAt.clear();
     refreshKeyboardVector();
+  });
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") {
+      MOVE_KEYS.clear();
+      keyDownAt.clear();
+      refreshKeyboardVector();
+    }
   });
 
   window.addEventListener("resize", resize);
