@@ -2,8 +2,9 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Lost in Space Game</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, user-scalable=no" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <title>Lost in Space</title>
   <style>
     :root {
       --bg: #0a0e16;
@@ -14,80 +15,1094 @@
       --accent: #a78bfa;
     }
     * { box-sizing: border-box; }
-    body {
+    html, body {
       margin: 0;
-      min-height: 100vh;
+      height: 100%;
+      overflow: hidden;
+      touch-action: none;
       font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-      background: radial-gradient(ellipse at top, #1a1f35 0%, var(--bg) 55%);
+      background: var(--bg);
       color: var(--text);
-      line-height: 1.6;
     }
     .site-nav {
       display: flex;
       flex-wrap: wrap;
-      gap: 0.65rem 1.25rem;
-      padding: 0.75rem 1.5rem;
+      gap: 0.5rem 1rem;
+      padding: 0.5rem 1rem;
       border-bottom: 1px solid var(--border);
-      background: rgba(15, 20, 32, 0.95);
+      background: rgba(15, 20, 32, 0.98);
       align-items: center;
+      flex-shrink: 0;
+      z-index: 100;
     }
     .site-nav a {
       color: var(--muted);
       text-decoration: none;
-      font-size: 0.9rem;
+      font-size: 0.8rem;
       font-weight: 500;
     }
-    .site-nav a:hover { color: var(--accent); }
-    .site-nav a.active {
-      color: var(--text);
-      border-bottom: 2px solid var(--accent);
-      padding-bottom: 0.1rem;
+    .site-nav a:hover, .site-nav a.active { color: var(--accent); }
+    #app {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      max-height: 100dvh;
     }
-    main {
-      max-width: 640px;
-      margin: 0 auto;
-      padding: 2.5rem 1.5rem 3rem;
+    #gameWrap {
+      position: relative;
+      flex: 1;
+      min-height: 0;
+      background: #0d0806;
+    }
+    #gameCanvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+      touch-action: none;
+    }
+    .overlay {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 1rem;
+      background: rgba(8, 10, 18, 0.92);
+      z-index: 20;
       text-align: center;
     }
-    h1 {
-      margin: 0 0 0.75rem;
-      font-size: 1.75rem;
-      font-weight: 700;
-      letter-spacing: -0.02em;
-    }
-    p {
-      margin: 0 0 1rem;
-      color: var(--muted);
-      font-size: 1rem;
-    }
-    .card {
-      margin-top: 2rem;
-      padding: 1.5rem;
+    .overlay h1 { margin: 0 0 1rem; font-size: 1.4rem; }
+    .overlay p { margin: 0 0 1rem; color: var(--muted); font-size: 0.95rem; max-width: 22rem; }
+    .btn {
+      display: block;
+      width: 100%;
+      max-width: 260px;
+      margin: 0.4rem 0;
+      padding: 0.85rem 1rem;
+      border: 1px solid var(--border);
+      border-radius: 10px;
       background: var(--surface);
+      color: var(--text);
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .btn:active { transform: scale(0.98); }
+    .btn.primary { background: linear-gradient(135deg, #5b21b6, #7c3aed); border-color: #6d28d9; }
+    .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+    .color-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      justify-content: center;
+      margin: 1rem 0;
+      max-width: 280px;
+    }
+    .swatch {
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      border: 3px solid transparent;
+      cursor: pointer;
+      padding: 0;
+    }
+    .swatch.selected { border-color: #fff; box-shadow: 0 0 0 2px var(--accent); }
+    .crash-shake {
+      animation: crashShake 0.12s infinite;
+    }
+    @keyframes crashShake {
+      0% { transform: translate(0, 0) rotate(0deg); }
+      25% { transform: translate(-6px, 4px) rotate(-1deg); }
+      50% { transform: translate(5px, -5px) rotate(1deg); }
+      75% { transform: translate(-4px, -3px) rotate(-0.5deg); }
+      100% { transform: translate(0, 0) rotate(0deg); }
+    }
+    .crash-text {
+      font-size: clamp(1rem, 4vw, 1.35rem);
+      font-weight: 700;
+      color: #fecaca;
+      text-shadow: 0 0 20px rgba(220, 38, 38, 0.8);
+      padding: 0 1rem;
+      line-height: 1.35;
+    }
+    #hud {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      padding: 0.4rem 0.6rem;
+      pointer-events: none;
+      z-index: 10;
+      display: none;
+    }
+    #hud.visible { display: block; }
+    .bar-wrap {
+      margin-bottom: 0.35rem;
+      background: rgba(0,0,0,0.45);
+      border-radius: 6px;
+      height: 10px;
+      overflow: hidden;
+      border: 1px solid rgba(255,255,255,0.15);
+    }
+    .bar-fill { height: 100%; border-radius: 5px; transition: width 0.15s ease; }
+    .bar-energy { background: linear-gradient(90deg, #0ea5e9, #38bdf8); }
+    .bar-day { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
+    .hud-label { font-size: 0.65rem; color: #94a3b8; margin-bottom: 0.15rem; }
+    #dayHud { display: none; }
+    #dayHud.show { display: block; }
+    #controls {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 42%;
+      max-height: 220px;
+      pointer-events: none;
+      z-index: 15;
+      display: none;
+    }
+    #controls.visible { display: block; }
+    #stickZone {
+      position: absolute;
+      left: 4%;
+      bottom: 8%;
+      width: 130px;
+      height: 130px;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.08);
+      border: 2px solid rgba(255,255,255,0.2);
+      pointer-events: auto;
+      touch-action: none;
+    }
+    #stickKnob {
+      position: absolute;
+      width: 52px;
+      height: 52px;
+      margin-left: -26px;
+      margin-top: -26px;
+      left: 50%;
+      top: 50%;
+      border-radius: 50%;
+      background: rgba(167, 139, 250, 0.85);
+      border: 2px solid #fff;
+      pointer-events: none;
+    }
+    .action-stack {
+      position: absolute;
+      right: 4%;
+      bottom: 10%;
+      display: flex;
+      flex-direction: column;
+      gap: 0.55rem;
+      pointer-events: auto;
+    }
+    .action-btn {
+      min-width: 108px;
+      padding: 0.75rem 0.9rem;
+      border-radius: 12px;
+      border: 2px solid rgba(255,255,255,0.35);
+      background: rgba(30, 41, 59, 0.92);
+      color: #f1f5f9;
+      font-weight: 700;
+      font-size: 0.85rem;
+      touch-action: manipulation;
+    }
+    .action-btn.attack { background: rgba(185, 28, 28, 0.9); border-color: #f87171; }
+    #miniMap {
+      position: absolute;
+      right: 6px;
+      top: 52px;
+      width: 72px;
+      height: 52px;
+      border: 1px solid rgba(255,255,255,0.25);
+      border-radius: 4px;
+      background: rgba(0,0,0,0.5);
+      pointer-events: none;
+      display: none;
+    }
+    #hud.visible ~ #miniMap, #controls.visible ~ #miniMap { display: block; }
+    #craftPanel {
+      position: absolute;
+      left: 50%;
+      bottom: 28%;
+      transform: translateX(-50%);
+      width: min(320px, 92vw);
+      background: rgba(15, 23, 42, 0.97);
       border: 1px solid var(--border);
       border-radius: 12px;
-      text-align: left;
+      padding: 0.75rem;
+      z-index: 25;
+      display: none;
+      pointer-events: auto;
     }
-    .card p { margin: 0; color: #cbd5e1; font-size: 0.95rem; }
+    #craftPanel.open { display: block; }
+    #craftPanel h3 { margin: 0 0 0.5rem; font-size: 0.95rem; }
+    .recipe {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0.45rem 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.8rem;
+    }
+    .recipe:last-child { border-bottom: none; }
+    #popup {
+      position: absolute;
+      left: 50%;
+      top: 35%;
+      transform: translate(-50%, -50%);
+      max-width: 90vw;
+      padding: 1rem 1.25rem;
+      background: rgba(30, 27, 75, 0.97);
+      border: 2px solid #818cf8;
+      border-radius: 12px;
+      z-index: 30;
+      display: none;
+      text-align: center;
+      pointer-events: auto;
+    }
+    #popup.show { display: block; }
+    #popup p { margin: 0 0 0.75rem; font-size: 0.95rem; }
+    #settingsPanel label { display: block; text-align: left; margin: 0.75rem 0; font-size: 0.9rem; color: var(--muted); }
   </style>
 </head>
 <body>
-  <nav class="site-nav" aria-label="Primary">
-    <a href="index.html">About</a>
-    <a href="api-testing.html">API Testing</a>
-    <a href="https://www.linkedin.com/in/rorhoff" target="_blank" rel="noopener noreferrer">LinkedIn</a>
-    <a href="lost-in-space.html" class="active">Lost in Space Game</a>
-    <a href="classifieds/index.html">Classifieds</a>
-  </nav>
-  <main>
-    <h1>Lost in Space Game</h1>
-    <p>This page is ready for your game build. Replace this content with your canvas, script, or embed.</p>
-    <div class="card">
-      <p>
-        Tip: keep the shared navigation bar at the top of this file so visitors can return to <strong>About</strong>,
-        <strong>API Testing</strong>, or your <strong>LinkedIn</strong> profile.
-      </p>
+  <div id="app">
+    <nav class="site-nav" aria-label="Primary">
+      <a href="index.html">About</a>
+      <a href="api-testing.html">API Testing</a>
+      <a href="https://www.linkedin.com/in/rorhoff" target="_blank" rel="noopener noreferrer">LinkedIn</a>
+      <a href="lost-in-space.html" class="active">Lost in Space</a>
+      <a href="classifieds/index.html">Classifieds</a>
+    </nav>
+
+    <div id="gameWrap">
+      <canvas id="gameCanvas" aria-label="Game world"></canvas>
+
+      <div id="hud">
+        <div class="hud-label">Energy</div>
+        <div class="bar-wrap"><div id="energyBar" class="bar-fill bar-energy" style="width:100%"></div></div>
+        <div id="dayHud">
+          <div class="hud-label">Day <span id="dayNum">1</span> — hunt before night</div>
+          <div class="bar-wrap"><div id="dayBar" class="bar-fill bar-day" style="width:100%"></div></div>
+        </div>
+      </div>
+      <canvas id="miniMap" width="72" height="52" aria-hidden="true"></canvas>
+
+      <div id="controls">
+        <div id="stickZone" aria-hidden="true"><div id="stickKnob"></div></div>
+        <div class="action-stack">
+          <button type="button" class="action-btn" id="btnCraft">Craft</button>
+          <button type="button" class="action-btn attack" id="btnAction">Interact / Attack</button>
+        </div>
+      </div>
+
+      <div id="craftPanel">
+        <h3>Crafting</h3>
+        <div class="recipe">Rope (2 sticks) <button type="button" class="btn" style="max-width:88px;padding:0.4rem;margin:0" data-craft="rope">Make</button></div>
+        <div class="recipe">Trap (2 sticks + rope) <button type="button" class="btn" style="max-width:88px;padding:0.4rem;margin:0" data-craft="trap">Make</button></div>
+        <div class="recipe">Club (2 sticks + rock) <button type="button" class="btn" style="max-width:88px;padding:0.4rem;margin:0" data-craft="club">Make</button></div>
+        <button type="button" class="btn" style="margin-top:0.6rem" id="craftClose">Close</button>
+      </div>
+
+      <div id="popup">
+        <p id="popupText"></p>
+        <button type="button" class="btn primary" id="popupOk">OK</button>
+      </div>
+
+      <div id="menuOverlay" class="overlay">
+        <h1>Lost in Space</h1>
+        <p>Stranded. Repair your ship, cross the rift, hunt, and survive.</p>
+        <button type="button" class="btn primary" id="btnNew">New Game</button>
+        <button type="button" class="btn" id="btnLoad">Load Game</button>
+        <button type="button" class="btn" id="btnSettings">Settings</button>
+      </div>
+
+      <div id="colorOverlay" class="overlay" hidden>
+        <h1>Choose your suit</h1>
+        <p>Pick a color for your astronaut.</p>
+        <div class="color-row" id="colorRow"></div>
+        <button type="button" class="btn primary" id="btnConfirmColor" disabled>Confirm</button>
+        <button type="button" class="btn" id="btnBackMenu">Back</button>
+      </div>
+
+      <div id="crashOverlay" class="overlay" hidden>
+        <div class="crash-text" id="crashText">You're experiencing a crash, please remain calm!</div>
+      </div>
+
+      <div id="settingsOverlay" class="overlay" hidden>
+        <h1>Settings</h1>
+        <div id="settingsPanel">
+          <label><input type="checkbox" id="setReduceMotion" /> Reduce motion (less screen shake)</label>
+          <label><input type="checkbox" id="setHints" checked /> Show HUD hints</label>
+        </div>
+        <button type="button" class="btn" id="btnSettingsClose">Back</button>
+      </div>
     </div>
-  </main>
+  </div>
+
+  <script>
+(function () {
+  const SAVE_KEY = "lost_in_space_save_v1";
+  const MAP_W = 3200;
+  const MAP_H = 2200;
+  const CRACK_X0 = MAP_W * 0.46;
+  const CRACK_X1 = MAP_W * 0.54;
+  const PLAYER_R = 14;
+  const SHIP = { x: MAP_W - 220, y: MAP_H - 200, w: 100, h: 70 };
+  const START = { x: MAP_W - 120, y: MAP_H - 140 };
+  const INTERACT_RANGE = 52;
+  const ATTACK_RANGE = 38;
+  const ATTACK_W = 36;
+  const ATTACK_H = 28;
+  const DAY_MS = 70000;
+  const ENERGY_MAX = 100;
+  const ENERGY_MOVE_DRAIN = 0.018;
+  const MEAL_ENERGY = 45;
+  const SHIP_ROCKS = 3;
+  const SHIP_STICKS = 3;
+  const BRIDGE_STICKS = 5;
+  const SLIME_HP = 5;
+  const DMG = { hands: 1, stick: 2, club: 5 };
+
+  const canvas = document.getElementById("gameCanvas");
+  const ctx = canvas.getContext("2d");
+  const mini = document.getElementById("miniMap");
+  const mctx = mini.getContext("2d");
+  const hud = document.getElementById("hud");
+  const controls = document.getElementById("controls");
+  const energyBar = document.getElementById("energyBar");
+  const dayHud = document.getElementById("dayHud");
+  const dayBar = document.getElementById("dayBar");
+  const dayNumEl = document.getElementById("dayNum");
+  const menuOverlay = document.getElementById("menuOverlay");
+  const colorOverlay = document.getElementById("colorOverlay");
+  const crashOverlay = document.getElementById("crashOverlay");
+  const gameWrap = document.getElementById("gameWrap");
+  const stickZone = document.getElementById("stickZone");
+  const stickKnob = document.getElementById("stickKnob");
+  const craftPanel = document.getElementById("craftPanel");
+  const popup = document.getElementById("popup");
+  const popupText = document.getElementById("popupText");
+  const settingsOverlay = document.getElementById("settingsOverlay");
+
+  const colors = ["#38bdf8", "#f472b6", "#4ade80", "#fbbf24", "#fb7185", "#a78bfa", "#2dd4bf", "#f97316"];
+
+  let screen = "menu";
+  let selectedColor = null;
+  let reduceMotion = false;
+
+  let px = START.x, py = START.y;
+  let vx = 0, vy = 0;
+  let facingX = 0, facingY = 1;
+  let astronautColor = "#38bdf8";
+
+  let inventory = { sticks: 0, rocks: 0, rope: 0, trap: 0, slimeCorpse: 0, cookedMeal: 0 };
+  let equipped = "hands";
+
+  let shipRepaired = false;
+  let bridgeBuilt = false;
+  let firstKillDone = false;
+  let daySystemOn = false;
+  let dayIndex = 1;
+  let dayStartTime = 0;
+  let killThisDay = false;
+  let energy = ENERGY_MAX;
+
+  let pickups = [];
+  let slimes = [];
+  let attackFlash = 0;
+  let attackBox = null;
+
+  let stickTouchId = null;
+  let stickCx = 0, stickCy = 0, stickDx = 0, stickDy = 0;
+
+  function inCrack(x, y) {
+    return x >= CRACK_X0 && x <= CRACK_X1;
+  }
+
+  function blockedAt(nx, ny) {
+    if (nx < PLAYER_R || nx > MAP_W - PLAYER_R || ny < PLAYER_R || ny > MAP_H - PLAYER_R) return true;
+    if (!bridgeBuilt && inCrack(nx, ny)) return true;
+    return false;
+  }
+
+  function dist(ax, ay, bx, by) {
+    return Math.hypot(ax - bx, ay - by);
+  }
+
+  function placePickupsForNewGame() {
+    pickups = [];
+    const near = (ox, oy, n, type) => {
+      for (let i = 0; i < n; i++) {
+        const a = (i / n) * Math.PI * 2 + i * 0.7;
+        pickups.push({
+          id: "p" + Math.random().toString(36).slice(2),
+          type,
+          x: ox + Math.cos(a) * (40 + i * 25),
+          y: oy + Math.sin(a) * (40 + i * 25),
+        });
+      }
+    };
+    near(SHIP.x, SHIP.y, SHIP_ROCKS, "rock");
+    near(SHIP.x - 80, SHIP.y + 40, SHIP_STICKS, "stick");
+  }
+
+  function spawnExplorationSticks() {
+    let placed = 0;
+    while (placed < BRIDGE_STICKS + 3) {
+      const x = 120 + Math.random() * (MAP_W - 240);
+      const y = 120 + Math.random() * (MAP_H - 240);
+      if (inCrack(x, y)) continue;
+      if (dist(x, y, SHIP.x, SHIP.y) < 180) continue;
+      pickups.push({ id: "e" + placed + Math.random().toString(36).slice(2), type: "stick", x, y });
+      placed++;
+    }
+  }
+
+  function spawnSlimes() {
+    slimes = [];
+    for (let i = 0; i < 8; i++) {
+      const x = 100 + Math.random() * Math.max(120, CRACK_X0 - 220);
+      const y = 200 + Math.random() * (MAP_H - 400);
+      slimes.push({ id: "s" + i, x, y, hp: SLIME_HP, alive: true });
+    }
+  }
+
+  function resetWorldForNewGame(color) {
+    astronautColor = color;
+    px = START.x;
+    py = START.y;
+    facingX = 0;
+    facingY = 1;
+    inventory = { sticks: 0, rocks: 0, rope: 0, trap: 0, slimeCorpse: 0, cookedMeal: 0 };
+    equipped = "hands";
+    shipRepaired = false;
+    bridgeBuilt = false;
+    firstKillDone = false;
+    daySystemOn = false;
+    dayIndex = 1;
+    killThisDay = false;
+    energy = ENERGY_MAX;
+    dayHud.classList.remove("show");
+    placePickupsForNewGame();
+    spawnSlimes();
+  }
+
+  function weaponDamage() {
+    if (equipped === "club") return DMG.club;
+    if (equipped === "stick") return DMG.stick;
+    return DMG.hands;
+  }
+
+  function saveGame() {
+    const data = {
+      v: 1,
+      color: astronautColor,
+      px, py,
+      facingX, facingY,
+      inventory: { ...inventory },
+      equipped,
+      shipRepaired,
+      bridgeBuilt,
+      firstKillDone,
+      daySystemOn,
+      dayIndex,
+      dayStartTime: daySystemOn ? dayStartTime : 0,
+      killThisDay,
+      energy,
+      pickups: pickups.map((p) => ({ ...p })),
+      slimes: slimes.map((s) => ({ ...s })),
+    };
+    try {
+      localStorage.setItem(SAVE_KEY, JSON.stringify(data));
+    } catch (e) {
+      console.warn("Save failed", e);
+    }
+  }
+
+  function dayBarPercent() {
+    if (!daySystemOn) return 1;
+    const t = Date.now() - dayStartTime;
+    return Math.max(0, 1 - t / DAY_MS);
+  }
+
+  function loadGame() {
+    const raw = localStorage.getItem(SAVE_KEY);
+    if (!raw) return false;
+    try {
+      const data = JSON.parse(raw);
+      if (data.v !== 1) return false;
+      astronautColor = data.color || colors[0];
+      px = data.px ?? START.x;
+      py = data.py ?? START.y;
+      facingX = data.facingX ?? 0;
+      facingY = data.facingY ?? 1;
+      inventory = { sticks: 0, rocks: 0, rope: 0, trap: 0, slimeCorpse: 0, cookedMeal: 0, ...data.inventory };
+      equipped = data.equipped || "hands";
+      shipRepaired = !!data.shipRepaired;
+      bridgeBuilt = !!data.bridgeBuilt;
+      firstKillDone = !!data.firstKillDone;
+      daySystemOn = !!data.daySystemOn;
+      dayIndex = data.dayIndex || 1;
+      killThisDay = !!data.killThisDay;
+      energy = data.energy ?? ENERGY_MAX;
+      pickups = Array.isArray(data.pickups) ? data.pickups : [];
+      slimes = Array.isArray(data.slimes) ? data.slimes : [];
+      if (daySystemOn) {
+        dayStartTime =
+          typeof data.dayStartTime === "number" && data.dayStartTime > 0
+            ? data.dayStartTime
+            : Date.now();
+        dayHud.classList.add("show");
+      } else {
+        dayHud.classList.remove("show");
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function resize() {
+    const r = gameWrap.getBoundingClientRect();
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = Math.floor(r.width * dpr);
+    canvas.height = Math.floor(r.height * dpr);
+    canvas.style.width = r.width + "px";
+    canvas.style.height = r.height + "px";
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  function worldToScreen(camX, camY, wx, wy) {
+    return { x: wx - camX, y: wy - camY };
+  }
+
+  function drawWorld(camX, camY, w, h) {
+    ctx.save();
+    ctx.translate(-camX, -camY);
+
+    const grd = ctx.createLinearGradient(0, 0, MAP_W, MAP_H);
+    grd.addColorStop(0, "#3d2914");
+    grd.addColorStop(0.35, "#5c3d1e");
+    grd.addColorStop(0.65, "#4a3520");
+    grd.addColorStop(1, "#2d1810");
+    ctx.fillStyle = grd;
+    ctx.fillRect(0, 0, MAP_W, MAP_H);
+
+    for (let i = 0; i < 180; i++) {
+      const rx = (i * 9973) % MAP_W;
+      const ry = (i * 7919) % MAP_H;
+      ctx.fillStyle = `rgba(${40 + (i % 40)},${25 + (i % 30)},${15 + (i % 20)},0.35)`;
+      ctx.beginPath();
+      ctx.arc(rx, ry, 8 + (i % 12), 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.fillStyle = "#0a0a0a";
+    ctx.fillRect(CRACK_X0, 0, CRACK_X1 - CRACK_X0, MAP_H);
+    ctx.strokeStyle = "#1a1a1a";
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(CRACK_X0, 0);
+    ctx.lineTo(CRACK_X0 + 20, MAP_H);
+    ctx.moveTo(CRACK_X1, 0);
+    ctx.lineTo(CRACK_X1 - 20, MAP_H);
+    ctx.stroke();
+
+    if (bridgeBuilt) {
+      ctx.fillStyle = "#6b4423";
+      ctx.fillRect(CRACK_X0 - 4, MAP_H * 0.35, CRACK_X1 - CRACK_X0 + 8, 36);
+      ctx.strokeStyle = "#4a2c12";
+      ctx.strokeRect(CRACK_X0 - 4, MAP_H * 0.35, CRACK_X1 - CRACK_X0 + 8, 36);
+    }
+
+    ctx.fillStyle = "#2d3748";
+    ctx.fillRect(SHIP.x, SHIP.y, SHIP.w, SHIP.h);
+    ctx.fillStyle = shipRepaired ? "#48bb78" : "#e53e3e";
+    ctx.fillRect(SHIP.x + 20, SHIP.y - 8, SHIP.w - 40, 12);
+    ctx.fillStyle = "#a0aec0";
+    ctx.font = "12px sans-serif";
+    ctx.fillText(shipRepaired ? "Ship OK" : "Repair me", SHIP.x + 8, SHIP.y + SHIP.h / 2 + 4);
+
+    for (const p of pickups) {
+      if (p.type === "rock") {
+        ctx.fillStyle = "#718096";
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 10, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (p.type === "stick") {
+        ctx.strokeStyle = "#744210";
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.moveTo(p.x - 10, p.y + 6);
+        ctx.lineTo(p.x + 10, p.y - 6);
+        ctx.stroke();
+      }
+    }
+
+    for (const s of slimes) {
+      if (!s.alive) continue;
+      ctx.fillStyle = "#9333ea";
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, 16, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#c084fc";
+      ctx.beginPath();
+      ctx.arc(s.x - 5, s.y - 4, 4, 0, Math.PI * 2);
+      ctx.arc(s.x + 6, s.y - 2, 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.fillStyle = "#ef4444";
+    ctx.beginPath();
+    ctx.arc(START.x, START.y, 5, 0, Math.PI * 2);
+    ctx.fill();
+
+    const hx = px + facingX * (PLAYER_R + 8);
+    const hy = py + facingY * (PLAYER_R + 8);
+    ctx.fillStyle = astronautColor;
+    ctx.beginPath();
+    ctx.arc(hx, hy - 10, 8, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillRect(hx - 7, hy - 4, 14, 18);
+
+    if (attackFlash > 0 && attackBox) {
+      ctx.fillStyle = "rgba(239, 68, 68, 0.55)";
+      ctx.fillRect(attackBox.x, attackBox.y, attackBox.w, attackBox.h);
+      ctx.strokeStyle = "#dc2626";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(attackBox.x, attackBox.y, attackBox.w, attackBox.h);
+    }
+
+    ctx.restore();
+  }
+
+  function drawMiniMap() {
+    const mw = mini.width, mh = mini.height;
+    mctx.fillStyle = "#1a1510";
+    mctx.fillRect(0, 0, mw, mh);
+    mctx.fillStyle = "#0a0a0a";
+    const sx = mw / MAP_W;
+    const sy = mh / MAP_H;
+    mctx.fillRect(CRACK_X0 * sx, 0, (CRACK_X1 - CRACK_X0) * sx, mh);
+    mctx.fillStyle = "#22c55e";
+    mctx.fillRect(px * sx - 2, py * sy - 2, 4, 4);
+  }
+
+  function tryPickup() {
+    let best = null;
+    let bd = INTERACT_RANGE + 1;
+    for (const p of pickups) {
+      const d = dist(px, py, p.x, p.y);
+      if (d < bd) {
+        bd = d;
+        best = p;
+      }
+    }
+    if (best && bd <= INTERACT_RANGE) {
+      if (best.type === "rock") inventory.rocks++;
+      if (best.type === "stick") {
+        inventory.sticks++;
+        if (equipped === "hands") equipped = "stick";
+      }
+      pickups = pickups.filter((x) => x !== best);
+      saveGame();
+      return true;
+    }
+    return false;
+  }
+
+  function tryShipInteract() {
+    if (dist(px, py, SHIP.x + SHIP.w / 2, SHIP.y + SHIP.h / 2) > INTERACT_RANGE + 30) return false;
+    if (!shipRepaired) {
+      if (inventory.rocks >= SHIP_ROCKS && inventory.sticks >= SHIP_STICKS) {
+        inventory.rocks -= SHIP_ROCKS;
+        inventory.sticks -= SHIP_STICKS;
+        shipRepaired = true;
+        spawnExplorationSticks();
+        saveGame();
+        showPopup("Ship repaired! Gather more sticks in the wild to build a bridge across the dark rift.");
+        return true;
+      }
+      showPopup(`Repair: bring ${SHIP_ROCKS} rocks and ${SHIP_STICKS} sticks to the ship.`);
+      return true;
+    }
+    if (inventory.slimeCorpse > 0) {
+      inventory.slimeCorpse--;
+      inventory.cookedMeal++;
+      energy = Math.min(ENERGY_MAX, energy + MEAL_ENERGY);
+      saveGame();
+      showPopup("Cooked slime meal. Energy restored.");
+      return true;
+    }
+    showPopup("Ship: drop slime remains here to cook a meal (when you have corpses).");
+    return true;
+  }
+
+  function tryBuildBridge() {
+    if (!shipRepaired || bridgeBuilt) return false;
+    const nearBridge =
+      dist(px, py, (CRACK_X0 + CRACK_X1) / 2, MAP_H * 0.37) < INTERACT_RANGE + 40;
+    if (!nearBridge) return false;
+    if (inventory.sticks >= BRIDGE_STICKS) {
+      inventory.sticks -= BRIDGE_STICKS;
+      bridgeBuilt = true;
+      saveGame();
+      showPopup("Bridge built! You can cross the rift.");
+      return true;
+    }
+    showPopup(`Need ${BRIDGE_STICKS} sticks at the rift to build the bridge.`);
+    return true;
+  }
+
+  function doAttack() {
+    const len = Math.hypot(facingX, facingY) || 1;
+    const fx = facingX / len;
+    const fy = facingY / len;
+    const cx = px + fx * (PLAYER_R + ATTACK_RANGE);
+    const cy = py + fy * (PLAYER_R + ATTACK_RANGE);
+    let bx = cx - ATTACK_W / 2;
+    let by = cy - ATTACK_H / 2;
+    if (Math.abs(fx) > Math.abs(fy)) {
+      bx = cx + fx * 8 - (fx > 0 ? ATTACK_W : 0);
+      by = cy - ATTACK_H / 2;
+    } else {
+      bx = cx - ATTACK_W / 2;
+      by = cy + fy * 8 - (fy > 0 ? ATTACK_H : 0);
+    }
+    attackBox = { x: bx, y: by, w: ATTACK_W, h: ATTACK_H };
+    attackFlash = 220;
+
+    const dmg = weaponDamage();
+    function hitSlime(s, rx, ry, rw, rh) {
+      const cx = s.x;
+      const cy = s.y;
+      const r = 14;
+      const nx = Math.max(rx, Math.min(cx, rx + rw));
+      const ny = Math.max(ry, Math.min(cy, ry + rh));
+      return (cx - nx) * (cx - nx) + (cy - ny) * (cy - ny) <= r * r;
+    }
+    for (const s of slimes) {
+      if (!s.alive) continue;
+      if (hitSlime(s, bx, by, ATTACK_W, ATTACK_H)) {
+        s.hp -= dmg;
+        if (s.hp <= 0) {
+          s.alive = false;
+          inventory.slimeCorpse++;
+          if (!firstKillDone) {
+            firstKillDone = true;
+            daySystemOn = true;
+            dayStartTime = Date.now();
+            killThisDay = true;
+            dayHud.classList.add("show");
+            showPopup("Its getting dark! I better head back!");
+          } else {
+            killThisDay = true;
+          }
+          saveGame();
+        }
+        break;
+      }
+    }
+  }
+
+  function interactOrAttack() {
+    if (energy < 3) return;
+    if (tryShipInteract()) return;
+    if (tryBuildBridge()) return;
+    if (tryPickup()) return;
+    energy -= 4;
+    doAttack();
+    saveGame();
+  }
+
+  function showPopup(text) {
+    popupText.textContent = text;
+    popup.classList.add("show");
+  }
+
+  function hidePopup() {
+    popup.classList.remove("show");
+  }
+
+  function craft(kind) {
+    if (kind === "rope" && inventory.sticks >= 2) {
+      inventory.sticks -= 2;
+      inventory.rope++;
+    } else if (kind === "trap" && inventory.sticks >= 2 && inventory.rope >= 1) {
+      inventory.sticks -= 2;
+      inventory.rope--;
+      inventory.trap++;
+    } else if (kind === "club" && inventory.sticks >= 2 && inventory.rocks >= 1) {
+      inventory.sticks -= 2;
+      inventory.rocks--;
+      equipped = "club";
+    } else {
+      showPopup("Not enough materials.");
+      return;
+    }
+    saveGame();
+    craftPanel.classList.remove("open");
+  }
+
+  function loop() {
+    requestAnimationFrame(loop);
+    if (screen !== "play") return;
+
+    const w = gameWrap.clientWidth;
+    const h = gameWrap.clientHeight;
+    const sp = 2.15;
+    let mx = stickDx * sp;
+    let my = stickDy * sp;
+    if (Math.hypot(mx, my) > 0.1) {
+      facingX = mx;
+      facingY = my;
+    }
+    const npx = px + mx;
+    const npy = py + my;
+    if (!blockedAt(npx, py)) px = npx;
+    if (!blockedAt(px, npy)) py = npy;
+
+    if (Math.hypot(mx, my) > 0.05) {
+      energy = Math.max(0, energy - ENERGY_MOVE_DRAIN * Math.hypot(mx, my));
+    }
+
+    if (daySystemOn) {
+      const elapsed = Date.now() - dayStartTime;
+      if (elapsed >= DAY_MS) {
+        if (!killThisDay) {
+          screen = "menu";
+          menuOverlay.hidden = false;
+          hud.classList.remove("visible");
+          controls.classList.remove("visible");
+          localStorage.removeItem(SAVE_KEY);
+          showPopup("You didn't hunt in time. Game over.");
+          return;
+        }
+        dayIndex++;
+        killThisDay = false;
+        dayStartTime = Date.now();
+        saveGame();
+      }
+    }
+
+    const camX = Math.max(0, Math.min(MAP_W - w, px - w / 2));
+    const camY = Math.max(0, Math.min(MAP_H - h, py - h / 2));
+
+    ctx.fillStyle = "#0d0806";
+    ctx.fillRect(0, 0, w, h);
+    drawWorld(camX, camY, w, h);
+
+    if (attackFlash > 0) attackFlash -= 16;
+
+    energyBar.style.width = Math.max(0, energy) + "%";
+    if (daySystemOn) {
+      dayNumEl.textContent = String(dayIndex);
+      dayBar.style.width = dayBarPercent() * 100 + "%";
+    }
+
+    drawMiniMap();
+
+    if (energy <= 0) {
+      screen = "menu";
+      menuOverlay.hidden = false;
+      hud.classList.remove("visible");
+      controls.classList.remove("visible");
+      localStorage.removeItem(SAVE_KEY);
+      showPopup("Out of energy. Game over.");
+    }
+  }
+
+  function startCrashThenPlay() {
+    colorOverlay.hidden = true;
+    crashOverlay.hidden = false;
+    gameWrap.classList.toggle("crash-shake", !reduceMotion);
+    let t = 0;
+    const iv = setInterval(() => {
+      t += 1;
+      if (t > 28) {
+        clearInterval(iv);
+        crashOverlay.hidden = true;
+        gameWrap.classList.remove("crash-shake");
+        screen = "play";
+        menuOverlay.hidden = true;
+        hud.classList.add("visible");
+        controls.classList.add("visible");
+        resize();
+        saveGame();
+      }
+    }, 90);
+  }
+
+  function initColorRow() {
+    const row = document.getElementById("colorRow");
+    row.innerHTML = "";
+    colors.forEach((c) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "swatch";
+      b.style.background = c;
+      b.addEventListener("click", () => {
+        selectedColor = c;
+        row.querySelectorAll(".swatch").forEach((x) => x.classList.remove("selected"));
+        b.classList.add("selected");
+        document.getElementById("btnConfirmColor").disabled = false;
+      });
+      row.appendChild(b);
+    });
+  }
+
+  document.getElementById("btnNew").addEventListener("click", () => {
+    menuOverlay.hidden = true;
+    colorOverlay.hidden = false;
+    initColorRow();
+    selectedColor = null;
+    document.getElementById("btnConfirmColor").disabled = true;
+  });
+
+  document.getElementById("btnConfirmColor").addEventListener("click", () => {
+    if (!selectedColor) return;
+    resetWorldForNewGame(selectedColor);
+    startCrashThenPlay();
+  });
+
+  document.getElementById("btnBackMenu").addEventListener("click", () => {
+    colorOverlay.hidden = true;
+    menuOverlay.hidden = false;
+  });
+
+  document.getElementById("btnLoad").addEventListener("click", () => {
+    if (!loadGame()) {
+      showPopup("No save found on this device.");
+      return;
+    }
+    screen = "play";
+    menuOverlay.hidden = true;
+    hud.classList.add("visible");
+    controls.classList.add("visible");
+    resize();
+    if (daySystemOn) dayHud.classList.add("show");
+  });
+
+  document.getElementById("btnSettings").addEventListener("click", () => {
+    menuOverlay.hidden = true;
+    settingsOverlay.hidden = false;
+    document.getElementById("setReduceMotion").checked = reduceMotion;
+  });
+
+  document.getElementById("btnSettingsClose").addEventListener("click", () => {
+    reduceMotion = document.getElementById("setReduceMotion").checked;
+    settingsOverlay.hidden = true;
+    menuOverlay.hidden = false;
+  });
+
+  document.getElementById("popupOk").addEventListener("click", hidePopup);
+
+  document.getElementById("btnCraft").addEventListener("click", () => {
+    craftPanel.classList.toggle("open");
+  });
+  document.getElementById("craftClose").addEventListener("click", () => craftPanel.classList.remove("open"));
+  craftPanel.querySelectorAll("[data-craft]").forEach((btn) => {
+    btn.addEventListener("click", () => craft(btn.getAttribute("data-craft")));
+  });
+
+  document.getElementById("btnAction").addEventListener("click", interactOrAttack);
+
+  function stickStart(clientX, clientY) {
+    const r = stickZone.getBoundingClientRect();
+    stickCx = r.left + r.width / 2;
+    stickCy = r.top + r.height / 2;
+    const dx = clientX - stickCx;
+    const dy = clientY - stickCy;
+    const max = r.width / 2 - 28;
+    const len = Math.hypot(dx, dy) || 1;
+    const c = Math.min(max, len);
+    stickDx = (dx / len) * (c / max);
+    stickDy = (dy / len) * (c / max);
+    stickKnob.style.left = 50 + stickDx * 35 + "%";
+    stickKnob.style.top = 50 + stickDy * 35 + "%";
+  }
+
+  function stickEnd() {
+    stickDx = 0;
+    stickDy = 0;
+    stickKnob.style.left = "50%";
+    stickKnob.style.top = "50%";
+  }
+
+  stickZone.addEventListener("touchstart", (e) => {
+    e.preventDefault();
+    if (stickTouchId != null) return;
+    const t = e.changedTouches[0];
+    stickTouchId = t.identifier;
+    stickStart(t.clientX, t.clientY);
+  }, { passive: false });
+
+  stickZone.addEventListener("touchmove", (e) => {
+    e.preventDefault();
+    for (const t of e.changedTouches) {
+      if (t.identifier === stickTouchId) {
+        stickStart(t.clientX, t.clientY);
+        break;
+      }
+    }
+  }, { passive: false });
+
+  stickZone.addEventListener("touchend", (e) => {
+    e.preventDefault();
+    for (const t of e.changedTouches) {
+      if (t.identifier === stickTouchId) {
+        stickTouchId = null;
+        stickEnd();
+        break;
+      }
+    }
+  }, { passive: false });
+
+  stickZone.addEventListener("mousedown", (e) => {
+    stickStart(e.clientX, e.clientY);
+    const mm = (ev) => stickStart(ev.clientX, ev.clientY);
+    const mu = () => {
+      window.removeEventListener("mousemove", mm);
+      window.removeEventListener("mouseup", mu);
+      stickEnd();
+    };
+    window.addEventListener("mousemove", mm);
+    window.addEventListener("mouseup", mu);
+  });
+
+  window.addEventListener("keydown", (e) => {
+    if (screen !== "play") return;
+    const k = e.key.toLowerCase();
+    let dx = 0, dy = 0;
+    if (k === "w" || k === "arrowup") dy = -1;
+    if (k === "s" || k === "arrowdown") dy = 1;
+    if (k === "a" || k === "arrowleft") dx = -1;
+    if (k === "d" || k === "arrowright") dx = 1;
+    if (dx || dy) {
+      const L = Math.hypot(dx, dy);
+      stickDx = dx / L;
+      stickDy = dy / L;
+      facingX = dx;
+      facingY = dy;
+    }
+    if (k === "e" || k === " ") interactOrAttack();
+  });
+
+  window.addEventListener("keyup", (e) => {
+    const k = e.key.toLowerCase();
+    if (["w","a","s","d","arrowup","arrowdown","arrowleft","arrowright"].includes(k)) {
+      stickDx = 0;
+      stickDy = 0;
+    }
+  });
+
+  window.addEventListener("resize", resize);
+  resize();
+  requestAnimationFrame(loop);
+})();
+  </script>
 </body>
 </html>
