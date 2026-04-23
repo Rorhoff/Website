@@ -13,6 +13,8 @@
   - Movement: keyboard = one fixed step per keydown in applyKeyboardStep (e.repeat ignored);
     thumbstick = smooth velocity in loop(). Do not mix both for the same frame without intent.
   - World layout: placePickupsForNewGame, spawnSticksInWorld, SHIP / START coordinates.
+  - Fog: FOG_CELL / FOG_REVEAL_RADIUS + fogBytes in save; drawWorld draws fog over unexplored cells.
+  - Bag UI: #bagPanel (Inventory + Craft tabs); pickups require Interact only.
   =========================================================================
 -->
 <html lang="en">
@@ -122,7 +124,7 @@
       display: none !important;
       pointer-events: none;
     }
-    /* Full-screen menus must sit above in-game UI (craft panel, popups). */
+    /* Full-screen menus must sit above in-game UI (bag panel, popups). */
     .overlay-menu-layer {
       z-index: 120;
     }
@@ -259,31 +261,82 @@
       display: none;
     }
     #hud.visible ~ #miniMap, #controls.visible ~ #miniMap { display: block; }
-    #craftPanel {
+    #bagPanel {
       position: absolute;
       left: 50%;
       bottom: 28%;
       transform: translateX(-50%);
-      width: min(320px, 92vw);
+      width: min(340px, 92vw);
+      max-height: min(52vh, 420px);
+      overflow: hidden;
+      display: none;
+      flex-direction: column;
       background: rgba(15, 23, 42, 0.97);
       border: 1px solid var(--border);
       border-radius: 12px;
-      padding: 0.75rem;
+      padding: 0;
       z-index: 25;
-      display: none;
       pointer-events: auto;
     }
-    #craftPanel.open { display: block; }
-    #craftPanel h3 { margin: 0 0 0.5rem; font-size: 0.95rem; }
+    #bagPanel.open { display: flex; }
+    .bag-tabs {
+      display: flex;
+      border-bottom: 1px solid var(--border);
+    }
+    .bag-tab {
+      flex: 1;
+      padding: 0.65rem 0.5rem;
+      border: none;
+      background: rgba(0,0,0,0.25);
+      color: var(--muted);
+      font-weight: 600;
+      font-size: 0.85rem;
+      cursor: pointer;
+      touch-action: manipulation;
+    }
+    .bag-tab.active {
+      background: var(--surface);
+      color: var(--heading);
+      border-bottom: 2px solid var(--accent);
+      margin-bottom: -1px;
+    }
+    .bag-body {
+      padding: 0.75rem;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      flex: 1;
+      min-height: 0;
+    }
+    .inv-line {
+      display: flex;
+      justify-content: space-between;
+      padding: 0.35rem 0;
+      font-size: 0.85rem;
+      border-bottom: 1px solid rgba(42, 53, 72, 0.6);
+    }
+    .inv-line:last-child { border-bottom: none; }
     .recipe {
       display: flex;
       justify-content: space-between;
       align-items: center;
+      gap: 0.5rem;
       padding: 0.45rem 0;
       border-bottom: 1px solid var(--border);
       font-size: 0.8rem;
     }
     .recipe:last-child { border-bottom: none; }
+    .craft-count {
+      color: #22c55e;
+      font-weight: 700;
+      min-width: 2rem;
+      text-align: right;
+    }
+    .recipe .btn { max-width: 72px; padding: 0.35rem 0.5rem; margin: 0; font-size: 0.75rem; }
+    #bagClose {
+      margin: 0 0.75rem 0.75rem;
+      width: calc(100% - 1.5rem);
+      max-width: none;
+    }
     #popup {
       position: absolute;
       left: 50%;
@@ -319,8 +372,10 @@
         <canvas id="gameCanvas" aria-label="Game world"></canvas>
 
         <div id="hud">
-          <div class="hud-label">Energy</div>
-          <div class="bar-wrap"><div id="energyBar" class="bar-fill bar-energy" style="width:100%"></div></div>
+          <div id="energyHudBlock" hidden>
+            <div class="hud-label">Energy</div>
+            <div class="bar-wrap"><div id="energyBar" class="bar-fill bar-energy" style="width:100%"></div></div>
+          </div>
           <div id="dayHud">
             <div class="hud-label">Day <span id="dayNum">1</span> — hunt before night</div>
             <div class="bar-wrap"><div id="dayBar" class="bar-fill bar-day" style="width:100%"></div></div>
@@ -331,17 +386,43 @@
         <div id="controls">
           <div id="stickZone" aria-hidden="true"><div id="stickKnob"></div></div>
           <div class="action-stack">
-            <button type="button" class="action-btn" id="btnCraft">Craft</button>
+            <button type="button" class="action-btn" id="btnBag">Inventory</button>
             <button type="button" class="action-btn attack" id="btnAction">Interact / Attack</button>
           </div>
         </div>
 
-        <div id="craftPanel">
-          <h3>Crafting</h3>
-          <div class="recipe">Rope (2 sticks) <button type="button" class="btn" style="max-width:88px;padding:0.4rem;margin:0" data-craft="rope">Make</button></div>
-          <div class="recipe">Trap (2 sticks + rope) <button type="button" class="btn" style="max-width:88px;padding:0.4rem;margin:0" data-craft="trap">Make</button></div>
-          <div class="recipe">Club (2 sticks + rock) <button type="button" class="btn" style="max-width:88px;padding:0.4rem;margin:0" data-craft="club">Make</button></div>
-          <button type="button" class="btn" style="margin-top:0.6rem" id="craftClose">Close</button>
+        <div id="bagPanel">
+          <div class="bag-tabs">
+            <button type="button" class="bag-tab active" data-bagtab="inv">Inventory</button>
+            <button type="button" class="bag-tab" data-bagtab="craft">Craft</button>
+          </div>
+          <div class="bag-body" id="bagTabInv">
+            <div class="inv-line"><span>Sticks</span><span id="invSticks">0</span></div>
+            <div class="inv-line"><span>Rocks</span><span id="invRocks">0</span></div>
+            <div class="inv-line"><span>Rope</span><span id="invRope">0</span></div>
+            <div class="inv-line"><span>Traps</span><span id="invTrap">0</span></div>
+            <div class="inv-line"><span>Slime remains</span><span id="invCorpse">0</span></div>
+            <div class="inv-line"><span>Cooked meals</span><span id="invMeals">0</span></div>
+            <div class="inv-line"><span>Weapon</span><span id="invEquipped">Hands</span></div>
+          </div>
+          <div class="bag-body" id="bagTabCraft" hidden>
+            <div class="recipe">
+              <span>Rope (2 sticks)</span>
+              <span class="craft-count" id="craftMaxRope">0</span>
+              <button type="button" class="btn" data-craft="rope">Make</button>
+            </div>
+            <div class="recipe">
+              <span>Trap (2 sticks + rope)</span>
+              <span class="craft-count" id="craftMaxTrap">0</span>
+              <button type="button" class="btn" data-craft="trap">Make</button>
+            </div>
+            <div class="recipe">
+              <span>Club (2 sticks + rock)</span>
+              <span class="craft-count" id="craftMaxClub">0</span>
+              <button type="button" class="btn" data-craft="club">Make</button>
+            </div>
+          </div>
+          <button type="button" class="btn" id="bagClose">Close</button>
         </div>
 
       </div>
@@ -381,15 +462,20 @@
   const SAVE_KEY = "lost_in_space_save_v1";
   const MAP_W = 3200;
   const MAP_H = 2200;
-  const CRACK_X0 = MAP_W * 0.46;
-  const CRACK_X1 = MAP_W * 0.54;
+  const CRACK_X0 = MAP_W * 0.485;
+  const CRACK_X1 = MAP_W * 0.515;
   const PLAYER_R = 14;
   const SHIP = { x: MAP_W - 220, y: MAP_H - 200, w: 100, h: 70 };
   const START = { x: MAP_W - 120, y: MAP_H - 140 };
-  const INTERACT_RANGE = 52;
-  /** Auto-collect sticks/rocks when the player walks onto them (smaller than interact button range). */
-  const PICKUP_TOUCH_R = PLAYER_R + 14;
-  const ATTACK_RANGE = 38;
+  const INTERACT_RANGE = 78;
+  const FOG_CELL = 48;
+  const FOG_REVEAL_RADIUS = 130;
+  const fogCols = Math.ceil(MAP_W / FOG_CELL);
+  const fogRows = Math.ceil(MAP_H / FOG_CELL);
+  const fogCellCount = fogCols * fogRows;
+  const fogByteLength = Math.ceil(fogCellCount / 8);
+  const fogBytes = new Uint8Array(fogByteLength);
+  const ATTACK_RANGE = 58;
   const ATTACK_W = 36;
   const ATTACK_H = 28;
   const DAY_MS = 70000;
@@ -415,6 +501,7 @@
   const hud = document.getElementById("hud");
   const controls = document.getElementById("controls");
   const energyBar = document.getElementById("energyBar");
+  const energyHudBlock = document.getElementById("energyHudBlock");
   const dayHud = document.getElementById("dayHud");
   const dayBar = document.getElementById("dayBar");
   const dayNumEl = document.getElementById("dayNum");
@@ -423,7 +510,7 @@
   const gameWrap = document.getElementById("gameWrap");
   const stickZone = document.getElementById("stickZone");
   const stickKnob = document.getElementById("stickKnob");
-  const craftPanel = document.getElementById("craftPanel");
+  const bagPanel = document.getElementById("bagPanel");
   const popup = document.getElementById("popup");
   const popupText = document.getElementById("popupText");
 
@@ -453,6 +540,8 @@
   let dayStartTime = 0;
   let killThisDay = false;
   let energy = ENERGY_MAX;
+  /** Energy bar UI hidden until player crosses west of the rift (slime side); then stays on. */
+  let energyHudUnlocked = false;
 
   let pickups = [];
   let slimes = [];
@@ -504,10 +593,11 @@
     let npy = py + ny;
     if (!blockedAt(npx, py)) px = npx;
     if (!blockedAt(px, npy)) py = npy;
-    autoPickupOnOverlap();
+    revealFogAroundPlayer();
     facingX = dir.dx;
     facingY = dir.dy;
     energy = Math.max(0, energy - ENERGY_MOVE_DRAIN * Math.hypot(nx, ny));
+    checkCrackCrossedForEnergyHud();
     saveGame();
     return true;
   }
@@ -515,6 +605,42 @@
   function resetMovementInput() {
     stickTouchId = null;
     stickEnd();
+  }
+
+  // --- Fog of war (bit-packed grid; persisted in save; reveal disk follows player) ---
+
+  function fogGet(i) {
+    if (i < 0 || i >= fogCellCount) return 1;
+    return (fogBytes[i >> 3] >> (i & 7)) & 1;
+  }
+
+  function fogSet(i) {
+    if (i < 0 || i >= fogCellCount) return;
+    fogBytes[i >> 3] |= 1 << (i & 7);
+  }
+
+  function fogCellIndex(cx, cy) {
+    return cx + cy * fogCols;
+  }
+
+  function resetFog() {
+    fogBytes.fill(0);
+  }
+
+  function revealFogAroundPlayer() {
+    const r = FOG_REVEAL_RADIUS;
+    const cs = FOG_CELL;
+    const minCx = Math.max(0, Math.floor((px - r) / cs));
+    const maxCx = Math.min(fogCols - 1, Math.floor((px + r) / cs));
+    const minCy = Math.max(0, Math.floor((py - r) / cs));
+    const maxCy = Math.min(fogRows - 1, Math.floor((py + r) / cs));
+    for (let cy = minCy; cy <= maxCy; cy++) {
+      for (let cx = minCx; cx <= maxCx; cx++) {
+        const cwx = cx * cs + cs * 0.5;
+        const cwy = cy * cs + cs * 0.5;
+        if (dist(px, py, cwx, cwy) <= r) fogSet(fogCellIndex(cx, cy));
+      }
+    }
   }
 
   // --- World geometry & movement blocking (rift needs bridgeBuilt to cross) ---
@@ -589,6 +715,19 @@
     }
   }
 
+  function updateEnergyHudVisibility() {
+    energyHudBlock.hidden = !energyHudUnlocked;
+  }
+
+  /** West of rift (x < crack): slime territory; crossing after bridge exists reveals energy bar. */
+  function checkCrackCrossedForEnergyHud() {
+    if (energyHudUnlocked || !bridgeBuilt) return;
+    if (px + PLAYER_R < CRACK_X0) {
+      energyHudUnlocked = true;
+      updateEnergyHudVisibility();
+    }
+  }
+
   function resetWorldForNewGame(color) {
     astronautColor = color;
     px = START.x;
@@ -604,9 +743,13 @@
     dayIndex = 1;
     killThisDay = false;
     energy = ENERGY_MAX;
+    energyHudUnlocked = false;
     dayHud.classList.remove("show");
+    resetFog();
     placePickupsForNewGame();
     spawnSlimes();
+    revealFogAroundPlayer();
+    updateEnergyHudVisibility();
   }
 
   // --- Combat helpers ---
@@ -635,8 +778,10 @@
       dayStartTime: daySystemOn ? dayStartTime : 0,
       killThisDay,
       energy,
+      energyHudUnlocked,
       pickups: pickups.map((p) => ({ ...p })),
       slimes: slimes.map((s) => ({ ...s })),
+      fog: Array.from(fogBytes),
     };
     try {
       localStorage.setItem(SAVE_KEY, JSON.stringify(data));
@@ -671,8 +816,19 @@
       dayIndex = data.dayIndex || 1;
       killThisDay = !!data.killThisDay;
       energy = Math.min(ENERGY_MAX, Math.max(0, data.energy ?? ENERGY_MAX));
+      energyHudUnlocked = !!data.energyHudUnlocked;
       pickups = Array.isArray(data.pickups) ? data.pickups : [];
       slimes = Array.isArray(data.slimes) ? data.slimes : [];
+      if (Array.isArray(data.fog) && data.fog.length === fogByteLength) {
+        fogBytes.set(data.fog);
+      } else {
+        fogBytes.fill(0);
+      }
+      revealFogAroundPlayer();
+      if (!energyHudUnlocked && bridgeBuilt && px + PLAYER_R < CRACK_X0) {
+        energyHudUnlocked = true;
+      }
+      updateEnergyHudVisibility();
       if (daySystemOn) {
         dayStartTime =
           typeof data.dayStartTime === "number" && data.dayStartTime > 0
@@ -803,22 +959,55 @@
       ctx.strokeRect(attackBox.x, attackBox.y, attackBox.w, attackBox.h);
     }
 
+    ctx.fillStyle = "rgba(4, 4, 8, 0.96)";
+    for (let cy = 0; cy < fogRows; cy++) {
+      for (let cx = 0; cx < fogCols; cx++) {
+        if (fogGet(fogCellIndex(cx, cy))) continue;
+        ctx.fillRect(cx * FOG_CELL, cy * FOG_CELL, FOG_CELL + 1, FOG_CELL + 1);
+      }
+    }
+
     ctx.restore();
   }
 
   function drawMiniMap() {
-    const mw = mini.width, mh = mini.height;
-    mctx.fillStyle = "#1a1510";
-    mctx.fillRect(0, 0, mw, mh);
-    mctx.fillStyle = "#0a0a0a";
+    const mw = mini.width;
+    const mh = mini.height;
     const sx = mw / MAP_W;
     const sy = mh / MAP_H;
+    mctx.fillStyle = "#0d0a08";
+    mctx.fillRect(0, 0, mw, mh);
+    mctx.fillStyle = "#2a2015";
+    for (let cy = 0; cy < fogRows; cy++) {
+      for (let cx = 0; cx < fogCols; cx++) {
+        if (!fogGet(fogCellIndex(cx, cy))) continue;
+        mctx.fillRect(
+          cx * FOG_CELL * sx,
+          cy * FOG_CELL * sy,
+          Math.ceil(FOG_CELL * sx) + 1,
+          Math.ceil(FOG_CELL * sy) + 1
+        );
+      }
+    }
+    mctx.fillStyle = "#0a0a0a";
     mctx.fillRect(CRACK_X0 * sx, 0, (CRACK_X1 - CRACK_X0) * sx, mh);
+    for (let cy = 0; cy < fogRows; cy++) {
+      for (let cx = 0; cx < fogCols; cx++) {
+        if (fogGet(fogCellIndex(cx, cy))) continue;
+        mctx.fillStyle = "rgba(0,0,0,0.88)";
+        mctx.fillRect(
+          cx * FOG_CELL * sx,
+          cy * FOG_CELL * sy,
+          Math.ceil(FOG_CELL * sx) + 1,
+          Math.ceil(FOG_CELL * sy) + 1
+        );
+      }
+    }
     mctx.fillStyle = "#22c55e";
     mctx.fillRect(px * sx - 2, py * sy - 2, 4, 4);
   }
 
-  // --- Pickups: walk-over + button interact range ---
+  // --- Pickups: Interact / Attack only (no walk-over) ---
 
   function applyPickup(p) {
     if (p.type === "rock") inventory.rocks++;
@@ -826,17 +1015,6 @@
       inventory.sticks++;
       if (equipped === "hands") equipped = "stick";
     }
-  }
-
-  function autoPickupOnOverlap() {
-    let changed = false;
-    pickups = pickups.filter((p) => {
-      if (dist(px, py, p.x, p.y) > PICKUP_TOUCH_R) return true;
-      applyPickup(p);
-      changed = true;
-      return false;
-    });
-    if (changed) saveGame();
   }
 
   function tryPickup() {
@@ -853,6 +1031,7 @@
       applyPickup(best);
       pickups = pickups.filter((x) => x !== best);
       saveGame();
+      if (bagPanel.classList.contains("open")) refreshBagPanel();
       return true;
     }
     return false;
@@ -975,7 +1154,37 @@
     popup.classList.remove("show");
   }
 
-  // --- Crafting recipes (UI in #craftPanel) ---
+  function maxCraftRope() {
+    return Math.floor(inventory.sticks / 2);
+  }
+  function maxCraftTrap() {
+    return Math.min(Math.floor(inventory.sticks / 2), inventory.rope);
+  }
+  function maxCraftClub() {
+    return Math.min(Math.floor(inventory.sticks / 2), inventory.rocks);
+  }
+
+  function refreshBagPanel() {
+    document.getElementById("invSticks").textContent = String(inventory.sticks);
+    document.getElementById("invRocks").textContent = String(inventory.rocks);
+    document.getElementById("invRope").textContent = String(inventory.rope);
+    document.getElementById("invTrap").textContent = String(inventory.trap);
+    document.getElementById("invCorpse").textContent = String(inventory.slimeCorpse);
+    document.getElementById("invMeals").textContent = String(inventory.cookedMeal);
+    const eq =
+      equipped === "club" ? "Club" : equipped === "stick" ? "Stick" : "Hands";
+    document.getElementById("invEquipped").textContent = eq;
+    document.getElementById("craftMaxRope").textContent = String(maxCraftRope());
+    document.getElementById("craftMaxTrap").textContent = String(maxCraftTrap());
+    document.getElementById("craftMaxClub").textContent = String(maxCraftClub());
+    bagPanel.querySelectorAll("[data-craft]").forEach((btn) => {
+      const k = btn.getAttribute("data-craft");
+      const n = k === "rope" ? maxCraftRope() : k === "trap" ? maxCraftTrap() : maxCraftClub();
+      btn.disabled = n <= 0;
+    });
+  }
+
+  // --- Crafting (Craft tab in #bagPanel) ---
 
   function craft(kind) {
     if (kind === "rope" && inventory.sticks >= 2) {
@@ -994,7 +1203,7 @@
       return;
     }
     saveGame();
-    craftPanel.classList.remove("open");
+    refreshBagPanel();
   }
 
   // --- Main loop: thumbstick movement only; keyboard steps run in applyKeyboardStep on keydown ---
@@ -1016,7 +1225,8 @@
     const npy = py + my;
     if (!blockedAt(npx, py)) px = npx;
     if (!blockedAt(px, npy)) py = npy;
-    autoPickupOnOverlap();
+    revealFogAroundPlayer();
+    checkCrackCrossedForEnergyHud();
 
     if (Math.hypot(mx, my) > 0.05) {
       energy = Math.max(0, energy - ENERGY_MOVE_DRAIN * Math.hypot(mx, my));
@@ -1060,6 +1270,8 @@
     }
 
     drawMiniMap();
+
+    if (bagPanel.classList.contains("open")) refreshBagPanel();
 
     if (energy <= 0) {
       screen = "menu";
@@ -1145,11 +1357,21 @@
 
   document.getElementById("popupOk").addEventListener("click", hidePopup);
 
-  document.getElementById("btnCraft").addEventListener("click", () => {
-    craftPanel.classList.toggle("open");
+  document.getElementById("btnBag").addEventListener("click", () => {
+    bagPanel.classList.toggle("open");
+    if (bagPanel.classList.contains("open")) refreshBagPanel();
   });
-  document.getElementById("craftClose").addEventListener("click", () => craftPanel.classList.remove("open"));
-  craftPanel.querySelectorAll("[data-craft]").forEach((btn) => {
+  document.getElementById("bagClose").addEventListener("click", () => bagPanel.classList.remove("open"));
+  document.querySelectorAll("[data-bagtab]").forEach((tab) => {
+    tab.addEventListener("click", () => {
+      const id = tab.getAttribute("data-bagtab");
+      document.querySelectorAll("[data-bagtab]").forEach((t) => t.classList.toggle("active", t === tab));
+      document.getElementById("bagTabInv").hidden = id !== "inv";
+      document.getElementById("bagTabCraft").hidden = id !== "craft";
+      refreshBagPanel();
+    });
+  });
+  bagPanel.querySelectorAll("[data-craft]").forEach((btn) => {
     btn.addEventListener("click", () => craft(btn.getAttribute("data-craft")));
   });
 
