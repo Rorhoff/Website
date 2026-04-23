@@ -6,15 +6,15 @@
   Served at /lost-in-space/ via FastAPI mount in main.py (static/lost-in-space/).
 
   Quick edit map:
-  - Game balance: <script> constants (MAP_W/H, ENERGY_*, KEYBOARD_STEP_PX, SHIP_*, BRIDGE_STICKS, …).
+  - Game balance: <script> constants (MAP_W/H, ENERGY_*, KEYBOARD_STEP_PX, SHIP_*, CRAFT_BRIDGE_STICKS, …).
   - Saves: localStorage key SAVE_KEY — bump version string if you change save JSON shape.
   - Menus: #menuOverlay, #colorOverlay; overlays must keep .overlay[hidden]{display:none!important}
     or hidden="" will not work (display:flex wins otherwise).
-  - Movement: keyboard = Arrow/WASD held in keysHeld; one KEYBOARD_STEP_PX per frame when stick idle (no double-move).
-    thumbstick = smooth velocity when deflected; keyboard ignored that frame while stick is used.
+  - Movement: keyboard held in keysHeld, one step per KEYBOARD_MOVE_INTERVAL_MS; stick uses sp≈1.48 (keyboard idle).
+  - Energy bar: #energyHudBlock visible only when bridgeBuilt && player west of crack (px+PLAYER_R < CRACK_X0).
   - World layout: placePickupsForNewGame, spawnSticksInWorld, SHIP / START coordinates.
   - Fog: fogBytes in save (cell centers); main view also carves a soft circle by distance-to-tile vs FOG_REVEAL_RADIUS + FOG_EDGE_FEATHER.
-  - Bag UI: #bagPanel (Inventory + Craft + Save tabs); pickups require Interact only.
+  - Bag UI: #bagPanel (Inventory + Craft + Save); Craft includes bridge (4 sticks → kit, place at rift).
   =========================================================================
 -->
 <html lang="en">
@@ -417,6 +417,7 @@
             <div class="inv-line"><span>Traps</span><span id="invTrap">0</span></div>
             <div class="inv-line"><span>Slime remains</span><span id="invCorpse">0</span></div>
             <div class="inv-line"><span>Cooked meals</span><span id="invMeals">0</span></div>
+            <div class="inv-line"><span>Bridge kits</span><span id="invBridgeKit">0</span></div>
             <div class="inv-line"><span>Weapon</span><span id="invEquipped">Hands</span></div>
           </div>
           <div class="bag-body" id="bagTabCraft" hidden>
@@ -434,6 +435,11 @@
               <span>Club (2 sticks + rock)</span>
               <span class="craft-count" id="craftMaxClub">0</span>
               <button type="button" class="btn" data-craft="club">Make</button>
+            </div>
+            <div class="recipe">
+              <span>Bridge (4 sticks)</span>
+              <span class="craft-count" id="craftMaxBridge">0</span>
+              <button type="button" class="btn" data-craft="bridge">Make</button>
             </div>
           </div>
           <div class="bag-body" id="bagTabSave" hidden>
@@ -493,7 +499,7 @@
   const FOG_CELL = 48;
   const FOG_REVEAL_RADIUS = 142;
   /** Pixels: radial feather past reveal radius so fog tiles fade in smoothly (visual only; save grid unchanged). */
-  const FOG_EDGE_FEATHER = 72;
+  const FOG_EDGE_FEATHER = 100;
   const fogCols = Math.ceil(MAP_W / FOG_CELL);
   const fogRows = Math.ceil(MAP_H / FOG_CELL);
   const fogCellCount = fogCols * fogRows;
@@ -503,16 +509,19 @@
   const ATTACK_W = 36;
   const ATTACK_H = 28;
   const DAY_MS = 70000;
-  const ENERGY_MAX = 200;
-  const ENERGY_MOVE_DRAIN = 0.018;
-  const MEAL_ENERGY = 90;
+  const ENERGY_MAX = 300;
+  const ENERGY_MOVE_DRAIN = 0.014;
+  const MEAL_ENERGY = 300;
   /** Extra sticks scattered at new game (not only after ship repair). */
   const EARLY_WORLD_STICKS = 14;
-  /** One arrow/WASD press = exactly this many world pixels (auto-repeat does not add steps). */
+  /** One keyboard step = this many world pixels (held keys are throttled by KEYBOARD_MOVE_INTERVAL_MS). */
   const KEYBOARD_STEP_PX = 22;
+  /** ~pace of old single keydowns while holding a key (lower = faster walk). */
+  const KEYBOARD_MOVE_INTERVAL_MS = 88;
   const SHIP_ROCKS = 3;
   const SHIP_STICKS = 3;
-  const BRIDGE_STICKS = 5;
+  /** Sticks to craft one bridge kit (place at rift with Interact). */
+  const CRAFT_BRIDGE_STICKS = 4;
   const SLIME_HP = 5;
   const DMG = { hands: 1, stick: 2, club: 5 };
 
@@ -553,7 +562,7 @@
   let facingX = 0, facingY = 1;
   let astronautColor = "#38bdf8";
 
-  let inventory = { sticks: 0, rocks: 0, rope: 0, trap: 0, slimeCorpse: 0, cookedMeal: 0 };
+  let inventory = { sticks: 0, rocks: 0, rope: 0, trap: 0, slimeCorpse: 0, cookedMeal: 0, bridgeKit: 0 };
   let equipped = "hands";
 
   let shipRepaired = false;
@@ -564,8 +573,6 @@
   let dayStartTime = 0;
   let killThisDay = false;
   let energy = ENERGY_MAX;
-  /** Energy bar UI hidden until player crosses west of the rift (slime side); then stays on. */
-  let energyHudUnlocked = false;
 
   let pickups = [];
   let slimes = [];
@@ -576,8 +583,9 @@
   let stickCx = 0, stickCy = 0, stickDx = 0, stickDy = 0;
   /** Arrow / WASD codes currently held (keyup clears). */
   const keysHeld = new Set();
+  let lastKeyboardMoveAt = 0;
 
-  // --- Keyboard: held keys → at most one step per frame while stick is idle ---
+  // --- Keyboard: held keys throttled; stick idle → keyboard moves (not both) ---
 
   function stepDirectionFromEvent(e) {
     switch (e.code) {
@@ -624,7 +632,6 @@
     facingX = dir.dx;
     facingY = dir.dy;
     energy = Math.max(0, energy - ENERGY_MOVE_DRAIN * Math.hypot(nx, ny));
-    checkCrackCrossedForEnergyHud();
     saveGameThrottledFromMove();
   }
 
@@ -653,6 +660,7 @@
     stickTouchId = null;
     stickEnd();
     keysHeld.clear();
+    lastKeyboardMoveAt = 0;
   }
 
   // --- Fog of war (bit-packed grid; persisted in save; reveal disk follows player) ---
@@ -712,11 +720,11 @@
   }
 
   function fogEdgeAlpha(cardinalExplored) {
-    if (cardinalExplored <= 0) return 0.94;
-    if (cardinalExplored === 1) return 0.8;
-    if (cardinalExplored === 2) return 0.58;
-    if (cardinalExplored === 3) return 0.36;
-    return 0.2;
+    if (cardinalExplored <= 0) return 0.78;
+    if (cardinalExplored === 1) return 0.64;
+    if (cardinalExplored === 2) return 0.46;
+    if (cardinalExplored === 3) return 0.26;
+    return 0.12;
   }
 
   function resetFog() {
@@ -799,7 +807,7 @@
   }
 
   function spawnExplorationSticks() {
-    spawnSticksInWorld(BRIDGE_STICKS + 3, 180);
+    spawnSticksInWorld(CRAFT_BRIDGE_STICKS + 4, 180);
   }
 
   function spawnSlimes() {
@@ -811,17 +819,10 @@
     }
   }
 
+  /** Energy bar only with bridge built and player west of the rift (crossed to slime side). */
   function updateEnergyHudVisibility() {
-    energyHudBlock.hidden = !energyHudUnlocked;
-  }
-
-  /** West of rift (x < crack): slime territory; crossing after bridge exists reveals energy bar. */
-  function checkCrackCrossedForEnergyHud() {
-    if (energyHudUnlocked || !bridgeBuilt) return;
-    if (px + PLAYER_R < CRACK_X0) {
-      energyHudUnlocked = true;
-      updateEnergyHudVisibility();
-    }
+    const show = bridgeBuilt && px + PLAYER_R < CRACK_X0;
+    energyHudBlock.hidden = !show;
   }
 
   function resetWorldForNewGame(color) {
@@ -830,7 +831,7 @@
     py = START.y;
     facingX = 0;
     facingY = 1;
-    inventory = { sticks: 0, rocks: 0, rope: 0, trap: 0, slimeCorpse: 0, cookedMeal: 0 };
+    inventory = { sticks: 0, rocks: 0, rope: 0, trap: 0, slimeCorpse: 0, cookedMeal: 0, bridgeKit: 0 };
     equipped = "hands";
     shipRepaired = false;
     bridgeBuilt = false;
@@ -839,7 +840,6 @@
     dayIndex = 1;
     killThisDay = false;
     energy = ENERGY_MAX;
-    energyHudUnlocked = false;
     dayHud.classList.remove("show");
     resetFog();
     placePickupsForNewGame();
@@ -874,7 +874,6 @@
       dayStartTime: daySystemOn ? dayStartTime : 0,
       killThisDay,
       energy,
-      energyHudUnlocked,
       pickups: pickups.map((p) => ({ ...p })),
       slimes: slimes.map((s) => ({ ...s })),
       fog: Array.from(fogBytes),
@@ -905,7 +904,16 @@
       py = data.py ?? START.y;
       facingX = data.facingX ?? 0;
       facingY = data.facingY ?? 1;
-      inventory = { sticks: 0, rocks: 0, rope: 0, trap: 0, slimeCorpse: 0, cookedMeal: 0, ...data.inventory };
+      inventory = {
+        sticks: 0,
+        rocks: 0,
+        rope: 0,
+        trap: 0,
+        slimeCorpse: 0,
+        cookedMeal: 0,
+        bridgeKit: 0,
+        ...data.inventory,
+      };
       equipped = data.equipped || "hands";
       shipRepaired = !!data.shipRepaired;
       bridgeBuilt = !!data.bridgeBuilt;
@@ -914,7 +922,6 @@
       dayIndex = data.dayIndex || 1;
       killThisDay = !!data.killThisDay;
       energy = Math.min(ENERGY_MAX, Math.max(0, data.energy ?? ENERGY_MAX));
-      energyHudUnlocked = !!data.energyHudUnlocked;
       pickups = Array.isArray(data.pickups) ? data.pickups : [];
       slimes = Array.isArray(data.slimes) ? data.slimes : [];
       if (Array.isArray(data.fog) && data.fog.length === fogByteLength) {
@@ -923,9 +930,6 @@
         fogBytes.fill(0);
       }
       revealFogAroundPlayer();
-      if (!energyHudUnlocked && bridgeBuilt && px + PLAYER_R < CRACK_X0) {
-        energyHudUnlocked = true;
-      }
       updateEnergyHudVisibility();
       if (daySystemOn) {
         dayStartTime =
@@ -1063,7 +1067,7 @@
         if (fogGet(fogCellIndex(cx, cy))) continue;
         const a = fogUnexploredCellAlpha(cx, cy);
         if (a == null || a < 0.02) continue;
-        ctx.fillStyle = `rgba(6, 5, 14, ${a})`;
+        ctx.fillStyle = `rgba(14, 16, 30, ${a})`;
         ctx.fillRect(
           cx * FOG_CELL - fogPad,
           cy * FOG_CELL - fogPad,
@@ -1103,7 +1107,7 @@
         const aw = fogUnexploredCellAlpha(cx, cy);
         if (aw == null || aw < 0.02) continue;
         const a = aw * 0.92;
-        mctx.fillStyle = `rgba(4,3,10,${a})`;
+        mctx.fillStyle = `rgba(12, 14, 28, ${a})`;
         const pad = 1;
         mctx.fillRect(
           cx * FOG_CELL * sx - pad,
@@ -1158,7 +1162,9 @@
         shipRepaired = true;
         spawnExplorationSticks();
         saveGame();
-        showPopup("Ship repaired! Gather more sticks in the wild to build a bridge across the dark rift.");
+        showPopup(
+          "Ship repaired! Craft a bridge from 4 sticks in your bag, then place it at the dark rift."
+        );
         return true;
       }
       showPopup(`Repair: bring ${SHIP_ROCKS} rocks and ${SHIP_STICKS} sticks to the ship.`);
@@ -1181,14 +1187,16 @@
     const nearBridge =
       dist(px, py, (CRACK_X0 + CRACK_X1) / 2, MAP_H * 0.37) < INTERACT_RANGE + 40;
     if (!nearBridge) return false;
-    if (inventory.sticks >= BRIDGE_STICKS) {
-      inventory.sticks -= BRIDGE_STICKS;
+    if (inventory.bridgeKit > 0) {
+      inventory.bridgeKit--;
       bridgeBuilt = true;
       saveGame();
-      showPopup("Bridge built! You can cross the rift.");
+      showPopup("Bridge placed! You can cross the rift.");
       return true;
     }
-    showPopup(`Need ${BRIDGE_STICKS} sticks at the rift to build the bridge.`);
+    showPopup(
+      `Craft a bridge from ${CRAFT_BRIDGE_STICKS} sticks in your bag, then use Interact here to place it.`
+    );
     return true;
   }
 
@@ -1273,6 +1281,10 @@
   function maxCraftClub() {
     return Math.min(Math.floor(inventory.sticks / 2), inventory.rocks);
   }
+  function maxCraftBridge() {
+    if (bridgeBuilt) return 0;
+    return Math.floor(inventory.sticks / CRAFT_BRIDGE_STICKS);
+  }
 
   function refreshBagPanel() {
     document.getElementById("invSticks").textContent = String(inventory.sticks);
@@ -1281,15 +1293,24 @@
     document.getElementById("invTrap").textContent = String(inventory.trap);
     document.getElementById("invCorpse").textContent = String(inventory.slimeCorpse);
     document.getElementById("invMeals").textContent = String(inventory.cookedMeal);
+    document.getElementById("invBridgeKit").textContent = String(inventory.bridgeKit ?? 0);
     const eq =
       equipped === "club" ? "Club" : equipped === "stick" ? "Stick" : "Hands";
     document.getElementById("invEquipped").textContent = eq;
     document.getElementById("craftMaxRope").textContent = String(maxCraftRope());
     document.getElementById("craftMaxTrap").textContent = String(maxCraftTrap());
     document.getElementById("craftMaxClub").textContent = String(maxCraftClub());
+    document.getElementById("craftMaxBridge").textContent = String(maxCraftBridge());
     bagPanel.querySelectorAll("[data-craft]").forEach((btn) => {
       const k = btn.getAttribute("data-craft");
-      const n = k === "rope" ? maxCraftRope() : k === "trap" ? maxCraftTrap() : maxCraftClub();
+      const n =
+        k === "rope"
+          ? maxCraftRope()
+          : k === "trap"
+            ? maxCraftTrap()
+            : k === "club"
+              ? maxCraftClub()
+              : maxCraftBridge();
       btn.disabled = n <= 0;
     });
     const saveTab = document.getElementById("bagTabSave");
@@ -1328,6 +1349,18 @@
       inventory.sticks -= 2;
       inventory.rocks--;
       equipped = "club";
+    } else if (kind === "bridge") {
+      if (bridgeBuilt) {
+        showPopup("The bridge is already placed.");
+        return;
+      }
+      if (inventory.sticks >= CRAFT_BRIDGE_STICKS) {
+        inventory.sticks -= CRAFT_BRIDGE_STICKS;
+        inventory.bridgeKit = (inventory.bridgeKit ?? 0) + 1;
+      } else {
+        showPopup("Not enough materials.");
+        return;
+      }
     } else {
       showPopup("Not enough materials.");
       return;
@@ -1344,7 +1377,7 @@
 
     const w = gameWrap.clientWidth;
     const h = gameWrap.clientHeight;
-    const sp = 2.15;
+    const sp = 1.48;
     const mx = stickDx * sp;
     const my = stickDy * sp;
     const stickMag = Math.hypot(mx, my);
@@ -1357,15 +1390,24 @@
       if (!blockedAt(npx, py)) px = npx;
       if (!blockedAt(px, npy)) py = npy;
       revealFogAroundPlayer();
-      checkCrackCrossedForEnergyHud();
       if (stickMag > 0.05) {
         energy = Math.max(0, energy - ENERGY_MOVE_DRAIN * stickMag);
       }
       saveGameThrottledFromMove();
     } else {
       const kbDir = keyboardVectorFromHeld();
-      if (kbDir) executeKeyboardNudge(kbDir);
+      if (kbDir) {
+        const t = performance.now();
+        if (t - lastKeyboardMoveAt >= KEYBOARD_MOVE_INTERVAL_MS) {
+          lastKeyboardMoveAt = t;
+          executeKeyboardNudge(kbDir);
+        }
+      } else {
+        lastKeyboardMoveAt = 0;
+      }
     }
+
+    updateEnergyHudVisibility();
 
     if (daySystemOn) {
       const elapsed = Date.now() - dayStartTime;
