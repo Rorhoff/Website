@@ -80,6 +80,11 @@
     .overlay-menu-layer {
       z-index: 120;
     }
+    /* Settings above crash/color; opaque so crash text cannot show through. */
+    #settingsOverlay {
+      z-index: 140;
+      background: rgb(12, 16, 24);
+    }
     .overlay h1 { margin: 0 0 1rem; font-size: 1.4rem; }
     .overlay p { margin: 0 0 1rem; color: var(--muted); font-size: 0.95rem; max-width: 22rem; }
     .btn {
@@ -407,6 +412,11 @@
     if (typeof prefs.showHints === "boolean") showHints = prefs.showHints;
   } catch (e) {
     /* keep defaults */
+  }
+
+  /** Mobile Chrome often delivers touches to the full-screen canvas unless it is explicitly inert. */
+  function updateInputCapture() {
+    canvas.style.pointerEvents = screen === "play" ? "auto" : "none";
   }
 
   let px = START.x, py = START.y;
@@ -894,6 +904,9 @@
           hud.classList.remove("visible");
           controls.classList.remove("visible");
           localStorage.removeItem(SAVE_KEY);
+          crashOverlay.hidden = true;
+          gameWrap.classList.remove("crash-shake");
+          updateInputCapture();
           showPopup("You didn't hunt in time. Game over.");
           return;
         }
@@ -927,6 +940,9 @@
       hud.classList.remove("visible");
       controls.classList.remove("visible");
       localStorage.removeItem(SAVE_KEY);
+      crashOverlay.hidden = true;
+      gameWrap.classList.remove("crash-shake");
+      updateInputCapture();
       showPopup("Out of energy. Game over.");
     }
   }
@@ -935,6 +951,7 @@
     colorOverlay.hidden = true;
     crashOverlay.hidden = false;
     gameWrap.classList.toggle("crash-shake", !reduceMotion);
+    updateInputCapture();
     let t = 0;
     const iv = setInterval(() => {
       t += 1;
@@ -947,6 +964,7 @@
         hud.classList.add("visible");
         controls.classList.add("visible");
         resize();
+        updateInputCapture();
         saveGame();
       }
     }, 90);
@@ -973,9 +991,12 @@
   document.getElementById("btnNew").addEventListener("click", () => {
     menuOverlay.hidden = true;
     colorOverlay.hidden = false;
+    crashOverlay.hidden = true;
+    gameWrap.classList.remove("crash-shake");
     initColorRow();
     selectedColor = null;
     document.getElementById("btnConfirmColor").disabled = true;
+    updateInputCapture();
   });
 
   document.getElementById("btnConfirmColor").addEventListener("click", () => {
@@ -987,6 +1008,7 @@
   document.getElementById("btnBackMenu").addEventListener("click", () => {
     colorOverlay.hidden = true;
     menuOverlay.hidden = false;
+    updateInputCapture();
   });
 
   document.getElementById("btnLoad").addEventListener("click", () => {
@@ -1000,17 +1022,21 @@
     controls.classList.add("visible");
     resize();
     if (daySystemOn) dayHud.classList.add("show");
+    updateInputCapture();
   });
 
   function openSettings() {
     hidePopup();
     craftPanel.classList.remove("open");
+    crashOverlay.hidden = true;
+    gameWrap.classList.remove("crash-shake");
     menuOverlay.hidden = true;
     settingsOverlay.hidden = false;
     const rm = document.getElementById("setReduceMotion");
     const hints = document.getElementById("setHints");
     if (rm) rm.checked = reduceMotion;
     if (hints) hints.checked = showHints;
+    updateInputCapture();
   }
 
   function closeSettings() {
@@ -1025,11 +1051,22 @@
     }
     settingsOverlay.hidden = true;
     menuOverlay.hidden = false;
+    crashOverlay.hidden = true;
+    updateInputCapture();
   }
 
   document.getElementById("btnSettings").addEventListener("click", openSettings);
 
-  document.getElementById("btnSettingsClose").addEventListener("click", closeSettings);
+  const btnSettingsClose = document.getElementById("btnSettingsClose");
+  btnSettingsClose.addEventListener("click", closeSettings);
+  btnSettingsClose.addEventListener(
+    "touchend",
+    (e) => {
+      e.preventDefault();
+      closeSettings();
+    },
+    { passive: false }
+  );
 
   document.getElementById("popupOk").addEventListener("click", hidePopup);
 
@@ -1134,6 +1171,9 @@
 
   window.addEventListener("resize", resize);
   resize();
+  crashOverlay.hidden = true;
+  gameWrap.classList.remove("crash-shake");
+  updateInputCapture();
   requestAnimationFrame(loop);
 })();
   </script>
