@@ -10,11 +10,11 @@
   - Saves: localStorage key SAVE_KEY — bump version string if you change save JSON shape.
   - Menus: #menuOverlay, #colorOverlay; overlays must keep .overlay[hidden]{display:none!important}
     or hidden="" will not work (display:flex wins otherwise).
-  - Movement: keyboard queues one step per animation frame (queueKeyboardStep + loop flush) to avoid pivot teleports;
-    thumbstick = smooth velocity in loop(). Do not mix both for the same frame without intent.
+  - Movement: keyboard = Arrow/WASD held in keysHeld; one KEYBOARD_STEP_PX per frame when stick idle (no double-move).
+    thumbstick = smooth velocity when deflected; keyboard ignored that frame while stick is used.
   - World layout: placePickupsForNewGame, spawnSticksInWorld, SHIP / START coordinates.
-  - Fog: FOG_CELL / FOG_REVEAL_RADIUS + fogBytes in save; drawWorld draws fog over unexplored cells.
-  - Bag UI: #bagPanel (Inventory + Craft tabs); pickups require Interact only.
+  - Fog: fogBytes in save (cell centers); main view also carves a soft circle by distance-to-tile vs FOG_REVEAL_RADIUS + FOG_EDGE_FEATHER.
+  - Bag UI: #bagPanel (Inventory + Craft + Save tabs); pickups require Interact only.
   =========================================================================
 -->
 <html lang="en">
@@ -332,6 +332,19 @@
       text-align: right;
     }
     .recipe .btn { max-width: 72px; padding: 0.35rem 0.5rem; margin: 0; font-size: 0.75rem; }
+    .save-hint {
+      font-size: 0.85rem;
+      color: var(--muted);
+      margin: 0 0 0.75rem;
+      line-height: 1.45;
+    }
+    .save-status {
+      font-size: 0.8rem;
+      color: #86efac;
+      margin: 0 0 0.75rem;
+      min-height: 1.25em;
+    }
+    #btnSaveProgress { width: 100%; max-width: none; }
     #bagClose {
       margin: 0 0.75rem 0.75rem;
       width: calc(100% - 1.5rem);
@@ -395,6 +408,7 @@
           <div class="bag-tabs">
             <button type="button" class="bag-tab active" data-bagtab="inv">Inventory</button>
             <button type="button" class="bag-tab" data-bagtab="craft">Craft</button>
+            <button type="button" class="bag-tab" data-bagtab="save">Save</button>
           </div>
           <div class="bag-body" id="bagTabInv">
             <div class="inv-line"><span>Sticks</span><span id="invSticks">0</span></div>
@@ -421,6 +435,14 @@
               <span class="craft-count" id="craftMaxClub">0</span>
               <button type="button" class="btn" data-craft="club">Make</button>
             </div>
+          </div>
+          <div class="bag-body" id="bagTabSave" hidden>
+            <p class="save-hint">
+              Stores your run in this browser (same as the main menu <strong>Load Game</strong>).
+              Use this anytime to make sure nothing is lost.
+            </p>
+            <p class="save-status" id="saveStatus" aria-live="polite"></p>
+            <button type="button" class="btn primary" id="btnSaveProgress">Save progress</button>
           </div>
           <button type="button" class="btn" id="bagClose">Close</button>
         </div>
@@ -470,6 +492,8 @@
   const INTERACT_RANGE = 78;
   const FOG_CELL = 48;
   const FOG_REVEAL_RADIUS = 142;
+  /** Pixels: radial feather past reveal radius so fog tiles fade in smoothly (visual only; save grid unchanged). */
+  const FOG_EDGE_FEATHER = 72;
   const fogCols = Math.ceil(MAP_W / FOG_CELL);
   const fogRows = Math.ceil(MAP_H / FOG_CELL);
   const fogCellCount = fogCols * fogRows;
@@ -550,10 +574,10 @@
 
   let stickTouchId = null;
   let stickCx = 0, stickCy = 0, stickDx = 0, stickDy = 0;
-  /** Latest movement key queued for this frame; flushed once in loop (avoids double-step when switching keys). */
-  let pendingKeyboardStep = null;
+  /** Arrow / WASD codes currently held (keyup clears). */
+  const keysHeld = new Set();
 
-  // --- Keyboard: queue on keydown, one step per rAF (e.repeat ignored) ---
+  // --- Keyboard: held keys → at most one step per frame while stick is idle ---
 
   function stepDirectionFromEvent(e) {
     switch (e.code) {
@@ -580,6 +604,14 @@
     }
   }
 
+  let lastMoveAutosave = 0;
+  function saveGameThrottledFromMove() {
+    const t = Date.now();
+    if (t - lastMoveAutosave < 380) return;
+    lastMoveAutosave = t;
+    saveGame();
+  }
+
   function executeKeyboardNudge(dir) {
     const L = Math.hypot(dir.dx, dir.dy) || 1;
     const nx = (dir.dx / L) * KEYBOARD_STEP_PX;
@@ -593,24 +625,34 @@
     facingY = dir.dy;
     energy = Math.max(0, energy - ENERGY_MOVE_DRAIN * Math.hypot(nx, ny));
     checkCrackCrossedForEnergyHud();
-    saveGame();
+    saveGameThrottledFromMove();
+  }
+
+  /** Net WASD / arrows from currently held keys (opposites cancel). */
+  function keyboardVectorFromHeld() {
+    let dx = 0;
+    let dy = 0;
+    if (keysHeld.has("ArrowLeft") || keysHeld.has("KeyA")) dx -= 1;
+    if (keysHeld.has("ArrowRight") || keysHeld.has("KeyD")) dx += 1;
+    if (keysHeld.has("ArrowUp") || keysHeld.has("KeyW")) dy -= 1;
+    if (keysHeld.has("ArrowDown") || keysHeld.has("KeyS")) dy += 1;
+    if (dx === 0 && dy === 0) return null;
+    return { dx, dy };
   }
 
   /**
    * @returns {boolean} true if movement key (consume default browser behavior).
    */
-  function queueKeyboardStep(e) {
-    const dir = stepDirectionFromEvent(e);
-    if (!dir) return false;
-    if (e.repeat) return true;
-    pendingKeyboardStep = dir;
+  function registerMovementKeydown(e) {
+    if (!stepDirectionFromEvent(e)) return false;
+    keysHeld.add(e.code);
     return true;
   }
 
   function resetMovementInput() {
     stickTouchId = null;
     stickEnd();
-    pendingKeyboardStep = null;
+    keysHeld.clear();
   }
 
   // --- Fog of war (bit-packed grid; persisted in save; reveal disk follows player) ---
@@ -627,6 +669,36 @@
 
   function fogCellIndex(cx, cy) {
     return cx + cy * fogCols;
+  }
+
+  function distPointToRect(px0, py0, rx0, ry0, rx1, ry1) {
+    const x = Math.max(rx0, Math.min(px0, rx1));
+    const y = Math.max(ry0, Math.min(py0, ry1));
+    return Math.hypot(px0 - x, py0 - y);
+  }
+
+  function smoothstep01(t) {
+    t = Math.max(0, Math.min(1, t));
+    return t * t * (3 - 2 * t);
+  }
+
+  /**
+   * Alpha for drawing an unexplored fog cell, or null = skip (inside circular carve).
+   */
+  function fogUnexploredCellAlpha(cx, cy) {
+    const cs = FOG_CELL;
+    const x0 = cx * cs;
+    const y0 = cy * cs;
+    const dClosest = distPointToRect(px, py, x0, y0, x0 + cs, y0 + cs);
+    const r = FOG_REVEAL_RADIUS;
+    if (dClosest <= r) return null;
+    const feather = FOG_EDGE_FEATHER;
+    let radial = 1;
+    if (dClosest < r + feather) {
+      radial = smoothstep01((dClosest - r) / feather);
+    }
+    const en = fogCardinalExploredCount(cx, cy);
+    return fogEdgeAlpha(en) * radial;
   }
 
   /** Cardinal neighbors that are explored (for soft fog edges). */
@@ -809,8 +881,10 @@
     };
     try {
       localStorage.setItem(SAVE_KEY, JSON.stringify(data));
+      return true;
     } catch (e) {
       console.warn("Save failed", e);
+      return false;
     }
   }
 
@@ -987,8 +1061,8 @@
     for (let cy = 0; cy < fogRows; cy++) {
       for (let cx = 0; cx < fogCols; cx++) {
         if (fogGet(fogCellIndex(cx, cy))) continue;
-        const en = fogCardinalExploredCount(cx, cy);
-        const a = fogEdgeAlpha(en);
+        const a = fogUnexploredCellAlpha(cx, cy);
+        if (a == null || a < 0.02) continue;
         ctx.fillStyle = `rgba(6, 5, 14, ${a})`;
         ctx.fillRect(
           cx * FOG_CELL - fogPad,
@@ -1026,8 +1100,9 @@
     for (let cy = 0; cy < fogRows; cy++) {
       for (let cx = 0; cx < fogCols; cx++) {
         if (fogGet(fogCellIndex(cx, cy))) continue;
-        const en = fogCardinalExploredCount(cx, cy);
-        const a = fogEdgeAlpha(en) * 0.92;
+        const aw = fogUnexploredCellAlpha(cx, cy);
+        if (aw == null || aw < 0.02) continue;
+        const a = aw * 0.92;
         mctx.fillStyle = `rgba(4,3,10,${a})`;
         const pad = 1;
         mctx.fillRect(
@@ -1217,6 +1292,26 @@
       const n = k === "rope" ? maxCraftRope() : k === "trap" ? maxCraftTrap() : maxCraftClub();
       btn.disabled = n <= 0;
     });
+    const saveTab = document.getElementById("bagTabSave");
+    if (saveTab && !saveTab.hidden) refreshSaveTabStatus();
+  }
+
+  let manualSaveLastLine = "";
+
+  function refreshSaveTabStatus() {
+    const el = document.getElementById("saveStatus");
+    if (!el) return;
+    el.textContent =
+      manualSaveLastLine ||
+      "Tap Save progress when you want to write your game to this browser.";
+  }
+
+  function applyManualSaveResult(ok) {
+    manualSaveLastLine = ok
+      ? "Saved at " + new Date().toLocaleTimeString() + "."
+      : "Could not save (storage may be full or blocked).";
+    const el = document.getElementById("saveStatus");
+    if (el) el.textContent = manualSaveLastLine;
   }
 
   // --- Crafting (Craft tab in #bagPanel) ---
@@ -1241,36 +1336,35 @@
     refreshBagPanel();
   }
 
-  // --- Main loop: at most one keyboard nudge per frame, then thumbstick ---
+  // --- Main loop: thumbstick XOR keyboard (one source of motion per frame) ---
 
   function loop() {
     requestAnimationFrame(loop);
     if (screen !== "play") return;
-
-    if (pendingKeyboardStep) {
-      const kd = pendingKeyboardStep;
-      pendingKeyboardStep = null;
-      executeKeyboardNudge(kd);
-    }
 
     const w = gameWrap.clientWidth;
     const h = gameWrap.clientHeight;
     const sp = 2.15;
     const mx = stickDx * sp;
     const my = stickDy * sp;
-    if (Math.hypot(mx, my) > 0.1) {
+    const stickMag = Math.hypot(mx, my);
+
+    if (stickMag > 0.12) {
       facingX = mx;
       facingY = my;
-    }
-    const npx = px + mx;
-    const npy = py + my;
-    if (!blockedAt(npx, py)) px = npx;
-    if (!blockedAt(px, npy)) py = npy;
-    revealFogAroundPlayer();
-    checkCrackCrossedForEnergyHud();
-
-    if (Math.hypot(mx, my) > 0.05) {
-      energy = Math.max(0, energy - ENERGY_MOVE_DRAIN * Math.hypot(mx, my));
+      const npx = px + mx;
+      const npy = py + my;
+      if (!blockedAt(npx, py)) px = npx;
+      if (!blockedAt(px, npy)) py = npy;
+      revealFogAroundPlayer();
+      checkCrackCrossedForEnergyHud();
+      if (stickMag > 0.05) {
+        energy = Math.max(0, energy - ENERGY_MOVE_DRAIN * stickMag);
+      }
+      saveGameThrottledFromMove();
+    } else {
+      const kbDir = keyboardVectorFromHeld();
+      if (kbDir) executeKeyboardNudge(kbDir);
     }
 
     if (daySystemOn) {
@@ -1409,8 +1503,12 @@
       document.querySelectorAll("[data-bagtab]").forEach((t) => t.classList.toggle("active", t === tab));
       document.getElementById("bagTabInv").hidden = id !== "inv";
       document.getElementById("bagTabCraft").hidden = id !== "craft";
+      document.getElementById("bagTabSave").hidden = id !== "save";
       refreshBagPanel();
     });
+  });
+  document.getElementById("btnSaveProgress").addEventListener("click", () => {
+    applyManualSaveResult(saveGame());
   });
   bagPanel.querySelectorAll("[data-craft]").forEach((btn) => {
     btn.addEventListener("click", () => craft(btn.getAttribute("data-craft")));
@@ -1487,11 +1585,21 @@
 
   window.addEventListener("keydown", (e) => {
     if (screen !== "play") return;
-    if (queueKeyboardStep(e)) {
+    if (registerMovementKeydown(e)) {
       e.preventDefault();
       return;
     }
     if (e.code === "KeyE" || e.key === " " || e.code === "Space") interactOrAttack();
+  });
+
+  const MOVEMENT_CODES = new Set([
+    "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown",
+    "KeyA", "KeyD", "KeyW", "KeyS",
+  ]);
+  window.addEventListener("keyup", (e) => {
+    if (screen !== "play") return;
+    keysHeld.delete(e.code);
+    if (keysHeld.size === 0 && MOVEMENT_CODES.has(e.code)) saveGame();
   });
 
   window.addEventListener("blur", () => {
