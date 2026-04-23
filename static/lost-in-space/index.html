@@ -364,6 +364,8 @@
   const SHIP = { x: MAP_W - 220, y: MAP_H - 200, w: 100, h: 70 };
   const START = { x: MAP_W - 120, y: MAP_H - 140 };
   const INTERACT_RANGE = 52;
+  /** Auto-collect sticks/rocks when the player walks onto them (smaller than interact button range). */
+  const PICKUP_TOUCH_R = PLAYER_R + 14;
   const ATTACK_RANGE = 38;
   const ATTACK_W = 36;
   const ATTACK_H = 28;
@@ -458,8 +460,11 @@
         });
       }
     };
-    near(SHIP.x, SHIP.y, SHIP_ROCKS, "rock");
-    near(SHIP.x - 80, SHIP.y + 40, SHIP_STICKS, "stick");
+    // Scatter repair materials out in the world — not on the crashed ship (explore from spawn).
+    const lootX = START.x - 360;
+    const lootY = START.y - 240;
+    near(lootX, lootY, SHIP_ROCKS, "rock");
+    near(lootX - 70, lootY + 50, SHIP_STICKS, "stick");
   }
 
   function spawnExplorationSticks() {
@@ -704,6 +709,25 @@
     mctx.fillRect(px * sx - 2, py * sy - 2, 4, 4);
   }
 
+  function applyPickup(p) {
+    if (p.type === "rock") inventory.rocks++;
+    if (p.type === "stick") {
+      inventory.sticks++;
+      if (equipped === "hands") equipped = "stick";
+    }
+  }
+
+  function autoPickupOnOverlap() {
+    let changed = false;
+    pickups = pickups.filter((p) => {
+      if (dist(px, py, p.x, p.y) > PICKUP_TOUCH_R) return true;
+      applyPickup(p);
+      changed = true;
+      return false;
+    });
+    if (changed) saveGame();
+  }
+
   function tryPickup() {
     let best = null;
     let bd = INTERACT_RANGE + 1;
@@ -715,11 +739,7 @@
       }
     }
     if (best && bd <= INTERACT_RANGE) {
-      if (best.type === "rock") inventory.rocks++;
-      if (best.type === "stick") {
-        inventory.sticks++;
-        if (equipped === "hands") equipped = "stick";
-      }
+      applyPickup(best);
       pickups = pickups.filter((x) => x !== best);
       saveGame();
       return true;
@@ -877,6 +897,7 @@
     const npy = py + my;
     if (!blockedAt(npx, py)) px = npx;
     if (!blockedAt(px, npy)) py = npy;
+    autoPickupOnOverlap();
 
     if (Math.hypot(mx, my) > 0.05) {
       energy = Math.max(0, energy - ENERGY_MOVE_DRAIN * Math.hypot(mx, my));
