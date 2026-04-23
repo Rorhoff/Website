@@ -6,13 +6,15 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <title>Lost in Space</title>
   <style>
+    /* Match About page (index.html) tokens for shared chrome */
     :root {
-      --bg: #0a0e16;
+      --bg: #0c0f14;
       --surface: #141c2c;
-      --border: #2d3a52;
-      --text: #e7ecf3;
-      --muted: #8b9cb3;
-      --accent: #a78bfa;
+      --border: #2a3548;
+      --text: #e8edf5;
+      --muted: #94a3b8;
+      --accent: #38bdf8;
+      --heading: #f1f5f9;
     }
     * { box-sizing: border-box; }
     html, body {
@@ -20,39 +22,62 @@
       height: 100%;
       overflow: hidden;
       touch-action: none;
-      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-family: "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
       background: var(--bg);
       color: var(--text);
     }
     .site-nav {
       display: flex;
       flex-wrap: wrap;
-      gap: 0.5rem 1rem;
-      padding: 0.5rem 1rem;
+      gap: 0.65rem 1.25rem;
+      padding: 0.75rem 1.5rem;
       border-bottom: 1px solid var(--border);
-      background: rgba(15, 20, 32, 0.98);
+      background: #0f141c;
       align-items: center;
       flex-shrink: 0;
-      z-index: 100;
+      position: relative;
+      z-index: 300;
     }
     .site-nav a {
       color: var(--muted);
       text-decoration: none;
-      font-size: 0.8rem;
+      font-size: 0.9rem;
       font-weight: 500;
     }
-    .site-nav a:hover, .site-nav a.active { color: var(--accent); }
+    .site-nav a:hover { color: var(--accent); }
+    .site-nav a.active {
+      color: var(--heading);
+      border-bottom: 2px solid var(--accent);
+      padding-bottom: 0.1rem;
+    }
     #app {
       display: flex;
       flex-direction: column;
       height: 100%;
       max-height: 100dvh;
+      position: relative;
     }
-    #gameWrap {
+    /* Stack: canvas (gameWrap) below; menus in menuLayer never share hit-testing with canvas. */
+    #gameStack {
       position: relative;
       flex: 1;
       min-height: 0;
       background: #0d0806;
+    }
+    #gameWrap {
+      position: absolute;
+      inset: 0;
+      z-index: 0;
+      background: #0d0806;
+    }
+    #menuLayer {
+      position: absolute;
+      inset: 0;
+      z-index: 200;
+      pointer-events: none;
+    }
+    #menuLayer .overlay {
+      pointer-events: auto;
     }
     #gameCanvas {
       display: block;
@@ -80,9 +105,8 @@
     .overlay-menu-layer {
       z-index: 120;
     }
-    /* Settings above crash/color; opaque so crash text cannot show through. */
+    /* Opaque so nothing from the game shows through. */
     #settingsOverlay {
-      z-index: 140;
       background: rgb(12, 16, 24);
     }
     .overlay h1 { margin: 0 0 1rem; font-size: 1.4rem; }
@@ -100,9 +124,10 @@
       font-size: 1rem;
       font-weight: 600;
       cursor: pointer;
+      touch-action: manipulation;
     }
     .btn:active { transform: scale(0.98); }
-    .btn.primary { background: linear-gradient(135deg, #5b21b6, #7c3aed); border-color: #6d28d9; }
+    .btn.primary { background: linear-gradient(135deg, #0369a1, #0ea5e9); border-color: #0284c7; }
     .btn:disabled { opacity: 0.45; cursor: not-allowed; }
     .color-row {
       display: flex;
@@ -121,7 +146,7 @@
       padding: 0;
     }
     .swatch.selected { border-color: #fff; box-shadow: 0 0 0 2px var(--accent); }
-    .crash-shake {
+    #gameStack.crash-shake {
       animation: crashShake 0.12s infinite;
     }
     @keyframes crashShake {
@@ -270,7 +295,7 @@
       background: rgba(30, 27, 75, 0.97);
       border: 2px solid #818cf8;
       border-radius: 12px;
-      z-index: 30;
+      z-index: 500;
       display: none;
       text-align: center;
       pointer-events: auto;
@@ -286,71 +311,76 @@
       <a href="index.html">About</a>
       <a href="api-testing.html">API Testing</a>
       <a href="https://www.linkedin.com/in/rorhoff" target="_blank" rel="noopener noreferrer">LinkedIn</a>
-      <a href="lost-in-space.html" class="active">Lost in Space</a>
+      <a href="lost-in-space.html" class="active">Lost in Space Game</a>
       <a href="classifieds/index.html">Classifieds</a>
     </nav>
 
-    <div id="gameWrap">
-      <canvas id="gameCanvas" aria-label="Game world"></canvas>
+    <div id="gameStack">
+      <div id="gameWrap">
+        <canvas id="gameCanvas" aria-label="Game world"></canvas>
 
-      <div id="hud">
-        <div class="hud-label">Energy</div>
-        <div class="bar-wrap"><div id="energyBar" class="bar-fill bar-energy" style="width:100%"></div></div>
-        <div id="dayHud">
-          <div class="hud-label">Day <span id="dayNum">1</span> — hunt before night</div>
-          <div class="bar-wrap"><div id="dayBar" class="bar-fill bar-day" style="width:100%"></div></div>
+        <div id="hud">
+          <div class="hud-label">Energy</div>
+          <div class="bar-wrap"><div id="energyBar" class="bar-fill bar-energy" style="width:100%"></div></div>
+          <div id="dayHud">
+            <div class="hud-label">Day <span id="dayNum">1</span> — hunt before night</div>
+            <div class="bar-wrap"><div id="dayBar" class="bar-fill bar-day" style="width:100%"></div></div>
+          </div>
         </div>
-      </div>
-      <canvas id="miniMap" width="72" height="52" aria-hidden="true"></canvas>
+        <canvas id="miniMap" width="72" height="52" aria-hidden="true"></canvas>
 
-      <div id="controls">
-        <div id="stickZone" aria-hidden="true"><div id="stickKnob"></div></div>
-        <div class="action-stack">
-          <button type="button" class="action-btn" id="btnCraft">Craft</button>
-          <button type="button" class="action-btn attack" id="btnAction">Interact / Attack</button>
+        <div id="controls">
+          <div id="stickZone" aria-hidden="true"><div id="stickKnob"></div></div>
+          <div class="action-stack">
+            <button type="button" class="action-btn" id="btnCraft">Craft</button>
+            <button type="button" class="action-btn attack" id="btnAction">Interact / Attack</button>
+          </div>
         </div>
-      </div>
 
-      <div id="craftPanel">
-        <h3>Crafting</h3>
-        <div class="recipe">Rope (2 sticks) <button type="button" class="btn" style="max-width:88px;padding:0.4rem;margin:0" data-craft="rope">Make</button></div>
-        <div class="recipe">Trap (2 sticks + rope) <button type="button" class="btn" style="max-width:88px;padding:0.4rem;margin:0" data-craft="trap">Make</button></div>
-        <div class="recipe">Club (2 sticks + rock) <button type="button" class="btn" style="max-width:88px;padding:0.4rem;margin:0" data-craft="club">Make</button></div>
-        <button type="button" class="btn" style="margin-top:0.6rem" id="craftClose">Close</button>
-      </div>
-
-      <div id="popup">
-        <p id="popupText"></p>
-        <button type="button" class="btn primary" id="popupOk">OK</button>
-      </div>
-
-      <div id="menuOverlay" class="overlay overlay-menu-layer">
-        <h1>Lost in Space</h1>
-        <p>Stranded. Repair your ship, cross the rift, hunt, and survive.</p>
-        <button type="button" class="btn primary" id="btnNew">New Game</button>
-        <button type="button" class="btn" id="btnLoad">Load Game</button>
-        <button type="button" class="btn" id="btnSettings">Settings</button>
-      </div>
-
-      <div id="colorOverlay" class="overlay overlay-menu-layer" hidden>
-        <h1>Choose your suit</h1>
-        <p>Pick a color for your astronaut.</p>
-        <div class="color-row" id="colorRow"></div>
-        <button type="button" class="btn primary" id="btnConfirmColor" disabled>Confirm</button>
-        <button type="button" class="btn" id="btnBackMenu">Back</button>
-      </div>
-
-      <div id="crashOverlay" class="overlay overlay-menu-layer" hidden>
-        <div class="crash-text" id="crashText">You're experiencing a crash, please remain calm!</div>
-      </div>
-
-      <div id="settingsOverlay" class="overlay overlay-menu-layer" hidden>
-        <h1>Settings</h1>
-        <div id="settingsPanel">
-          <label><input type="checkbox" id="setReduceMotion" /> Reduce motion (less screen shake)</label>
-          <label><input type="checkbox" id="setHints" checked /> Show HUD hints</label>
+        <div id="craftPanel">
+          <h3>Crafting</h3>
+          <div class="recipe">Rope (2 sticks) <button type="button" class="btn" style="max-width:88px;padding:0.4rem;margin:0" data-craft="rope">Make</button></div>
+          <div class="recipe">Trap (2 sticks + rope) <button type="button" class="btn" style="max-width:88px;padding:0.4rem;margin:0" data-craft="trap">Make</button></div>
+          <div class="recipe">Club (2 sticks + rock) <button type="button" class="btn" style="max-width:88px;padding:0.4rem;margin:0" data-craft="club">Make</button></div>
+          <button type="button" class="btn" style="margin-top:0.6rem" id="craftClose">Close</button>
         </div>
-        <button type="button" class="btn" id="btnSettingsClose">Back</button>
+
+      </div>
+
+      <div id="menuLayer">
+        <div id="menuOverlay" class="overlay overlay-menu-layer">
+          <h1>Lost in Space</h1>
+          <p>Stranded. Repair your ship, cross the rift, hunt, and survive.</p>
+          <button type="button" class="btn primary" id="btnNew">New Game</button>
+          <button type="button" class="btn" id="btnLoad">Load Game</button>
+          <button type="button" class="btn" id="btnSettings">Settings</button>
+        </div>
+
+        <div id="colorOverlay" class="overlay overlay-menu-layer" hidden>
+          <h1>Choose your suit</h1>
+          <p>Pick a color for your astronaut.</p>
+          <div class="color-row" id="colorRow"></div>
+          <button type="button" class="btn primary" id="btnConfirmColor" disabled>Confirm</button>
+          <button type="button" class="btn" id="btnBackMenu">Back</button>
+        </div>
+
+        <div id="crashOverlay" class="overlay overlay-menu-layer" hidden>
+          <div class="crash-text" id="crashText">You're experiencing a crash, please remain calm!</div>
+        </div>
+
+        <div id="settingsOverlay" class="overlay overlay-menu-layer" hidden>
+          <h1>Settings</h1>
+          <div id="settingsPanel">
+            <label><input type="checkbox" id="setReduceMotion" /> Reduce motion (less screen shake)</label>
+            <label><input type="checkbox" id="setHints" checked /> Show HUD hints</label>
+          </div>
+          <button type="button" class="btn" id="btnSettingsClose">Back</button>
+        </div>
+
+        <div id="popup">
+          <p id="popupText"></p>
+          <button type="button" class="btn primary" id="popupOk">OK</button>
+        </div>
       </div>
     </div>
   </div>
@@ -392,6 +422,7 @@
   const menuOverlay = document.getElementById("menuOverlay");
   const colorOverlay = document.getElementById("colorOverlay");
   const crashOverlay = document.getElementById("crashOverlay");
+  const gameStack = document.getElementById("gameStack");
   const gameWrap = document.getElementById("gameWrap");
   const stickZone = document.getElementById("stickZone");
   const stickKnob = document.getElementById("stickKnob");
@@ -905,7 +936,7 @@
           controls.classList.remove("visible");
           localStorage.removeItem(SAVE_KEY);
           crashOverlay.hidden = true;
-          gameWrap.classList.remove("crash-shake");
+          gameStack.classList.remove("crash-shake");
           updateInputCapture();
           showPopup("You didn't hunt in time. Game over.");
           return;
@@ -941,7 +972,7 @@
       controls.classList.remove("visible");
       localStorage.removeItem(SAVE_KEY);
       crashOverlay.hidden = true;
-      gameWrap.classList.remove("crash-shake");
+      gameStack.classList.remove("crash-shake");
       updateInputCapture();
       showPopup("Out of energy. Game over.");
     }
@@ -950,7 +981,7 @@
   function startCrashThenPlay() {
     colorOverlay.hidden = true;
     crashOverlay.hidden = false;
-    gameWrap.classList.toggle("crash-shake", !reduceMotion);
+    gameStack.classList.toggle("crash-shake", !reduceMotion);
     updateInputCapture();
     let t = 0;
     const iv = setInterval(() => {
@@ -958,7 +989,7 @@
       if (t > 28) {
         clearInterval(iv);
         crashOverlay.hidden = true;
-        gameWrap.classList.remove("crash-shake");
+        gameStack.classList.remove("crash-shake");
         screen = "play";
         menuOverlay.hidden = true;
         hud.classList.add("visible");
@@ -992,7 +1023,7 @@
     menuOverlay.hidden = true;
     colorOverlay.hidden = false;
     crashOverlay.hidden = true;
-    gameWrap.classList.remove("crash-shake");
+    gameStack.classList.remove("crash-shake");
     initColorRow();
     selectedColor = null;
     document.getElementById("btnConfirmColor").disabled = true;
@@ -1029,7 +1060,7 @@
     hidePopup();
     craftPanel.classList.remove("open");
     crashOverlay.hidden = true;
-    gameWrap.classList.remove("crash-shake");
+    gameStack.classList.remove("crash-shake");
     menuOverlay.hidden = true;
     settingsOverlay.hidden = false;
     const rm = document.getElementById("setReduceMotion");
@@ -1058,15 +1089,11 @@
   document.getElementById("btnSettings").addEventListener("click", openSettings);
 
   const btnSettingsClose = document.getElementById("btnSettingsClose");
-  btnSettingsClose.addEventListener("click", closeSettings);
-  btnSettingsClose.addEventListener(
-    "touchend",
-    (e) => {
-      e.preventDefault();
-      closeSettings();
-    },
-    { passive: false }
-  );
+  btnSettingsClose.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    closeSettings();
+  });
 
   document.getElementById("popupOk").addEventListener("click", hidePopup);
 
@@ -1172,7 +1199,7 @@
   window.addEventListener("resize", resize);
   resize();
   crashOverlay.hidden = true;
-  gameWrap.classList.remove("crash-shake");
+  gameStack.classList.remove("crash-shake");
   updateInputCapture();
   requestAnimationFrame(loop);
 })();
