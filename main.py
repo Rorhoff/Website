@@ -1,5 +1,5 @@
 """
-Web API playground: production mode uses MySQL + bcrypt for secrets and httpOnly sessions for the browser.
+Web API playground: production mode uses PostgreSQL + bcrypt for secrets and httpOnly sessions for the browser.
 """
 
 from __future__ import annotations
@@ -127,7 +127,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Web API Testing",
     description=(
-        "Production: secrets stored as bcrypt hashes in MySQL; browser uses httpOnly cookies after "
+        "Production: secrets stored as bcrypt hashes in PostgreSQL; browser uses httpOnly cookies after "
         "/api/session/login. Postman uses X-API-Key / X-API-Secret. Rotate invalidates sessions."
     ),
     version="2.0.0",

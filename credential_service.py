@@ -1,5 +1,5 @@
 """
-API credential lifecycle: memory (dev) or MySQL + bcrypt (production).
+API credential lifecycle: memory (dev) or PostgreSQL + bcrypt (production).
 """
 
 from __future__ import annotations

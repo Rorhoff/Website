@@ -1,4 +1,4 @@
-"""SQLAlchemy engine and session factory."""
+"""SQLAlchemy engine and session factory (PostgreSQL via psycopg 3)."""
 
 from __future__ import annotations
 
@@ -12,9 +12,26 @@ class Base(DeclarativeBase):
     pass
 
 
+def _normalize_database_url(url: str) -> str:
+    """
+    Accept common Postgres URLs and ensure SQLAlchemy uses the psycopg v3 driver.
+
+    Neon / Render / Heroku-style `postgres://...` and plain `postgresql://...`
+    become `postgresql+psycopg://...`.
+    """
+    u = url.strip()
+    if u.startswith("postgresql+psycopg://") or u.startswith("postgresql+psycopg2://"):
+        return u
+    if u.startswith("postgres://"):
+        return "postgresql+psycopg://" + u[len("postgres://") :]
+    if u.startswith("postgresql://"):
+        return "postgresql+psycopg://" + u[len("postgresql://") :]
+    return u
+
+
 def _database_url() -> str | None:
     url = os.getenv("DATABASE_URL", "").strip()
-    return url or None
+    return _normalize_database_url(url) if url else None
 
 
 DATABASE_URL = _database_url()
