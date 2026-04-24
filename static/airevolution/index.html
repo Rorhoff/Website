@@ -1,12 +1,12 @@
 <!DOCTYPE html>
 <!--
-  AIRevolution — AppEnhancer Tier 1 support (static/airevolution/). API: airevolution_routes.py, mount: main.py
+  AIRevolution — Software Tier 1 support (static/airevolution/). API: airevolution_routes.py, mount: main.py
 -->
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>AIRevolution — AppEnhancer support</title>
+  <title>AIRevolution — Software support</title>
   <style>
     :root {
       --bg: #e9eef6;
@@ -27,9 +27,17 @@
       margin: 0;
       min-height: 100vh;
       font-family: "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
-      background: linear-gradient(180deg, #f4f7fc 0%, #e2e8f0 50%, #eef2f7 100%);
+      background: #1e2229;
       color: var(--text);
       line-height: 1.6;
+    }
+    /* Center content column; darker grey left/right for focus */
+    .page-shell {
+      max-width: 1100px;
+      margin: 0 auto;
+      background: #eef1f7;
+      min-height: calc(100vh - 0px);
+      box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.2), 0 0 48px rgba(0, 0, 0, 0.35);
     }
     /* Primary site nav — keep dark bar unchanged from original theme */
     .site-nav {
@@ -87,6 +95,7 @@
       margin: 0 auto;
       padding: 1.25rem 1.5rem 3rem;
     }
+    h2.h-estimated { margin-top: 2.75rem; }
     [data-panel] { animation: fade 0.2s ease; }
     [hidden] { display: none !important; }
     @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
@@ -299,6 +308,7 @@
     <a href="./" class="active">AI Revolution</a>
   </nav>
 
+  <div class="page-shell">
   <div class="app-tabs" role="tablist" aria-label="AIRevolution sections">
     <button type="button" data-tab="home" class="active" role="tab">Product</button>
     <button type="button" data-tab="knowledge" role="tab">Knowledge base</button>
@@ -309,8 +319,8 @@
 
   <main>
     <div data-panel="home">
-      <p class="hero-badge">AppEnhancer by OpenText · Tier 1, reimagined</p>
-      <h1>We handle your AppEnhancer Tier 1 support so you don&rsquo;t have to</h1>
+      <p class="hero-badge">Software by OpenText · Tier 1, reimagined</p>
+      <h1>We handle your Software Tier 1 support so you don&rsquo;t have to</h1>
       <p class="lead">
         <strong>AIRevolution</strong> is an AI-powered first-line support service: you load your own documentation and
         screenshots, then paste a customer&rsquo;s email into the agent. It searches what you&rsquo;ve provided and drafts a
@@ -325,7 +335,7 @@
       <ul class="muted">
         <li>PDFs and admin guides (text is extracted and chunked for search)</li>
         <li>Pasted procedures and step-by-step notes</li>
-        <li>Screenshots of major AppEnhancer pages—with captions so the AI can reference them</li>
+        <li>Screenshots of major Software pages—with captions so the AI can reference them</li>
       </ul>
 
       <h2>Services &amp; positioning</h2>
@@ -336,7 +346,7 @@
         </div>
         <div class="card">
           <h3>Your expertise, scaled</h3>
-          <p>Built to reflect <em>your</em> runbooks, not generic web answers—so responses stay aligned with how you support AppEnhancer.</p>
+          <p>Built to reflect <em>your</em> runbooks, not generic web answers—so responses stay aligned with how you support Software.</p>
         </div>
         <div class="card">
           <h3>Audit trail</h3>
@@ -346,17 +356,17 @@
 
       <h2 class="how-works">How it works</h2>
       <ol class="steps" style="max-width: 36rem; margin-top:0.5rem">
-        <li>Upload AppEnhancer documentation, manuals, and labeled screenshots in <strong>Knowledge base</strong>.</li>
+        <li>Upload Software documentation, manuals, and labeled screenshots in <strong>Knowledge base</strong>.</li>
         <li>Set <code>ANTHROPIC_API_KEY</code> on the server for live Claude answers (otherwise you see retrieved context only).</li>
         <li>Open <strong>Support agent</strong>, paste the customer&rsquo;s message, and optionally log a ticket for tracking.</li>
         <li>Review the draft, send it to the customer, or pull it into the <strong>Ticket portal</strong> for your team.</li>
       </ol>
 
-      <h2>Pricing (target)</h2>
+      <h2 class="h-estimated">Estimated pricing</h2>
       <div class="grid2" style="margin-top:0.5rem">
         <div class="card">
-          <div class="price">$5,000–10,000<small>USD / month / client (by volume)</small></div>
-          <p>Mid-size AppEnhancer shops in legal, insurance, and financial services—less than a full support bench, faster than a blind ticket queue.</p>
+          <div class="price">$1,000–5,000<small>USD / month / client (by volume)</small></div>
+          <p>Mid-size Software shops in legal, insurance, and financial services—less than a full support bench, faster than a blind ticket queue.</p>
         </div>
         <div class="card">
           <h3>Contact &amp; onboarding</h3>
@@ -367,7 +377,7 @@
 
     <div data-panel="knowledge" hidden>
       <h1>Knowledge base</h1>
-      <p class="lead muted">Add OpenText / AppEnhancer materials so retrieval-augmented answers stay on your approved content.</p>
+      <p class="lead muted">Add OpenText / Software materials so retrieval-augmented answers stay on your approved content.</p>
       <div id="kbBanner" class="banner info" hidden></div>
 
       <div class="split" style="margin-top:1rem">
@@ -376,7 +386,7 @@
           <form id="docUploadForm" class="form-grid" enctype="multipart/form-data">
             <div>
               <label for="docTitle">Title (optional)</label>
-              <input type="text" name="title" id="docTitle" placeholder="e.g. AppEnhancer admin – queues" />
+              <input type="text" name="title" id="docTitle" placeholder="e.g. Software admin – queues" />
             </div>
             <div>
               <label for="docFile">PDF or text file</label>
@@ -486,7 +496,7 @@
       <ul class="roadmap" style="margin-top:1rem">
         <li>
           <strong>Phase 1 — Foundation (weeks 1–2)</strong><br />
-          AIRevolution marketing site: hero, services, pricing, how it works, contact/onboarding. Credibility rooted in AppEnhancer expertise. <em>You are here on the product tab.</em>
+          AIRevolution marketing site: hero, services, pricing, how it works, contact/onboarding. Credibility rooted in Software expertise. <em>You are here on the product tab.</em>
         </li>
         <li>
           <strong>Phase 2 — The brain (weeks 2–4)</strong><br />
@@ -502,10 +512,10 @@
         </li>
         <li>
           <strong>Phase 5 — Go to market</strong><br />
-          Target mid-size AppEnhancer customers; pitch speed and cost vs. traditional support. Pricing band $5,000–10,000/month by volume.
+          Target mid-size Software customers; pitch speed and cost vs. traditional support. Pricing band $1,000–5,000/month by volume.
         </li>
       </ul>
-      <h2>What we need to make AppEnhancer answers accurate</h2>
+      <h2>What we need to make Software answers accurate</h2>
       <ul class="muted">
         <li>PDFs, admin manuals, and official or internal guides</li>
         <li>Screens of every major page, settings area, and common error state</li>
@@ -513,6 +523,7 @@
       </ul>
     </div>
   </main>
+  </div>
 
   <script src="app.js" defer></script>
 </body>

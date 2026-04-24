@@ -1,5 +1,5 @@
 """
-AIRevolution: AppEnhancer Tier 1 support — knowledge uploads, RAG, Claude chat, ticket tracking.
+AIRevolution: Software Tier 1 support — knowledge uploads, RAG, Claude chat, ticket tracking.
 
 Env:
   ANTHROPIC_API_KEY — required for live AI; without it, /chat returns a draft using retrieved context only.
@@ -364,7 +364,7 @@ def chat(body: ChatIn) -> dict[str, Any]:
     has_kb = bool(ctx)
 
     system = (
-        "You are AIRevolution, an expert AppEnhancer (OpenText) Tier 1 support assistant. "
+        "You are AIRevolution, an expert Software (OpenText) Tier 1 support assistant. "
         "Answer using ONLY the provided knowledge context when it applies. If the context is empty "
         "or insufficient, say so clearly, give safe general product-adjacent guidance, and end with "
         "the line: STATUS: NEEDS_REVIEW. "
@@ -375,7 +375,7 @@ def chat(body: ChatIn) -> dict[str, Any]:
 
     user_block = (
         f"User inquiry:\n{body.message}\n\n"
-        f"Retrieved AppEnhancer knowledge (may be empty):\n{ctx or '(no documents matched — inform user and use STATUS: NEEDS_REVIEW unless trivial).'}"
+        f"Retrieved Software knowledge (may be empty):\n{ctx or '(no documents matched — inform user and use STATUS: NEEDS_REVIEW unless trivial).'}"
     )
 
     reply = _call_claude(system, user_block) if os.getenv("ANTHROPIC_API_KEY", "").strip() else ""
