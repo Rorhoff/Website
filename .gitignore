@@ -1,4 +1,6 @@
 .env
+key.pem
+*.pem
 .venv/
 venv/
 
