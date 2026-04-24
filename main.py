@@ -7,7 +7,8 @@ Developer notes (manual edits):
 - Authentication: API tools use X-API-Key + X-API-Secret; browser dashboard uses POST /api/session/login
   then the httpOnly cookie (see credential_service.COOKIE_NAME).
 - Adding HTTP routes: define handlers on ``app``; use Depends(authenticate) unless the route is public.
-- Static sites: files live under static/; each SPA gets an app.mount(...) — mirror that pattern for new pages.
+- Static sites: files live under static/; each SPA gets an app.mount(...) — mirror that pattern for new pages
+  (e.g. /airevolution/ → static/airevolution/).
 - Classifieds REST API: implemented in classifieds_routes.py (prefix /api/classifieds), not in this file.
 """
 
@@ -32,6 +33,7 @@ from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, Field
 
 import credential_service
+from airevolution_routes import router as airevolution_router
 from classifieds_routes import router as classifieds_router
 from credential_service import COOKIE_NAME
 
@@ -164,6 +166,7 @@ app.add_middleware(
 )
 
 app.include_router(classifieds_router)
+app.include_router(airevolution_router)
 
 # --- Cross-origin and per-request analytics middleware ---
 
@@ -339,6 +342,11 @@ app.mount(
     "/lost-in-space",
     StaticFiles(directory=str(STATIC_DIR / "lost-in-space"), html=True),
     name="lost_in_space",
+)
+app.mount(
+    "/airevolution",
+    StaticFiles(directory=str(STATIC_DIR / "airevolution"), html=True),
+    name="airevolution",
 )
 
 
