@@ -1,204 +1,478 @@
 <!DOCTYPE html>
+
 <!--
+
   DEV: About / home page. Nav links are relative (../ paths) when nested; keep in sync with
+
   main.py static mounts: /api-testing/, /lost-in-space/, /classifieds/, /airevolution/.
+
   Theme tokens live in :root — change once to restyle all site chrome.
+
 -->
+
 <html lang="en">
+
 <head>
+
   <meta charset="UTF-8" />
+
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Rory Hoffman — Technical Solutions Engineer</title>
+
+  <title>Rory Hoffman, Technical Support Engineer</title>
+
   <style>
+
     :root {
+
       --bg: #0c0f14;
+
       --surface: #151b26;
+
       --border: #2a3548;
+
       --text: #e8edf5;
+
       --muted: #94a3b8;
+
       --accent: #38bdf8;
+
       --heading: #f1f5f9;
+
     }
+
     * { box-sizing: border-box; }
+
     body {
+
       margin: 0;
+
       min-height: 100vh;
+
       font-family: "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+
       background: var(--bg);
+
       color: var(--text);
+
       line-height: 1.65;
+
     }
+
     .site-nav {
+
       display: flex;
+
       flex-wrap: wrap;
+
       gap: 0.65rem 1.25rem;
+
       padding: 0.75rem 1.5rem;
+
       border-bottom: 1px solid var(--border);
+
       background: #0f141c;
+
       align-items: center;
+
     }
+
     .site-nav a {
+
       color: var(--muted);
+
       text-decoration: none;
+
       font-size: 0.9rem;
+
       font-weight: 500;
+
     }
+
     .site-nav a:hover { color: var(--accent); }
+
     .site-nav a.active {
+
       color: var(--heading);
+
       border-bottom: 2px solid var(--accent);
+
       padding-bottom: 0.1rem;
+
     }
+
     .wrap {
+
       max-width: 820px;
+
       margin: 0 auto;
+
       padding: 2rem 1.5rem 3rem;
+
     }
+
     .hero h1 {
+
       margin: 0 0 0.35rem;
+
       font-size: 1.75rem;
+
       font-weight: 700;
+
       color: var(--heading);
+
       letter-spacing: -0.02em;
+
     }
+
     .hero .tag {
-      margin: 0 0 1.5rem;
+
+      margin: 0 0 0.5rem;
+
       color: var(--muted);
+
       font-size: 1rem;
+
     }
+
+    .hero .contact-line {
+
+      margin: 0 0 1.5rem;
+
+      font-size: 0.9rem;
+
+      color: var(--muted);
+
+    }
+
+    .hero .contact-line a { color: var(--accent); }
+
     section {
+
       margin-bottom: 2rem;
+
     }
+
     section h2 {
+
       margin: 0 0 0.75rem;
+
       font-size: 0.8rem;
+
       font-weight: 700;
+
       text-transform: uppercase;
+
       letter-spacing: 0.08em;
+
       color: var(--accent);
+
     }
+
     .summary {
+
       font-size: 1.02rem;
+
       color: #cbd5e1;
+
     }
+
     ul.competencies {
+
       margin: 0;
+
       padding-left: 1.2rem;
+
       color: #cbd5e1;
+
     }
-    ul.competencies li { margin-bottom: 0.35rem; }
+
+    ul.competencies li { margin-bottom: 0.5rem; }
+
+    .competencies strong { color: #e2e8f0; }
+
+    .achievements li { list-style: none; position: relative; padding-left: 0.2rem; }
+
+    .achievements { padding-left: 0; }
+
+    .achievements li::before { content: "★ "; color: var(--accent); }
+
     .job {
+
       margin-bottom: 1.75rem;
+
     }
+
     .job:last-child { margin-bottom: 0; }
+
     .job-head {
+
       display: flex;
+
       flex-wrap: wrap;
+
       gap: 0.35rem 1rem;
+
       align-items: baseline;
+
       margin-bottom: 0.5rem;
+
     }
+
     .job-head strong { color: var(--heading); font-size: 1.05rem; }
+
     .job-meta { color: var(--muted); font-size: 0.9rem; }
+
     .role {
+
       font-weight: 600;
+
       color: #e2e8f0;
+
       margin: 0.75rem 0 0.4rem;
+
       font-size: 0.95rem;
+
     }
+
     .job ul {
+
       margin: 0;
+
       padding-left: 1.2rem;
+
       color: #cbd5e1;
+
     }
+
     .job ul li { margin-bottom: 0.45rem; }
+
     @media print {
+
       body { background: #fff; color: #111; }
+
       .site-nav { border-color: #ccc; }
+
       .site-nav a { color: #333; }
+
     }
+
   </style>
+
 </head>
+
 <body>
+
   <nav class="site-nav" aria-label="Primary">
+
     <a href="index.html" class="active">About</a>
+
     <a href="https://www.linkedin.com/in/rorhoff" target="_blank" rel="noopener noreferrer">LinkedIn</a>
+
     <a href="api-testing/">API Testing</a>
+
     <a href="lost-in-space/">Lost in Space Game</a>
+
     <a href="classifieds/index.html">Classifieds</a>
+
     <a href="airevolution/">AI Revolution</a>
+
   </nav>
+
   <div class="wrap">
+
     <header class="hero">
+
       <h1>Rory Hoffman</h1>
-      <p class="tag">Technical Solutions Engineer — Client Solutions</p>
+
+      <p class="tag">Technical Support Engineer · Enterprise SaaS · API &amp; Integration Specialist</p>
+
+      <p class="contact-line">
+
+        801-647-9430 · <a href="mailto:RorHoff@Gmail.com">RorHoff@Gmail.com</a> · Eagle Mountain, Utah ·
+
+        <a href="https://www.linkedin.com/in/rorhoff" target="_blank" rel="noopener noreferrer">LinkedIn</a>
+
+      </p>
+
     </header>
 
+
+
     <section>
+
       <h2>Professional summary</h2>
+
       <p class="summary">
-        Technical Solutions Engineer — Client Solutions with 7+ years of expertise in Tungsten products, including TotalAgility,
-        Capture, and RPA solutions. Trusted by enterprise clients as the go-to expert for complex deployments, upgrades, and
-        integrations. Skilled in SQL, API testing, and workflow automation to deliver actionable solutions. Proven track record of
-        expanding accounts through consultative upsells of software upgrades and billable professional services. Combines elite
-        technical credibility with a client-first communication style to accelerate deals, reduce risk, and drive customer success.
+
+        Senior Technical Support Engineer with 7+ years of experience resolving complex technical issues for enterprise
+
+        SaaS customers via email, phone, and live support channels. Deeply skilled at understanding, reproducing, and
+
+        resolving customer issues through log analysis, SQL investigation, REST API testing, and hands-on issue
+
+        replication. Experienced escalating highly technical bugs to engineering with detailed reproduction steps and
+
+        collaborating cross-functionally to drive resolution. Passionate about delivering an excellent customer
+
+        experience, tracking recurring issues to influence product improvements, and continuously improving support
+
+        processes. Brings a developer mindset with hands-on scripting experience in C#, VB.NET, and SQL, with a strong
+
+        interest in growing further into software development.
+
       </p>
+
     </section>
 
+
+
     <section>
-      <h2>Core competencies</h2>
+
+      <h2>Core skills</h2>
+
       <ul class="competencies">
-        <li>Tungsten Product Suite (TotalAgility, Capture, RPA)</li>
-        <li>Solution Demonstrations &amp; Technical Presentations</li>
-        <li>Enterprise Account Management</li>
-        <li>Software Upselling &amp; Account Expansion</li>
-        <li>Consultative Selling</li>
-        <li>Technical Scoping &amp; SOW Development</li>
-        <li>Customer Onboarding &amp; Training</li>
-        <li>SQL, API &amp; Log Analysis</li>
-        <li>Cross-functional Collaboration</li>
+
+        <li><strong>Technical support.</strong> Issue reproduction, root cause analysis, escalation management, log analysis, API debugging, SLA management.</li>
+
+        <li><strong>Languages &amp; scripting.</strong> SQL, C#, VB.NET, Python, HTML, CSS, XML, JSON.</li>
+
+        <li><strong>API &amp; integration.</strong> REST API troubleshooting, SOAP/XML, Postman, integration debugging.</li>
+
+        <li><strong>Monitoring &amp; logs.</strong> Splunk, error log analysis, event tracing, anomaly detection, API call monitoring.</li>
+
+        <li><strong>Dev &amp; collaboration tools.</strong> Jira, GitHub (basic), Confluence, Visual Studio, Postman, Slack, Intercom.</li>
+
+        <li><strong>Platforms.</strong> Tungsten TotalAgility, Tungsten Capture, Tungsten RPA, OpenText, enterprise SaaS, workflow automation.</li>
+
+        <li><strong>CRM &amp; ticketing.</strong> HubSpot, NetSuite, Zendesk, Salesforce, FogBugz.</li>
+
+        <li><strong>Documentation.</strong> Knowledge base authoring, internal process documentation, customer-facing FAQs and guides.</li>
+
       </ul>
+
     </section>
 
+
+
     <section>
+
+      <h2>Key achievements</h2>
+
+      <ul class="competencies achievements">
+
+        <li>Top Knowledge Base article contributor, highest volume of customer-facing and internal documentation company-wide.</li>
+
+        <li>Reduced repeat escalations by identifying systemic configuration issues, improving the overall customer experience.</li>
+
+        <li>Recognized for rapid issue replication and cross-team coordination on mission-critical customer incidents.</li>
+
+        <li>Eagle Scout, Boy Scouts of America, demonstrating lifelong commitment to leadership, accountability, and seeing complex challenges through to completion.</li>
+
+      </ul>
+
+    </section>
+
+
+
+    <section>
+
       <h2>Work experience</h2>
 
-      <div class="job">
-        <div class="job-head">
-          <strong>MetaSource</strong>
-          <span class="job-meta">Remote · Oct. 2018 – Mar. 2026</span>
-        </div>
-        <p class="role">Senior Technical Services Engineer · Jan. 2022 – Mar. 2026</p>
-        <ul>
-          <li>Served as the company’s foremost subject matter expert on Tungsten products; primary internal and client-facing resource for training, escalations, and complex deployments.</li>
-          <li>Generated revenue by proactively identifying and closing software upgrade opportunities and selling billable professional services hours directly to enterprise clients.</li>
-          <li>Led consultative discovery calls with clients to scope technical needs, recommend solutions, and deliver product demonstrations.</li>
-          <li>Owned full lifecycle of enterprise deployments—from requirements gathering and SOW scoping through implementation, UAT, and go-live support.</li>
-          <li>Acted as escalation lead for mission-critical issues, coordinating with engineering to drive rapid resolution and protect client relationships.</li>
-          <li>Reduced repeat escalations by identifying and addressing systemic configuration gaps, leveraging SQL queries, API testing, and workflow analysis.</li>
-          <li>Top Knowledge Base contributor: created technical training materials used across the team.</li>
-        </ul>
-        <p class="role">Technical Services Engineer · Oct. 2018 – Dec. 2021</p>
-        <ul>
-          <li>Developed and executed test scripts (C#, VB.NET, JavaScript) to validate product configurations for enterprise clients.</li>
-          <li>Trained team members and clients on Tungsten product capabilities, establishing a reputation as the department’s top technical resource.</li>
-          <li>Supported clients with configuration, workflow design, and troubleshooting, building trust and long-term client relationships.</li>
-          <li>Performed full-cycle installations, upgrades, and custom deployments, ensuring smooth adoption and system optimization.</li>
-        </ul>
-      </div>
+
 
       <div class="job">
+
         <div class="job-head">
-          <strong>Jet.com</strong>
-          <span class="job-meta">Draper, Utah · Sept. 2015 – Oct. 2018</span>
+
+          <strong>MetaSource</strong>
+
+          <span class="job-meta">Remote · Oct. 2018 – Mar. 2026</span>
+
         </div>
-        <p class="role">Retail Partner Operations &amp; Integration</p>
+
+        <p class="role">Senior Technical Services Engineer · Jan. 2022 – Mar. 2026</p>
+
         <ul>
-          <li>Built SQL queries to investigate fraud, payment anomalies, and SKU-level issues, supporting data-driven decision making.</li>
-          <li>Used Splunk and JSON analysis to identify trends and surface operational insights; created Excel pivot reports to track performance and improve processes.</li>
+
+          <li>Served as primary technical point of contact for enterprise customers, resolving complex issues via email, phone, and live support channels.</li>
+
+          <li>Understood, reproduced, and resolved deeply technical customer issues involving APIs, workflow configurations, integrations, and application behavior.</li>
+
+          <li>Conducted hands-on log analysis, SQL investigation, and Postman API testing to diagnose root causes and identify solutions.</li>
+
+          <li>Escalated highly technical issues to engineering with detailed reproduction steps, environment context, and proposed solutions to drive faster resolution.</li>
+
+          <li>Tracked recurring customer issues and represented the customer voice in internal product and engineering discussions to influence prioritization.</li>
+
+          <li>Improved support processes and contributed to internal tooling and workflows to increase team efficiency and customer response quality.</li>
+
+          <li>Collaborated cross-functionally with Engineering, Professional Services, Sales, and Product teams to deliver complete resolutions.</li>
+
+          <li>Ensured every customer knew the status of their issue and expected resolution timelines, maintaining trust and transparency throughout.</li>
+
+          <li>Owned deployments, upgrades, and custom system configurations for enterprise client environments.</li>
+
         </ul>
+
+        <p class="role">Technical Services Engineer · Oct. 2018 – Dec. 2021</p>
+
+        <ul>
+
+          <li>Resolved technical issues for enterprise customers through log analysis, issue reproduction, and hands-on troubleshooting of complex application behavior.</li>
+
+          <li>Collaborated with Professional Services on software installations, SBL-to-VB.NET code conversions, and C# scripting projects.</li>
+
+          <li>Developed and executed test scripts in C#, VB.NET, SBL, and JavaScript to validate software builds and configurations.</li>
+
+          <li>Authored support documentation and internal knowledge base articles to improve team-wide issue resolution capability.</li>
+
+          <li>Analyzed error logs, identified root causes, and escalated confirmed product defects to engineering with detailed reproduction documentation.</li>
+
+          <li>Managed cases end-to-end through HubSpot, NetSuite, and FogBugz, ensuring full visibility and customer communication throughout.</li>
+
+        </ul>
+
       </div>
+
+
+
+      <div class="job">
+
+        <div class="job-head">
+
+          <strong>Jet.com</strong>
+
+          <span class="job-meta">Draper, Utah · Sept. 2015 – Oct. 2018</span>
+
+        </div>
+
+        <p class="role">Retail Partner Operations &amp; Integration</p>
+
+        <ul>
+
+          <li>Supported B2B partners as a primary point of contact for integration issues, onboarding questions, and technical troubleshooting.</li>
+
+          <li>Built and maintained SQL queries for fraud investigation, payment reconciliation, and SKU-level data analysis.</li>
+
+          <li>Monitored API calls and identified anomalies using Splunk dashboards and JSON log analysis.</li>
+
+          <li>Supported partners with platform integrations and communicated with B2B partners to resolve technical issues and ensure platform continuity.</li>
+
+          <li>Managed partner cases and cross-team issue tracking through Salesforce CRM and Jira.</li>
+
+          <li>Delivered high-quality customer support via email and phone under strict SLA requirements, consistently maintaining top quality scores.</li>
+
+          <li>Performed risk analysis and fraud detection on high-volume order queues, demonstrating strong analytical judgment.</li>
+
+        </ul>
+
+      </div>
+
     </section>
+
   </div>
+
 </body>
+
 </html>
+

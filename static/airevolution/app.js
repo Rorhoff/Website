@@ -1,5 +1,5 @@
 /**
- * AIRevolution SPA — calls /api/airevolution/* (see airevolution_routes.py).
+ * AIRevolution SPA. Calls /api/airevolution/* (see airevolution_routes.py).
  */
 
 const API = "/api/airevolution";
@@ -45,6 +45,15 @@ function tabSwitch(name) {
   if (name === "knowledge") loadDocuments().catch((e) => setBanner("kbBanner", String(e), "err"));
   if (name === "tickets") loadTickets().catch((e) => setBanner("ticketBanner", String(e), "err"));
   if (name === "agent") refreshStatus().catch(() => {});
+}
+
+function wireGotoTabs() {
+  document.querySelectorAll("[data-goto]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const target = btn.getAttribute("data-goto");
+      if (target) tabSwitch(target);
+    });
+  });
 }
 
 async function refreshStatus() {
@@ -202,7 +211,7 @@ function initChat() {
     const out = el("aiOutput");
     const retrieval = el("retrieval");
     if (!input?.value.trim()) return;
-    out.textContent = "…";
+    out.textContent = "Working on your request.";
     if (retrieval) retrieval.innerHTML = "";
     try {
       const res = await fetchJSON("/chat", {
@@ -222,7 +231,14 @@ function initChat() {
       if (retrieval && res.retrieval && res.retrieval.length) {
         retrieval.innerHTML =
           "<strong>Top matches from your knowledge base</strong><ul>" +
-          res.retrieval.map((r) => `<li><em>${escapeHtml(r.title)}</em> — ${escapeHtml(r.preview)}…</li>`).join("") +
+          res.retrieval
+            .map(
+              (r) =>
+                `<li><em>${escapeHtml(r.title)}</em>. ${escapeHtml(r.preview).slice(0, 200)}${
+                  r.preview && r.preview.length > 200 ? "..." : ""
+                }</li>`
+            )
+            .join("") +
           "</ul>";
       } else if (retrieval) {
         retrieval.innerHTML = '<p class="muted">No strong KB matches (add more documentation or use broader keywords).</p>';
@@ -327,6 +343,7 @@ function init() {
   initDocUpload();
   initChat();
   initTicketForm();
+  wireGotoTabs();
   refreshStatus().catch(() => {});
   tabSwitch("home");
 }
