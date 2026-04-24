@@ -379,10 +379,6 @@
         rote steps, and more time on judgment, quality checks, and the cases that still need a human. The model takes the
         first pass on triage and procedure, so your team can coach, review, and own the hard escalations.
       </p>
-      <div class="hero-row">
-        <span class="pill ok" id="apiPill">Loading status…</span>
-        <span class="muted sm" id="statusSub"></span>
-      </div>
 
       <h3>What you can add</h3>
       <ul class="muted">
@@ -511,9 +507,13 @@
 
     <div data-panel="agent" hidden>
       <h1>Support agent</h1>
+      <div class="hero-row agent-status-row" style="margin-bottom:1rem">
+        <span class="pill ok" id="apiPill">Loading status…</span>
+        <span class="muted sm" id="statusSub"></span>
+      </div>
       <p class="lead muted">
         Paste a customer email or paraphrase their issue. The server retrieves matching chunks from your knowledge base,
-        then calls Claude with the API key configured for your deployment.
+        then calls the AI Revolution!
       </p>
       <div id="agentBanner" class="banner info" hidden></div>
 
