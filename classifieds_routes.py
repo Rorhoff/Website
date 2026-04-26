@@ -22,6 +22,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 import credential_service
+from credential_service import truncate_for_bcrypt
 from database import SessionLocal
 from models import ClassifiedAd, ClassifiedSession, ClassifiedUser
 
@@ -31,12 +32,12 @@ router = APIRouter(prefix="/api/classifieds", tags=["classifieds"])
 
 
 def _hash_password(plain: str) -> str:
-    return bcrypt_hasher.hash(plain)
+    return bcrypt_hasher.hash(truncate_for_bcrypt(plain))
 
 
 def _verify_password(plain: str, password_hash: str) -> bool:
     try:
-        return bcrypt_hasher.verify(plain, password_hash)
+        return bcrypt_hasher.verify(truncate_for_bcrypt(plain), password_hash)
     except ValueError:
         return False
 

@@ -7,7 +7,8 @@ python-multipart==0.0.20
 sqlalchemy>=2.0.36
 psycopg[binary]>=3.2.0
 passlib[bcrypt]>=1.7.4
-bcrypt>=4.2.0
+# passlib 1.7.x is incompatible with bcrypt 4.1+ (version probe + wrap-bug self-test).
+bcrypt>=4.0.1,<4.1
 python-dotenv>=1.0.1
 httpx>=0.27.0
 pypdf>=5.0.0
