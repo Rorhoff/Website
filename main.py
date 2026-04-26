@@ -4,6 +4,10 @@ Web API playground: production mode uses PostgreSQL + bcrypt for secrets and htt
 Developer notes (manual edits):
 - Environment: DATABASE_URL (Postgres), CORS_ORIGINS, SESSION_HOURS, SESSION_COOKIE_SECURE,
   APP_ENV, optional API_KEY/API_SECRET when DATABASE_URL is unset (in-memory credentials).
+- HTTPS: behind nginx/SSL, set CORS_ORIGINS to https:// your origins and SESSION_COOKIE_SECURE=1.
+  Optional unauthenticated liveness: GET /health (for load balancers; GET /api/health remains authenticated).
+- ``.env`` is loaded from the same directory as this file (e.g. EC2: ``/home/ubuntu/Website/.env``). For systemd, also set
+  ``EnvironmentFile=/home/ubuntu/Website/.env`` and ``WorkingDirectory=/home/ubuntu/Website`` to match.
 - Authentication: API tools use X-API-Key + X-API-Secret; browser dashboard uses POST /api/session/login
   then the httpOnly cookie (see credential_service.COOKIE_NAME).
 - Adding HTTP routes: define handlers on ``app``; use Depends(authenticate) unless the route is public.
@@ -37,7 +41,8 @@ from airevolution_routes import router as airevolution_router
 from classifieds_routes import router as classifieds_router
 from credential_service import COOKIE_NAME
 
-load_dotenv()
+BASE_DIR = Path(__file__).resolve().parent
+load_dotenv(BASE_DIR / ".env")
 
 log = logging.getLogger("webapi-testing")
 
@@ -149,10 +154,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Web API Testing",
-    description=(
-        "Production: secrets stored as bcrypt hashes in PostgreSQL; browser uses httpOnly cookies after "
-        "/api/session/login. Postman uses X-API-Key / X-API-Secret. Rotate invalidates sessions."
-    ),
+    description="",
     version="2.0.0",
     lifespan=lifespan,
 )
@@ -179,7 +181,9 @@ async def analytics_middleware(request: Request, call_next):
     query = request.url.query
     response = await call_next(request)
     duration_ms = (time.perf_counter() - start) * 1000
-    if not (request.method == "GET" and path == "/api/analytics"):
+    if not (
+        request.method == "GET" and path in ("/api/analytics", "/health")
+    ):
         _record_request(
             request.method,
             path,
@@ -202,6 +206,14 @@ class EchoBody(BaseModel):
 class SessionLoginBody(BaseModel):
     api_key: str = Field(min_length=8, max_length=256)
     api_secret: str = Field(min_length=8, max_length=256)
+
+
+# --- Public liveness (SSL/load balancer, no auth) ---
+
+
+@app.get("/health", tags=["health"])
+def health_liveness():
+    return {"status": "ok"}
 
 
 # --- Browser session cookie (dashboard “Save in browser”) ---
@@ -324,8 +336,6 @@ def slow(delay_ms: int = 500):
 
 # --- Static files: site root + mounted SPAs (paths must match nav links in static HTML) ---
 
-
-BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
 app.mount("/assets", StaticFiles(directory=str(STATIC_DIR)), name="assets")
 app.mount(
