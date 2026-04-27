@@ -497,12 +497,14 @@ async def sss_ws(ws: WebSocket, game_code: str):
                     await asyncio.sleep(1.5)
                     for p in game.players.values():
                         p.pieces = dict(PIECE_SET)
-                        # 10 resources split randomly among food / science / tool
-                        cuts = sorted(random.sample(range(11), 2))
+                        # Food minimum 4; remaining 6 split randomly between science and tool
+                        food = random.randint(4, 10)
+                        remaining = 10 - food
+                        sci = random.randint(0, remaining)
                         p.resources = {
-                            "food":    cuts[0],
-                            "science": cuts[1] - cuts[0],
-                            "tool":    10 - cuts[1],
+                            "food":    food,
+                            "science": sci,
+                            "tool":    remaining - sci,
                         }
                         p.tech = {col: [False] * 5
                                   for col in ["biology", "physics", "engineering", "government"]}
@@ -540,6 +542,11 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 if next_piece == "battle_station":
                     if h["type"] != "bs_slot":
                         await ws.send_json({"type": "error", "msg": "Battle station must go on the designated slot (light yellow hex)"})
+                        continue
+                    # Must be a system that contains a triangle tile
+                    has_tri = any(h2["tri"] for h2 in game.board if h2["cluster"] == h["cluster"])
+                    if not has_tri:
+                        await ws.send_json({"type": "error", "msg": "Battle station may only be placed in systems with a triangle tile"})
                         continue
                     # Block black hole cluster and clusters already claimed by others
                     claimed = {v for k, v in game.player_system.items() if k != player.name}

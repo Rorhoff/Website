@@ -241,6 +241,24 @@ function drawTriangles(layer, h) {
   }
 }
 
+function drawTriCounters(layer, h) {
+  const svgNS = "http://www.w3.org/2000/svg";
+  const r = 7;
+  for (const { dx, dy } of TRI_CONFIGS) {
+    const tx = h.x + dx * r;
+    const ty = h.y + dy * r;
+    const t = document.createElementNS(svgNS, "text");
+    t.setAttribute("x", tx);
+    t.setAttribute("y", ty + 1.8);
+    t.setAttribute("text-anchor", "middle");
+    t.setAttribute("font-size", "5");
+    t.setAttribute("font-weight", "bold");
+    t.setAttribute("fill", "rgba(0,0,0,0.8)");
+    t.textContent = "1";
+    layer.appendChild(t);
+  }
+}
+
 // Friendly names for piece types displayed in the player card
 const PIECE_NAMES = {
   death:          "Death Star",
@@ -461,6 +479,11 @@ function renderBoard(state, placementMode) {
   // Core hex type per cluster (used to exclude black hole from battle station targets)
   const coreType = {};
   for (const h of hexes) { if (h.local === 0) coreType[h.cluster] = h.type; }
+  // Clusters that contain a tri hex (only these allow battle station placement)
+  const triClusters = new Set();
+  for (const h of hexes) { if (h.tri) triClusters.add(h.cluster); }
+  // Clusters already claimed by any player (for tri counter display)
+  const claimedClusters = new Set(Object.values(state.player_system ?? {}));
   // Orbital locals blocked because they're ring-adjacent to an existing frigate
   const blockedOrbitalLocals = new Set();
   if (isMyTurn && nextPiece === "frigate" && mySystem !== null) {
@@ -489,6 +512,7 @@ function renderBoard(state, placementMode) {
     if (isMyTurn) {
       if (nextPiece === "battle_station") {
         validTarget = h.type === "bs_slot"
+                      && triClusters.has(h.cluster)
                       && !claimedByOthers.has(h.cluster)
                       && coreType[h.cluster] !== "black_hole";
       } else if (nextPiece === "frigate") {
@@ -521,7 +545,10 @@ function renderBoard(state, placementMode) {
       labelLayer.appendChild(lbl);
     }
 
-    if (h.tri) drawTriangles(pieceLayer, h);
+    if (h.tri) {
+      drawTriangles(pieceLayer, h);
+      if (claimedClusters.has(h.cluster)) drawTriCounters(labelLayer, h);
+    }
   }
 
   drawWormholeLines(wormholeLayer, hexes, hexById);
@@ -677,6 +704,7 @@ function renderFullPlayerCard(state) {
   // Resources row
   const resHtml = ["food", "science", "tool"].map(r => `
     <div class="resource-item">
+      ${r === "food" ? `<img src="icons/food.svg" class="icon-food" alt="food">` : ""}
       <span class="resource-label">${r}</span>
       <span class="resource-count">${resources[r] ?? 0}</span>
     </div>`).join("");
