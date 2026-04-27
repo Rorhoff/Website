@@ -36,6 +36,45 @@ NEUTRAL_PIECES = {
     "guardian": 1, "moon_shark": 2, "pirate": 7, "pirate_base": 1,
 }
 
+TECH_CARDS = [
+    {
+        "id": "fungal_farms",
+        "name": "Fungal Farms",
+        "timing": "Your Turn",
+        "effect": "Spend 1 money to perform a +1 person. This increases resource production by 1.",
+    },
+    {
+        "id": "titanium_armor",
+        "name": "Titanium Armor",
+        "timing": "After Combat Roll",
+        "effect": "Re-roll up to 1 enemy die. You can only have one developed armor tech.",
+    },
+    {
+        "id": "nuclear_missile",
+        "name": "Nuclear Missile",
+        "timing": "Combat",
+        "effect": "+1 additional dice roll for combat.",
+    },
+    {
+        "id": "biotechnology",
+        "name": "Biotechnology",
+        "timing": "Before +1 Person",
+        "effect": "Spend 1 money to gain 2 food.",
+    },
+    {
+        "id": "death_spores",
+        "name": "Death Spores",
+        "timing": "Invasion — Start",
+        "effect": "Gain 1 die in the invasion roll and remove 1 person from the defending system.",
+    },
+    {
+        "id": "molecular_manipulation",
+        "name": "Molecular Manipulation",
+        "timing": "During +Person",
+        "effect": "Create a new person in a system you own with a battle station. Costs 1 food less (minimum 1).",
+    },
+]
+
 # ── Board geometry ────────────────────────────────────────────────────────────
 
 import math
@@ -262,6 +301,7 @@ class Player:
     resources: dict = field(default_factory=dict)   # food, science, tool, money
     income: dict = field(default_factory=dict)       # per-turn income per resource
     tech: dict = field(default_factory=dict)         # column → [bool×5]
+    tech_cards: list = field(default_factory=list)   # list of card ids
 
 
 @dataclass
@@ -295,9 +335,10 @@ class Game:
                     "race_name": RACES[p.race]["name"] if p.race else None,
                     "pieces": dict(p.pieces) if in_board else {},
                     "dice_roll": p.dice_roll,
-                    "resources": dict(p.resources) if in_board else {},
-                    "income":    dict(p.income)    if in_board else {},
-                    "tech": {k: list(v) for k, v in p.tech.items()} if in_board else {},
+                    "resources":  dict(p.resources)  if in_board else {},
+                    "income":     dict(p.income)     if in_board else {},
+                    "tech":       {k: list(v) for k, v in p.tech.items()} if in_board else {},
+                    "tech_cards": list(p.tech_cards) if in_board else [],
                 }
                 for n, p in self.players.items()
             ],
@@ -691,6 +732,18 @@ async def sss_ws(ws: WebSocket, game_code: str):
                     state = game.public_state()
                     state["board"] = game.board
                     await game.broadcast({"type": "game_state", **state})
+
+            # ── draw_tech_card ────────────────────────────────────────────────
+            elif kind == "draw_tech_card":
+                if not game or not player:
+                    continue
+                if game.phase not in ("place_pieces", "board"):
+                    continue
+                card = random.choice(TECH_CARDS)
+                player.tech_cards.append(card["id"])
+                state = game.public_state()
+                state["board"] = game.board
+                await game.broadcast({"type": "game_state", **state})
 
             # ── ping ──────────────────────────────────────────────────────────
             elif kind == "ping":

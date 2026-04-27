@@ -260,3 +260,26 @@ h1 { font-size: 2rem; font-weight: 700; color: var(--accent); text-align: center
 .tech-level.unlocked {
   background: var(--accent2); border-color: var(--accent2); color: #fff; font-weight: 600;
 }
+
+/* ── Tech card hand ───────────────────────────────────────── */
+.tech-cards-section { }
+.tech-cards-heading {
+  font-size: .7rem; color: var(--muted); text-transform: uppercase;
+  letter-spacing: .06rem; margin-bottom: .4rem; font-weight: 600;
+}
+.tech-card-list { display: flex; flex-direction: column; gap: .45rem; }
+.tech-card {
+  background: #0a0f18; border: 1px solid var(--border);
+  border-radius: 7px; padding: .55rem .75rem;
+}
+.tech-card-header {
+  display: flex; align-items: center; justify-content: space-between; gap: .5rem;
+  margin-bottom: .3rem;
+}
+.tech-card-name { font-size: .88rem; font-weight: 700; color: var(--text); }
+.tech-card-timing {
+  font-size: .62rem; font-weight: 700; color: #fff;
+  background: var(--accent2); border-radius: 4px;
+  padding: .1rem .45rem; white-space: nowrap; flex-shrink: 0;
+}
+.tech-card-effect { font-size: .78rem; color: var(--muted); line-height: 1.45; }

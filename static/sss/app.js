@@ -690,6 +690,15 @@ const TECH_COSTS = [
 const _ICON_RES = `<img src="icons/research.svg" class="icon-res" alt="research">`;
 const _ICON_VP  = `<img src="icons/vp.svg" class="icon-vp" alt="VP">`;
 
+const TECH_CARD_DATA = {
+  fungal_farms:           { name: "Fungal Farms",           timing: "Your Turn",          effect: "Spend 1 money to perform a +1 person. This increases resource production by 1." },
+  titanium_armor:         { name: "Titanium Armor",         timing: "After Combat Roll",   effect: "Re-roll up to 1 enemy die. You can only have one developed armor tech." },
+  nuclear_missile:        { name: "Nuclear Missile",        timing: "Combat",              effect: "+1 additional dice roll for combat." },
+  biotechnology:          { name: "Biotechnology",          timing: "Before +1 Person",    effect: "Spend 1 money to gain 2 food." },
+  death_spores:           { name: "Death Spores",           timing: "Invasion — Start",    effect: "Gain 1 die in the invasion roll and remove 1 person from the defending system." },
+  molecular_manipulation: { name: "Molecular Manipulation", timing: "During +Person",      effect: "Create a new person in a system you own with a battle station. Costs 1 food less (minimum 1)." },
+};
+
 const RESOURCE_ICONS = {
   food:    `<img src="icons/food.svg"     class="icon-food"  alt="food">`,
   science: `<img src="icons/research.svg" class="icon-res"   alt="science">`,
@@ -753,6 +762,22 @@ function renderFullPlayerCard(state) {
     </div>`;
   }).join("");
 
+  // Tech card hand
+  const myTechCards = me.tech_cards ?? [];
+  const techCardListHtml = myTechCards.length === 0
+    ? `<div class="hint">No tech cards yet.</div>`
+    : myTechCards.map(id => {
+        const c = TECH_CARD_DATA[id];
+        if (!c) return "";
+        return `<div class="tech-card">
+          <div class="tech-card-header">
+            <span class="tech-card-name">${c.name}</span>
+            <span class="tech-card-timing">${c.timing}</span>
+          </div>
+          <div class="tech-card-effect">${c.effect}</div>
+        </div>`;
+      }).join("");
+
   // Piece inventory
   const pieceRows = Object.entries(pieces)
     .filter(([, n]) => n > 0)
@@ -775,6 +800,11 @@ function renderFullPlayerCard(state) {
       </div>
       <div class="tech-tree mt2">${costsColHtml}${techColsHtml}</div>
       ${pieceRows ? `<div class="piece-grid mt2" style="gap:.4rem 1rem;font-size:.9rem">${pieceRows}</div>` : ""}
+      <div class="tech-cards-section mt2">
+        <div class="tech-cards-heading">Tech Cards</div>
+        <div class="tech-card-list">${techCardListHtml}</div>
+        <button class="btn btn-secondary mt1" id="btn-draw-tech" style="width:100%">Draw Tech Card</button>
+      </div>
     </div>`;
 
   // Tap to reveal tech name (one open at a time)
@@ -785,6 +815,13 @@ function renderFullPlayerCard(state) {
       if (!open) el.classList.add("revealed");
     });
   });
+
+  const drawBtn = cardEl.querySelector("#btn-draw-tech");
+  if (drawBtn) {
+    drawBtn.addEventListener("click", () => {
+      ws.send(JSON.stringify({ type: "draw_tech_card" }));
+    });
+  }
 }
 
 function initBoardPan() {
