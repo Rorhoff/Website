@@ -16,7 +16,7 @@ router = APIRouter(prefix="/api/sss", tags=["sss"])
 
 RACES = {
     "vorrkai":        {"name": "Vorrkai",        "color": "#e74c3c"},
-    "nexari":         {"name": "Nexari",          "color": "#3498db"},
+    "nexari":         {"name": "Nexari",          "color": "#1a5fa8"},
     "luminae":        {"name": "Luminae",         "color": "#ff69b4"},
     "thornveld":      {"name": "Thornveld",       "color": "#27ae60"},
     "obsidian_pact":  {"name": "Obsidian Pact",   "color": "#9b59b6"},
@@ -201,6 +201,51 @@ def _build_board() -> list[dict]:
         used_hexes.add(ha)
         used_hexes.add(hb)
 
+    # Guarantee every adjacent cluster has at least 1 wormhole.
+    # The greedy may leave a cluster at 0 if all its best_per_pair candidates
+    # were blocked by used_hexes; this pass forces one using any free hex pair.
+    for ci in range(nc):
+        if wh_counts[ci] > 0 or not adj[ci]:
+            continue
+        placed = False
+        # Try original best_per_pair candidates first (hexes may now be free)
+        for cj, ha, hb in adj[ci]:
+            if ha not in used_hexes and hb not in used_hexes:
+                hexes[ha]["wormhole"] = True
+                hexes[ha]["wormhole_partner"] = hb
+                hexes[hb]["wormhole"] = True
+                hexes[hb]["wormhole_partner"] = ha
+                used_hexes.add(ha)
+                used_hexes.add(hb)
+                wh_counts[ci] += 1
+                wh_counts[cj] += 1
+                placed = True
+                break
+        if placed:
+            continue
+        # Fall back: scan by_cluster for any non-tri, non-used hex pair
+        for cj, _, _ in adj[ci]:
+            for hi in by_cluster.get(ci, []):
+                if hi["tri"] or hi["id"] in used_hexes:
+                    continue
+                for hj in by_cluster.get(cj, []):
+                    if hj["tri"] or hj["id"] in used_hexes:
+                        continue
+                    hexes[hi["id"]]["wormhole"] = True
+                    hexes[hi["id"]]["wormhole_partner"] = hj["id"]
+                    hexes[hj["id"]]["wormhole"] = True
+                    hexes[hj["id"]]["wormhole_partner"] = hi["id"]
+                    used_hexes.add(hi["id"])
+                    used_hexes.add(hj["id"])
+                    wh_counts[ci] += 1
+                    wh_counts[cj] += 1
+                    placed = True
+                    break
+                if placed:
+                    break
+            if placed:
+                break
+
     return hexes
 
 
@@ -214,7 +259,8 @@ class Player:
     race: str | None = None
     pieces: dict = field(default_factory=dict)
     dice_roll: int = 0
-    resources: dict = field(default_factory=dict)   # food, science, tool
+    resources: dict = field(default_factory=dict)   # food, science, tool, money
+    income: dict = field(default_factory=dict)       # per-turn income per resource
     tech: dict = field(default_factory=dict)         # column → [bool×5]
 
 
@@ -250,6 +296,7 @@ class Game:
                     "pieces": dict(p.pieces) if in_board else {},
                     "dice_roll": p.dice_roll,
                     "resources": dict(p.resources) if in_board else {},
+                    "income":    dict(p.income)    if in_board else {},
                     "tech": {k: list(v) for k, v in p.tech.items()} if in_board else {},
                 }
                 for n, p in self.players.items()
@@ -497,15 +544,19 @@ async def sss_ws(ws: WebSocket, game_code: str):
                     await asyncio.sleep(1.5)
                     for p in game.players.values():
                         p.pieces = dict(PIECE_SET)
-                        # Food minimum 4; remaining 6 split randomly between science and tool
+                        # Food minimum 4; remaining split between science and tool; money 0-3
                         food = random.randint(4, 10)
-                        remaining = 10 - food
-                        sci = random.randint(0, remaining)
+                        rem  = 10 - food
+                        sci  = random.randint(0, rem)
                         p.resources = {
                             "food":    food,
                             "science": sci,
-                            "tool":    remaining - sci,
+                            "tool":    rem - sci,
+                            "money":   random.randint(0, 3),
                         }
+                        # Income 0-2 per resource per turn
+                        p.income = {r: random.randint(0, 2)
+                                    for r in ("food", "science", "tool", "money")}
                         p.tech = {col: [False] * 5
                                   for col in ["biology", "physics", "engineering", "government"]}
                     game.board = _build_board()

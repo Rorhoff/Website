@@ -5,7 +5,7 @@
 
 const RACES = {
   vorrkai:       { name: "Vorrkai",       color: "#e74c3c" },
-  nexari:        { name: "Nexari",        color: "#3498db" },
+  nexari:        { name: "Nexari",        color: "#1a5fa8" },
   luminae:       { name: "Luminae",       color: "#ff69b4" },
   thornveld:     { name: "Thornveld",     color: "#27ae60" },
   obsidian_pact: { name: "Obsidian Pact", color: "#9b59b6" },
@@ -690,23 +690,41 @@ const TECH_COSTS = [
 const _ICON_RES = `<img src="icons/research.svg" class="icon-res" alt="research">`;
 const _ICON_VP  = `<img src="icons/vp.svg" class="icon-vp" alt="VP">`;
 
+const RESOURCE_ICONS = {
+  food:    `<img src="icons/food.svg"     class="icon-food"  alt="food">`,
+  science: `<img src="icons/research.svg" class="icon-res"   alt="science">`,
+  tool:    `<img src="icons/tool.svg"     class="icon-tool"  alt="tool">`,
+  money:   `<img src="icons/money.svg"    class="icon-money" alt="money">`,
+};
+
 function renderFullPlayerCard(state) {
   const cardEl = $("board-card-view");
   const me = (state.players ?? []).find(p => p.name === myName);
   if (!me || !me.race) { cardEl.innerHTML = `<strong>${myName}</strong>`; return; }
 
   const resources = me.resources ?? {};
+  const income    = me.income    ?? {};
   const tech      = me.tech      ?? {};
   const pieces    = me.pieces    ?? {};
   const sys = (state.player_system ?? {})[myName];
   const sysLabel = sys !== null && sys !== undefined ? `System ${sys}` : "No system";
 
+  const RES_KEYS = ["food", "science", "tool", "money"];
+
   // Resources row
-  const resHtml = ["food", "science", "tool"].map(r => `
+  const resHtml = RES_KEYS.map(r => `
     <div class="resource-item">
-      ${r === "food" ? `<img src="icons/food.svg" class="icon-food" alt="food">` : ""}
+      ${RESOURCE_ICONS[r] ?? ""}
       <span class="resource-label">${r}</span>
       <span class="resource-count">${resources[r] ?? 0}</span>
+    </div>`).join("");
+
+  // Income row
+  const incomeHtml = RES_KEYS.map(r => `
+    <div class="resource-item income-item">
+      ${RESOURCE_ICONS[r] ?? ""}
+      <span class="resource-label">${r}</span>
+      <span class="resource-count income-count">+${income[r] ?? 0}</span>
     </div>`).join("");
 
   // Costs column (left of tech tree)
@@ -751,6 +769,10 @@ function renderFullPlayerCard(state) {
         </div>
       </div>
       <div class="resource-row mt2">${resHtml}</div>
+      <div class="income-section mt2">
+        <div class="income-heading">Income / Turn</div>
+        <div class="resource-row">${incomeHtml}</div>
+      </div>
       <div class="tech-tree mt2">${costsColHtml}${techColsHtml}</div>
       ${pieceRows ? `<div class="piece-grid mt2" style="gap:.4rem 1rem;font-size:.9rem">${pieceRows}</div>` : ""}
     </div>`;
