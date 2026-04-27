@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">
+  <!-- book spine -->
+  <rect x="9.2" y="3" width="1.6" height="13" rx=".5" fill="#475569"/>
+  <!-- left page -->
+  <path d="M9.5 3.5 C7 4 4.5 5 4 16 L9.5 16 Z" fill="#e2e8f0"/>
+  <!-- right page -->
+  <path d="M10.5 3.5 C13 4 15.5 5 16 16 L10.5 16 Z" fill="#cbd5e1"/>
+  <!-- text lines left page -->
+  <line x1="5.5" y1="9"  x2="8.5" y2="8.8"  stroke="#94a3b8" stroke-width=".8" stroke-linecap="round"/>
+  <line x1="5.2" y1="11.5" x2="8.5" y2="11.2" stroke="#94a3b8" stroke-width=".8" stroke-linecap="round"/>
+  <line x1="5" y1="14"  x2="8.5" y2="13.7" stroke="#94a3b8" stroke-width=".8" stroke-linecap="round"/>
+  <!-- atom on right page -->
+  <circle cx="13" cy="10" r="1" fill="#7c3aed"/>
+  <ellipse cx="13" cy="10" rx="2.8" ry="1.1" fill="none" stroke="#7c3aed" stroke-width=".8"/>
+  <ellipse cx="13" cy="10" rx="2.8" ry="1.1" fill="none" stroke="#7c3aed" stroke-width=".8" transform="rotate(60 13 10)"/>
+  <ellipse cx="13" cy="10" rx="2.8" ry="1.1" fill="none" stroke="#7c3aed" stroke-width=".8" transform="rotate(120 13 10)"/>
+</svg>

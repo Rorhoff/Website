@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">
+  <!-- planet -->
+  <circle cx="10" cy="17" r="3.2" fill="#1a5296"/>
+  <ellipse cx="10" cy="17" rx="5.5" ry="1.2" fill="none" stroke="#38bdf8" stroke-width=".9"/>
+  <!-- center ship -->
+  <path d="M10 2 L8.5 6.5 L10 6 L11.5 6.5 Z" fill="#ef4444"/>
+  <!-- left ship -->
+  <path d="M4 4 L3 7.5 L4 7.1 L5 7.5 Z" fill="#dc2626"/>
+  <!-- right ship -->
+  <path d="M16 4 L15 7.5 L16 7.1 L17 7.5 Z" fill="#dc2626"/>
+  <!-- exhaust trails -->
+  <line x1="10"  y1="6.5" x2="10"  y2="13.5" stroke="#f97316" stroke-width=".9" stroke-dasharray="1.5,1" stroke-linecap="round"/>
+  <line x1="4"   y1="7.5" x2="6.5" y2="12.5"  stroke="#f97316" stroke-width=".7" stroke-dasharray="1.5,1" stroke-linecap="round"/>
+  <line x1="16"  y1="7.5" x2="13.5" y2="12.5" stroke="#f97316" stroke-width=".7" stroke-dasharray="1.5,1" stroke-linecap="round"/>
+</svg>

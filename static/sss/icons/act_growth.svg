@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">
+  <!-- soil -->
+  <ellipse cx="10" cy="18.2" rx="6" ry="1.8" fill="#78350f"/>
+  <!-- stem -->
+  <line x1="10" y1="18" x2="10" y2="7" stroke="#22c55e" stroke-width="2" stroke-linecap="round"/>
+  <!-- left leaf -->
+  <path d="M10 14.5 C7 13.5 4.5 10 6 6.5 C8.5 9 9.5 12 10 14" fill="#16a34a"/>
+  <!-- right leaf -->
+  <path d="M10 10.5 C13 9.5 15.5 6 14 2.5 C11.5 5 10.5 8 10 10" fill="#4ade80"/>
+  <!-- bud -->
+  <circle cx="10" cy="6.5" r="1.4" fill="#86efac"/>
+</svg>

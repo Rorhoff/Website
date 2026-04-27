@@ -690,6 +690,17 @@ const TECH_COSTS = [
 const _ICON_RES = `<img src="icons/research.svg" class="icon-res" alt="research">`;
 const _ICON_VP  = `<img src="icons/vp.svg" class="icon-vp" alt="VP">`;
 
+const ACTION_CARD_DATA = {
+  act_growth:       { name: "Growth",       tier: 1, icon: "icons/act_growth.svg",       desc: "Grow your population in a system you control." },
+  act_research:     { name: "Research",     tier: 1, icon: "icons/act_research.svg",     desc: "Draw 1 tech card immediately." },
+  act_construction: { name: "Construction", tier: 1, icon: "icons/act_construction.svg", desc: "Place 1 piece in a system you control." },
+  act_diplomacy:    { name: "Diplomacy",    tier: 1, icon: "icons/act_diplomacy.svg",    desc: "Broker a trade or alliance with another player." },
+  act_flight:       { name: "Flight",       tier: 2, icon: "icons/act_flight.svg",       desc: "Move any of your ships to an adjacent system." },
+  act_attack:       { name: "Attack",       tier: 2, icon: "icons/act_attack.svg",       desc: "Initiate combat with enemy pieces in a system." },
+  act_invasion:     { name: "Invasion",     tier: 2, icon: "icons/act_invasion.svg",     desc: "Launch an assault to capture an enemy system." },
+  act_exploration:  { name: "Exploration",  tier: 2, icon: "icons/act_exploration.svg",  desc: "Scout an unoccupied system and reveal its contents." },
+};
+
 const TECH_CARD_DATA = {
   fungal_farms:           { name: "Fungal Farms",           timing: "Your Turn",          effect: "Spend 1 money to perform a +1 person. This increases resource production by 1." },
   titanium_armor:         { name: "Titanium Armor",         timing: "After Combat Roll",   effect: "Re-roll up to 1 enemy die. You can only have one developed armor tech." },
@@ -762,6 +773,27 @@ function renderFullPlayerCard(state) {
     </div>`;
   }).join("");
 
+  // Action card hand
+  const myActionCards = me.action_cards ?? [];
+  const actionCardListHtml = myActionCards.length === 0
+    ? `<div class="hint">No action cards yet.</div>`
+    : myActionCards.map(id => {
+        const c = ACTION_CARD_DATA[id];
+        if (!c) return "";
+        const tierLabel = c.tier === 1 ? "Base I" : "Base II";
+        const tierClass = c.tier === 1 ? "act-tier1" : "act-tier2";
+        return `<div class="action-card">
+          <img class="action-card-icon" src="${c.icon}" alt="${c.name}">
+          <div class="action-card-body">
+            <div class="action-card-header">
+              <span class="action-card-name">${c.name}</span>
+              <span class="action-card-tier ${tierClass}">${tierLabel}</span>
+            </div>
+            <div class="action-card-desc">${c.desc}</div>
+          </div>
+        </div>`;
+      }).join("");
+
   // Tech card hand
   const myTechCards = me.tech_cards ?? [];
   const techCardListHtml = myTechCards.length === 0
@@ -800,6 +832,11 @@ function renderFullPlayerCard(state) {
       </div>
       <div class="tech-tree mt2">${costsColHtml}${techColsHtml}</div>
       ${pieceRows ? `<div class="piece-grid mt2" style="gap:.4rem 1rem;font-size:.9rem">${pieceRows}</div>` : ""}
+      <div class="action-cards-section mt2">
+        <div class="action-cards-heading">Action Cards</div>
+        <div class="action-card-list">${actionCardListHtml}</div>
+        <button class="btn btn-primary mt1" id="btn-draw-action" style="width:100%">Draw Action Card</button>
+      </div>
       <div class="tech-cards-section mt2">
         <div class="tech-cards-heading">Tech Cards</div>
         <div class="tech-card-list">${techCardListHtml}</div>
@@ -815,6 +852,13 @@ function renderFullPlayerCard(state) {
       if (!open) el.classList.add("revealed");
     });
   });
+
+  const drawActionBtn = cardEl.querySelector("#btn-draw-action");
+  if (drawActionBtn) {
+    drawActionBtn.addEventListener("click", () => {
+      ws.send(JSON.stringify({ type: "draw_action_card" }));
+    });
+  }
 
   const drawBtn = cardEl.querySelector("#btn-draw-tech");
   if (drawBtn) {

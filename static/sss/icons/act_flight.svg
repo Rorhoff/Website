@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">
+  <!-- flame outer -->
+  <path d="M8 15.5 C9 14.5 10 17.5 10 20 C10 17.5 11 14.5 12 15.5 L11.5 13 L8.5 13 Z" fill="#f97316"/>
+  <!-- flame inner -->
+  <path d="M8.8 16 C9.5 15.2 10 17 10 19 C10 17 10.5 15.2 11.2 16 L11 13.5 L9 13.5 Z" fill="#fbbf24"/>
+  <!-- left fin -->
+  <path d="M8.5 13 L6 16.5 L8.5 15.5 Z" fill="#475569"/>
+  <!-- right fin -->
+  <path d="M11.5 13 L14 16.5 L11.5 15.5 Z" fill="#475569"/>
+  <!-- body -->
+  <path d="M10 1.5 C8 4.5 7.5 8.5 7.5 12 L12.5 12 C12.5 8.5 12 4.5 10 1.5Z" fill="#94a3b8"/>
+  <!-- nose cone -->
+  <path d="M10 1.5 C8.5 4 8 6.5 8 8 L12 8 C12 6.5 11.5 4 10 1.5Z" fill="#ef4444"/>
+  <!-- porthole -->
+  <circle cx="10" cy="10.5" r="1.8" fill="#38bdf8" opacity=".85"/>
+  <circle cx="10" cy="10.5" r=".8" fill="#0ea5e9" opacity=".7"/>
+</svg>
