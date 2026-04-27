@@ -116,15 +116,30 @@
       </div>
     </div>
 
+    <!-- Dice roll -->
+    <div id="screen-dice-roll" class="screen">
+      <div class="card">
+        <h2>Roll for Turn Order</h2>
+        <p class="hint">Highest 2d6 roll goes first. Ties re-roll.</p>
+        <div id="dice-player-rows" class="mt2"></div>
+        <div class="mt2 row">
+          <button class="btn btn-primary hidden" id="btn-roll-dice">Roll Dice</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Board -->
     <div id="screen-board" class="screen">
+      <button class="btn btn-ghost hidden" id="btn-toggle-view">☰ Player Card</button>
       <div class="watcher-banner hidden" id="watcher-banner">Watching — read-only view</div>
       <div class="card" id="board-player-info"></div>
+      <div class="card hidden" id="board-card-view"></div>
       <div id="board-wrap">
         <svg id="board-svg" width="830" height="760" viewBox="0 0 830 760"
              xmlns="http://www.w3.org/2000/svg">
           <rect width="830" height="760" fill="#080c14" />
           <g id="hex-layer"></g>
+          <g id="wormhole-layer"></g>
           <g id="piece-layer"></g>
           <g id="label-layer"></g>
         </svg>

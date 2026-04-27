@@ -1,4 +1,13 @@
 /* Mobile hamburger navigation — included on every page */
+
+/* Desktop: nav-links is an inline flex row, preserving the original gap */
+.nav-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .65rem 1.25rem;
+  align-items: center;
+}
+
 .nav-hamburger {
   display: none;
   background: none;

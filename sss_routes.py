@@ -26,8 +26,11 @@ RACES = {
 PIECE_SET = {
     "death": 1, "super_ship": 3, "cruise_ship": 6,
     "frigate": 9, "outpost": 3, "battle_station": 4,
-    "empire_flag": 6, "unrest": 1,
+    "empire_flag": 6, "influence_token": 3, "unrest": 1,
 }
+
+# Pieces each player places at game start (empire_flag is auto-placed on core)
+START_PIECES = ["battle_station", "frigate", "frigate", "influence_token"]
 
 NEUTRAL_PIECES = {
     "guardian": 1, "moon_shark": 2, "pirate": 7, "pirate_base": 1,
@@ -48,9 +51,9 @@ for _i in range(6):
 
 # 9 clusters in a true diamond (1-2-3-2-1) using staggered rows.
 # Each row is offset by DX/2; DY is the vertical row spacing.
-_CX, _CY = 415, 380
-_DX = 166   # horizontal cluster-to-cluster distance (same row)
-_DY = 120   # vertical cluster-to-cluster distance (adjacent rows)
+_CX, _CY = 415, 385
+_DX = 148   # horizontal cluster-to-cluster distance (same row)
+_DY = 118   # vertical cluster-to-cluster distance (adjacent rows)
 
 # Layout (SVG y increases downward):
 #          N  (018)
@@ -86,10 +89,34 @@ def _build_board() -> list[dict]:
     for cluster_idx, (cx, cy) in enumerate(_CLUSTER_POSITIONS):
         center_color = _CENTER_COLORS[cluster_idx]
         label = CLUSTER_LABELS[cluster_idx]
-        # Pick one random surrounding hex (local 1-6) to host the system triangles.
-        # Use -1 as sentinel so local_idx == tri_local is never true for the center hex (local 0).
-        tri_local = random.randint(1, 6) if center_color in _TRI_TYPES else -1
+
+        # Layout starting at the tri anchor (going clockwise):
+        #   offset 0 = tri (space type with marker)
+        #   offset 1 = frigate  (immediately clockwise of tri)
+        #   offset 2 = fill A   (bs_slot or science, random)
+        #   offset 3 = frigate  (directly across from tri — non-adjacent to 1 or 5)
+        #   offset 4 = fill B   (the other of bs_slot / science)
+        #   offset 5 = frigate  (immediately counter-clockwise of tri — non-adjacent to 3 or 1)
+        # Result: 3 frigates at alternating positions (1,3,5), never adjacent to each other.
+        # For non-tri systems the same alternating pattern applies; the "tri" slot becomes space.
+        fill = ["bs_slot", "science"]
+        random.shuffle(fill)
+
+        if center_color in _TRI_TYPES:
+            tri_local = random.randint(1, 6)
+            start = tri_local
+            roles = ["space", "orbital", fill[0], "orbital", fill[1], "orbital"]
+        else:
+            tri_local = -1
+            start = random.randint(1, 6)
+            roles = ["space", "orbital", fill[0], "orbital", fill[1], "orbital"]
+
         for local_idx, (ox, oy) in enumerate(_hex_offsets):
+            if local_idx == 0:
+                hex_type = center_color
+            else:
+                rel      = (local_idx - start) % 6
+                hex_type = roles[rel]
             hexes.append({
                 "id": hex_id,
                 "cluster": cluster_idx,
@@ -99,10 +126,81 @@ def _build_board() -> list[dict]:
                 "tri_color": center_color if local_idx == tri_local else "",
                 "x": round(cx + ox, 1),
                 "y": round(cy + oy, 1),
-                "type": center_color if local_idx == 0 else "space",
+                "type": hex_type,
                 "pieces": [],
+                "wormhole": False,
+                "wormhole_partner": None,
             })
             hex_id += 1
+
+    # ── Wormholes ─────────────────────────────────────────────────────────────
+    # One best non-tri hex pair per adjacent cluster pair (distance < 80 px).
+    # Required per cluster: N-1 where N = adjacent cluster count.
+    # A system touching 4 neighbours gets 3-4 wormholes, etc.
+    by_cluster: dict = {}
+    for h in hexes:
+        if h["local"] > 0:
+            by_cluster.setdefault(h["cluster"], []).append(h)
+
+    best_per_pair: dict = {}  # (ci, cj) -> (ha_id, hb_id, dist)
+    nc = len(_CLUSTER_POSITIONS)
+    for ci in range(nc):
+        for cj in range(ci + 1, nc):
+            cxi, cyi = _CLUSTER_POSITIONS[ci]
+            cxj, cyj = _CLUSTER_POSITIONS[cj]
+            if math.sqrt((cxi - cxj) ** 2 + (cyi - cyj) ** 2) > 165:
+                continue
+            for hi in by_cluster.get(ci, []):
+                if hi["tri"]:
+                    continue
+                for hj in by_cluster.get(cj, []):
+                    if hj["tri"]:
+                        continue
+                    d = math.sqrt((hi["x"] - hj["x"]) ** 2 + (hi["y"] - hj["y"]) ** 2)
+                    if d < 80:
+                        key = (ci, cj)
+                        if key not in best_per_pair or d < best_per_pair[key][2]:
+                            best_per_pair[key] = (hi["id"], hj["id"], d)
+
+    # Build per-cluster adjacency from best candidates (one entry per cluster pair)
+    adj: dict = {ci: [] for ci in range(nc)}
+    for (ci, cj), (ha_id, hb_id, _) in best_per_pair.items():
+        adj[ci].append((cj, ha_id, hb_id))
+        adj[cj].append((ci, hb_id, ha_id))
+
+    # Required wormholes: N-1 per cluster (touching 4 neighbours → need 3-4)
+    required: dict = {ci: max(0, len(adj[ci]) - 1) for ci in range(nc)}
+
+    # Candidate list — already exactly one per cluster pair
+    all_cands: list = [(ci, cj, ha_id, hb_id)
+                       for (ci, cj), (ha_id, hb_id, _) in best_per_pair.items()]
+
+    # Greedy: always pick the candidate that satisfies the most unmet need
+    wh_counts: dict = {ci: 0 for ci in range(nc)}
+    used_hexes: set = set()
+
+    def _need(ci_n: int, cj_n: int) -> int:
+        return (max(0, required[ci_n] - wh_counts[ci_n])
+                + max(0, required[cj_n] - wh_counts[cj_n]))
+
+    remaining = list(all_cands)
+    while remaining:
+        remaining = [c for c in remaining if c[2] not in used_hexes and c[3] not in used_hexes]
+        if not remaining:
+            break
+        if all(wh_counts[ci] >= required[ci] for ci in range(nc)):
+            break
+        best = max(remaining, key=lambda c: _need(c[0], c[1]))
+        ci_b, cj_b, ha, hb = best
+        hexes[ha]["wormhole"] = True
+        hexes[ha]["wormhole_partner"] = hb
+        hexes[hb]["wormhole"] = True
+        hexes[hb]["wormhole_partner"] = ha
+        wh_counts[ci_b] += 1
+        wh_counts[cj_b] += 1
+        used_hexes.add(ha)
+        used_hexes.add(hb)
+
     return hexes
 
 
@@ -115,20 +213,29 @@ class Player:
     role: str        # "host" | "player" | "watcher"
     race: str | None = None
     pieces: dict = field(default_factory=dict)
+    dice_roll: int = 0
+    resources: dict = field(default_factory=dict)   # food, science, tool
+    tech: dict = field(default_factory=dict)         # column → [bool×5]
 
 
 @dataclass
 class Game:
     code: str
     host_name: str
-    phase: str = "lobby"   # lobby | race_pick | board | ended
-    players: dict[str, Player] = field(default_factory=dict)  # name → Player
+    phase: str = "lobby"   # lobby | race_pick | dice_roll | place_pieces | board | ended
+    players: dict[str, Player] = field(default_factory=dict)
     watchers: list[Player] = field(default_factory=list)
-    races_taken: dict[str, str] = field(default_factory=dict)  # race_id → player_name
+    races_taken: dict[str, str] = field(default_factory=dict)
     board: list[dict] = field(default_factory=list)
+    turn_order: list[str] = field(default_factory=list)
+    dice_round: list[str] = field(default_factory=list)
+    placement_idx: int = 0
+    player_placement: dict = field(default_factory=dict)  # name → remaining pieces list
+    player_system: dict = field(default_factory=dict)     # name → cluster_idx
     created_at: float = field(default_factory=time.time)
 
     def public_state(self) -> dict:
+        in_board = self.phase in ("place_pieces", "board")
         return {
             "code": self.code,
             "phase": self.phase,
@@ -140,12 +247,26 @@ class Game:
                     "race": p.race,
                     "color": RACES[p.race]["color"] if p.race else None,
                     "race_name": RACES[p.race]["name"] if p.race else None,
+                    "pieces": dict(p.pieces) if in_board else {},
+                    "dice_roll": p.dice_roll,
+                    "resources": dict(p.resources) if in_board else {},
+                    "tech": {k: list(v) for k, v in p.tech.items()} if in_board else {},
                 }
                 for n, p in self.players.items()
             ],
             "watcher_count": len(self.watchers),
             "races_taken": self.races_taken,
             "races": {k: v for k, v in RACES.items()},
+            "turn_order": self.turn_order,
+            "dice_round": self.dice_round,
+            "placement_idx": self.placement_idx,
+            "player_placement": {k: list(v) for k, v in self.player_placement.items()},
+            "player_system": dict(self.player_system),
+            "current_placer": (
+                self.turn_order[self.placement_idx]
+                if self.phase == "place_pieces" and self.placement_idx < len(self.turn_order)
+                else None
+            ),
         }
 
     async def broadcast(self, msg: dict, exclude: WebSocket | None = None) -> None:
@@ -241,7 +362,7 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 game.watchers.append(player)
                 await ws.send_json({"type": "joined", "code": code, "name": "", "role": "watcher"})
                 state = game.public_state()
-                if game.phase == "board":
+                if game.phase in ("place_pieces", "board"):
                     state["board"] = game.board
                 await ws.send_json({"type": "game_state", **state})
 
@@ -289,23 +410,229 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 if game.phase != "race_pick":
                     continue
                 if player.role == "host":
-                    # All players must have a race
                     unready = [n for n, p in game.players.items() if p.race is None]
                     if unready:
                         await ws.send_json({"type": "error", "msg": f"Waiting for: {', '.join(unready)}"})
                         continue
-                    # Assign pieces
+                    # Reset dice state and start dice_roll phase
+                    for p in game.players.values():
+                        p.dice_roll = 0
+                    game.turn_order = []
+                    game.dice_round = list(game.players.keys())
+                    game.phase = "dice_roll"
+                    await game.broadcast({"type": "game_state", **game.public_state()})
+
+            # ── roll_dice ─────────────────────────────────────────────────────
+            elif kind == "roll_dice":
+                if not game or not player:
+                    continue
+                if game.phase != "dice_roll":
+                    continue
+                if player.name not in game.dice_round:
+                    continue
+                if player.dice_roll != 0:
+                    continue  # already rolled this round
+                roll = random.randint(1, 6) + random.randint(1, 6)
+                player.dice_roll = roll
+                await game.broadcast({"type": "game_state", **game.public_state()})
+
+                # Check if everyone in this round has rolled
+                rolled = {n for n in game.dice_round
+                          if game.players[n].dice_roll != 0}
+                if rolled < set(game.dice_round):
+                    continue  # still waiting
+
+                # Resolve this round
+                rolls = {n: game.players[n].dice_roll for n in game.dice_round}
+                max_roll = max(rolls.values())
+                winners = [n for n, r in rolls.items() if r == max_roll]
+                losers  = sorted(
+                    [n for n, r in rolls.items() if r != max_roll],
+                    key=lambda n: rolls[n], reverse=True
+                )
+
+                if len(winners) == 1:
+                    # Unique high roll — place winner, then resolve losers by score
+                    game.turn_order.append(winners[0])
+                    # Group losers by score for cascading tie-breaks
+                    from itertools import groupby
+                    loser_sorted = sorted(losers, key=lambda n: rolls[n], reverse=True)
+                    loser_groups = [list(g) for _, g in groupby(loser_sorted, key=lambda n: rolls[n])]
+                    next_tied: list[str] = []
+                    for group in loser_groups:
+                        if len(group) == 1:
+                            game.turn_order.append(group[0])
+                        else:
+                            next_tied = group
+                            break
+                    if next_tied:
+                        for n in next_tied:
+                            game.players[n].dice_roll = 0
+                        game.dice_round = next_tied
+                        await game.broadcast({"type": "game_state", **game.public_state()})
+                        continue
+                else:
+                    # All winners tie — re-roll among winners; losers resolved cascading
+                    loser_sorted = sorted(losers, key=lambda n: rolls[n], reverse=True)
+                    from itertools import groupby as _gb
+                    loser_groups = [list(g) for _, g in _gb(loser_sorted, key=lambda n: rolls[n])]
+                    remaining_losers: list[str] = []
+                    tie_groups: list[list[str]] = []
+                    for group in loser_groups:
+                        if len(group) == 1:
+                            remaining_losers.append(group[0])
+                        else:
+                            tie_groups.append(group)
+                    for n in remaining_losers:
+                        game.turn_order.append(n)
+                    # Re-roll winners; schedule loser tie-breaks after
+                    for n in winners:
+                        game.players[n].dice_roll = 0
+                    game.dice_round = winners
+                    await game.broadcast({"type": "game_state", **game.public_state()})
+                    continue
+
+                # All players ordered — pause so everyone sees the final roll, then start
+                if len(game.turn_order) == len(game.players):
+                    await asyncio.sleep(1.5)
                     for p in game.players.values():
                         p.pieces = dict(PIECE_SET)
-                    # Build board
+                        # 10 resources split randomly among food / science / tool
+                        cuts = sorted(random.sample(range(11), 2))
+                        p.resources = {
+                            "food":    cuts[0],
+                            "science": cuts[1] - cuts[0],
+                            "tool":    10 - cuts[1],
+                        }
+                        p.tech = {col: [False] * 5
+                                  for col in ["biology", "physics", "engineering", "government"]}
                     game.board = _build_board()
-                    # Place pirate base next to black hole (cluster 4, hex index 0)
-                    # Black hole hex id = 4*7 = 28; neighbour local index 1 = hex 29
                     game.board[29]["pieces"].append({"type": "pirate_base", "owner": "neutral"})
+                    for name in game.turn_order:
+                        game.player_placement[name] = list(START_PIECES)
+                    game.placement_idx = 0
+                    game.phase = "place_pieces"
+                    state = game.public_state()
+                    state["board"] = game.board
+                    await game.broadcast({"type": "place_pieces_start", **state})
+
+            # ── place_piece ───────────────────────────────────────────────────
+            elif kind == "place_piece":
+                if not game or not player:
+                    continue
+                if game.phase != "place_pieces":
+                    continue
+                if not game.turn_order or game.placement_idx >= len(game.turn_order):
+                    continue
+                current = game.turn_order[game.placement_idx]
+                if player.name != current:
+                    await ws.send_json({"type": "error", "msg": "Not your turn to place"})
+                    continue
+                remaining = game.player_placement.get(player.name, [])
+                if not remaining:
+                    continue
+                hex_id = raw.get("hex_id")
+                if not isinstance(hex_id, int) or hex_id < 0 or hex_id >= len(game.board):
+                    await ws.send_json({"type": "error", "msg": "Invalid hex"})
+                    continue
+                h = game.board[hex_id]
+                next_piece = remaining[0]
+                if next_piece == "battle_station":
+                    if h["type"] != "bs_slot":
+                        await ws.send_json({"type": "error", "msg": "Battle station must go on the designated slot (light yellow hex)"})
+                        continue
+                    # Block black hole cluster and clusters already claimed by others
+                    claimed = {v for k, v in game.player_system.items() if k != player.name}
+                    core_type = game.board[h["cluster"] * 7]["type"]
+                    if core_type == "black_hole":
+                        await ws.send_json({"type": "error", "msg": "Cannot claim the black hole system"})
+                        continue
+                    if h["cluster"] in claimed:
+                        await ws.send_json({"type": "error", "msg": "That system is already claimed"})
+                        continue
+                    h["pieces"].append({"type": "battle_station", "owner": player.name})
+                    game.player_system[player.name] = h["cluster"]
+                    core_id = h["cluster"] * 7
+                    game.board[core_id]["pieces"].append({"type": "empire_flag", "owner": player.name})
+                    player.pieces["battle_station"] = player.pieces.get("battle_station", 1) - 1
+                    player.pieces["empire_flag"] = player.pieces.get("empire_flag", 1) - 1
+                elif next_piece == "frigate":
+                    sys_cluster = game.player_system.get(player.name)
+                    if sys_cluster is None:
+                        await ws.send_json({"type": "error", "msg": "Place battle station first"})
+                        continue
+                    if h["cluster"] != sys_cluster:
+                        await ws.send_json({"type": "error", "msg": "Must place within your system"})
+                        continue
+                    if h["type"] != "orbital":
+                        await ws.send_json({"type": "error", "msg": "Frigates must go on orbital hexes (light blue)"})
+                        continue
+                    # Ring-adjacent locals in a 6-hex ring: prev = (i-2)%6+1, next = i%6+1
+                    local = h["local"]
+                    adj_locals = {(local - 2) % 6 + 1, local % 6 + 1}
+                    adjacent_frigate = any(
+                        any(p["type"] == "frigate" for p in adj_h["pieces"])
+                        for adj_h in game.board
+                        if adj_h["cluster"] == sys_cluster and adj_h["local"] in adj_locals
+                    )
+                    if adjacent_frigate:
+                        await ws.send_json({"type": "error", "msg": "Frigates cannot be placed on adjacent hexes"})
+                        continue
+                    h["pieces"].append({"type": "frigate", "owner": player.name})
+                    player.pieces["frigate"] = player.pieces.get("frigate", 1) - 1
+                else:
+                    # influence_token and others: any hex within the system
+                    sys_cluster = game.player_system.get(player.name)
+                    if sys_cluster is None:
+                        await ws.send_json({"type": "error", "msg": "Place battle station first"})
+                        continue
+                    if h["cluster"] != sys_cluster:
+                        await ws.send_json({"type": "error", "msg": "Must place within your system"})
+                        continue
+                    if next_piece == "influence_token" and any(
+                        p["type"] == "influence_token" for p in h["pieces"]
+                    ):
+                        await ws.send_json({"type": "error", "msg": "That hex already has an influence token"})
+                        continue
+                    h["pieces"].append({"type": next_piece, "owner": player.name})
+                    player.pieces[next_piece] = player.pieces.get(next_piece, 1) - 1
+                game.player_placement[player.name].pop(0)
+
+                # Auto-advance when this player's queue is empty
+                if not game.player_placement.get(player.name):
+                    game.placement_idx += 1
+                    if game.placement_idx >= len(game.turn_order):
+                        game.phase = "board"
+                    state = game.public_state()
+                    state["board"] = game.board
+                    msg_type = "board_ready" if game.phase == "board" else "game_state"
+                    await game.broadcast({"type": msg_type, **state})
+                else:
+                    state = game.public_state()
+                    state["board"] = game.board
+                    await game.broadcast({"type": "game_state", **state})
+
+            # ── done_placing ──────────────────────────────────────────────────
+            elif kind == "done_placing":
+                if not game or not player:
+                    continue
+                if game.phase != "place_pieces":
+                    continue
+                if not game.turn_order or game.placement_idx >= len(game.turn_order):
+                    continue
+                if player.name != game.turn_order[game.placement_idx]:
+                    continue
+                game.player_placement[player.name] = []
+                game.placement_idx += 1
+                if game.placement_idx >= len(game.turn_order):
                     game.phase = "board"
                     state = game.public_state()
                     state["board"] = game.board
                     await game.broadcast({"type": "board_ready", **state})
+                else:
+                    state = game.public_state()
+                    state["board"] = game.board
+                    await game.broadcast({"type": "game_state", **state})
 
             # ── ping ──────────────────────────────────────────────────────────
             elif kind == "ping":

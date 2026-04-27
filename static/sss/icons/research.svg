@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none"
+     stroke="#a78bfa" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+  <!-- neck / rim -->
+  <line x1="6.5" y1="2" x2="13.5" y2="2"/>
+  <!-- tube walls -->
+  <line x1="7.5" y1="2" x2="7.5" y2="8"/>
+  <line x1="12.5" y1="2" x2="12.5" y2="8"/>
+  <!-- flask body -->
+  <path d="M7.5 8 L3.2 15.8 A1 1 0 0 0 4.1 17.3 H15.9 A1 1 0 0 0 16.8 15.8 L12.5 8"/>
+  <!-- liquid surface line -->
+  <line x1="5" y1="13.5" x2="15" y2="13.5" stroke-width="1.2"/>
+  <!-- bubbles -->
+  <circle cx="9"  cy="15.5" r="0.85" fill="#a78bfa" stroke="none"/>
+  <circle cx="12" cy="14.8" r="0.55" fill="#a78bfa" stroke="none"/>
+</svg>
