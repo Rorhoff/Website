@@ -6,6 +6,7 @@ Developer notes (manual edits):
   APP_ENV, optional API_KEY/API_SECRET when DATABASE_URL is unset (in-memory credentials).
 - HTTPS: behind nginx/SSL, set CORS_ORIGINS to https:// your origins and SESSION_COOKIE_SECURE=1.
   Optional unauthenticated liveness: GET /health (for load balancers; GET /api/health remains authenticated).
+- API key and secret are never written to application logs. Configure API_KEY and API_SECRET in the environment.
 - ``.env`` is loaded from the same directory as this file (e.g. EC2: ``/home/ubuntu/Website/.env``). For systemd, also set
   ``EnvironmentFile=/home/ubuntu/Website/.env`` and ``WorkingDirectory=/home/ubuntu/Website`` to match.
 - Authentication: API tools use X-API-Key + X-API-Secret; browser dashboard uses POST /api/session/login
@@ -20,7 +21,6 @@ from __future__ import annotations
 
 import logging
 import os
-import sys
 import time
 from collections import Counter, deque
 from contextlib import asynccontextmanager
@@ -31,17 +31,19 @@ from typing import Annotated, Any
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, Field
-
 import credential_service
 from airevolution_routes import router as airevolution_router
 from classifieds_routes import router as classifieds_router
+from sss_routes import router as sss_router
 from credential_service import COOKIE_NAME
 
 BASE_DIR = Path(__file__).resolve().parent
+STATIC_DIR = BASE_DIR / "static"
+
 load_dotenv(BASE_DIR / ".env")
 
 log = logging.getLogger("webapi-testing")
@@ -65,27 +67,18 @@ _api_secret_header = APIKeyHeader(name="X-API-Secret", auto_error=False)
 def _cors_origins() -> list[str]:
     raw = os.getenv(
         "CORS_ORIGINS",
-        "http://127.0.0.1:8000,http://localhost:8000",
+        "http://127.0.0.1:8000,http://localhost:8000,"
+        "http://127.0.0.1:8001,http://localhost:8001",
     )
     return [o.strip() for o in raw.split(",") if o.strip()]
 
 
-def _log_initial_credentials(api_key: str, api_secret: str) -> None:
-    if os.getenv("APP_ENV", "development") == "production":
-        log.warning("API credentials initialized (values not printed in production).")
-        return
+def _log_initial_credentials() -> None:
+    """Do not log API key or secret values (security)."""
     log.warning(
-        "Initial credentials (Postman headers): X-API-Key=%s | X-API-Secret=%s",
-        api_key,
-        api_secret,
-    )
-    print(
-        "\n[webapi-testing] Copy into Postman (Headers). For the dashboard, use “Save in browser” "
-        "(DB mode) or paste each visit (memory mode).\n"
-        f"  X-API-Key:    {api_key}\n"
-        f"  X-API-Secret: {api_secret}\n",
-        file=sys.stderr,
-        flush=True,
+        "API credentials are ready. Key and secret are never written to application logs. "
+        "Set API_KEY and API_SECRET in the .env file next to main.py, or use an authenticated "
+        "rotation or health exchange to obtain a new pair."
     )
 
 
@@ -145,10 +138,15 @@ def _record_request(
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Printed once per process — compare with the URL bar port if routes 404 in the browser.
+    print(
+        f"[webapi-testing] main.py: {Path(__file__).resolve()}",
+        flush=True,
+    )
     credential_service.create_tables()
     new_creds = credential_service.init_credentials()
     if new_creds:
-        _log_initial_credentials(new_creds["api_key"], new_creds["api_secret"])
+        _log_initial_credentials()
     yield
 
 
@@ -169,6 +167,7 @@ app.add_middleware(
 
 app.include_router(classifieds_router)
 app.include_router(airevolution_router)
+app.include_router(sss_router)
 
 # --- Cross-origin and per-request analytics middleware ---
 
@@ -182,7 +181,7 @@ async def analytics_middleware(request: Request, call_next):
     response = await call_next(request)
     duration_ms = (time.perf_counter() - start) * 1000
     if not (
-        request.method == "GET" and path in ("/api/analytics", "/health")
+        request.method == "GET" and path in ("/api/analytics", "/health", "/which-app")
     ):
         _record_request(
             request.method,
@@ -211,9 +210,33 @@ class SessionLoginBody(BaseModel):
 # --- Public liveness (SSL/load balancer, no auth) ---
 
 
+@app.get("/which-app", include_in_schema=False)
+def which_app() -> PlainTextResponse:
+    """Plain text so you can confirm the browser is talking to this repo (not another app on the port)."""
+    return PlainTextResponse(
+        "webapi-testing\n"
+        f"{Path(__file__).resolve()}\n"
+        "No extra path — use /which-app not /which-app/main.py\n"
+        "If Cursor’s Simple Browser shows connection refused, use Chrome/Edge for localhost.\n"
+    )
+
+
+@app.get("/which-app/{rest:path}", include_in_schema=False)
+def which_app_mistake(rest: str) -> PlainTextResponse:
+    return PlainTextResponse(
+        "Use exactly: /which-app   (nothing after the last word — not /main.py)\n"
+        f"Your path had: {rest!r}\n"
+        "Example: http://127.0.0.1:8000/which-app  (port must match uvicorn)\n",
+        status_code=404,
+    )
+
+
 @app.get("/health", tags=["health"])
-def health_liveness():
-    return {"status": "ok"}
+def health_liveness() -> dict[str, str]:
+    return {
+        "status": "ok",
+        "main_py": str(Path(__file__).resolve()),
+    }
 
 
 # --- Browser session cookie (dashboard “Save in browser”) ---
@@ -336,7 +359,6 @@ def slow(delay_ms: int = 500):
 
 # --- Static files: site root + mounted SPAs (paths must match nav links in static HTML) ---
 
-STATIC_DIR = BASE_DIR / "static"
 app.mount("/assets", StaticFiles(directory=str(STATIC_DIR)), name="assets")
 app.mount(
     "/classifieds",
@@ -380,10 +402,26 @@ def lost_in_space_legacy():
     return RedirectResponse(url="/lost-in-space/", status_code=301)
 
 
+@app.get("/sss")
+@app.get("/sss/")
+def sss_root():
+    return _static("sss/index.html")
+
+
+@app.get("/sss/{path:path}")
+def sss_file(path: str):
+    file_path = (STATIC_DIR / "sss" / path).resolve()
+    sss_dir = (STATIC_DIR / "sss").resolve()
+    if not str(file_path).startswith(str(sss_dir)) or not file_path.exists():
+        raise HTTPException(status_code=404)
+    return FileResponse(file_path)
+
+
 # --- Local dev entrypoint ---
 
 
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
+    _port = int(os.getenv("PORT", "8000"))
+    uvicorn.run("main:app", host="127.0.0.1", port=_port, reload=True)

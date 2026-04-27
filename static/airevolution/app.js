@@ -4,6 +4,13 @@
 
 const API = "/api/airevolution";
 
+const QUICK_PROMPTS = [
+  { label: "Cannot log in", text: "The user says they cannot log in. They tried resetting password but did not get an email. What should we check first?" },
+  { label: "Import failed", text: "Import job failed with a generic error. The customer attached a small CSV. What are the first troubleshooting steps?" },
+  { label: "Page error", text: "The application shows a white screen or 500 error on one page only; other pages work. How should we triage?" },
+  { label: "Slow performance", text: "The customer reports the system is very slow at peak times. No error message. What should we ask and suggest?" },
+];
+
 function el(id) {
   return document.getElementById(id);
 }
@@ -201,18 +208,60 @@ async function loadTickets() {
   });
 }
 
+function buildQuickPrompts() {
+  const host = el("quickPrompts");
+  if (!host) return;
+  host.innerHTML = QUICK_PROMPTS.map(
+    (p) =>
+      `<button type="button" class="qp" data-qp="${encodeURIComponent(p.text)}" title="Insert sample">${escapeHtml(p.label)}</button>`
+  ).join("");
+  host.querySelectorAll(".qp").forEach((b) => {
+    b.addEventListener("click", () => {
+      const ta = el("chatInput");
+      if (ta) ta.value = decodeURIComponent(b.getAttribute("data-qp") || "");
+      ta?.focus();
+    });
+  });
+}
+
 function initChat() {
   const form = el("chatForm");
   if (!form) return;
+  buildQuickPrompts();
+  const copyBtn = el("copyReply");
+  if (copyBtn) {
+    copyBtn.addEventListener("click", async () => {
+      const out = el("aiOutput");
+      if (!out?.textContent?.trim() || out.textContent === "No response yet.") return;
+      try {
+        await navigator.clipboard.writeText(out.textContent);
+        copyBtn.textContent = "Copied!";
+        setTimeout(() => {
+          copyBtn.textContent = "Copy reply";
+        }, 2000);
+      } catch {
+        /* ignore */
+      }
+    });
+  }
   form.addEventListener("submit", async (ev) => {
     ev.preventDefault();
     const input = el("chatInput");
     const logTicket = el("logTicket");
     const out = el("aiOutput");
     const retrieval = el("retrieval");
+    const submitBtn = el("chatSubmit");
     if (!input?.value.trim()) return;
-    out.textContent = "Working on your request.";
+    out.textContent = "Working on your request…";
     if (retrieval) retrieval.innerHTML = "";
+    if (copyBtn) {
+      copyBtn.hidden = true;
+      copyBtn.textContent = "Copy reply";
+    }
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.textContent = "Working…";
+    }
     try {
       const res = await fetchJSON("/chat", {
         method: "POST",
@@ -223,6 +272,7 @@ function initChat() {
         }),
       });
       out.textContent = res.reply;
+      if (copyBtn) copyBtn.hidden = !res.reply?.trim();
       if (res.ticket_id) {
         setBanner("agentBanner", `Logged as ticket #${res.ticket_id} (status: ${res.status})`, "ok");
       } else {
@@ -247,6 +297,11 @@ function initChat() {
       refreshStatus().catch(() => {});
     } catch (e) {
       out.textContent = "Error: " + e.message;
+    } finally {
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.textContent = "Get resolution";
+      }
     }
   });
 }

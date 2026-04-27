@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Secret Space Society</title>
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="/assets/nav-mobile.css" />
+</head>
+<body>
+  <nav class="site-nav" aria-label="Primary">
+    <button class="nav-hamburger" id="navHamburger" aria-label="Toggle navigation" aria-expanded="false">☰</button>
+    <div class="nav-links" id="navLinks">
+      <a href="../index.html">About</a>
+      <a href="https://www.linkedin.com/in/rorhoff" target="_blank" rel="noopener noreferrer">LinkedIn</a>
+      <a href="../api-testing/">API Testing</a>
+      <a href="../lost-in-space/">Lost in Space Game</a>
+      <a href="../classifieds/">Classifieds</a>
+      <a href="../airevolution/">AI Revolution</a>
+      <a href="./" class="active">SSS</a>
+    </div>
+  </nav>
+
+  <div id="app">
+    <h1>Secret Space Society</h1>
+    <p class="tagline">A 1–4 player space conquest game</p>
+
+    <!-- Landing -->
+    <div id="screen-landing" class="screen active">
+      <div class="landing-btns">
+        <button class="btn btn-primary"   id="btn-host">Host Game</button>
+        <button class="btn btn-secondary" id="btn-join">Join Game</button>
+        <button class="btn btn-ghost"     id="btn-watch">Watch Game</button>
+      </div>
+    </div>
+
+    <!-- Host: enter name -->
+    <div id="screen-host-name" class="screen">
+      <div class="card">
+        <h2>Host a New Game</h2>
+        <div class="field">
+          <label for="host-name-input">Your name</label>
+          <input id="host-name-input" maxlength="32" placeholder="Commander..." autocomplete="off" />
+        </div>
+        <div class="row">
+          <button class="btn btn-primary" id="btn-host-submit">Create Game</button>
+          <button class="btn btn-ghost"   id="btn-host-back">Back</button>
+        </div>
+        <p class="error-msg hidden" id="host-error"></p>
+      </div>
+    </div>
+
+    <!-- Join: enter name + code -->
+    <div id="screen-join-entry" class="screen">
+      <div class="card">
+        <h2>Join a Game</h2>
+        <div class="field">
+          <label for="join-name-input">Your name</label>
+          <input id="join-name-input" maxlength="32" placeholder="Commander..." autocomplete="off" />
+        </div>
+        <div class="field">
+          <label for="join-code-input">Game code</label>
+          <input id="join-code-input" maxlength="4" placeholder="ABCD" autocomplete="off"
+                 style="text-transform:uppercase;letter-spacing:.2rem;font-size:1.2rem" />
+        </div>
+        <div class="row">
+          <button class="btn btn-secondary" id="btn-join-submit">Join</button>
+          <button class="btn btn-ghost"     id="btn-join-back">Back</button>
+        </div>
+        <p class="error-msg hidden" id="join-error"></p>
+      </div>
+    </div>
+
+    <!-- Watch: enter code -->
+    <div id="screen-watch-entry" class="screen">
+      <div class="card">
+        <h2>Watch a Game</h2>
+        <div class="field">
+          <label for="watch-code-input">Game code</label>
+          <input id="watch-code-input" maxlength="4" placeholder="ABCD" autocomplete="off"
+                 style="text-transform:uppercase;letter-spacing:.2rem;font-size:1.2rem" />
+        </div>
+        <div class="row">
+          <button class="btn btn-ghost" id="btn-watch-submit">Watch</button>
+          <button class="btn btn-ghost" id="btn-watch-back">Back</button>
+        </div>
+        <p class="error-msg hidden" id="watch-error"></p>
+      </div>
+    </div>
+
+    <!-- Lobby -->
+    <div id="screen-lobby" class="screen">
+      <div class="card">
+        <h2>Game Lobby</h2>
+        <p class="hint">Share this code with friends:</p>
+        <div class="lobby-code" id="lobby-code">----</div>
+        <h3>Players</h3>
+        <ul class="player-list" id="lobby-player-list"></ul>
+        <div class="mt2 row" id="lobby-host-actions">
+          <button class="btn btn-primary" id="btn-start-game">Start Game</button>
+        </div>
+        <p class="error-msg hidden" id="lobby-error"></p>
+      </div>
+    </div>
+
+    <!-- Race pick -->
+    <div id="screen-race-pick" class="screen">
+      <div class="card">
+        <h2>Choose Your Race</h2>
+        <p class="hint" id="race-pick-hint">Click a race to claim it.</p>
+        <div class="race-grid" id="race-grid"></div>
+        <div class="mt2 row">
+          <button class="btn btn-primary hidden" id="btn-confirm-race">Launch Game</button>
+        </div>
+        <p class="error-msg hidden" id="race-error"></p>
+      </div>
+    </div>
+
+    <!-- Board -->
+    <div id="screen-board" class="screen">
+      <div class="watcher-banner hidden" id="watcher-banner">Watching — read-only view</div>
+      <div class="card" id="board-player-info"></div>
+      <div id="board-wrap">
+        <svg id="board-svg" width="830" height="760" viewBox="0 0 830 760"
+             xmlns="http://www.w3.org/2000/svg">
+          <rect width="830" height="760" fill="#080c14" />
+          <g id="hex-layer"></g>
+          <g id="piece-layer"></g>
+          <g id="label-layer"></g>
+        </svg>
+      </div>
+      <div class="legend" id="board-legend"></div>
+    </div>
+  </div>
+
+  <!-- Status bar -->
+  <div id="status-bar">
+    <span><span class="dot" id="ws-dot"></span><span id="ws-status">Disconnected</span></span>
+    <span id="status-phase"></span>
+    <span id="status-code"></span>
+  </div>
+
+  <script src="app.js"></script>
+  <script src="/assets/nav-mobile.js"></script>
+</body>
+</html>

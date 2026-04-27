@@ -1,0 +1,47 @@
+/* Mobile hamburger navigation — included on every page */
+.nav-hamburger {
+  display: none;
+  background: none;
+  border: none;
+  color: var(--text, #e2e8f0);
+  font-size: 1.4rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: .2rem .4rem;
+  margin-left: auto;
+}
+
+@media (max-width: 640px) {
+  .site-nav {
+    flex-wrap: wrap;
+    position: relative;
+  }
+
+  .nav-hamburger {
+    display: block;
+  }
+
+  .nav-links {
+    display: none;
+    flex-direction: column;
+    width: 100%;
+    gap: 0;
+    background: #0a0f18;
+    border-top: 1px solid var(--border, #1e2d45);
+    padding: .5rem 0;
+  }
+
+  .nav-links.open {
+    display: flex;
+  }
+
+  .nav-links a {
+    padding: .6rem 1rem;
+    border-bottom: 1px solid var(--border, #1e2d45);
+    font-size: .95rem;
+  }
+
+  .nav-links a:last-child {
+    border-bottom: none;
+  }
+}

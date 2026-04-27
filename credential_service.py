@@ -99,6 +99,9 @@ def init_credentials() -> dict[str, str] | None:
     global _mem_key, _mem_secret
     if not database_enabled():
         _mem_key, _mem_secret = _api_pair_from_env_or_generate()
+        # No startup handoff to logs when the full pair is provided via environment
+        if (os.getenv("API_KEY") or "").strip() and (os.getenv("API_SECRET") or "").strip():
+            return None
         return {"api_key": _mem_key, "api_secret": _mem_secret}
 
     if SessionLocal is None:

@@ -1,0 +1,164 @@
+/* Secret Space Society — dark space theme */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:       #080c14;
+  --surface:  #0f1623;
+  --border:   #1e2d45;
+  --accent:   #38bdf8;
+  --accent2:  #7c3aed;
+  --text:     #e2e8f0;
+  --muted:    #64748b;
+  --danger:   #ef4444;
+  --gold:     #f59e0b;
+  --radius:   10px;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  min-height: 100vh;
+}
+
+/* ── Site nav ─────────────────────────────────────────────── */
+.site-nav {
+  display: flex; flex-wrap: wrap; gap: .65rem 1.25rem;
+  padding: .75rem 1.5rem; border-bottom: 1px solid var(--border);
+  background: #0a0f18; align-items: center;
+}
+.site-nav a { color: var(--muted); text-decoration: none; font-size: .9rem; font-weight: 500; }
+.site-nav a:hover { color: var(--accent); }
+.site-nav a.active { color: var(--text); border-bottom: 2px solid var(--accent); padding-bottom: .1rem; }
+
+/* ── Layout ───────────────────────────────────────────────── */
+#app { max-width: 900px; margin: 0 auto; padding: 2rem 1rem 4rem; }
+
+h1 { font-size: 2rem; font-weight: 700; color: var(--accent); text-align: center; margin-bottom: .25rem; }
+.tagline { text-align: center; color: var(--muted); margin-bottom: 2rem; }
+
+/* ── Screens ──────────────────────────────────────────────── */
+.screen { display: none; }
+.screen.active { display: block; }
+
+/* ── Cards ────────────────────────────────────────────────── */
+.card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 1.5rem; margin-bottom: 1rem;
+}
+.card h2 { font-size: 1.1rem; margin-bottom: 1rem; color: var(--accent); }
+.card h3 { font-size: 1rem; margin-bottom: .75rem; }
+
+/* ── Buttons ──────────────────────────────────────────────── */
+.btn {
+  display: inline-block; padding: .65rem 1.4rem; border: none;
+  border-radius: var(--radius); font-size: .95rem; font-weight: 600;
+  cursor: pointer; transition: opacity .15s, transform .1s;
+}
+.btn:hover { opacity: .85; transform: translateY(-1px); }
+.btn:active { transform: translateY(0); }
+.btn-primary   { background: var(--accent);  color: #000; }
+.btn-secondary { background: var(--accent2); color: #fff; }
+.btn-ghost     { background: transparent; color: var(--muted); border: 1px solid var(--border); }
+.btn-danger    { background: var(--danger); color: #fff; }
+.btn:disabled  { opacity: .4; cursor: not-allowed; transform: none; }
+
+/* ── Inputs ───────────────────────────────────────────────── */
+.field { display: flex; flex-direction: column; gap: .4rem; margin-bottom: 1rem; }
+.field label { font-size: .85rem; color: var(--muted); }
+.field input {
+  background: #0a0f18; border: 1px solid var(--border); color: var(--text);
+  border-radius: 6px; padding: .55rem .8rem; font-size: .95rem; outline: none;
+}
+.field input:focus { border-color: var(--accent); }
+
+/* ── Landing buttons ──────────────────────────────────────── */
+.landing-btns { display: flex; flex-direction: column; gap: 1rem; align-items: center; margin-top: 2rem; }
+.landing-btns .btn { width: 240px; text-align: center; font-size: 1.1rem; padding: .9rem; }
+
+/* ── Lobby ────────────────────────────────────────────────── */
+.lobby-code {
+  font-size: 2.5rem; font-weight: 800; letter-spacing: .3rem;
+  color: var(--gold); text-align: center; margin: 1rem 0;
+}
+.player-list { list-style: none; display: flex; flex-direction: column; gap: .5rem; }
+.player-list li {
+  display: flex; align-items: center; gap: .75rem;
+  background: #0a0f18; border-radius: 6px; padding: .55rem .9rem; font-size: .9rem;
+}
+.player-badge {
+  width: 12px; height: 12px; border-radius: 50%;
+  background: var(--muted); flex-shrink: 0;
+}
+.player-badge.host { background: var(--gold); }
+
+/* ── Race picker ──────────────────────────────────────────── */
+.race-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 1rem;
+}
+.race-card {
+  border: 2px solid var(--border); border-radius: var(--radius);
+  padding: 1rem; text-align: center; cursor: pointer;
+  transition: border-color .2s, transform .15s;
+  background: #0a0f18;
+}
+.race-card:hover { transform: translateY(-3px); }
+.race-card.selected { border-color: var(--accent); background: #0d1e30; }
+.race-card.taken { opacity: .35; cursor: not-allowed; }
+.race-dot {
+  width: 40px; height: 40px; border-radius: 50%;
+  margin: 0 auto .6rem; border: 3px solid rgba(255,255,255,.2);
+}
+.race-name { font-weight: 700; font-size: .9rem; }
+.race-taker { font-size: .75rem; color: var(--muted); margin-top: .25rem; }
+
+/* ── Board screen ─────────────────────────────────────────── */
+#board-wrap { overflow: auto; border: 1px solid var(--border); border-radius: var(--radius); }
+#board-svg { display: block; margin: 0 auto; }
+#board-wrap text { pointer-events: none; user-select: none; }
+
+/* Hex types */
+.hex-space      { fill: #0e1825; }
+.hex-white      { fill: #d0d0d0; }
+.hex-blue       { fill: #1a5296; }
+.hex-green      { fill: #1a5c32; }
+.hex-red        { fill: #7a1515; }
+.hex-yellow     { fill: #7a6315; }
+.hex-black_hole { fill: #000; stroke: #7c3aed !important; stroke-width: 2.5px; }
+
+.hex-poly { stroke: #1e3050; stroke-width: 0.5; cursor: pointer; transition: filter .15s; }
+.hex-poly:hover { filter: brightness(1.4); }
+
+/* ── Status bar ───────────────────────────────────────────── */
+#status-bar {
+  position: fixed; bottom: 0; left: 0; right: 0;
+  background: #0a0f18; border-top: 1px solid var(--border);
+  padding: .5rem 1rem; font-size: .8rem; color: var(--muted);
+  display: flex; gap: 1.5rem; align-items: center;
+}
+#status-bar .dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--danger); display: inline-block; margin-right: .4rem;
+}
+#status-bar .dot.connected { background: #22c55e; }
+
+/* ── Utility ──────────────────────────────────────────────── */
+.mt1 { margin-top: .5rem; }
+.mt2 { margin-top: 1rem; }
+.row { display: flex; gap: .75rem; flex-wrap: wrap; align-items: center; }
+.hint { font-size: .8rem; color: var(--muted); }
+.error-msg { color: var(--danger); font-size: .85rem; margin-top: .5rem; }
+.hidden { display: none !important; }
+
+/* ── Piece legend (board) ─────────────────────────────────── */
+.legend { display: flex; flex-wrap: wrap; gap: .5rem 1.25rem; margin-top: 1rem; }
+.legend-item { display: flex; align-items: center; gap: .4rem; font-size: .8rem; }
+.legend-dot { width: 14px; height: 14px; border-radius: 50%; border: 2px solid rgba(255,255,255,.3); }
+
+/* ── Watcher banner ───────────────────────────────────────── */
+.watcher-banner {
+  text-align: center; padding: .65rem; border-radius: var(--radius);
+  background: #12172a; border: 1px solid var(--border);
+  color: var(--muted); font-size: .9rem; margin-bottom: 1rem;
+}

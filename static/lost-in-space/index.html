@@ -367,17 +367,22 @@
     #popup.show { display: block; }
     #popup p { margin: 0 0 0.75rem; font-size: 0.95rem; }
   </style>
+  <link rel="stylesheet" href="/assets/nav-mobile.css" />
 </head>
 <body>
   <!-- DEV: #app = nav + #gameStack; game canvas lives in #gameWrap; menus in #menuLayer above canvas. -->
   <div id="app">
     <nav class="site-nav" aria-label="Primary">
-      <a href="../index.html">About</a>
-      <a href="https://www.linkedin.com/in/rorhoff" target="_blank" rel="noopener noreferrer">LinkedIn</a>
-      <a href="../api-testing/">API Testing</a>
-      <a href="./" class="active">Lost in Space Game</a>
-      <a href="../classifieds/index.html">Classifieds</a>
-      <a href="../airevolution/">AI Revolution</a>
+      <button class="nav-hamburger" id="navHamburger" aria-label="Toggle navigation" aria-expanded="false">☰</button>
+      <div class="nav-links" id="navLinks">
+        <a href="../index.html">About</a>
+        <a href="https://www.linkedin.com/in/rorhoff" target="_blank" rel="noopener noreferrer">LinkedIn</a>
+        <a href="../api-testing/">API Testing</a>
+        <a href="./" class="active">Lost in Space Game</a>
+        <a href="../classifieds/index.html">Classifieds</a>
+        <a href="../airevolution/">AI Revolution</a>
+        <a href="../sss/">SSS</a>
+      </div>
     </nav>
 
     <div id="gameStack">
@@ -1660,5 +1665,6 @@
   requestAnimationFrame(loop);
 })();
   </script>
+  <script src="/assets/nav-mobile.js"></script>
 </body>
 </html>
