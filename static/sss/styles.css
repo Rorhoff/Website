@@ -120,14 +120,12 @@ h1 { font-size: 2rem; font-weight: 700; color: var(--accent); text-align: center
 #board-svg { display: block; margin: 0 auto; }
 #board-wrap text { pointer-events: none; user-select: none; }
 
-/* ── Player HUD — fixed so it's always visible on mobile ─── */
+/* ── Player HUD — sits above the map in normal flow ────── */
 .player-hud {
-  position: fixed; bottom: 44px; left: 10px; z-index: 80;
-  background: rgba(8, 12, 20, 0.92);
+  background: var(--surface);
   border: 1px solid var(--border); border-radius: var(--radius);
-  padding: .5rem .75rem; backdrop-filter: blur(6px);
-  min-width: 160px; pointer-events: all;
-  max-width: calc(100vw - 20px);
+  padding: .5rem .75rem; margin-bottom: .5rem;
+  max-width: 100%;
 }
 .hud-race-row {
   display: flex; align-items: center; gap: .5rem; flex-wrap: nowrap;
