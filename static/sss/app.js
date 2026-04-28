@@ -1916,17 +1916,30 @@ $("btn-roll-dice").addEventListener("click",    () => send({ type: "roll_dice" }
 setInterval(() => send({ type: "ping" }), 25_000);
 
 // When the player returns to the tab/app, auto-rejoin if the WS dropped.
-// Also handles iOS back-forward cache restores (pageshow with persisted=true).
+// Guard with hasSession so iOS scroll/keyboard visibilitychange events are ignored
+// when there is no active game, and add a grace period before acting.
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) return;
-  if (ws && ws.readyState === WebSocket.OPEN) return;
-  if (!tryAutoRejoin()) resetToLanding();
+  if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
+  const hasSession = myName || sessionStorage.getItem("sss_name");
+  if (!hasSession) return;
+  setTimeout(() => {
+    if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
+    if (!tryAutoRejoin()) resetToLanding();
+  }, 1500);
 });
+// iOS BFCache restore (persisted page)
 window.addEventListener("pageshow", (e) => {
   if (!e.persisted) return;
-  if (ws && ws.readyState === WebSocket.OPEN) return;
+  if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
+  const hasSession = myName || sessionStorage.getItem("sss_name");
+  if (!hasSession) return;
   if (!tryAutoRejoin()) resetToLanding();
 });
+// On fresh page load, silently attempt rejoin if a prior session was saved
+if (sessionStorage.getItem("sss_name") && sessionStorage.getItem("sss_code")) {
+  tryAutoRejoin();
+}
 
 initBoardPan();
 initCardViewer();

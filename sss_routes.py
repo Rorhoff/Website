@@ -501,6 +501,20 @@ async def sss_ws(ws: WebSocket, game_code: str):
                     await ws.send_json({"type": "error", "msg": "Game not found"})
                     continue
                 if g.phase != "lobby":
+                    # Allow re-entry for a previously disconnected player
+                    existing = g.players.get(name)
+                    if existing and not existing.connected:
+                        game = g
+                        player = existing
+                        player.ws = ws
+                        player.connected = True
+                        await ws.send_json({"type": "joined", "code": code, "name": name, "role": player.role})
+                        state = game.public_state()
+                        if game.phase in ("place_pieces", "draft", "board"):
+                            state["board"] = game.board
+                        await ws.send_json({"type": "game_state", **state})
+                        await game.broadcast({"type": "game_state", **game.public_state()}, exclude=ws)
+                        continue
                     await ws.send_json({"type": "error", "msg": "Game already started"})
                     continue
                 if len(g.players) >= 4:
