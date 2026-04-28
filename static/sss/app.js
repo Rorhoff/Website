@@ -12,7 +12,7 @@ const RACES = {
   dust_runners:  { name: "Dust Runners",  color: "#8B4513" },
 };
 
-const R = 24; // flat-top circumradius px
+const R = 25.2; // flat-top circumradius px (5 % larger than original 24)
 
 function hexPoints(cx, cy) {
   const r = R + 0.6;  // inflate by 0.6px so adjacent polygons overlap and close anti-alias seams
@@ -226,7 +226,7 @@ const TRI_CONFIGS = [
 ];
 
 function drawTriangles(layer, h) {
-  const r = 7;  // circumradius of each small triangle (overall triforce ≈ 2r tall)
+  const r = 7.35;  // circumradius of each small triangle (scaled 5 % from 7)
   for (const { dx, dy, fill } of TRI_CONFIGS) {
     const tx = h.x + dx * r;
     const ty = h.y + dy * r;
@@ -409,7 +409,7 @@ function renderBoard(state, placementMode) {
     const svg = $("board-svg");
     svg.setAttribute("width",  "960");
     svg.setAttribute("height", "880");
-    svg.setAttribute("viewBox", "140 80 550 610");
+    svg.setAttribute("viewBox", "120 50 580 670");
   } else {
     banner.classList.add("hidden");
   }
@@ -548,11 +548,11 @@ function renderBoard(state, placementMode) {
       const pColor = claimedColor[h.cluster];
       if (h.planet && pColor) {
         // Aura — bleeds ~1/4 of neighbor distance beyond hex edge
-        const aura = mkEl("circle", { cx: h.x, cy: h.y, r: "31", fill: pColor, opacity: "0.13" });
+        const aura = mkEl("circle", { cx: h.x, cy: h.y, r: "33", fill: pColor, opacity: "0.13" });
         pieceLayer.appendChild(aura);
         // Planet body
         const planet = mkEl("circle", {
-          cx: h.x, cy: h.y, r: "15",
+          cx: h.x, cy: h.y, r: "16",
           fill: pColor, opacity: "0.85",
           stroke: "#ffffff", "stroke-width": "1",
         });
@@ -567,9 +567,9 @@ function renderBoard(state, placementMode) {
         ];
         stats.forEach((s, i) => {
           const t = mkEl("text", {
-            x: h.x, y: h.y - 6.4 + i * 3.4,
+            x: h.x, y: h.y - 7.0 + i * 3.6,
             "text-anchor": "middle", "dominant-baseline": "auto",
-            "font-size": "2.8", fill: "#ffffff", "font-weight": "bold",
+            "font-size": "3", fill: "#ffffff", "font-weight": "bold",
           });
           t.textContent = s;
           pieceLayer.appendChild(t);
@@ -1022,11 +1022,70 @@ function renderFullPlayerCard(state) {
 
 function initBoardPan() {
   const wrap = $("board-wrap");
+  const svg  = $("board-svg");
+
+  // ── pan state ────────────────────────────────────────────────
   let panning = false, didDrag = false, capturedId = null;
   let startX = 0, startY = 0, scrollX = 0, scrollY = 0;
 
+  // ── pinch-zoom state ─────────────────────────────────────────
+  const activePointers = new Map(); // pointerId → {x,y}
+  let pinching      = false;
+  let pinchStartDist = 0;
+  let baseScale     = 1;   // scale at pinch start
+  let currentScale  = 1;   // accumulated scale
+
+  const BASE_W = parseInt(svg.getAttribute("width"))  || 872;
+  const BASE_H = parseInt(svg.getAttribute("height")) || 800;
+  const MIN_SCALE = 0.4;
+  const MAX_SCALE = 3.0;
+
+  function getPinchDist() {
+    const [a, b] = [...activePointers.values()];
+    return Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2);
+  }
+  function getPinchCenter() {
+    const [a, b] = [...activePointers.values()];
+    return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+  }
+
+  function applyZoom(newScale, pivotClient) {
+    newScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, newScale));
+    const oldW = parseInt(svg.getAttribute("width"));
+    const newW = Math.round(BASE_W * newScale);
+    const newH = Math.round(BASE_H * newScale);
+    const rect  = wrap.getBoundingClientRect();
+    // SVG-space position of the pinch center before zoom
+    const pivotSvgX = wrap.scrollLeft + pivotClient.x - rect.left;
+    const pivotSvgY = wrap.scrollTop  + pivotClient.y - rect.top;
+    const ratio = newW / oldW;
+    svg.setAttribute("width",  newW);
+    svg.setAttribute("height", newH);
+    // Keep pinch center fixed in the viewport
+    wrap.scrollLeft = pivotSvgX * ratio - (pivotClient.x - rect.left);
+    wrap.scrollTop  = pivotSvgY * ratio - (pivotClient.y - rect.top);
+    currentScale = newScale;
+  }
+
+  // ── event handlers ───────────────────────────────────────────
   wrap.addEventListener("pointerdown", (e) => {
+    activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    if (activePointers.size === 2) {
+      // Switch to pinch mode; abort any active pan
+      pinching       = true;
+      panning        = false;
+      pinchStartDist = getPinchDist();
+      baseScale      = currentScale;
+      if (capturedId !== null) {
+        try { wrap.releasePointerCapture(capturedId); } catch (_) {}
+        capturedId = null;
+      }
+      return;
+    }
+
     if (e.pointerType === "mouse" && e.button !== 0) return;
+    if (pinching) return;
     panning    = true;
     didDrag    = false;
     capturedId = e.pointerId;
@@ -1034,17 +1093,25 @@ function initBoardPan() {
     startY     = e.clientY;
     scrollX    = wrap.scrollLeft;
     scrollY    = wrap.scrollTop;
-    // Do NOT call setPointerCapture here — that would reroute the click
-    // event away from child hex polygons for simple taps/clicks.
   });
 
   wrap.addEventListener("pointermove", (e) => {
+    if (activePointers.has(e.pointerId)) {
+      activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    }
+
+    if (pinching && activePointers.size === 2) {
+      const d = getPinchDist();
+      if (pinchStartDist > 0) applyZoom(baseScale * (d / pinchStartDist), getPinchCenter());
+      return;
+    }
+
     if (!panning) return;
     const dx = e.clientX - startX;
     const dy = e.clientY - startY;
     if (!didDrag && (Math.abs(dx) > 5 || Math.abs(dy) > 5)) {
       didDrag = true;
-      wrap.setPointerCapture(capturedId);  // capture only once confirmed drag
+      wrap.setPointerCapture(capturedId);
       wrap.classList.add("panning");
     }
     if (didDrag) {
@@ -1053,9 +1120,13 @@ function initBoardPan() {
     }
   });
 
-  const stopPan = () => { panning = false; wrap.classList.remove("panning"); };
-  wrap.addEventListener("pointerup",     stopPan);
-  wrap.addEventListener("pointercancel", stopPan);
+  const stopPointer = (e) => {
+    activePointers.delete(e.pointerId);
+    if (activePointers.size < 2 && pinching) pinching = false;
+    if (activePointers.size === 0) { panning = false; wrap.classList.remove("panning"); }
+  };
+  wrap.addEventListener("pointerup",     stopPointer);
+  wrap.addEventListener("pointercancel", stopPointer);
 
   // Block hex-click only if we actually dragged
   wrap.addEventListener("click", (e) => {

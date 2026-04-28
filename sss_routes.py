@@ -89,10 +89,10 @@ TECH_CARDS = [
 
 import math
 
-R = 24  # circumradius px, flat-top hexagons
+R = 25.2  # circumradius px, flat-top hexagons (5 % larger than original 24)
 
 # Flat-top hex neighbors sit at 30°, 90°, 150°, 210°, 270°, 330°, distance R√3.
-_ND = R * math.sqrt(3)  # neighbor distance ≈ 41.57
+_ND = R * math.sqrt(3)  # neighbor distance ≈ 43.65
 _hex_offsets = [(0, 0)]
 for _i in range(6):
     _a = math.pi / 6 + math.pi / 3 * _i   # start at 30°
@@ -101,8 +101,8 @@ for _i in range(6):
 # 9 clusters in a true diamond (1-2-3-2-1) using staggered rows.
 # Each row is offset by DX/2; DY is the vertical row spacing.
 _CX, _CY = 415, 385
-_DX = 148   # horizontal cluster-to-cluster distance (same row)
-_DY = 118   # vertical cluster-to-cluster distance (adjacent rows)
+_DX = 155   # horizontal cluster-to-cluster distance (same row)
+_DY = 124   # vertical cluster-to-cluster distance (adjacent rows)
 
 # Layout (SVG y increases downward):
 #          N  (018)
