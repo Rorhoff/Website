@@ -38,7 +38,7 @@ let _connectingErrId = null;
 
 // ── WebSocket ──────────────────────────────────────────────────────────────
 
-const WS_BASE = `ws://${location.host}/api/sss/ws/`;
+const WS_BASE = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/sss/ws/`;
 
 function connectWs(code, onOpen, errId, btn) {
   if (ws) { try { ws.close(); } catch (_) {} }
