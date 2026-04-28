@@ -115,14 +115,35 @@ h1 { font-size: 2rem; font-weight: 700; color: var(--accent); text-align: center
 
 /* ── Board screen ─────────────────────────────────────────── */
 #screen-board { position: relative; }
-#btn-toggle-view {
-  position: absolute; top: 0; right: 0;
-  font-size: .78rem; padding: .32rem .75rem; z-index: 20;
-}
-#board-wrap { overflow: auto; border: 1px solid var(--border); border-radius: var(--radius); cursor: grab; touch-action: none; }
+#board-wrap { position: relative; overflow: auto; border: 1px solid var(--border); border-radius: var(--radius); cursor: grab; touch-action: none; }
 #board-wrap.panning { cursor: grabbing; }
 #board-svg { display: block; margin: 0 auto; }
 #board-wrap text { pointer-events: none; user-select: none; }
+
+/* ── Player HUD overlay (inside board-wrap) ───────────────── */
+.player-hud {
+  position: absolute; bottom: 10px; left: 10px; z-index: 20;
+  background: rgba(8, 12, 20, 0.88);
+  border: 1px solid var(--border); border-radius: var(--radius);
+  padding: .5rem .75rem; backdrop-filter: blur(6px);
+  min-width: 160px; pointer-events: all;
+}
+.hud-race-row {
+  display: flex; align-items: center; gap: .5rem; flex-wrap: nowrap;
+}
+.hud-race-name {
+  font-size: .95rem; font-weight: 700; flex: 1;
+}
+.hud-toggle-btn {
+  font-size: .72rem; padding: .25rem .55rem; white-space: nowrap;
+}
+.hud-unrest-row {
+  display: flex; align-items: center; gap: .35rem;
+  margin-top: .35rem; font-size: .85rem; color: var(--danger);
+}
+.hud-unrest-icon { width: 16px; height: 16px; fill: var(--danger); flex-shrink: 0; }
+.hud-hint { font-size: .78rem; color: var(--muted); margin-top: .35rem; }
+.hud-actions { display: flex; gap: .4rem; margin-top: .4rem; flex-wrap: wrap; }
 
 /* ── Planet on-board aura pulse ───────────────────────────────────────────── */
 .planet-clickable { cursor: pointer; }

@@ -130,11 +130,9 @@
 
     <!-- Board -->
     <div id="screen-board" class="screen">
-      <button class="btn btn-ghost hidden" id="btn-toggle-view">☰ Player Card</button>
       <div class="watcher-banner hidden" id="watcher-banner">Watching — read-only view</div>
-      <div class="card" id="board-player-info"></div>
-      <div class="card hidden" id="board-card-view"></div>
       <div id="board-wrap">
+        <div class="player-hud hidden" id="board-player-info"></div>
         <svg id="board-svg" width="872" height="800" viewBox="0 0 872 800"
              xmlns="http://www.w3.org/2000/svg">
           <rect width="872" height="800" fill="#080c14" />
@@ -145,6 +143,7 @@
           <g id="drag-layer"></g>
         </svg>
       </div>
+      <div class="card hidden" id="board-card-view"></div>
       <div class="legend" id="board-legend"></div>
     </div>
   </div>

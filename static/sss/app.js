@@ -390,7 +390,7 @@ function drawWormholeLines(wormholeLayer, hexes, hexById) {
 
     // Trim a small fixed amount from each end so the line starts outside the hex label
     // but stays fully visible even for closely-spaced diagonal pairs
-    const trim = Math.min(inR * 0.5, len * 0.12);
+    const trim = Math.min(inR, len * 0.35);
     const x1 = h.x + ux * trim,       y1 = h.y + uy * trim;
     const x2 = partner.x - ux * trim, y2 = partner.y - uy * trim;
 
@@ -521,91 +521,71 @@ function renderBoard(state, placementMode) {
     banner.classList.add("hidden");
   }
 
-  // Toggle view button — board phase only, players only
-  const toggleBtn = $("btn-toggle-view");
-  if (!placementMode && myRole !== "watcher") {
-    toggleBtn.classList.remove("hidden");
-    renderFullPlayerCard(state);
-  } else {
-    toggleBtn.classList.add("hidden");
-    if (viewMode !== "map") setViewMode("map");
-  }
-
-  // Player info card
+  // Player HUD overlay (inside board-wrap)
   const infoCard = $("board-player-info");
   if (placementMode) {
+    infoCard.classList.remove("hidden");
     renderPlacementInfo(state, infoCard);
-  } else if (myRole !== "watcher") {
+  } else if (myRole === "watcher") {
+    infoCard.classList.add("hidden");
+  } else {
+    infoCard.classList.remove("hidden");
     const me = (state.players ?? []).find(p => p.name === myName);
     if (me && me.race) {
-      const pieces = me.pieces ?? {};
-      const pieceHtml = Object.entries(pieces)
-        .filter(([, n]) => n > 0)
-        .map(([k, n]) => `<span><span class="pc">${n}</span> ${PIECE_NAMES[k] ?? k}</span>`)
-        .join("");
-      infoCard.innerHTML = `
-        <div class="player-race-card">
-          <div class="race-card-header">
-            <div class="race-card-badge" style="background:${me.color}"></div>
-            <div>
-              <div class="race-card-title" style="color:${me.color}">${me.race_name}</div>
-              <div class="race-card-player">${me.name}</div>
-            </div>
-          </div>
-          ${pieceHtml ? `<div class="piece-grid">${pieceHtml}</div>` : ""}
-        </div>`;
-      // Turn action UI
+      const unrest = (me.pieces ?? {}).unrest ?? 0;
       const currentTurn = state.current_turn ?? null;
-      const raceCard = infoCard.querySelector(".player-race-card");
-      if (raceCard) {
-        if (_constructionPiece) {
-          const d = document.createElement("div");
-          d.className = "flight-hint";
-          d.innerHTML = `<div class="hint">Click an orbital hex in your system to place a <strong>${_constructionPiece.label}</strong>.</div>
-            <button class="btn btn-ghost btn-sm mt1" id="btn-cancel-construct">Cancel</button>`;
-          raceCard.appendChild(d);
-          document.getElementById("btn-cancel-construct").addEventListener("click", () => {
-            _constructionPiece = null; _actionMode = null;
-            if (_lastState) renderBoard(_lastState, false);
-          });
-        } else if (_actionMode) {
-          const hint = _selectedCluster !== null
-            ? (_actionMode.type === "attack"
-                ? "Click the enemy system to engage combat."
-                : "Click a highlighted system to move your frigates.")
-            : _actionMode.type === "invasion"
-              ? "Click one of your frigate systems, then click a planet system to invade."
-              : _actionMode.type === "attack"
-                ? "Click one of your frigate systems, then click an enemy system to attack."
-                : "Click one of your frigate systems, then click a connected system.";
-          const d = document.createElement("div");
-          d.className = "flight-hint";
-          d.innerHTML = `<div class="hint">${hint}</div>
-            <button class="btn btn-ghost btn-sm mt1" id="btn-cancel-action">Cancel</button>`;
-          raceCard.appendChild(d);
-          document.getElementById("btn-cancel-action").addEventListener("click", () => {
-            _actionMode = null; _selectedCluster = null; _selectedRoutes = [];
-            if (_lastState) renderBoard(_lastState, false);
-          });
-        } else if (currentTurn === myName) {
-          const d = document.createElement("div");
-          d.className = "turn-actions";
-          d.innerHTML = `<button class="btn btn-ghost btn-sm" id="btn-skip-turn">Skip Turn</button>
-            <button class="btn btn-primary btn-sm" id="btn-play-card">Play a Card</button>`;
-          raceCard.appendChild(d);
-          document.getElementById("btn-skip-turn").addEventListener("click", () => send({ type: "skip_turn" }));
-          document.getElementById("btn-play-card").addEventListener("click", () => showActionPicker());
-        } else if (currentTurn) {
-          const d = document.createElement("div");
-          d.innerHTML = `<div class="hint" style="font-size:.8rem;margin-top:.5rem">${currentTurn}'s turn</div>`;
-          raceCard.appendChild(d);
-        }
+      const isMyTurnNow = currentTurn === myName;
+
+      const UNREST_ICON = `<svg class="hud-unrest-icon" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="10" cy="5" r="3.5"/>
+        <path d="M3 18c0-3.866 3.134-7 7-7s7 3.134 7 7" stroke-width="0" fill-rule="evenodd"/>
+      </svg>`;
+
+      let actionHtml = "";
+      if (_constructionPiece) {
+        actionHtml = `<div class="hud-hint">Place <strong>${_constructionPiece.label}</strong> on an orbital hex.</div>
+          <div class="hud-actions"><button class="btn btn-ghost btn-sm" id="btn-cancel-construct">Cancel</button></div>`;
+      } else if (_actionMode) {
+        const hint = _selectedCluster !== null
+          ? (_actionMode.type === "attack" ? "Click enemy system to attack." : "Click highlighted system to move.")
+          : _actionMode.type === "invasion" ? "Click your frigate cluster to invade."
+          : _actionMode.type === "attack"   ? "Click your frigates, then enemy system."
+          : "Click your frigates, then a connected system.";
+        actionHtml = `<div class="hud-hint">${hint}</div>
+          <div class="hud-actions"><button class="btn btn-ghost btn-sm" id="btn-cancel-action">Cancel</button></div>`;
+      } else if (isMyTurnNow) {
+        actionHtml = `<div class="hud-actions">
+          <button class="btn btn-ghost btn-sm" id="btn-skip-turn">Skip</button>
+          <button class="btn btn-primary btn-sm" id="btn-play-card">Action</button>
+        </div>`;
+      } else if (currentTurn) {
+        actionHtml = `<div class="hud-hint">${currentTurn}'s turn</div>`;
       }
+
+      infoCard.innerHTML = `
+        <div class="hud-race-row">
+          <span class="hud-race-name" style="color:${me.color}">${me.race_name}</span>
+          <button class="btn btn-ghost hud-toggle-btn" id="btn-toggle-view">Card ▶</button>
+        </div>
+        <div class="hud-unrest-row">${UNREST_ICON}<span>${unrest} / 20 unrest</span></div>
+        ${actionHtml}`;
+
+      // Wire dynamic buttons
+      infoCard.querySelector("#btn-toggle-view")
+        ?.addEventListener("click", () => setViewMode(viewMode === "map" ? "card" : "map"));
+      infoCard.querySelector("#btn-cancel-construct")
+        ?.addEventListener("click", () => { _constructionPiece = null; _actionMode = null; if (_lastState) renderBoard(_lastState, false); });
+      infoCard.querySelector("#btn-cancel-action")
+        ?.addEventListener("click", () => { _actionMode = null; _selectedCluster = null; _selectedRoutes = []; if (_lastState) renderBoard(_lastState, false); });
+      infoCard.querySelector("#btn-skip-turn")
+        ?.addEventListener("click", () => send({ type: "skip_turn" }));
+      infoCard.querySelector("#btn-play-card")
+        ?.addEventListener("click", () => showActionPicker());
+
+      renderFullPlayerCard(state);
     } else {
-      infoCard.innerHTML = `<strong>${myName}</strong>`;
+      infoCard.innerHTML = `<div class="hud-race-row"><span class="hud-race-name">${myName}</span></div>`;
     }
-  } else {
-    infoCard.innerHTML = `<span class="hint">Spectating</span>`;
   }
 
   const hexLayer      = $("hex-layer");
@@ -962,20 +942,14 @@ function renderPlacementInfo(state, infoCard) {
 
 function setViewMode(mode) {
   viewMode = mode;
-  const mapEl  = $("board-wrap");
   const cardEl = $("board-card-view");
-  const legend = $("board-legend");
-  const btn    = $("btn-toggle-view");
+  const btn    = document.getElementById("btn-toggle-view");
   if (mode === "map") {
-    mapEl.classList.remove("hidden");
-    legend.classList.remove("hidden");
     cardEl.classList.add("hidden");
-    if (btn) btn.textContent = "☰ Player Card";
+    if (btn) btn.textContent = "Card ▶";
   } else {
-    mapEl.classList.add("hidden");
-    legend.classList.add("hidden");
     cardEl.classList.remove("hidden");
-    if (btn) btn.textContent = "☰ Map";
+    if (btn) btn.textContent = "◀ Map";
   }
 }
 
@@ -1312,14 +1286,7 @@ function renderFullPlayerCard(state) {
 
   cardEl.innerHTML = `
     <div class="player-race-card">
-      <div class="race-card-header">
-        <div class="race-card-badge" style="background:${me.color};width:48px;height:48px"></div>
-        <div>
-          <div class="race-card-title" style="color:${me.color};font-size:1.3rem">${me.race_name}</div>
-          <div class="race-card-player" style="font-size:.9rem">${me.name} — ${sysLabel}</div>
-        </div>
-      </div>
-      <div class="resource-row mt2">${resHtml}</div>
+      <div class="resource-row">${resHtml}</div>
       <div class="income-section mt2">
         <div class="income-heading">Income / Turn</div>
         <div class="resource-row">${incomeHtml}</div>
@@ -1945,7 +1912,6 @@ $("watch-code-input").addEventListener("input", () => {
 $("btn-start-game").addEventListener("click",   () => send({ type: "start_game" }));
 $("btn-confirm-race").addEventListener("click", () => send({ type: "confirm_race" }));
 $("btn-roll-dice").addEventListener("click",    () => send({ type: "roll_dice" }));
-$("btn-toggle-view").addEventListener("click",  () => setViewMode(viewMode === "map" ? "card" : "map"));
 
 setInterval(() => send({ type: "ping" }), 25_000);
 
