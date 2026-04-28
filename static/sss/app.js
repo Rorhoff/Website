@@ -391,6 +391,7 @@ function drawWormholeLines(wormholeLayer, hexes, hexById) {
     // Trim a small fixed amount from each end so the line starts outside the hex label
     // but stays fully visible even for closely-spaced diagonal pairs
     const trim = Math.min(inR, len * 0.35);
+    if (len - 2 * trim < 8) continue; // endpoints too close — skip rather than draw a stub
     const x1 = h.x + ux * trim,       y1 = h.y + uy * trim;
     const x2 = partner.x - ux * trim, y2 = partner.y - uy * trim;
 

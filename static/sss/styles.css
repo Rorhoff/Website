@@ -115,18 +115,19 @@ h1 { font-size: 2rem; font-weight: 700; color: var(--accent); text-align: center
 
 /* ── Board screen ─────────────────────────────────────────── */
 #screen-board { position: relative; }
-#board-wrap { position: relative; overflow: auto; border: 1px solid var(--border); border-radius: var(--radius); cursor: grab; touch-action: none; }
+#board-wrap { overflow: auto; border: 1px solid var(--border); border-radius: var(--radius); cursor: grab; touch-action: none; }
 #board-wrap.panning { cursor: grabbing; }
 #board-svg { display: block; margin: 0 auto; }
 #board-wrap text { pointer-events: none; user-select: none; }
 
-/* ── Player HUD overlay (inside board-wrap) ───────────────── */
+/* ── Player HUD — fixed so it's always visible on mobile ─── */
 .player-hud {
-  position: absolute; bottom: 10px; left: 10px; z-index: 20;
-  background: rgba(8, 12, 20, 0.88);
+  position: fixed; bottom: 44px; left: 10px; z-index: 80;
+  background: rgba(8, 12, 20, 0.92);
   border: 1px solid var(--border); border-radius: var(--radius);
   padding: .5rem .75rem; backdrop-filter: blur(6px);
   min-width: 160px; pointer-events: all;
+  max-width: calc(100vw - 20px);
 }
 .hud-race-row {
   display: flex; align-items: center; gap: .5rem; flex-wrap: nowrap;
