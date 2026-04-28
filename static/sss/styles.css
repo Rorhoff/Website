@@ -124,8 +124,90 @@ h1 { font-size: 2rem; font-weight: 700; color: var(--accent); text-align: center
 #board-svg { display: block; margin: 0 auto; }
 #board-wrap text { pointer-events: none; user-select: none; }
 
+/* ── Planet on-board aura pulse ───────────────────────────────────────────── */
+.planet-clickable { cursor: pointer; }
+@keyframes planet-aura-pulse {
+  0%, 100% { opacity: 0.20; }
+  50%       { opacity: 0.42; }
+}
+.planet-aura-pulse { animation: planet-aura-pulse 2.6s ease-in-out infinite; }
+
+/* ── Planet detail modal ──────────────────────────────────────────────────── */
+.planet-modal-overlay {
+  position: fixed; inset: 0; z-index: 1100;
+  background: rgba(0,0,0,.88);
+  display: flex; align-items: center; justify-content: center;
+}
+.planet-modal-overlay.hidden { display: none !important; }
+.planet-modal {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 2rem 1.75rem 1.75rem;
+  width: min(92vw, 340px); display: flex; flex-direction: column;
+  align-items: center; gap: 1.5rem; position: relative;
+}
+.planet-modal-close {
+  position: absolute; top: .75rem; right: .75rem;
+  background: none; border: 1px solid var(--border); color: var(--muted);
+  border-radius: 50%; width: 2rem; height: 2rem; line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; font-size: .9rem;
+}
+.planet-modal-close:hover { border-color: var(--accent); color: var(--accent); }
+.planet-modal-title { font-size: 1.1rem; font-weight: 700; color: var(--accent); }
+
+/* flame display */
+.planet-display {
+  position: relative; width: 180px; height: 180px;
+  display: flex; align-items: center; justify-content: center;
+}
+.planet-flame-outer {
+  position: absolute; width: 180px; height: 180px; border-radius: 50%;
+  background: conic-gradient(
+    var(--pc) 0%, #ff8800 10%, #ffcc00 18%, transparent 28%,
+    transparent 36%, var(--pc) 48%, #ff4400 58%, #ff9900 66%, transparent 76%,
+    transparent 84%, var(--pc) 92%, #ffaa00 100%
+  );
+  filter: blur(14px);
+  animation: flame-spin 12s linear infinite;
+  opacity: 0.80;
+}
+.planet-flame-mid {
+  position: absolute; width: 144px; height: 144px; border-radius: 50%;
+  background: conic-gradient(
+    transparent 0%, var(--pc) 12%, #ff6600 22%, #ffdd00 32%, transparent 44%,
+    transparent 56%, var(--pc) 68%, #ff5500 78%, transparent 90%, transparent 100%
+  );
+  filter: blur(9px);
+  animation: flame-spin 8s linear infinite reverse;
+  opacity: 0.70;
+}
+.planet-body {
+  position: relative; z-index: 2;
+  width: 88px; height: 88px; border-radius: 50%;
+  overflow: hidden;
+  border: 2px solid rgba(255,255,255,0.40);
+}
+@keyframes flame-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+/* stat list */
+.planet-stat-list {
+  width: 100%; display: flex; flex-direction: column; gap: .5rem;
+}
+.planet-stat-row {
+  display: flex; align-items: center; gap: .6rem;
+  padding: .4rem .5rem; background: rgba(255,255,255,.04);
+  border-radius: 6px;
+}
+.planet-stat-icon { width: 20px; height: 20px; flex-shrink: 0; }
+.planet-stat-label { flex: 1; font-size: .88rem; color: var(--muted); }
+.planet-stat-value { font-size: .95rem; font-weight: 700; color: var(--text); }
+
 /* Hex types */
 .hex-space      { fill: #0e1825; }
+.hex-tri        { fill: #1c3550 !important; }
 .hex-white      { fill: #d0d0d0; }
 .hex-blue       { fill: #1a5296; }
 .hex-green      { fill: #1a5c32; }
@@ -140,6 +222,13 @@ h1 { font-size: 2rem; font-weight: 700; color: var(--accent); text-align: center
 .hex-poly:hover { filter: brightness(1.4); }
 .hex-poly.hex-placeable { stroke: #00ff55; stroke-width: 2; filter: brightness(1.3) drop-shadow(0 0 5px #00ff55); }
 .hex-poly.hex-placeable:hover { filter: brightness(1.6) drop-shadow(0 0 8px #00ff55); }
+.hex-poly.hex-construct-target { fill: rgba(251,191,36,0.25) !important; stroke: #fbbf24 !important; stroke-width: 1.5 !important; cursor: pointer !important; }
+.hex-poly.hex-construct-target:hover { filter: brightness(1.5) drop-shadow(0 0 6px #fbbf24); }
+.construct-row { display: flex; align-items: center; justify-content: space-between; padding: .6rem .8rem; border-radius: 6px; cursor: pointer; transition: background .15s; }
+.construct-row:hover:not(.disabled) { background: var(--card-hover, rgba(255,255,255,0.06)); }
+.construct-row.disabled { opacity: 0.4; cursor: not-allowed; }
+.construct-cost { font-size: .85rem; color: var(--gold, #f0d060); font-weight: 600; margin-left: 1rem; }
+.construct-cost.cant-afford { color: var(--danger, #e74c3c); }
 
 /* ── Status bar ───────────────────────────────────────────── */
 #status-bar {
@@ -245,6 +334,9 @@ h1 { font-size: 2rem; font-weight: 700; color: var(--accent); text-align: center
 }
 .income-item { border-color: #233148; }
 .income-count { color: #22c55e !important; }
+.income-negative { color: var(--danger) !important; }
+.income-zero { color: var(--muted) !important; }
+.upkeep-cost { font-size: .72rem; color: var(--danger); font-weight: 600; margin-left: .3rem; }
 .tech-level {
   height: 26px; border-radius: 5px;
   background: #0a0f18; border: 1px solid var(--border);
@@ -315,7 +407,7 @@ h1 { font-size: 2rem; font-weight: 700; color: var(--accent); text-align: center
 }
 .card-viewer-close:hover { border-color: var(--accent); color: var(--accent); }
 .card-viewer-card {
-  width: 100%; max-width: 380px;
+  width: 100%; max-width: 380px; min-height: 320px;
   background: var(--surface); border: 1px solid var(--border);
   border-radius: var(--radius); padding: 1.5rem;
   touch-action: pan-y; user-select: none;
@@ -329,15 +421,14 @@ h1 { font-size: 2rem; font-weight: 700; color: var(--accent); text-align: center
 }
 .act-tier1 { background: #164e63; color: #38bdf8; }
 .act-tier2 { background: #450a0a; color: #f87171; }
-.cv-card-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; }
-.cv-action-item {
-  display: flex; flex-direction: column; align-items: center; text-align: center;
-  gap: .35rem; padding: .75rem .5rem;
+.cv-action-list { display: flex; flex-direction: column; gap: .45rem; margin-top: .25rem; }
+.cv-action-row {
+  display: flex; align-items: center; gap: .85rem;
   background: #0a0f18; border: 1px solid var(--border); border-radius: 7px;
+  padding: .55rem .85rem;
 }
-.cv-action-icon { width: 40px; height: 40px; }
-.cv-action-name { font-size: .83rem; font-weight: 700; color: var(--text); }
-.cv-action-desc { font-size: .7rem; color: var(--muted); line-height: 1.4; }
+.cv-action-icon-sm { width: 32px; height: 32px; flex-shrink: 0; }
+.cv-action-label { font-size: .95rem; font-weight: 700; color: var(--text); letter-spacing: .05rem; }
 .card-viewer-nav {
   display: flex; align-items: center; gap: 1.25rem; margin-top: 1rem;
 }
@@ -350,6 +441,22 @@ h1 { font-size: 2rem; font-weight: 700; color: var(--accent); text-align: center
 .card-nav-dots { display: flex; gap: .5rem; align-items: center; }
 .cv-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--border); transition: background .15s; }
 .cv-dot.active { background: var(--accent); }
+
+/* tech / empire card content in viewer */
+.cv-card-timing {
+  font-size: .68rem; font-weight: 700; border-radius: 4px; padding: .18rem .5rem;
+  background: #1e3a5f; color: #93c5fd;
+}
+.cv-card-empire-badge {
+  font-size: .68rem; font-weight: 700; border-radius: 4px; padding: .18rem .5rem;
+  background: #3b2500; color: var(--gold);
+}
+.cv-card-effect {
+  font-size: .88rem; color: var(--text); line-height: 1.6;
+  padding: .75rem; background: rgba(255,255,255,.04); border-radius: 7px;
+  margin-top: .25rem;
+}
+
 
 /* ── Tech card hand ───────────────────────────────────────── */
 .tech-cards-section { }
@@ -373,3 +480,94 @@ h1 { font-size: 2rem; font-weight: 700; color: var(--accent); text-align: center
   padding: .1rem .45rem; white-space: nowrap; flex-shrink: 0;
 }
 .tech-card-effect { font-size: .78rem; color: var(--muted); line-height: 1.45; }
+
+/* ── Turn actions ─────────────────────────────────────────── */
+.turn-actions { display: flex; gap: .6rem; margin-top: .75rem; flex-wrap: wrap; }
+.btn-sm { font-size: .8rem !important; padding: .3rem .75rem !important; }
+.flight-hint { margin-top: .75rem; }
+
+/* ── Hex action highlights ───────────────────────────────────── */
+/* selectable source: green-ish pulse — player's frigate cluster */
+.hex-selectable { fill: rgba(74,222,128,0.22) !important; stroke: #4ade80 !important; stroke-width: 1.5 !important; cursor: pointer !important; }
+/* selected source */
+.hex-selected   { fill: rgba(74,222,128,0.45) !important; stroke: #4ade80 !important; stroke-width: 2   !important; cursor: pointer !important; }
+/* reachable destination */
+.hex-flight-target { fill: rgba(56,189,248,0.28) !important; stroke: #38bdf8 !important; stroke-width: 1.5 !important; cursor: pointer !important; }
+
+/* ── Combat planet stats row ─────────────────────────────────── */
+.combat-planet-stats {
+  display: flex; gap: .75rem; flex-wrap: wrap;
+  font-size: .8rem; color: var(--accent); font-weight: 600;
+  margin-bottom: .65rem;
+}
+
+/* ── Action picker overlay ──────────────────────────────────── */
+.action-picker-overlay {
+  position: fixed; inset: 0; z-index: 1200;
+  background: rgba(0,0,0,.88);
+  display: flex; align-items: center; justify-content: center; padding: 1.25rem;
+}
+.action-picker-overlay.hidden { display: none !important; }
+.action-picker-modal {
+  width: 100%; max-width: 340px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 1.5rem; position: relative;
+  display: flex; flex-direction: column; gap: 1rem;
+}
+.action-picker-close {
+  position: absolute; top: .75rem; right: .75rem;
+  background: none; border: 1px solid var(--border); color: var(--muted);
+  border-radius: 50%; width: 2rem; height: 2rem; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; font-size: .9rem;
+}
+.action-picker-close:hover { border-color: var(--accent); color: var(--accent); }
+.action-picker-title { font-size: 1rem; font-weight: 700; color: var(--accent); }
+.action-pick-list { display: flex; flex-direction: column; gap: .45rem; }
+.action-pick-row {
+  display: flex; align-items: center; gap: .85rem;
+  background: #0a0f18; border: 1px solid var(--border); border-radius: 7px;
+  padding: .55rem .85rem; cursor: pointer; transition: border-color .15s;
+}
+.action-pick-row:hover { border-color: var(--accent); }
+
+/* ── Combat modal ───────────────────────────────────────────── */
+.combat-overlay {
+  position: fixed; inset: 0; z-index: 1300;
+  background: rgba(0,0,0,.92);
+  display: flex; align-items: center; justify-content: center; padding: 1.25rem;
+}
+.combat-overlay.hidden { display: none !important; }
+.combat-modal {
+  width: 100%; max-width: 420px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 1.5rem;
+  display: flex; flex-direction: column; gap: 1rem;
+}
+.combat-modal-title { font-size: 1.05rem; font-weight: 700; color: var(--danger); }
+.combat-tech-label { font-size: .8rem; color: var(--muted); margin-bottom: .4rem; }
+.combat-tech-list { display: flex; flex-direction: column; gap: .4rem; }
+.combat-tech-item {
+  background: #0a0f18; border: 1px solid var(--border);
+  border-radius: 7px; padding: .5rem .75rem; cursor: pointer; transition: border-color .15s;
+}
+.combat-tech-item:hover { border-color: var(--accent); }
+.combat-tech-item.selected { border-color: var(--accent2); background: rgba(124,58,237,.12); }
+.combat-tech-name { font-size: .88rem; font-weight: 700; color: var(--text); display: block; }
+.combat-tech-effect { font-size: .75rem; color: var(--muted); display: block; line-height: 1.4; }
+.combat-result-outcome {
+  font-size: 1.1rem; font-weight: 700; text-align: center;
+  padding: .6rem; border-radius: 7px; margin-bottom: .25rem;
+}
+.combat-result-outcome.win  { color: #4ade80; background: rgba(74,222,128,.1); }
+.combat-result-outcome.lose { color: var(--danger); background: rgba(239,68,68,.1); }
+.combat-dice-row { display: flex; gap: 1rem; flex-wrap: wrap; }
+.combat-dice-block { flex: 1; min-width: 130px; }
+.combat-dice-label { font-size: .75rem; color: var(--muted); margin-bottom: .4rem; }
+.combat-dice-vals { display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; }
+.die {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 1.6rem; height: 1.6rem; border: 1px solid var(--border);
+  border-radius: 5px; font-size: .85rem; font-weight: 700; background: #0a0f18;
+}
+.btn-danger { background: var(--danger); border-color: var(--danger); color: #fff; font-weight: 600; }
+.btn-danger:hover { background: #dc2626; border-color: #dc2626; }

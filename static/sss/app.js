@@ -35,6 +35,13 @@ let boardCache = null;   // last received board data
 let viewMode = "map";    // "map" | "card"
 let _connectingBtn = null;
 let _connectingErrId = null;
+let _lastStateSeq = -1;  // monotonic seq; reject any state with seq <= this
+let _boardPhaseOpened = false;
+let _actionMode      = null;  // { type: "flight"|"invasion"|"attack"|"construction" }
+let _selectedCluster = null;  // cluster index of selected source, or null
+let _selectedRoutes  = [];    // routes from _selectedCluster
+let _constructionPiece = null; // { type, cost } when in construction placement mode
+let _lastState       = null;  // most recent full state for re-renders
 
 // ── WebSocket ──────────────────────────────────────────────────────────────
 
@@ -81,6 +88,8 @@ function handleMsg(msg) {
       myName = msg.name;
       myRole = msg.role;
       gameCode = msg.code;
+      _lastStateSeq = -1;
+      _boardPhaseOpened = false;
       if (_connectingBtn) { _connectingBtn.disabled = false; _connectingBtn.textContent = _connectingBtn.dataset.label; }
       _connectingBtn = null; _connectingErrId = null;
       break;
@@ -89,13 +98,44 @@ function handleMsg(msg) {
     case "game_state":
     case "board_ready":
     case "player_disconnected":
+      if (msg.seq !== undefined && msg.seq <= _lastStateSeq) break; // stale out-of-order state
+      if (msg.seq !== undefined) _lastStateSeq = msg.seq;
       if (msg.board) boardCache = msg.board;
       applyState(msg);
+      break;
+    case "invasion_prompt":
+      if (msg.board) boardCache = msg.board;
+      _lastState = msg;
+      applyState(msg);
+      showInvasionPrompt(msg);
+      break;
+    case "invasion_result":
+      if (msg.seq !== undefined && msg.seq <= _lastStateSeq) break;
+      if (msg.seq !== undefined) _lastStateSeq = msg.seq;
+      if (msg.board) boardCache = msg.board;
+      _lastState = msg;
+      applyState(msg);
+      showInvasionResult(msg);
+      break;
+    case "combat_prompt":
+      if (msg.board) boardCache = msg.board;
+      _lastState = msg;
+      applyState(msg);
+      showCombatPrompt(msg);
+      break;
+    case "combat_result":
+      if (msg.seq !== undefined && msg.seq <= _lastStateSeq) break;
+      if (msg.seq !== undefined) _lastStateSeq = msg.seq;
+      if (msg.board) boardCache = msg.board;
+      _lastState = msg;
+      applyState(msg);
+      showCombatResult(msg);
       break;
     case "race_taken":
       showError("race-error", "That race was just taken — pick another.");
       break;
     case "error":
+      console.error("[SSS server error]", msg.msg);
       routeError(msg.msg);
       break;
   }
@@ -118,16 +158,26 @@ function routeError(msg) {
 // ── State → UI ─────────────────────────────────────────────────────────────
 
 function applyState(state) {
+  _lastState = state;
   $("status-phase").textContent = state.phase ?? "";
   $("status-code").textContent  = state.code  ? `Code: ${state.code}` : "";
+  // If the turn changed while we had a selection, clear it
+  if (state.current_turn !== myName) {
+    _actionMode = null; _selectedCluster = null; _selectedRoutes = []; _constructionPiece = null;
+  }
 
   switch (state.phase) {
     case "lobby":        showScreen("screen-lobby");      renderLobby(state);         break;
     case "race_pick":    showScreen("screen-race-pick");  renderRacePick(state);      break;
     case "dice_roll":    showScreen("screen-dice-roll");  renderDiceRoll(state);      break;
     case "place_pieces": hideDraftOverlay(); showScreen("screen-board"); renderBoard(state, true);  break;
-    case "draft":        showScreen("screen-board"); renderBoard(state, false); showDraftOverlay(state); break;
-    case "board":        hideDraftOverlay(); showScreen("screen-board"); renderBoard(state, false); break;
+    case "draft":
+      showScreen("screen-board"); renderBoard(state, false);
+      if (myRole === "host") send({ type: "begin_action" });
+      break;
+    case "board":
+      hideDraftOverlay(); showScreen("screen-board"); renderBoard(state, false);
+      break;
   }
 }
 
@@ -193,7 +243,10 @@ function renderDiceRoll(state) {
     const rolled  = p.dice_roll > 0;
     const dot = p.color ? `<span class="player-badge" style="background:${p.color};width:10px;height:10px;display:inline-block;border-radius:50%;margin-right:.5rem"></span>` : "";
     let status = "";
-    if (placed >= 0) {
+    if (placed >= 0 && rolled) {
+      // Show the actual roll value alongside the resolved position
+      status = `<strong style="font-size:1.3rem">${p.dice_roll}</strong><span style="color:var(--gold);margin-left:.5rem">→ #${placed + 1}</span>`;
+    } else if (placed >= 0) {
       status = `<span style="color:var(--gold)">→ Position ${placed + 1}</span>`;
     } else if (!rolling) {
       status = `<span class="hint">waiting…</span>`;
@@ -226,17 +279,18 @@ const TRI_CONFIGS = [
 ];
 
 function drawTriangles(layer, h) {
-  const r = 7.35;  // circumradius of each small triangle (scaled 5 % from 7)
-  for (const { dx, dy, fill } of TRI_CONFIGS) {
-    const tx = h.x + dx * r;
-    const ty = h.y + dy * r;
-    // Upward-pointing equilateral triangle vertices
+  const r = 7.35;
+  // Index 1 (BL) is the farmer triangle — red or green based on upgrade status
+  const fills = ["#f0d060", h.tri_farmer_green ? "#6abf69" : "#e07878", "#6fa8dc"];
+  for (let i = 0; i < TRI_CONFIGS.length; i++) {
+    const { dx, dy } = TRI_CONFIGS[i];
+    const tx = h.x + dx * r, ty = h.y + dy * r;
     const top = `${tx.toFixed(2)},${(ty - r).toFixed(2)}`;
     const bl  = `${(tx - r * 0.866).toFixed(2)},${(ty + r * 0.5).toFixed(2)}`;
     const br  = `${(tx + r * 0.866).toFixed(2)},${(ty + r * 0.5).toFixed(2)}`;
     const tri = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
     tri.setAttribute("points", `${top} ${bl} ${br}`);
-    tri.setAttribute("fill", fill);
+    tri.setAttribute("fill", fills[i]);
     tri.setAttribute("stroke", "rgba(0,0,0,0.3)");
     tri.setAttribute("stroke-width", "0.8");
     layer.appendChild(tri);
@@ -246,17 +300,18 @@ function drawTriangles(layer, h) {
 function drawTriCounters(layer, h) {
   const svgNS = "http://www.w3.org/2000/svg";
   const r = 7;
-  for (const { dx, dy } of TRI_CONFIGS) {
-    const tx = h.x + dx * r;
-    const ty = h.y + dy * r;
+  const counts = h.tri_counts?.length ? h.tri_counts : [1, 1, 1];
+  for (let i = 0; i < TRI_CONFIGS.length; i++) {
+    const { dx, dy } = TRI_CONFIGS[i];
+    const tx = h.x + dx * r, ty = h.y + dy * r;
     const t = document.createElementNS(svgNS, "text");
     t.setAttribute("x", tx);
     t.setAttribute("y", ty + 1.8);
     t.setAttribute("text-anchor", "middle");
     t.setAttribute("font-size", "5");
     t.setAttribute("font-weight", "bold");
-    t.setAttribute("fill", "rgba(0,0,0,0.8)");
-    t.textContent = "1";
+    t.setAttribute("fill", "rgba(0,0,0,0.85)");
+    t.textContent = counts[i] ?? 1;
     layer.appendChild(t);
   }
 }
@@ -275,7 +330,7 @@ const PIECE_NAMES = {
 
 function drawWormholeLines(wormholeLayer, hexes, hexById) {
   const svgNS = "http://www.w3.org/2000/svg";
-  const inR = R * Math.sqrt(3) / 2;  // inradius: center → edge midpoint ≈ 20.78
+  const inR = R * Math.sqrt(3) / 2;  // hex inradius, used as trim ceiling
   const drawn = new Set();
   for (const h of hexes) {
     if (!h.wormhole || h.wormhole_partner === null) continue;
@@ -289,23 +344,25 @@ function drawWormholeLines(wormholeLayer, hexes, hexById) {
     const len = Math.sqrt(dx * dx + dy * dy);
     const ux = dx / len, uy = dy / len;
 
-    // Line endpoints at hex boundaries (not centers)
-    const x1 = h.x + ux * inR,       y1 = h.y + uy * inR;
-    const x2 = partner.x - ux * inR, y2 = partner.y - uy * inR;
+    // Trim a small fixed amount from each end so the line starts outside the hex label
+    // but stays fully visible even for closely-spaced diagonal pairs
+    const trim = Math.min(inR * 0.5, len * 0.12);
+    const x1 = h.x + ux * trim,       y1 = h.y + uy * trim;
+    const x2 = partner.x - ux * trim, y2 = partner.y - uy * trim;
 
     const glow = document.createElementNS(svgNS, "line");
     glow.setAttribute("x1", x1); glow.setAttribute("y1", y1);
     glow.setAttribute("x2", x2); glow.setAttribute("y2", y2);
-    glow.setAttribute("stroke", "#7c3aed");
+    glow.setAttribute("stroke", "#2563eb");
     glow.setAttribute("stroke-width", "5");
     glow.setAttribute("stroke-dasharray", "5 4");
-    glow.setAttribute("opacity", "0.3");
+    glow.setAttribute("opacity", "0.35");
     wormholeLayer.appendChild(glow);
 
     const line = document.createElementNS(svgNS, "line");
     line.setAttribute("x1", x1); line.setAttribute("y1", y1);
     line.setAttribute("x2", x2); line.setAttribute("y2", y2);
-    line.setAttribute("stroke", "#a78bfa");
+    line.setAttribute("stroke", "#93c5fd");
     line.setAttribute("stroke-width", "1.5");
     line.setAttribute("stroke-dasharray", "5 4");
     line.setAttribute("opacity", "0.9");
@@ -380,23 +437,29 @@ function drawBoardPieces(pieceLayer, hexes, players) {
           fill: c, opacity: "0.85", rx: "1.5",
           stroke: "rgba(255,255,255,0.4)", "stroke-width": "0.8",
         }));
+      } else if (piece.type === "battle_station") {
+        pieceLayer.appendChild(mk("circle", { cx, cy, r: "7", fill: c, opacity: "0.85", stroke: "rgba(255,255,255,0.4)", "stroke-width": "0.8" }));
+        pieceLayer.appendChild(mk("line", { x1: cx - 3.5, y1: cy, x2: cx + 3.5, y2: cy, stroke: "rgba(0,0,0,0.5)", "stroke-width": "1.5" }));
+        pieceLayer.appendChild(mk("line", { x1: cx, y1: cy - 3.5, x2: cx, y2: cy + 3.5, stroke: "rgba(0,0,0,0.5)", "stroke-width": "1.5" }));
+      } else if (piece.type === "death_star") {
+        // Diamond + inner circle
+        pieceLayer.appendChild(mk("polygon", { points: `${cx},${cy-8} ${cx+8},${cy} ${cx},${cy+8} ${cx-8},${cy}`, fill: c, opacity: "0.9", stroke: "#fff", "stroke-width": "0.8" }));
+        pieceLayer.appendChild(mk("circle", { cx, cy, r: "3", fill: "rgba(0,0,0,0.5)" }));
+      } else if (piece.type === "super_ship") {
+        pieceLayer.appendChild(mk("circle", { cx, cy, r: "6.5", fill: c, opacity: "0.9", stroke: "#fff", "stroke-width": "1" }));
+        const sLabel = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        sLabel.setAttribute("x", cx); sLabel.setAttribute("y", cy + 2.5);
+        sLabel.setAttribute("text-anchor", "middle"); sLabel.setAttribute("font-size", "6");
+        sLabel.setAttribute("fill", "#000"); sLabel.setAttribute("pointer-events", "none");
+        sLabel.textContent = "S";
+        pieceLayer.appendChild(sLabel);
+      } else if (piece.type === "cruise_ship") {
+        pieceLayer.appendChild(mk("rect", { x: cx - 5, y: cy - 3.5, width: "10", height: "7", rx: "3", fill: c, opacity: "0.9", stroke: "rgba(255,255,255,0.4)", "stroke-width": "0.7" }));
+      } else if (piece.type === "outpost") {
+        // Triangle
+        pieceLayer.appendChild(mk("polygon", { points: `${cx},${cy-6} ${cx+5.5},${cy+3.5} ${cx-5.5},${cy+3.5}`, fill: c, opacity: "0.9", stroke: "rgba(255,255,255,0.5)", "stroke-width": "0.8" }));
       } else {
-        const r = piece.type === "battle_station" ? 7 : 4.5;
-        pieceLayer.appendChild(mk("circle", {
-          cx, cy, r,
-          fill: c, opacity: "0.85",
-          stroke: "rgba(255,255,255,0.4)", "stroke-width": "0.8",
-        }));
-        if (piece.type === "battle_station") {
-          pieceLayer.appendChild(mk("line", {
-            x1: cx - 3.5, y1: cy, x2: cx + 3.5, y2: cy,
-            stroke: "rgba(0,0,0,0.5)", "stroke-width": "1.5",
-          }));
-          pieceLayer.appendChild(mk("line", {
-            x1: cx, y1: cy - 3.5, x2: cx, y2: cy + 3.5,
-            stroke: "rgba(0,0,0,0.5)", "stroke-width": "1.5",
-          }));
-        }
+        pieceLayer.appendChild(mk("circle", { cx, cy, r: "4.5", fill: c, opacity: "0.85", stroke: "rgba(255,255,255,0.4)", "stroke-width": "0.8" }));
       }
     });
   }
@@ -447,6 +510,53 @@ function renderBoard(state, placementMode) {
           </div>
           ${pieceHtml ? `<div class="piece-grid">${pieceHtml}</div>` : ""}
         </div>`;
+      // Turn action UI
+      const currentTurn = state.current_turn ?? null;
+      const raceCard = infoCard.querySelector(".player-race-card");
+      if (raceCard) {
+        if (_constructionPiece) {
+          const d = document.createElement("div");
+          d.className = "flight-hint";
+          d.innerHTML = `<div class="hint">Click an orbital hex in your system to place a <strong>${_constructionPiece.label}</strong>.</div>
+            <button class="btn btn-ghost btn-sm mt1" id="btn-cancel-construct">Cancel</button>`;
+          raceCard.appendChild(d);
+          document.getElementById("btn-cancel-construct").addEventListener("click", () => {
+            _constructionPiece = null; _actionMode = null;
+            if (_lastState) renderBoard(_lastState, false);
+          });
+        } else if (_actionMode) {
+          const hint = _selectedCluster !== null
+            ? (_actionMode.type === "attack"
+                ? "Click the enemy system to engage combat."
+                : "Click a highlighted system to move your frigates.")
+            : _actionMode.type === "invasion"
+              ? "Click one of your frigate systems, then click a planet system to invade."
+              : _actionMode.type === "attack"
+                ? "Click one of your frigate systems, then click an enemy system to attack."
+                : "Click one of your frigate systems, then click a connected system.";
+          const d = document.createElement("div");
+          d.className = "flight-hint";
+          d.innerHTML = `<div class="hint">${hint}</div>
+            <button class="btn btn-ghost btn-sm mt1" id="btn-cancel-action">Cancel</button>`;
+          raceCard.appendChild(d);
+          document.getElementById("btn-cancel-action").addEventListener("click", () => {
+            _actionMode = null; _selectedCluster = null; _selectedRoutes = [];
+            if (_lastState) renderBoard(_lastState, false);
+          });
+        } else if (currentTurn === myName) {
+          const d = document.createElement("div");
+          d.className = "turn-actions";
+          d.innerHTML = `<button class="btn btn-ghost btn-sm" id="btn-skip-turn">Skip Turn</button>
+            <button class="btn btn-primary btn-sm" id="btn-play-card">Play a Card</button>`;
+          raceCard.appendChild(d);
+          document.getElementById("btn-skip-turn").addEventListener("click", () => send({ type: "skip_turn" }));
+          document.getElementById("btn-play-card").addEventListener("click", () => showActionPicker());
+        } else if (currentTurn) {
+          const d = document.createElement("div");
+          d.innerHTML = `<div class="hint" style="font-size:.8rem;margin-top:.5rem">${currentTurn}'s turn</div>`;
+          raceCard.appendChild(d);
+        }
+      }
     } else {
       infoCard.innerHTML = `<strong>${myName}</strong>`;
     }
@@ -458,10 +568,19 @@ function renderBoard(state, placementMode) {
   const wormholeLayer = $("wormhole-layer");
   const pieceLayer    = $("piece-layer");
   const labelLayer    = $("label-layer");
+  const dragLayer     = $("drag-layer");
   hexLayer.innerHTML      = "";
   wormholeLayer.innerHTML = "";
   pieceLayer.innerHTML    = "";
   labelLayer.innerHTML    = "";
+  if (dragLayer) dragLayer.innerHTML = "";
+
+  // When an action is in progress, make upper SVG layers transparent to pointer events
+  // so clicks always land on the hex polygon in hex-layer beneath them.
+  const inActionMode = !placementMode && myRole !== "watcher"
+    && ((_actionMode && state.current_turn === myName) || _constructionPiece);
+  pieceLayer.setAttribute("pointer-events", inActionMode ? "none" : "all");
+  labelLayer.setAttribute("pointer-events", inActionMode ? "none" : "all");
 
   const hexes = (state.board ?? boardCache ?? []);
   const hexById = {};
@@ -472,37 +591,64 @@ function renderBoard(state, placementMode) {
   const myRemaining = (state.player_placement ?? {})[myName] ?? [];
   const isMyTurn    = placementMode && state.current_placer === myName && myRole !== "watcher";
   const nextPiece   = myRemaining[0];
-  // Clusters already claimed by other players (can't place battle station there)
   const claimedByOthers = new Set(
     Object.entries(state.player_system ?? {})
       .filter(([n]) => n !== myName)
       .map(([, c]) => c)
   );
-  // Core hex type per cluster (used to exclude black hole from battle station targets)
   const coreType = {};
   for (const h of hexes) { if (h.local === 0) coreType[h.cluster] = h.type; }
-  // Clusters that contain a tri hex (only these allow battle station placement)
   const triClusters = new Set();
   for (const h of hexes) { if (h.tri) triClusters.add(h.cluster); }
-  // Clusters already claimed by any player (for tri counter display)
   const claimedClusters = new Set(Object.values(state.player_system ?? {}));
-  // Map cluster → player color for planet rendering
   const playerColorMap = {};
   for (const p of (state.players ?? [])) { if (p.name && p.color) playerColorMap[p.name] = p.color; }
   const claimedColor = {};
   for (const [pname, cluster] of Object.entries(state.player_system ?? {})) {
     if (playerColorMap[pname]) claimedColor[cluster] = playerColorMap[pname];
   }
-  // Orbital locals blocked because they're ring-adjacent to an existing frigate
-  const blockedOrbitalLocals = new Set();
-  if (isMyTurn && nextPiece === "frigate" && mySystem !== null) {
-    for (const bh of hexes) {
-      if (bh.cluster !== mySystem) continue;
-      if (bh.pieces.some(p => p.type === "frigate")) {
-        const i = bh.local;
-        blockedOrbitalLocals.add((i - 2) % 6 + 1);
-        blockedOrbitalLocals.add(i % 6 + 1);
+
+  // Action-mode: pre-compute selectable sources and reachable targets
+  const actionSourceClusters = new Set();
+  const actionTargetClusters = new Set();
+  const actionRoutesMap = {};  // cluster → routes[]
+  const invasionSourceClusters = new Set(); // clusters where invasion can be launched
+
+  const isActionTurn = !placementMode && _actionMode
+    && state.current_turn === myName && myRole !== "watcher";
+
+  if (isActionTurn && _actionMode.type === "invasion") {
+    // Invasion sources: clusters where player has frigates in a non-owned planet system
+    const myOwnedClusters = new Set();
+    const homeCluster = (state.player_system ?? {})[myName];
+    if (homeCluster != null) myOwnedClusters.add(homeCluster);
+    for (const h of hexes) {
+      if ((h.pieces ?? []).some(p => p.type === "empire_flag" && p.owner === myName))
+        myOwnedClusters.add(h.cluster);
+    }
+    for (const h of hexes) {
+      if (!(h.pieces ?? []).some(p => p.type === "frigate" && p.owner === myName)) continue;
+      if (myOwnedClusters.has(h.cluster)) continue;
+      const core = hexes.find(c => c.cluster === h.cluster && c.local === 0);
+      if (core && core.planet) invasionSourceClusters.add(h.cluster);
+    }
+  } else if (isActionTurn) {
+    if (_selectedCluster === null) {
+      for (const h of hexes) {
+        if ((h.pieces ?? []).some(p => p.type === "frigate" && p.owner === myName)) {
+          if (actionSourceClusters.has(h.cluster)) continue;
+          const routes = _actionMode.type === "attack"
+            ? computeAttackRoutes(hexes, h.cluster)
+            : computeFlightOnlyRoutes(hexes, h.cluster);
+          if (routes.length > 0) {
+            actionSourceClusters.add(h.cluster);
+            actionRoutesMap[h.cluster] = routes;
+          }
+        }
       }
+    } else {
+      actionSourceClusters.add(_selectedCluster);
+      for (const r of _selectedRoutes) actionTargetClusters.add(r.dest_cluster);
     }
   }
 
@@ -525,55 +671,144 @@ function renderBoard(state, placementMode) {
                       && !claimedByOthers.has(h.cluster)
                       && coreType[h.cluster] !== "black_hole";
       } else if (nextPiece === "frigate") {
-        validTarget = h.type === "orbital" && h.cluster === mySystem
-                      && !blockedOrbitalLocals.has(h.local);
+        validTarget = h.cluster === mySystem && h.local > 0;
       } else if (nextPiece === "influence_token") {
         validTarget = h.cluster === mySystem
                       && !h.pieces.some(p => p.type === "influence_token");
       }
     }
 
+    // Construction placement: highlight valid hexes for the piece being built
+    const isConstructionTurn = !placementMode && _constructionPiece
+      && state.current_turn === myName && myRole !== "watcher";
+    let validConstructTarget = false;
+    if (isConstructionTurn && h.cluster === mySystem && h.local > 0) {
+      if (_constructionPiece.type === "battle_station") {
+        validConstructTarget = h.type === "bs_slot";
+      } else {
+        validConstructTarget = h.type === "orbital";
+      }
+    }
+
     let cls = `hex-poly hex-${h.type}`;
+    if (h.tri) cls += " hex-tri";
     if (validTarget) cls += " hex-placeable";
+
+    const isSource  = isActionTurn && actionSourceClusters.has(h.cluster);
+    const isTarget  = isActionTurn && actionTargetClusters.has(h.cluster);
+    const isSelected = isActionTurn && _selectedCluster !== null && h.cluster === _selectedCluster;
+    const isInvasionSource = isActionTurn && _actionMode?.type === "invasion"
+      && invasionSourceClusters.has(h.cluster);
+    if (isSelected) cls += " hex-selected";
+    else if (isSource) cls += " hex-selectable";
+    else if (isInvasionSource) cls += " hex-selectable";
+    if (isTarget) cls += " hex-flight-target";
+    if (validConstructTarget) cls += " hex-construct-target";
+
     poly.setAttribute("class", cls);
     poly.setAttribute("data-id", h.id);
-    if (validTarget) {
+
+    // Transparent hit-polygon in drag-layer (top layer) so clicks land even when
+    // piece/label SVG elements visually cover the hex polygon below.
+    const addHit = (handler) => {
+      if (!dragLayer) return;
+      const hit = document.createElementNS(svgNS, "polygon");
+      hit.setAttribute("points", hexPoints(h.x, h.y));
+      hit.setAttribute("fill", "rgba(0,0,0,0)");
+      hit.setAttribute("stroke", "none");
+      hit.setAttribute("pointer-events", "all");
+      hit.style.cursor = "pointer";
+      hit.addEventListener("click", handler);
+      dragLayer.appendChild(hit);
+    };
+
+    if (validConstructTarget) {
       poly.style.cursor = "pointer";
-      poly.addEventListener("click", () => send({ type: "place_piece", hex_id: h.id }));
+      const handler = () => {
+        const piece = _constructionPiece;
+        _constructionPiece = null; _actionMode = null;
+        send({ type: "build_piece", piece_type: piece.type, hex_id: h.id });
+      };
+      poly.addEventListener("click", handler);
+      addHit(handler);
+    } else if (validTarget) {
+      poly.style.cursor = "pointer";
+      const handler = () => send({ type: "place_piece", hex_id: h.id });
+      poly.addEventListener("click", handler);
+      addHit(handler);
+    } else if (isTarget) {
+      poly.style.cursor = "pointer";
+      const handler = () => {
+        const route = _selectedRoutes.find(r => r.dest_cluster === h.cluster);
+        if (!route) return;
+        const type = _actionMode.type;
+        _actionMode = null; _selectedCluster = null; _selectedRoutes = [];
+        const msg = {
+          type: type === "invasion" ? "invasion_move" : "flight_move",
+          from_wormhole: route.from_wormhole,
+          to_wormhole:   route.to_wormhole,
+        };
+        console.log("[SSS] sending", msg);
+        send(msg);
+      };
+      poly.addEventListener("click", handler);
+      addHit(handler);
+    } else if (isInvasionSource) {
+      poly.style.cursor = "pointer";
+      const handler = () => {
+        const cluster = h.cluster;
+        _actionMode = null;
+        send({ type: "invasion_attack", cluster });
+      };
+      poly.addEventListener("click", handler);
+      addHit(handler);
+    } else if (isSource && _selectedCluster === null) {
+      poly.style.cursor = "pointer";
+      const handler = () => {
+        _selectedCluster = h.cluster;
+        _selectedRoutes  = actionRoutesMap[h.cluster] ?? [];
+        if (_lastState) renderBoard(_lastState, false);
+      };
+      poly.addEventListener("click", handler);
+      addHit(handler);
+    } else if (isSelected) {
+      poly.style.cursor = "pointer";
+      const handler = () => {
+        _selectedCluster = null; _selectedRoutes = [];
+        if (_lastState) renderBoard(_lastState, false);
+      };
+      poly.addEventListener("click", handler);
+      addHit(handler);
     }
+
     hexLayer.appendChild(poly);
 
     // Core hex: planet if claimed, otherwise cluster label
     if (h.local === 0) {
       const pColor = claimedColor[h.cluster];
       if (h.planet && pColor) {
-        // Aura — bleeds ~1/4 of neighbor distance beyond hex edge
-        const aura = mkEl("circle", { cx: h.x, cy: h.y, r: "33", fill: pColor, opacity: "0.13" });
-        pieceLayer.appendChild(aura);
-        // Planet body
-        const planet = mkEl("circle", {
+        // Layered aura — outer → inner, increasing vibrance; pointer-events:none so
+        // clicks pass through to the hex tiles in the layer beneath
+        const a3 = mkEl("circle", { cx: h.x, cy: h.y, r: "42", fill: pColor, opacity: "0.08",
+          "pointer-events": "none" });
+        const a2 = mkEl("circle", { cx: h.x, cy: h.y, r: "34", fill: pColor, opacity: "0.20",
+          class: "planet-aura-pulse", "pointer-events": "none" });
+        const a1 = mkEl("circle", { cx: h.x, cy: h.y, r: "26", fill: pColor, opacity: "0.40",
+          "pointer-events": "none" });
+        [a3, a2, a1].forEach(a => pieceLayer.appendChild(a));
+        // Planet body — clickable to open detail modal
+        const pg = mkEl("circle", {
           cx: h.x, cy: h.y, r: "16",
-          fill: pColor, opacity: "0.85",
-          stroke: "#ffffff", "stroke-width": "1",
+          fill: pColor, opacity: "0.92",
+          stroke: "rgba(255,255,255,0.7)", "stroke-width": "1.5",
+          class: "planet-clickable",
         });
-        pieceLayer.appendChild(planet);
-        // 5 stat labels centered inside planet
-        const stats = [
-          "+1 VP",
-          `${h.planet.unrest} Unrest`,
-          `+${h.planet.food} Food`,
-          `+${h.planet.science} Sci`,
-          `+${h.planet.tool} Tool`,
-        ];
-        stats.forEach((s, i) => {
-          const t = mkEl("text", {
-            x: h.x, y: h.y - 7.0 + i * 3.6,
-            "text-anchor": "middle", "dominant-baseline": "auto",
-            "font-size": "3", fill: "#ffffff", "font-weight": "bold",
-          });
-          t.textContent = s;
-          pieceLayer.appendChild(t);
+        const _pd = h.planet, _pl = h.label;
+        pg.addEventListener("click", (e) => {
+          e.stopPropagation();
+          openPlanetModal(_pd, pColor, _pl);
         });
+        pieceLayer.appendChild(pg);
       } else if (h.label) {
         const lbl = mkEl("text", {
           x: h.x, y: h.y + 4,
@@ -605,7 +840,7 @@ function renderBoard(state, placementMode) {
     { color: "#7a6315", label: "Yellow system" },
     { color: "#000",    label: "Black Hole", border: "#7c3aed" },
     { color: "#0e1825", label: "Deep space" },
-    { color: "#3e8fba", label: "Orbital — frigates only" },
+    { color: "#3e8fba", label: "Orbital" },
     { color: "#b8dcb8", label: "Battle station slot" },
     { color: "#baaad8", label: "Science hex" },
     { color: "#a78bfa", label: "Wormhole link", border: "#7c3aed" },
@@ -815,7 +1050,8 @@ function hideDraftOverlay() {
 }
 
 // ── Card Viewer ─────────────────────────────────────────────────────────────
-let _cvIdx = 0;
+let _cvIdx   = 0;
+let _cvCards = [];   // unified hand built in renderPlayerCard
 
 function initCardViewer() {
   const el = document.createElement("div");
@@ -828,12 +1064,13 @@ function initCardViewer() {
       <button class="card-nav-btn" id="btn-cv-prev">‹</button>
       <div class="card-nav-dots" id="cv-dots"></div>
       <button class="card-nav-btn" id="btn-cv-next">›</button>
-    </div>`;
+    </div>
+    `;
   document.body.appendChild(el);
 
   document.getElementById("btn-cv-close").addEventListener("click", closeCardViewer);
-  document.getElementById("btn-cv-prev").addEventListener("click", () => cvShow(_cvIdx - 1));
-  document.getElementById("btn-cv-next").addEventListener("click", () => cvShow(_cvIdx + 1));
+  document.getElementById("btn-cv-prev").addEventListener("click",  () => cvShow(_cvIdx - 1));
+  document.getElementById("btn-cv-next").addEventListener("click",  () => cvShow(_cvIdx + 1));
   el.addEventListener("click", e => { if (e.target === el) closeCardViewer(); });
 
   // Swipe support
@@ -857,26 +1094,53 @@ function closeCardViewer() {
 }
 
 function cvShow(idx) {
-  _cvIdx = Math.max(0, Math.min(idx, ACTION_CARDS.length - 1));
+  _cvIdx = Math.max(0, Math.min(idx, _cvCards.length - 1));
+  cvRender();
+}
+
+function cvMoveCard(dir) {
+  const target = _cvIdx + dir;
+  if (target < 0 || target >= _cvCards.length) return;
+  [_cvCards[_cvIdx], _cvCards[target]] = [_cvCards[target], _cvCards[_cvIdx]];
+  _cvIdx = target;
   cvRender();
 }
 
 function cvRender() {
-  const c = ACTION_CARDS[_cvIdx];
-  document.getElementById("cv-card").innerHTML = `
-    <div class="cv-card-header">
-      <span class="cv-card-title">${c.name}</span>
-      <span class="cv-card-rate ${c.rateClass}">${c.rate} draw</span>
-    </div>
-    <div class="cv-card-grid">
-      ${c.actions.map(a => `
-        <div class="cv-action-item">
-          <img class="cv-action-icon" src="${a.icon}" alt="${a.name}">
-          <div class="cv-action-name">${a.name}</div>
-          <div class="cv-action-desc">${a.desc}</div>
-        </div>`).join("")}
-    </div>`;
-  document.getElementById("cv-dots").innerHTML = ACTION_CARDS.map((_, i) =>
+  const c = _cvCards[_cvIdx];
+  if (!c) return;
+
+  let inner = "";
+  if (c.type === "action") {
+    inner = `
+      <div class="cv-card-header">
+        <span class="cv-card-title">${c.name}</span>
+      </div>
+      <div class="cv-action-list">
+        ${c.actions.map(a => `
+          <div class="cv-action-row">
+            <img class="cv-action-icon-sm" src="${a.icon}" alt="${a.name}">
+            <span class="cv-action-label">${a.name.toUpperCase()}</span>
+          </div>`).join("")}
+      </div>`;
+  } else if (c.type === "empire") {
+    inner = `
+      <div class="cv-card-header">
+        <span class="cv-card-title">${c.name}</span>
+        <span class="cv-card-empire-badge">Empire</span>
+      </div>
+      <div class="cv-card-effect">${c.effect}</div>`;
+  } else {
+    inner = `
+      <div class="cv-card-header">
+        <span class="cv-card-title">${c.name}</span>
+        <span class="cv-card-timing">${c.timing}</span>
+      </div>
+      <div class="cv-card-effect">${c.effect}</div>`;
+  }
+
+  document.getElementById("cv-card").innerHTML = inner;
+  document.getElementById("cv-dots").innerHTML = _cvCards.map((_, i) =>
     `<span class="cv-dot${i === _cvIdx ? " active" : ""}"></span>`
   ).join("");
 }
@@ -919,13 +1183,34 @@ function renderFullPlayerCard(state) {
       <span class="resource-count">${resources[r] ?? 0}</span>
     </div>`).join("");
 
-  // Income row
-  const incomeHtml = RES_KEYS.map(r => `
-    <div class="resource-item income-item">
+  // Compute upkeep from tri hexes in systems where player has empire_flag
+  const board = state.board ?? boardCache ?? [];
+  const flagClusters = new Set();
+  for (const h of board) {
+    if ((h.pieces ?? []).some(p => p.type === "empire_flag" && p.owner === myName))
+      flagClusters.add(h.cluster);
+  }
+  const upkeep = { food: 0, science: 0, tool: 0 };
+  for (const h of board) {
+    if (!h.tri || !flagClusters.has(h.cluster)) continue;
+    const c = h.tri_counts ?? [];
+    if (c.length >= 3) { upkeep.tool += c[0]; upkeep.food += c[1]; upkeep.science += c[2]; }
+  }
+
+  // Income row (shows per-turn income + upkeep cost)
+  const incomeHtml = RES_KEYS.map(r => {
+    const inc = income[r] ?? 0;
+    const cost = upkeep[r] ?? 0;
+    const net = inc - cost;
+    const sign = net >= 0 ? "+" : "";
+    const netClass = net < 0 ? "income-negative" : net > 0 ? "income-count" : "income-zero";
+    const upkeepBit = cost > 0 ? ` <span class="upkeep-cost">-${cost}</span>` : "";
+    return `<div class="resource-item income-item">
       ${RESOURCE_ICONS[r] ?? ""}
       <span class="resource-label">${r}</span>
-      <span class="resource-count income-count">+${income[r] ?? 0}</span>
-    </div>`).join("");
+      <span class="resource-count ${netClass}">${sign}${net}</span>${upkeepBit}
+    </div>`;
+  }).join("");
 
   // Costs column (left of tech tree)
   const costsColHtml = `
@@ -954,21 +1239,27 @@ function renderFullPlayerCard(state) {
   }).join("");
 
 
-  // Tech card hand
-  const myTechCards = me.tech_cards ?? [];
-  const techCardListHtml = myTechCards.length === 0
-    ? `<div class="hint">No tech cards yet.</div>`
-    : myTechCards.map(id => {
-        const c = TECH_CARD_DATA[id];
-        if (!c) return "";
-        return `<div class="tech-card">
-          <div class="tech-card-header">
-            <span class="tech-card-name">${c.name}</span>
-            <span class="tech-card-timing">${c.timing}</span>
-          </div>
-          <div class="tech-card-effect">${c.effect}</div>
-        </div>`;
-      }).join("");
+  // Build unified card viewer hand (action + empire + tech)
+  {
+    const actionIds = me.action_cards ?? [];
+    const techIds   = me.tech_cards   ?? [];
+    _cvCards = [];
+    const seenAction = new Set();
+    for (const id of actionIds) {
+      if (id.startsWith("empire_") || seenAction.has(id)) continue;
+      const def = ACTION_CARDS.find(c => c.id === id);
+      if (def) { _cvCards.push({ type: "action", ...def }); seenAction.add(id); }
+    }
+    const empId = actionIds.find(id => id.startsWith("empire_"));
+    if (empId) {
+      const emp = EMPIRE_CARD_DATA[empId];
+      if (emp) _cvCards.push({ type: "empire", id: empId, name: emp.name, effect: emp.effect });
+    }
+    for (const id of techIds) {
+      const t = TECH_CARD_DATA[id];
+      if (t) _cvCards.push({ type: "tech", id, name: t.name, timing: t.timing, effect: t.effect });
+    }
+  }
 
   // Piece inventory
   const pieceRows = Object.entries(pieces)
@@ -992,12 +1283,7 @@ function renderFullPlayerCard(state) {
       </div>
       <div class="tech-tree mt2">${costsColHtml}${techColsHtml}</div>
       ${pieceRows ? `<div class="piece-grid mt2" style="gap:.4rem 1rem;font-size:.9rem">${pieceRows}</div>` : ""}
-      <button class="btn btn-primary mt2" id="btn-view-actions" style="width:100%">View Action Cards</button>
-      <div class="tech-cards-section mt2">
-        <div class="tech-cards-heading">Tech Cards</div>
-        <div class="tech-card-list">${techCardListHtml}</div>
-        <button class="btn btn-secondary mt1" id="btn-draw-tech" style="width:100%">Draw Tech Card</button>
-      </div>
+      <button class="btn btn-primary mt2" id="btn-view-actions" style="width:100%">View Cards</button>
     </div>`;
 
   // Tap to reveal tech name (one open at a time)
@@ -1012,13 +1298,419 @@ function renderFullPlayerCard(state) {
   const viewActionsBtn = cardEl.querySelector("#btn-view-actions");
   if (viewActionsBtn) viewActionsBtn.addEventListener("click", openCardViewer);
 
-  const drawBtn = cardEl.querySelector("#btn-draw-tech");
-  if (drawBtn) {
-    drawBtn.addEventListener("click", () => {
-      ws.send(JSON.stringify({ type: "draw_tech_card" }));
-    });
-  }
 }
+
+// ── Flight/Invasion route helpers ──────────────────────────────────────────
+
+function computeFlightRoutes(hexes, fromCluster) {
+  const routes = [], seen = new Set();
+  for (const h of hexes) {
+    if (h.cluster !== fromCluster || !h.wormhole) continue;
+    const partnerId = h.wormhole_partner;
+    if (partnerId == null) continue;
+    const partner = hexes[partnerId];
+    if (!partner) continue;
+    const dest = partner.cluster;
+    if (dest === fromCluster || seen.has(dest)) continue;
+    seen.add(dest);
+    routes.push({ from_wormhole: h.id, to_wormhole: partnerId, dest_cluster: dest });
+  }
+  return routes;
+}
+
+// Flight without combat: exclude clusters that have enemy frigates (use Attack for those)
+function computeFlightOnlyRoutes(hexes, fromCluster) {
+  return computeFlightRoutes(hexes, fromCluster).filter(r =>
+    !hexes.some(h => h.cluster === r.dest_cluster
+      && (h.pieces ?? []).some(p => p.type === "frigate" && p.owner !== myName))
+  );
+}
+
+function computeInvasionRoutes(hexes, fromCluster) {
+  return computeFlightRoutes(hexes, fromCluster).filter(r => {
+    const core = hexes.find(h => h.cluster === r.dest_cluster && h.local === 0);
+    return core && core.planet;
+  });
+}
+
+function computeAttackRoutes(hexes, fromCluster) {
+  return computeFlightRoutes(hexes, fromCluster).filter(r =>
+    hexes.some(h => h.cluster === r.dest_cluster
+      && (h.pieces ?? []).some(p => p.type === "frigate" && p.owner !== myName))
+  );
+}
+
+// ── Invasion modal ─────────────────────────────────────────────────────────
+
+function showInvasionPrompt(msg) {
+  const overlay = document.getElementById("combat-modal");
+  const board = msg.board ?? boardCache ?? [];
+  const clusterLabel = board.find(h => h.cluster === msg.dest_cluster && h.local === 0)?.label ?? msg.dest_cluster;
+  const planet = msg.planet ?? {};
+  const techCards = (msg.tech_cards ?? []).filter(id => ["nuclear_missile", "titanium_armor"].includes(id));
+  let selectedTech = null;
+
+  const techHtml = techCards.length > 0 ? `
+    <div class="combat-tech-label">Play a tech card (optional — 1 max):</div>
+    <div class="combat-tech-list" id="combat-tech-list">
+      ${techCards.map(id => {
+        const t = TECH_CARD_DATA[id];
+        return `<div class="combat-tech-item" data-id="${id}">
+          <span class="combat-tech-name">${t?.name ?? id}</span>
+          <span class="combat-tech-effect">${t?.effect ?? ""}</span>
+        </div>`;
+      }).join("")}
+    </div>` : `<div class="hint" style="margin-bottom:.5rem">No combat tech cards in hand.</div>`;
+
+  document.getElementById("combat-title").textContent = `Invade System ${clusterLabel}!`;
+  document.getElementById("combat-body").innerHTML = `
+    <div class="hint" style="margin-bottom:.75rem">The planet defends with <strong>3 dice</strong>. You attack with <strong>2 dice</strong>${techCards.length ? " (tech adds more)" : ""}.</div>
+    <div class="combat-planet-stats">
+      <span>Food +${planet.food ?? 0}</span>
+      <span>Science +${planet.science ?? 0}</span>
+      <span>Tool +${planet.tool ?? 0}</span>
+      <span>VP +${planet.vp ?? 1}</span>
+    </div>
+    ${techHtml}`;
+  document.getElementById("combat-footer").innerHTML =
+    `<button class="btn btn-danger" id="btn-invasion-confirm" style="width:100%">Launch Invasion!</button>`;
+
+  overlay.classList.remove("hidden");
+
+  document.querySelectorAll(".combat-tech-item").forEach(item => {
+    item.addEventListener("click", () => {
+      if (selectedTech === item.dataset.id) {
+        selectedTech = null; item.classList.remove("selected");
+      } else {
+        document.querySelectorAll(".combat-tech-item").forEach(i => i.classList.remove("selected"));
+        selectedTech = item.dataset.id; item.classList.add("selected");
+      }
+    });
+  });
+
+  document.getElementById("btn-invasion-confirm").addEventListener("click", () => {
+    overlay.classList.add("hidden");
+    send({ type: "start_invasion", tech_card: selectedTech });
+  });
+}
+
+function showInvasionResult(msg) {
+  const overlay = document.getElementById("combat-modal");
+  const won = !!msg.won;
+
+  document.getElementById("combat-title").textContent = won ? "Invasion Successful!" : "Invasion Failed!";
+  document.getElementById("combat-body").innerHTML = `
+    <div class="combat-result-outcome ${won ? "win" : "lose"}">${won ? "You conquered the planet!" : "The planet repelled your attack."}</div>
+    <div class="combat-dice-row">
+      <div class="combat-dice-block">
+        <div class="combat-dice-label">Your Attack</div>
+        <div class="combat-dice-vals">${msg.atk_dice.map(d => `<span class="die">${d}</span>`).join("")} <span style="margin-left:.3rem">= <strong>${msg.atk_total}</strong></span></div>
+      </div>
+      <div class="combat-dice-block">
+        <div class="combat-dice-label">Planet Defense (3 dice)</div>
+        <div class="combat-dice-vals">${msg.planet_dice.map(d => `<span class="die">${d}</span>`).join("")} <span style="margin-left:.3rem">= <strong>${msg.planet_total}</strong></span></div>
+      </div>
+    </div>`;
+  document.getElementById("combat-footer").innerHTML =
+    `<button class="btn btn-primary" id="btn-combat-close" style="width:100%">Continue</button>`;
+
+  overlay.classList.remove("hidden");
+  document.getElementById("btn-combat-close").addEventListener("click", () => {
+    overlay.classList.add("hidden");
+  });
+}
+
+// ── Action picker overlay ──────────────────────────────────────────────────
+
+function initActionPicker() {
+  const el = document.createElement("div");
+  el.id = "action-picker";
+  el.className = "action-picker-overlay hidden";
+  el.innerHTML = `
+    <div class="action-picker-modal">
+      <button class="action-picker-close" id="btn-ap-close">✕</button>
+      <div class="action-picker-title">Choose an Action</div>
+      <div class="action-pick-list" id="action-pick-list"></div>
+    </div>`;
+  document.body.appendChild(el);
+  el.addEventListener("click", e => { if (e.target === el) el.classList.add("hidden"); });
+  document.getElementById("btn-ap-close").addEventListener("click", () => el.classList.add("hidden"));
+}
+
+function showActionPicker() {
+  const allActions = ACTION_CARDS.flatMap(card => card.actions);
+
+  const list = document.getElementById("action-pick-list");
+  list.innerHTML = allActions.map(a => `
+    <div class="action-pick-row" data-action="${a.name.toLowerCase()}">
+      <img class="cv-action-icon-sm" src="${a.icon}" alt="${a.name}">
+      <span class="cv-action-label">${a.name.toUpperCase()}</span>
+    </div>`).join("");
+
+  document.getElementById("action-picker").classList.remove("hidden");
+
+  list.querySelectorAll(".action-pick-row").forEach(row => {
+    row.addEventListener("click", () => {
+      const action = row.dataset.action;
+      document.getElementById("action-picker").classList.add("hidden");
+      if (action === "flight" || action === "invasion" || action === "attack") {
+        _actionMode = { type: action };
+        if (_lastState) renderBoard(_lastState, false);
+      } else if (action === "construction") {
+        showConstructionPicker();
+      }
+    });
+  });
+}
+
+// ── Construction picker ────────────────────────────────────────────────────
+
+const CONSTRUCTION_ITEMS = [
+  { type: "death_star",  label: "Death Star",   cost: 100 },
+  { type: "super_ship",  label: "Super Ship",   cost: 50  },
+  { type: "cruise_ship", label: "Cruise Ship",  cost: 20  },
+  { type: "frigate",     label: "Frigate",      cost: 20  },
+  { type: "outpost",     label: "Outpost",      cost: 50  },
+  { type: "battle_station", label: "Battle Station", cost: 100 },
+];
+
+function initConstructionPicker() {
+  const el = document.createElement("div");
+  el.id = "construction-picker";
+  el.className = "action-picker-overlay hidden";
+  el.innerHTML = `
+    <div class="action-picker-modal">
+      <button class="action-picker-close" id="btn-cp-close">✕</button>
+      <div class="action-picker-title">Construction — Choose What to Build</div>
+      <div class="action-pick-list" id="construction-pick-list"></div>
+    </div>`;
+  document.body.appendChild(el);
+  el.addEventListener("click", e => { if (e.target === el) el.classList.add("hidden"); });
+  document.getElementById("btn-cp-close").addEventListener("click", () => el.classList.add("hidden"));
+}
+
+function showConstructionPicker() {
+  const me = (_lastState?.players ?? []).find(p => p.name === myName);
+  const money = me?.resources?.money ?? 0;
+
+  const list = document.getElementById("construction-pick-list");
+  list.innerHTML = CONSTRUCTION_ITEMS.map(item => `
+    <div class="action-pick-row construct-row ${money < item.cost ? "disabled" : ""}"
+         data-type="${item.type}" data-cost="${item.cost}">
+      <span class="cv-action-label">${item.label}</span>
+      <span class="construct-cost ${money < item.cost ? "cant-afford" : ""}">${item.cost} ¤</span>
+    </div>`).join("");
+
+  document.getElementById("construction-picker").classList.remove("hidden");
+
+  list.querySelectorAll(".construct-row:not(.disabled)").forEach(row => {
+    row.addEventListener("click", () => {
+      const type = row.dataset.type;
+      const cost = parseInt(row.dataset.cost, 10);
+      const item = CONSTRUCTION_ITEMS.find(i => i.type === type);
+      document.getElementById("construction-picker").classList.add("hidden");
+      _actionMode = { type: "construction" };
+      _constructionPiece = { ...item };
+      if (_lastState) renderBoard(_lastState, false);
+    });
+  });
+}
+
+// ── Combat modal ───────────────────────────────────────────────────────────
+
+function initCombatModal() {
+  const el = document.createElement("div");
+  el.id = "combat-modal";
+  el.className = "combat-overlay hidden";
+  el.innerHTML = `
+    <div class="combat-modal">
+      <div class="combat-modal-title" id="combat-title"></div>
+      <div class="combat-modal-body" id="combat-body"></div>
+      <div class="combat-modal-footer" id="combat-footer"></div>
+    </div>`;
+  document.body.appendChild(el);
+}
+
+function showCombatPrompt(msg) {
+  const overlay = document.getElementById("combat-modal");
+  const board = msg.board ?? boardCache ?? [];
+  const clusterLabel = board.find(h => h.cluster === msg.dest_cluster && h.local === 0)?.label ?? msg.dest_cluster;
+  const techCards = (msg.tech_cards ?? []).filter(id => ["nuclear_missile", "titanium_armor"].includes(id));
+  let selectedTech = null;
+
+  const techHtml = techCards.length > 0 ? `
+    <div class="combat-tech-label">Play a tech card (optional — 1 max):</div>
+    <div class="combat-tech-list" id="combat-tech-list">
+      ${techCards.map(id => {
+        const t = TECH_CARD_DATA[id];
+        return `<div class="combat-tech-item" data-id="${id}">
+          <span class="combat-tech-name">${t?.name ?? id}</span>
+          <span class="combat-tech-effect">${t?.effect ?? ""}</span>
+        </div>`;
+      }).join("")}
+    </div>` : `<div class="hint" style="margin-bottom:.5rem">No combat tech cards in hand.</div>`;
+
+  document.getElementById("combat-title").textContent = `Enemy frigates in System ${clusterLabel}!`;
+  document.getElementById("combat-body").innerHTML = `
+    <div class="hint" style="margin-bottom:.75rem">Combat is mandatory. Use a tech card to gain an advantage.</div>
+    ${techHtml}`;
+  document.getElementById("combat-footer").innerHTML =
+    `<button class="btn btn-danger" id="btn-attack-confirm" style="width:100%">Roll Dice &amp; Attack</button>`;
+
+  overlay.classList.remove("hidden");
+
+  document.querySelectorAll(".combat-tech-item").forEach(item => {
+    item.addEventListener("click", () => {
+      if (selectedTech === item.dataset.id) {
+        selectedTech = null;
+        item.classList.remove("selected");
+      } else {
+        document.querySelectorAll(".combat-tech-item").forEach(i => i.classList.remove("selected"));
+        selectedTech = item.dataset.id;
+        item.classList.add("selected");
+      }
+    });
+  });
+
+  document.getElementById("btn-attack-confirm").addEventListener("click", () => {
+    overlay.classList.add("hidden");
+    send({ type: "start_combat", tech_card: selectedTech });
+  });
+}
+
+function showCombatResult(msg) {
+  const overlay = document.getElementById("combat-modal");
+  const isWinner  = msg.winner === myName;
+  const isAttacker = msg.attacker === myName;
+
+  let outcomeText;
+  if (isWinner) {
+    outcomeText = isAttacker ? "Your frigates won! Enemy frigates destroyed." : "You repelled the attack! Enemy frigates destroyed.";
+  } else {
+    outcomeText = isAttacker ? "Defeated! All your frigates were destroyed." : "Your frigates were wiped out.";
+  }
+
+  document.getElementById("combat-title").textContent = isWinner ? "Victory!" : "Defeated!";
+  document.getElementById("combat-body").innerHTML = `
+    <div class="combat-result-outcome ${isWinner ? "win" : "lose"}">${outcomeText}</div>
+    <div class="combat-dice-row">
+      <div class="combat-dice-block">
+        <div class="combat-dice-label">Attacker — ${msg.attacker}</div>
+        <div class="combat-dice-vals">${msg.atk_dice.map(d => `<span class="die">${d}</span>`).join("")} <span style="margin-left:.3rem">= <strong>${msg.atk_total}</strong></span></div>
+      </div>
+      <div class="combat-dice-block">
+        <div class="combat-dice-label">Defender — ${msg.defender}</div>
+        <div class="combat-dice-vals">${msg.def_dice.map(d => `<span class="die">${d}</span>`).join("")} <span style="margin-left:.3rem">= <strong>${msg.def_total}</strong></span></div>
+      </div>
+    </div>`;
+  document.getElementById("combat-footer").innerHTML =
+    `<button class="btn btn-primary" id="btn-combat-close" style="width:100%">Continue</button>`;
+
+  overlay.classList.remove("hidden");
+  document.getElementById("btn-combat-close").addEventListener("click", () => {
+    overlay.classList.add("hidden");
+  });
+}
+
+// ── Planet detail modal ────────────────────────────────────────────────────
+
+function initPlanetModal() {
+  const el = document.createElement("div");
+  el.id = "planet-modal";
+  el.className = "planet-modal-overlay hidden";
+  el.innerHTML = `
+    <div class="planet-modal">
+      <button id="planet-modal-close" class="planet-modal-close">✕</button>
+      <h3 class="planet-modal-title" id="planet-modal-title"></h3>
+      <div class="planet-display" id="planet-display">
+        <div class="planet-flame-outer"></div>
+        <div class="planet-flame-mid"></div>
+        <div class="planet-body" id="planet-body"></div>
+      </div>
+      <div class="planet-stat-list" id="planet-stat-list"></div>
+    </div>`;
+  document.body.appendChild(el);
+  el.addEventListener("click", (e) => { if (e.target === el) closePlanetModal(); });
+  $("planet-modal-close").addEventListener("click", closePlanetModal);
+}
+
+function closePlanetModal() {
+  $("planet-modal").classList.add("hidden");
+}
+
+// Blend a hex color toward a target rgb by factor t (0=original, 1=target)
+function _blendColor(hex, tr, tg, tb, t) {
+  const r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
+  return `rgb(${Math.round(r+(tr-r)*t)},${Math.round(g+(tg-g)*t)},${Math.round(b+(tb-b)*t)})`;
+}
+
+function _planetSvg(color) {
+  const ocean = _blendColor(color, 12, 36, 90, 0.55);  // blend toward deep blue
+  const land  = _blendColor(color, 78, 105, 28, 0.42); // blend toward olive-green
+  const land2 = _blendColor(color, 95, 120, 35, 0.35);
+  return `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" width="88" height="88" style="display:block">
+    <defs>
+      <clipPath id="pm-clip"><circle cx="50" cy="50" r="49"/></clipPath>
+      <radialGradient id="pm-shine" cx="36%" cy="30%" r="60%">
+        <stop offset="0%" stop-color="rgba(255,255,255,0.38)"/>
+        <stop offset="70%" stop-color="rgba(255,255,255,0)"/>
+      </radialGradient>
+      <radialGradient id="pm-edge" cx="50%" cy="50%" r="50%">
+        <stop offset="78%" stop-color="rgba(0,0,0,0)"/>
+        <stop offset="100%" stop-color="rgba(0,0,0,0.45)"/>
+      </radialGradient>
+    </defs>
+    <!-- ocean -->
+    <circle cx="50" cy="50" r="49" fill="${ocean}"/>
+    <!-- land masses -->
+    <g clip-path="url(#pm-clip)">
+      <ellipse cx="34" cy="44" rx="19" ry="13" transform="rotate(-22 34 44)" fill="${land}"/>
+      <ellipse cx="63" cy="55" rx="15" ry="10" transform="rotate(18 63 55)"  fill="${land}"/>
+      <ellipse cx="52" cy="27" rx="11" ry="7"  transform="rotate(-8 52 27)"  fill="${land2}"/>
+      <ellipse cx="22" cy="62" rx="8"  ry="6"  transform="rotate(30 22 62)"  fill="${land2}"/>
+      <ellipse cx="70" cy="32" rx="7"  ry="5"  transform="rotate(-15 70 32)" fill="${land}"/>
+    </g>
+    <!-- polar ice caps -->
+    <g clip-path="url(#pm-clip)">
+      <ellipse cx="50" cy="6"  rx="16" ry="10" fill="rgba(255,255,255,0.60)"/>
+      <ellipse cx="50" cy="94" rx="11" ry="7"  fill="rgba(255,255,255,0.45)"/>
+    </g>
+    <!-- atmosphere shine -->
+    <circle cx="50" cy="50" r="49" fill="url(#pm-shine)"/>
+    <!-- limb darkening -->
+    <circle cx="50" cy="50" r="49" fill="url(#pm-edge)"/>
+  </svg>`;
+}
+
+function openPlanetModal(planet, color, label) {
+  $("planet-modal-title").textContent = `System ${label}`;
+
+  const display = $("planet-display");
+  display.style.setProperty("--pc", color);
+
+  // Replace planet-body content with rich SVG
+  const body = $("planet-body");
+  body.innerHTML = _planetSvg(color);
+  body.style.boxShadow = `0 0 28px ${color}, 0 0 8px rgba(0,0,0,0.6)`;
+
+  const STAT_ROWS = [
+    { icon: "icons/vp.svg",       label: "Victory Point", value: "+1" },
+    { icon: "icons/unrest.svg",   label: "Unrest",        value: planet.unrest },
+    { icon: "icons/food.svg",     label: "Food",          value: `+${planet.food}` },
+    { icon: "icons/research.svg", label: "Science",       value: `+${planet.science}` },
+    { icon: "icons/tool.svg",     label: "Tool",          value: `+${planet.tool}` },
+  ];
+  $("planet-stat-list").innerHTML = STAT_ROWS.map(r => `
+    <div class="planet-stat-row">
+      <img class="planet-stat-icon" src="${r.icon}" alt="${r.label}">
+      <span class="planet-stat-label">${r.label}</span>
+      <span class="planet-stat-value">${r.value}</span>
+    </div>`).join("");
+
+  $("planet-modal").classList.remove("hidden");
+}
+
+// ── Board pan / pinch-zoom ──────────────────────────────────────────────────
 
 function initBoardPan() {
   const wrap = $("board-wrap");
@@ -1217,3 +1909,7 @@ setInterval(() => send({ type: "ping" }), 25_000);
 initBoardPan();
 initCardViewer();
 initDraftOverlay();
+initActionPicker();
+initConstructionPicker();
+initCombatModal();
+initPlanetModal();
