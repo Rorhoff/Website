@@ -42,23 +42,8 @@ let _selectedCluster = null;  // cluster index of selected source, or null
 let _selectedRoutes  = [];    // routes from _selectedCluster
 let _constructionPiece = null; // { type, cost } when in construction placement mode
 let _lastState       = null;  // most recent full state for re-renders
-let _rejoinAttempt   = false; // true while auto-rejoin WS is connecting
 
-// ── Session / rejoin helpers ───────────────────────────────────────────────
-
-function saveSession() {
-  if (myName && gameCode) {
-    sessionStorage.setItem("sss_name", myName);
-    sessionStorage.setItem("sss_code", gameCode);
-    sessionStorage.setItem("sss_role", myRole);
-  }
-}
-
-function clearSession() {
-  sessionStorage.removeItem("sss_name");
-  sessionStorage.removeItem("sss_code");
-  sessionStorage.removeItem("sss_role");
-}
+// ── Helpers ────────────────────────────────────────────────────────────────
 
 function resetToLanding() {
   if (ws) { try { ws.close(); } catch (_) {} ws = null; }
@@ -66,21 +51,8 @@ function resetToLanding() {
   boardCache = null; _lastState = null;
   _actionMode = null; _selectedCluster = null; _selectedRoutes = [];
   _constructionPiece = null; _boardPhaseOpened = false; _lastStateSeq = -1;
-  _rejoinAttempt = false;
-  clearSession();
   showScreen("screen-landing");
   setWsStatus(false);
-}
-
-function tryAutoRejoin() {
-  const name = sessionStorage.getItem("sss_name");
-  const code = sessionStorage.getItem("sss_code");
-  if (!name || !code) return false;
-  _rejoinAttempt = true;
-  const dot = document.getElementById("ws-status");
-  if (dot) dot.textContent = "Reconnecting…";
-  connectWs(code, () => send({ type: "rejoin", name, code }), null, null);
-  return true;
 }
 
 // ── WebSocket ──────────────────────────────────────────────────────────────
@@ -103,8 +75,6 @@ function connectWs(code, onOpen, errId, btn) {
 
   ws.onclose = (ev) => {
     setWsStatus(false);
-    if (_rejoinAttempt && !myName) { resetToLanding(); return; }
-    // Only show error if we never got a "joined" (myName not set yet)
     if (!myName && _connectingErrId) {
       showError(_connectingErrId, "Could not connect — make sure the server is running.");
     }
@@ -131,8 +101,6 @@ function handleMsg(msg) {
       gameCode = msg.code;
       _lastStateSeq = -1;
       _boardPhaseOpened = false;
-      _rejoinAttempt = false;
-      saveSession();
       if (_connectingBtn) { _connectingBtn.disabled = false; _connectingBtn.textContent = _connectingBtn.dataset.label; }
       _connectingBtn = null; _connectingErrId = null;
       break;
@@ -179,7 +147,6 @@ function handleMsg(msg) {
       break;
     case "error":
       console.error("[SSS server error]", msg.msg);
-      if (_rejoinAttempt && !myName) { resetToLanding(); break; }
       routeError(msg.msg);
       break;
   }
@@ -214,13 +181,17 @@ function applyState(state) {
     case "lobby":        showScreen("screen-lobby");      renderLobby(state);         break;
     case "race_pick":    showScreen("screen-race-pick");  renderRacePick(state);      break;
     case "dice_roll":    showScreen("screen-dice-roll");  renderDiceRoll(state);      break;
-    case "place_pieces": hideDraftOverlay(); showScreen("screen-board"); renderBoard(state, true);  break;
+    case "place_pieces":
+      hideDraftOverlay(); showScreen("screen-board");
+      requestAnimationFrame(() => renderBoard(state, true));
+      break;
     case "draft":
-      showScreen("screen-board"); renderBoard(state, false);
-      if (myRole === "host") send({ type: "begin_action" });
+      showScreen("screen-board");
+      requestAnimationFrame(() => { renderBoard(state, false); if (myRole === "host") send({ type: "begin_action" }); });
       break;
     case "board":
-      hideDraftOverlay(); showScreen("screen-board"); renderBoard(state, false);
+      hideDraftOverlay(); showScreen("screen-board");
+      requestAnimationFrame(() => renderBoard(state, false));
       break;
   }
 }
@@ -1916,31 +1887,24 @@ $("btn-roll-dice").addEventListener("click",    () => send({ type: "roll_dice" }
 
 setInterval(() => send({ type: "ping" }), 25_000);
 
-// When the player returns to the tab/app, auto-rejoin if the WS dropped.
-// Guard with hasSession so iOS scroll/keyboard visibilitychange events are ignored
-// when there is no active game, and add a grace period before acting.
+// If the WS drops while a game is active (tab backgrounded, network blip),
+// go back to the landing screen so the player can manually rejoin.
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) return;
+  if (!myName) return; // no active session
   if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
-  const hasSession = myName || sessionStorage.getItem("sss_name");
-  if (!hasSession) return;
   setTimeout(() => {
     if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
-    if (!tryAutoRejoin()) resetToLanding();
+    resetToLanding();
   }, 1500);
 });
-// iOS BFCache restore (persisted page)
+// iOS BFCache restore: same rule
 window.addEventListener("pageshow", (e) => {
   if (!e.persisted) return;
+  if (!myName) return;
   if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
-  const hasSession = myName || sessionStorage.getItem("sss_name");
-  if (!hasSession) return;
-  if (!tryAutoRejoin()) resetToLanding();
+  resetToLanding();
 });
-// On fresh page load, silently attempt rejoin if a prior session was saved
-if (sessionStorage.getItem("sss_name") && sessionStorage.getItem("sss_code")) {
-  tryAutoRejoin();
-}
 
 initBoardPan();
 initCardViewer();

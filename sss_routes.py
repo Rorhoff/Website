@@ -700,7 +700,7 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 # All players ordered — show final rolls, pause, then start
                 if len(game.turn_order) == len(game.players):
                     await game.broadcast({"type": "game_state", **game.public_state()})
-                    await asyncio.sleep(1.5)
+                    await asyncio.sleep(0.4)
                     for p in game.players.values():
                         p.pieces = dict(PIECE_SET)
                         # Food minimum 4; remaining split between science and tool; money 0-3
