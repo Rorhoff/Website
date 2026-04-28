@@ -84,6 +84,7 @@ function handleMsg(msg) {
       if (_connectingBtn) { _connectingBtn.disabled = false; _connectingBtn.textContent = _connectingBtn.dataset.label; }
       _connectingBtn = null; _connectingErrId = null;
       break;
+    case "draft_start":
     case "place_pieces_start":
     case "game_state":
     case "board_ready":
@@ -124,8 +125,9 @@ function applyState(state) {
     case "lobby":        showScreen("screen-lobby");      renderLobby(state);         break;
     case "race_pick":    showScreen("screen-race-pick");  renderRacePick(state);      break;
     case "dice_roll":    showScreen("screen-dice-roll");  renderDiceRoll(state);      break;
-    case "place_pieces": showScreen("screen-board");      renderBoard(state, true);   break;
-    case "board":        showScreen("screen-board");      renderBoard(state, false);  break;
+    case "place_pieces": hideDraftOverlay(); showScreen("screen-board"); renderBoard(state, true);  break;
+    case "draft":        showScreen("screen-board"); renderBoard(state, false); showDraftOverlay(state); break;
+    case "board":        hideDraftOverlay(); showScreen("screen-board"); renderBoard(state, false); break;
   }
 }
 
@@ -622,11 +624,7 @@ function renderPlacementInfo(state, infoCard) {
           </div>
         </div>
         <div class="piece-grid mt1">${instructions}</div>
-        <div class="mt2">
-          <button class="btn btn-ghost" id="btn-done-placing-inline" style="font-size:.85rem">Skip remaining</button>
-        </div>
       </div>`;
-    $("btn-done-placing-inline")?.addEventListener("click", () => send({ type: "done_placing" }));
   } else {
     const placer = (state.players ?? []).find(p => p.name === currentPlacer);
     const placerColor = placer?.color ?? "var(--muted)";
@@ -710,6 +708,86 @@ const ACTION_CARDS = [
     ],
   },
 ];
+
+// ── Empire card data ────────────────────────────────────────────────────────
+const EMPIRE_CARD_DATA = {
+  empire_vorrkai:       { name: "War Directive",       effect: "In combat, add +1 to all your attack rolls this round." },
+  empire_nexari:        { name: "Data Network",         effect: "Draw 1 additional tech card when performing Research." },
+  empire_luminae:       { name: "Radiant Presence",     effect: "Spend 1 science to prevent 1 combat hit against your ships." },
+  empire_thornveld:     { name: "Overgrowth Protocol",  effect: "Gain +2 food when performing the Growth action." },
+  empire_obsidian_pact: { name: "Pact of Dominion",     effect: "Once per round, force one opponent to discard 1 card of your choice." },
+  empire_dust_runners:  { name: "Salvage Rights",       effect: "After Exploration, gain 1 money for each unowned system scouted." },
+};
+
+// ── Draft overlay ───────────────────────────────────────────────────────────
+function initDraftOverlay() {
+  const el = document.createElement("div");
+  el.id = "draft-overlay";
+  el.className = "draft-overlay hidden";
+  el.innerHTML = `
+    <div class="draft-modal">
+      <div class="draft-header">
+        <div class="draft-phase-label">Draft Phase</div>
+        <div class="draft-subtitle">Your starting hand</div>
+      </div>
+      <div class="draft-sections" id="draft-sections"></div>
+      <div class="draft-footer" id="draft-footer"></div>
+    </div>`;
+  document.body.appendChild(el);
+}
+
+function showDraftOverlay(state) {
+  const overlay = document.getElementById("draft-overlay");
+  if (!overlay) return;
+  overlay.classList.remove("hidden");
+
+  const me = (state.players ?? []).find(p => p.name === myName);
+  const actionCards = me?.action_cards ?? [];
+  const techCards   = me?.tech_cards   ?? [];
+
+  const base1 = actionCards.filter(id => id === "base1").length;
+  const base2 = actionCards.filter(id => id === "base2").length;
+  const empId = actionCards.find(id => id.startsWith("empire_"));
+  const empData = empId ? EMPIRE_CARD_DATA[empId] : null;
+
+  const actionRows = [
+    base1 > 0 ? `<div class="draft-card-row"><span class="draft-qty">${base1}×</span><span class="draft-cn act-tier1">Base Actions I</span></div>` : "",
+    base2 > 0 ? `<div class="draft-card-row"><span class="draft-qty">${base2}×</span><span class="draft-cn act-tier2">Base Actions II</span></div>` : "",
+  ].join("");
+
+  const empRow = empData
+    ? `<div class="draft-card-row"><span class="draft-qty">1×</span><span class="draft-cn draft-empire">${empData.name}</span><div class="draft-effect">${empData.effect}</div></div>`
+    : "";
+
+  const techRows = techCards.map(id => {
+    const c = TECH_CARD_DATA[id];
+    return `<div class="draft-card-row"><span class="draft-qty">1×</span><span class="draft-cn">${c?.name ?? id}</span></div>`;
+  }).join("") || `<div class="hint">None</div>`;
+
+  document.getElementById("draft-sections").innerHTML = `
+    <div class="draft-section">
+      <div class="draft-section-label">Action Cards</div>
+      ${actionRows || '<div class="hint">None</div>'}
+    </div>
+    ${empRow ? `<div class="draft-section"><div class="draft-section-label">Empire Card</div>${empRow}</div>` : ""}
+    <div class="draft-section">
+      <div class="draft-section-label">Tech Cards</div>
+      ${techRows}
+    </div>`;
+
+  const footer = document.getElementById("draft-footer");
+  if (myRole === "host") {
+    footer.innerHTML = `<button class="btn btn-primary" id="btn-begin-action" style="width:100%">Begin Action Phase →</button>`;
+    document.getElementById("btn-begin-action").addEventListener("click", () => send({ type: "begin_action" }));
+  } else {
+    footer.innerHTML = `<div class="hint" style="text-align:center;padding:.5rem 0">Waiting for host to begin the Action Phase…</div>`;
+  }
+}
+
+function hideDraftOverlay() {
+  const overlay = document.getElementById("draft-overlay");
+  if (overlay) overlay.classList.add("hidden");
+}
 
 // ── Card Viewer ─────────────────────────────────────────────────────────────
 let _cvIdx = 0;
@@ -1042,3 +1120,4 @@ setInterval(() => send({ type: "ping" }), 25_000);
 
 initBoardPan();
 initCardViewer();
+initDraftOverlay();

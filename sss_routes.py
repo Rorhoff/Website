@@ -37,6 +37,15 @@ NEUTRAL_PIECES = {
 }
 
 
+EMPIRE_CARDS = {
+    "vorrkai":       {"id": "empire_vorrkai",       "name": "War Directive",      "effect": "In combat, add +1 to all your attack rolls this round."},
+    "nexari":        {"id": "empire_nexari",         "name": "Data Network",       "effect": "Draw 1 additional tech card when performing Research."},
+    "luminae":       {"id": "empire_luminae",        "name": "Radiant Presence",   "effect": "Spend 1 science to prevent 1 combat hit against your ships."},
+    "thornveld":     {"id": "empire_thornveld",      "name": "Overgrowth Protocol","effect": "Gain +2 food when performing the Growth action."},
+    "obsidian_pact": {"id": "empire_obsidian_pact",  "name": "Pact of Dominion",   "effect": "Once per round, force one opponent to discard 1 card of your choice."},
+    "dust_runners":  {"id": "empire_dust_runners",   "name": "Salvage Rights",     "effect": "After Exploration, gain 1 money for each unowned system scouted."},
+}
+
 TECH_CARDS = [
     {
         "id": "fungal_farms",
@@ -289,6 +298,26 @@ def _build_board() -> list[dict]:
     return hexes
 
 
+def _deal_draft(game) -> None:
+    """Deal draft cards to all players and advance phase to 'draft'."""
+    game.phase = "draft"
+    for p in game.players.values():
+        if not p.race:
+            continue
+        # 3 basic action cards (33%/66% split)
+        p.action_cards = []
+        for _ in range(3):
+            p.action_cards.append("base1" if random.random() < 1 / 3 else "base2")
+        # Empire action card
+        empire = EMPIRE_CARDS.get(p.race)
+        if empire:
+            p.action_cards.append(empire["id"])
+        # 3 tech cards
+        p.tech_cards = []
+        for _ in range(3):
+            p.tech_cards.append(random.choice(TECH_CARDS)["id"])
+
+
 # ── Game state ────────────────────────────────────────────────────────────────
 
 @dataclass
@@ -310,7 +339,7 @@ class Player:
 class Game:
     code: str
     host_name: str
-    phase: str = "lobby"   # lobby | race_pick | dice_roll | place_pieces | board | ended
+    phase: str = "lobby"   # lobby | race_pick | dice_roll | place_pieces | draft | board | ended
     players: dict[str, Player] = field(default_factory=dict)
     watchers: list[Player] = field(default_factory=list)
     races_taken: dict[str, str] = field(default_factory=dict)
@@ -323,7 +352,7 @@ class Game:
     created_at: float = field(default_factory=time.time)
 
     def public_state(self) -> dict:
-        in_board = self.phase in ("place_pieces", "board")
+        in_board = self.phase in ("place_pieces", "draft", "board")
         return {
             "code": self.code,
             "phase": self.phase,
@@ -453,7 +482,7 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 game.watchers.append(player)
                 await ws.send_json({"type": "joined", "code": code, "name": "", "role": "watcher"})
                 state = game.public_state()
-                if game.phase in ("place_pieces", "board"):
+                if game.phase in ("place_pieces", "draft", "board"):
                     state["board"] = game.board
                 await ws.send_json({"type": "game_state", **state})
 
@@ -603,7 +632,8 @@ async def sss_ws(ws: WebSocket, game_code: str):
                                     for r in ("food", "science", "tool", "money")}
                         p.tech = {col: [False] * 5
                                   for col in ["biology", "physics", "engineering", "government"]}
-                        p.action_cards = ["base1", "base2"]
+                        p.action_cards = []
+                        p.tech_cards   = []
                     game.board = _build_board()
                     game.board[29]["pieces"].append({"type": "pirate_base", "owner": "neutral"})
                     for name in game.turn_order:
@@ -705,11 +735,14 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 if not game.player_placement.get(player.name):
                     game.placement_idx += 1
                     if game.placement_idx >= len(game.turn_order):
-                        game.phase = "board"
-                    state = game.public_state()
-                    state["board"] = game.board
-                    msg_type = "board_ready" if game.phase == "board" else "game_state"
-                    await game.broadcast({"type": msg_type, **state})
+                        _deal_draft(game)
+                        state = game.public_state()
+                        state["board"] = game.board
+                        await game.broadcast({"type": "draft_start", **state})
+                    else:
+                        state = game.public_state()
+                        state["board"] = game.board
+                        await game.broadcast({"type": "game_state", **state})
                 else:
                     state = game.public_state()
                     state["board"] = game.board
@@ -728,20 +761,31 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 game.player_placement[player.name] = []
                 game.placement_idx += 1
                 if game.placement_idx >= len(game.turn_order):
-                    game.phase = "board"
+                    _deal_draft(game)
                     state = game.public_state()
                     state["board"] = game.board
-                    await game.broadcast({"type": "board_ready", **state})
+                    await game.broadcast({"type": "draft_start", **state})
                 else:
                     state = game.public_state()
                     state["board"] = game.board
                     await game.broadcast({"type": "game_state", **state})
 
+            # ── begin_action ──────────────────────────────────────────────────
+            elif kind == "begin_action":
+                if not game or not player:
+                    continue
+                if game.phase != "draft" or player.role != "host":
+                    continue
+                game.phase = "board"
+                state = game.public_state()
+                state["board"] = game.board
+                await game.broadcast({"type": "board_ready", **state})
+
             # ── draw_tech_card ────────────────────────────────────────────────
             elif kind == "draw_tech_card":
                 if not game or not player:
                     continue
-                if game.phase not in ("place_pieces", "board"):
+                if game.phase not in ("draft", "board"):
                     continue
                 card = random.choice(TECH_CARDS)
                 player.tech_cards.append(card["id"])

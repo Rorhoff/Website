@@ -261,6 +261,38 @@ h1 { font-size: 2rem; font-weight: 700; color: var(--accent); text-align: center
   background: var(--accent2); border-color: var(--accent2); color: #fff; font-weight: 600;
 }
 
+/* ── Draft phase overlay ─────────────────────────────────── */
+.draft-overlay {
+  position: fixed; inset: 0; z-index: 900;
+  background: rgba(0,0,0,.92);
+  display: flex; align-items: center; justify-content: center; padding: 1.25rem;
+}
+.draft-overlay.hidden { display: none !important; }
+.draft-modal {
+  width: 100%; max-width: 420px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 1.5rem; display: flex; flex-direction: column; gap: 1rem;
+}
+.draft-phase-label {
+  font-size: 1.3rem; font-weight: 800; color: var(--accent); letter-spacing: .04rem;
+}
+.draft-subtitle { font-size: .85rem; color: var(--muted); }
+.draft-sections { display: flex; flex-direction: column; gap: .85rem; }
+.draft-section { }
+.draft-section-label {
+  font-size: .65rem; font-weight: 700; color: var(--muted); text-transform: uppercase;
+  letter-spacing: .07rem; margin-bottom: .35rem;
+}
+.draft-card-row {
+  display: flex; align-items: flex-start; gap: .5rem; flex-wrap: wrap;
+  margin-bottom: .3rem;
+}
+.draft-qty { font-size: .85rem; color: var(--muted); flex-shrink: 0; min-width: 1.6rem; }
+.draft-cn { font-size: .88rem; font-weight: 600; color: var(--text); }
+.draft-empire { color: var(--gold); }
+.draft-effect { font-size: .75rem; color: var(--muted); width: 100%; padding-left: 2.1rem; line-height: 1.4; }
+.draft-footer { }
+
 /* ── Card viewer overlay ─────────────────────────────────── */
 .card-viewer {
   position: fixed; inset: 0; z-index: 1000;
