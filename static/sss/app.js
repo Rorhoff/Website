@@ -738,14 +738,17 @@ function renderBoard(state, placementMode) {
         const route = _selectedRoutes.find(r => r.dest_cluster === h.cluster);
         if (!route) return;
         const type = _actionMode.type;
+        const fromCluster = _selectedCluster;
         _actionMode = null; _selectedCluster = null; _selectedRoutes = [];
-        const msg = {
-          type: type === "invasion" ? "invasion_move" : "flight_move",
-          from_wormhole: route.from_wormhole,
-          to_wormhole:   route.to_wormhole,
-        };
-        console.log("[SSS] sending", msg);
-        send(msg);
+        let msgToSend;
+        if (type === "attack") {
+          msgToSend = { type: "attack_move", from_cluster: fromCluster, dest_cluster: h.cluster };
+        } else if (type === "invasion") {
+          msgToSend = { type: "invasion_move", from_wormhole: route.from_wormhole, to_wormhole: route.to_wormhole };
+        } else {
+          msgToSend = { type: "flight_move", from_wormhole: route.from_wormhole, to_wormhole: route.to_wormhole };
+        }
+        send(msgToSend);
       };
       poly.addEventListener("click", handler);
       addHit(handler);
@@ -1562,19 +1565,24 @@ function showCombatPrompt(msg) {
 
 function showCombatResult(msg) {
   const overlay = document.getElementById("combat-modal");
-  const isWinner  = msg.winner === myName;
   const isAttacker = msg.attacker === myName;
+  const attackerWon = !!msg.attacker_won;
 
   let outcomeText;
-  if (isWinner) {
-    outcomeText = isAttacker ? "Your frigates won! Enemy frigates destroyed." : "You repelled the attack! Enemy frigates destroyed.";
+  if (attackerWon) {
+    outcomeText = isAttacker
+      ? "Victory! Enemy frigates destroyed — their battleship remains."
+      : "Your frigates were destroyed. Their battleship is now vulnerable.";
   } else {
-    outcomeText = isAttacker ? "Defeated! All your frigates were destroyed." : "Your frigates were wiped out.";
+    outcomeText = isAttacker
+      ? "Attack failed — your frigates hold position."
+      : "You repelled the attack! No casualties on either side.";
   }
 
-  document.getElementById("combat-title").textContent = isWinner ? "Victory!" : "Defeated!";
+  const iWon = (isAttacker && attackerWon) || (!isAttacker && !attackerWon);
+  document.getElementById("combat-title").textContent = iWon ? "Victory!" : (isAttacker ? "Attack Failed" : "Held Position!");
   document.getElementById("combat-body").innerHTML = `
-    <div class="combat-result-outcome ${isWinner ? "win" : "lose"}">${outcomeText}</div>
+    <div class="combat-result-outcome ${iWon ? "win" : "lose"}">${outcomeText}</div>
     <div class="combat-dice-row">
       <div class="combat-dice-block">
         <div class="combat-dice-label">Attacker — ${msg.attacker}</div>
