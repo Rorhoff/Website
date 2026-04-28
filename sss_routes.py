@@ -368,6 +368,7 @@ class Player:
     tech: dict = field(default_factory=dict)         # column → [bool×5]
     tech_cards: list = field(default_factory=list)   # list of card ids
     action_cards: list = field(default_factory=list) # list of action card ids
+    connected: bool = True                           # False when WS is closed but slot is held for rejoin
 
 
 @dataclass
@@ -436,7 +437,7 @@ class Game:
         msg = {**msg, "seq": self._seq}
         targets = list(self.players.values()) + self.watchers
         await asyncio.gather(
-            *(p.ws.send_json(msg) for p in targets if p.ws is not exclude),
+            *(p.ws.send_json(msg) for p in targets if p.ws is not None and p.ws is not exclude),
             return_exceptions=True,
         )
 
@@ -529,6 +530,29 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 if game.phase in ("place_pieces", "draft", "board"):
                     state["board"] = game.board
                 await ws.send_json({"type": "game_state", **state})
+
+            # ── rejoin ────────────────────────────────────────────────────────
+            elif kind == "rejoin":
+                name = (raw.get("name") or "").strip()[:32]
+                code = (raw.get("code") or "").strip().upper()
+                g = _games.get(code)
+                if not g:
+                    await ws.send_json({"type": "error", "msg": "Game not found — it may have ended."})
+                    continue
+                existing = g.players.get(name)
+                if not existing or existing.connected:
+                    await ws.send_json({"type": "error", "msg": "Could not rejoin — slot unavailable."})
+                    continue
+                game = g
+                player = existing
+                player.ws = ws
+                player.connected = True
+                await ws.send_json({"type": "joined", "code": code, "name": name, "role": player.role})
+                state = game.public_state()
+                if game.phase in ("place_pieces", "draft", "board"):
+                    state["board"] = game.board
+                await ws.send_json({"type": "game_state", **state})
+                await game.broadcast({"type": "game_state", **game.public_state()}, exclude=ws)
 
             # ── start_game ────────────────────────────────────────────────────
             elif kind == "start_game":
@@ -1279,16 +1303,19 @@ async def sss_ws(ws: WebSocket, game_code: str):
                     game.watchers.remove(player)
                 except ValueError:
                     pass
-            else:
-                game.players.pop(player.name, None)
-                if game.players:
-                    # Promote oldest remaining player to host if needed
-                    if not any(p.role == "host" for p in game.players.values()):
-                        next_p = next(iter(game.players.values()))
-                        next_p.role = "host"
-                        game.host_name = next_p.name
+            elif player.ws is ws:
+                # Mark disconnected but keep slot alive for rejoin
+                player.connected = False
+                player.ws = None
+                connected = [p for p in game.players.values() if p.connected]
+                if connected:
+                    # Promote a connected player to host if needed
+                    if not any(p.role == "host" for p in connected):
+                        connected[0].role = "host"
+                        game.host_name = connected[0].name
                     await game.broadcast(
                         {"type": "player_disconnected", "name": player.name, **game.public_state()}
                     )
-                else:
+                elif game.phase == "lobby":
+                    # Nobody connected in lobby — no reason to keep the game
                     _games.pop(game.code, None)

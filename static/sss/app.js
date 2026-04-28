@@ -42,6 +42,46 @@ let _selectedCluster = null;  // cluster index of selected source, or null
 let _selectedRoutes  = [];    // routes from _selectedCluster
 let _constructionPiece = null; // { type, cost } when in construction placement mode
 let _lastState       = null;  // most recent full state for re-renders
+let _rejoinAttempt   = false; // true while auto-rejoin WS is connecting
+
+// ── Session / rejoin helpers ───────────────────────────────────────────────
+
+function saveSession() {
+  if (myName && gameCode) {
+    sessionStorage.setItem("sss_name", myName);
+    sessionStorage.setItem("sss_code", gameCode);
+    sessionStorage.setItem("sss_role", myRole);
+  }
+}
+
+function clearSession() {
+  sessionStorage.removeItem("sss_name");
+  sessionStorage.removeItem("sss_code");
+  sessionStorage.removeItem("sss_role");
+}
+
+function resetToLanding() {
+  if (ws) { try { ws.close(); } catch (_) {} ws = null; }
+  myName = ""; myRole = ""; gameCode = "";
+  boardCache = null; _lastState = null;
+  _actionMode = null; _selectedCluster = null; _selectedRoutes = [];
+  _constructionPiece = null; _boardPhaseOpened = false; _lastStateSeq = -1;
+  _rejoinAttempt = false;
+  clearSession();
+  showScreen("screen-landing");
+  setWsStatus(false);
+}
+
+function tryAutoRejoin() {
+  const name = sessionStorage.getItem("sss_name");
+  const code = sessionStorage.getItem("sss_code");
+  if (!name || !code) return false;
+  _rejoinAttempt = true;
+  const dot = document.getElementById("ws-status");
+  if (dot) dot.textContent = "Reconnecting…";
+  connectWs(code, () => send({ type: "rejoin", name, code }), null, null);
+  return true;
+}
 
 // ── WebSocket ──────────────────────────────────────────────────────────────
 
@@ -63,6 +103,7 @@ function connectWs(code, onOpen, errId, btn) {
 
   ws.onclose = (ev) => {
     setWsStatus(false);
+    if (_rejoinAttempt && !myName) { resetToLanding(); return; }
     // Only show error if we never got a "joined" (myName not set yet)
     if (!myName && _connectingErrId) {
       showError(_connectingErrId, "Could not connect — make sure the server is running.");
@@ -90,6 +131,8 @@ function handleMsg(msg) {
       gameCode = msg.code;
       _lastStateSeq = -1;
       _boardPhaseOpened = false;
+      _rejoinAttempt = false;
+      saveSession();
       if (_connectingBtn) { _connectingBtn.disabled = false; _connectingBtn.textContent = _connectingBtn.dataset.label; }
       _connectingBtn = null; _connectingErrId = null;
       break;
@@ -136,6 +179,7 @@ function handleMsg(msg) {
       break;
     case "error":
       console.error("[SSS server error]", msg.msg);
+      if (_rejoinAttempt && !myName) { resetToLanding(); break; }
       routeError(msg.msg);
       break;
   }
@@ -1904,6 +1948,19 @@ $("btn-roll-dice").addEventListener("click",    () => send({ type: "roll_dice" }
 $("btn-toggle-view").addEventListener("click",  () => setViewMode(viewMode === "map" ? "card" : "map"));
 
 setInterval(() => send({ type: "ping" }), 25_000);
+
+// When the player returns to the tab/app, auto-rejoin if the WS dropped.
+// Also handles iOS back-forward cache restores (pageshow with persisted=true).
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) return;
+  if (ws && ws.readyState === WebSocket.OPEN) return;
+  if (!tryAutoRejoin()) resetToLanding();
+});
+window.addEventListener("pageshow", (e) => {
+  if (!e.persisted) return;
+  if (ws && ws.readyState === WebSocket.OPEN) return;
+  if (!tryAutoRejoin()) resetToLanding();
+});
 
 initBoardPan();
 initCardViewer();
