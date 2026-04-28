@@ -287,7 +287,11 @@ h1 { font-size: 2rem; font-weight: 700; color: var(--accent); text-align: center
   display: flex; align-items: flex-start; gap: .5rem; flex-wrap: wrap;
   margin-bottom: .3rem;
 }
-.draft-qty { font-size: .85rem; color: var(--muted); flex-shrink: 0; min-width: 1.6rem; }
+.draft-row { display: flex; align-items: center; gap: .5rem; padding: .45rem 0; border-bottom: 1px solid var(--border); }
+.draft-row:last-child { border-bottom: none; }
+.draft-qty { font-size: .85rem; color: var(--muted); flex-shrink: 0; min-width: 1.8rem; }
+.draft-name { font-size: .9rem; font-weight: 600; color: var(--text); flex: 1; }
+.draft-tag { font-size: .65rem; font-weight: 700; text-transform: uppercase; letter-spacing: .06rem; color: var(--muted); background: rgba(255,255,255,.06); border-radius: 4px; padding: .1rem .35rem; }
 .draft-cn { font-size: .88rem; font-weight: 600; color: var(--text); }
 .draft-empire { color: var(--gold); }
 .draft-effect { font-size: .75rem; color: var(--muted); width: 100%; padding-left: 2.1rem; line-height: 1.4; }

@@ -687,6 +687,13 @@ async def sss_ws(ws: WebSocket, game_code: str):
                     game.player_system[player.name] = h["cluster"]
                     core_id = h["cluster"] * 7
                     game.board[core_id]["pieces"].append({"type": "empire_flag", "owner": player.name})
+                    game.board[core_id]["planet"] = {
+                        "vp":      1,
+                        "unrest":  random.randint(0, 2),
+                        "food":    random.randint(1, 4),
+                        "science": random.randint(1, 3),
+                        "tool":    random.randint(1, 3),
+                    }
                     player.pieces["battle_station"] = player.pieces.get("battle_station", 1) - 1
                     player.pieces["empire_flag"] = player.pieces.get("empire_flag", 1) - 1
                 elif next_piece == "frigate":

@@ -486,6 +486,13 @@ function renderBoard(state, placementMode) {
   for (const h of hexes) { if (h.tri) triClusters.add(h.cluster); }
   // Clusters already claimed by any player (for tri counter display)
   const claimedClusters = new Set(Object.values(state.player_system ?? {}));
+  // Map cluster → player color for planet rendering
+  const playerColorMap = {};
+  for (const p of (state.players ?? [])) { if (p.name && p.color) playerColorMap[p.name] = p.color; }
+  const claimedColor = {};
+  for (const [pname, cluster] of Object.entries(state.player_system ?? {})) {
+    if (playerColorMap[pname]) claimedColor[cluster] = playerColorMap[pname];
+  }
   // Orbital locals blocked because they're ring-adjacent to an existing frigate
   const blockedOrbitalLocals = new Set();
   if (isMyTurn && nextPiece === "frigate" && mySystem !== null) {
@@ -536,15 +543,46 @@ function renderBoard(state, placementMode) {
     }
     hexLayer.appendChild(poly);
 
-    // Cluster label on core hex
-    if (h.local === 0 && h.label) {
-      const lbl = mkEl("text", {
-        x: h.x, y: h.y + 4,
-        "text-anchor": "middle", "font-size": "7", "font-weight": "bold",
-        fill: h.type === "black_hole" ? "#b39ddb" : "rgba(0,0,0,0.6)",
-      });
-      lbl.textContent = `CORE ${h.label}`;
-      labelLayer.appendChild(lbl);
+    // Core hex: planet if claimed, otherwise cluster label
+    if (h.local === 0) {
+      const pColor = claimedColor[h.cluster];
+      if (h.planet && pColor) {
+        // Aura — bleeds ~1/4 of neighbor distance beyond hex edge
+        const aura = mkEl("circle", { cx: h.x, cy: h.y, r: "31", fill: pColor, opacity: "0.13" });
+        pieceLayer.appendChild(aura);
+        // Planet body
+        const planet = mkEl("circle", {
+          cx: h.x, cy: h.y, r: "15",
+          fill: pColor, opacity: "0.85",
+          stroke: "#ffffff", "stroke-width": "1",
+        });
+        pieceLayer.appendChild(planet);
+        // 5 stat labels centered inside planet
+        const stats = [
+          "+1 VP",
+          `${h.planet.unrest} Unrest`,
+          `+${h.planet.food} Food`,
+          `+${h.planet.science} Sci`,
+          `+${h.planet.tool} Tool`,
+        ];
+        stats.forEach((s, i) => {
+          const t = mkEl("text", {
+            x: h.x, y: h.y - 6.4 + i * 3.4,
+            "text-anchor": "middle", "dominant-baseline": "auto",
+            "font-size": "2.8", fill: "#ffffff", "font-weight": "bold",
+          });
+          t.textContent = s;
+          pieceLayer.appendChild(t);
+        });
+      } else if (h.label) {
+        const lbl = mkEl("text", {
+          x: h.x, y: h.y + 4,
+          "text-anchor": "middle", "font-size": "7", "font-weight": "bold",
+          fill: h.type === "black_hole" ? "#b39ddb" : "rgba(0,0,0,0.6)",
+        });
+        lbl.textContent = `CORE ${h.label}`;
+        labelLayer.appendChild(lbl);
+      }
     }
 
     if (h.tri) {
@@ -750,30 +788,17 @@ function showDraftOverlay(state) {
   const empId = actionCards.find(id => id.startsWith("empire_"));
   const empData = empId ? EMPIRE_CARD_DATA[empId] : null;
 
-  const actionRows = [
-    base1 > 0 ? `<div class="draft-card-row"><span class="draft-qty">${base1}×</span><span class="draft-cn act-tier1">Base Actions I</span></div>` : "",
-    base2 > 0 ? `<div class="draft-card-row"><span class="draft-qty">${base2}×</span><span class="draft-cn act-tier2">Base Actions II</span></div>` : "",
-  ].join("");
-
-  const empRow = empData
-    ? `<div class="draft-card-row"><span class="draft-qty">1×</span><span class="draft-cn draft-empire">${empData.name}</span><div class="draft-effect">${empData.effect}</div></div>`
-    : "";
-
-  const techRows = techCards.map(id => {
+  const rows = [];
+  if (base1 > 0) rows.push(`<div class="draft-row"><span class="draft-qty">${base1}×</span><span class="draft-name act-tier1">Base Actions I</span></div>`);
+  if (base2 > 0) rows.push(`<div class="draft-row"><span class="draft-qty">${base2}×</span><span class="draft-name act-tier2">Base Actions II</span></div>`);
+  if (empData)   rows.push(`<div class="draft-row"><span class="draft-qty">1×</span><span class="draft-name draft-empire">${empData.name}</span><span class="draft-tag">Empire</span></div>`);
+  for (const id of techCards) {
     const c = TECH_CARD_DATA[id];
-    return `<div class="draft-card-row"><span class="draft-qty">1×</span><span class="draft-cn">${c?.name ?? id}</span></div>`;
-  }).join("") || `<div class="hint">None</div>`;
+    rows.push(`<div class="draft-row"><span class="draft-qty">1×</span><span class="draft-name">${c?.name ?? id}</span><span class="draft-tag">Tech</span></div>`);
+  }
 
-  document.getElementById("draft-sections").innerHTML = `
-    <div class="draft-section">
-      <div class="draft-section-label">Action Cards</div>
-      ${actionRows || '<div class="hint">None</div>'}
-    </div>
-    ${empRow ? `<div class="draft-section"><div class="draft-section-label">Empire Card</div>${empRow}</div>` : ""}
-    <div class="draft-section">
-      <div class="draft-section-label">Tech Cards</div>
-      ${techRows}
-    </div>`;
+  document.getElementById("draft-sections").innerHTML =
+    rows.join("") || `<div class="hint">No cards dealt.</div>`;
 
   const footer = document.getElementById("draft-footer");
   if (myRole === "host") {
