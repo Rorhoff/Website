@@ -123,7 +123,7 @@ _CLUSTER_POSITIONS = [
 ]
 
 # Center hex types  [N, NW, NE, W, CTR, E, SW, SE, S]
-_CENTER_COLORS = ["yellow", "blue", "white", "white", "black_hole", "red", "white", "green", "red"]
+_CENTER_COLORS = ["yellow", "blue", "white", "white", "black_hole", "red", "blue", "green", "red"]
 
 # Human-readable cluster labels sent to the client
 CLUSTER_LABELS = ["018", "011", "015", "002", "001", "003", "009", "007", "013"]

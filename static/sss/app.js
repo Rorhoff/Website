@@ -804,10 +804,9 @@ function renderBoard(state, placementMode) {
           class: "planet-clickable",
         });
         const _pd = h.planet, _pl = h.label;
-        pg.addEventListener("click", (e) => {
-          e.stopPropagation();
-          openPlanetModal(_pd, pColor, _pl);
-        });
+        const _openPlanet = (e) => { e.stopPropagation(); openPlanetModal(_pd, pColor, _pl); };
+        pg.addEventListener("click", _openPlanet);
+        pg.addEventListener("touchend", (e) => { e.preventDefault(); _openPlanet(e); });
         pieceLayer.appendChild(pg);
       } else if (h.label) {
         const lbl = mkEl("text", {
