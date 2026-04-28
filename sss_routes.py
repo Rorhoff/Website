@@ -554,15 +554,18 @@ async def sss_ws(ws: WebSocket, game_code: str):
                     continue  # already rolled this round
                 roll = random.randint(1, 6) + random.randint(1, 6)
                 player.dice_roll = roll
-                await game.broadcast({"type": "game_state", **game.public_state()})
 
-                # Check if everyone in this round has rolled
+                # Check BEFORE any await so this is atomic — no other handler
+                # can interleave between the roll assignment and this check.
                 rolled = {n for n in game.dice_round
                           if game.players[n].dice_roll != 0}
                 if rolled < set(game.dice_round):
-                    continue  # still waiting
+                    # Others still need to roll; broadcast progress and wait.
+                    await game.broadcast({"type": "game_state", **game.public_state()})
+                    continue
 
-                # Resolve this round
+                # Every player in this round has rolled.  We own this resolution
+                # (still no await since player.dice_roll was set).
                 rolls = {n: game.players[n].dice_roll for n in game.dice_round}
                 max_roll = max(rolls.values())
                 winners = [n for n, r in rolls.items() if r == max_roll]
@@ -612,8 +615,9 @@ async def sss_ws(ws: WebSocket, game_code: str):
                     await game.broadcast({"type": "game_state", **game.public_state()})
                     continue
 
-                # All players ordered — pause so everyone sees the final roll, then start
+                # All players ordered — show final rolls, pause, then start
                 if len(game.turn_order) == len(game.players):
+                    await game.broadcast({"type": "game_state", **game.public_state()})
                     await asyncio.sleep(1.5)
                     for p in game.players.values():
                         p.pieces = dict(PIECE_SET)
