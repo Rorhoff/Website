@@ -36,19 +36,6 @@ NEUTRAL_PIECES = {
     "guardian": 1, "moon_shark": 2, "pirate": 7, "pirate_base": 1,
 }
 
-ACTION_CARDS_T1 = [   # 33.3% draw chance — base actions 1
-    {"id": "act_growth",       "name": "Growth",       "tier": 1},
-    {"id": "act_research",     "name": "Research",     "tier": 1},
-    {"id": "act_construction", "name": "Construction", "tier": 1},
-    {"id": "act_diplomacy",    "name": "Diplomacy",    "tier": 1},
-]
-
-ACTION_CARDS_T2 = [   # 66.6% draw chance — base actions 2
-    {"id": "act_flight",       "name": "Flight",       "tier": 2},
-    {"id": "act_attack",       "name": "Attack",       "tier": 2},
-    {"id": "act_invasion",     "name": "Invasion",     "tier": 2},
-    {"id": "act_exploration",  "name": "Exploration",  "tier": 2},
-]
 
 TECH_CARDS = [
     {
@@ -616,6 +603,7 @@ async def sss_ws(ws: WebSocket, game_code: str):
                                     for r in ("food", "science", "tool", "money")}
                         p.tech = {col: [False] * 5
                                   for col in ["biology", "physics", "engineering", "government"]}
+                        p.action_cards = ["base1", "base2"]
                     game.board = _build_board()
                     game.board[29]["pieces"].append({"type": "pirate_base", "owner": "neutral"})
                     for name in game.turn_order:
@@ -748,20 +736,6 @@ async def sss_ws(ws: WebSocket, game_code: str):
                     state = game.public_state()
                     state["board"] = game.board
                     await game.broadcast({"type": "game_state", **state})
-
-            # ── draw_action_card ──────────────────────────────────────────────
-            elif kind == "draw_action_card":
-                if not game or not player:
-                    continue
-                if game.phase not in ("place_pieces", "board"):
-                    continue
-                # 33.3% → base actions 1, 66.6% → base actions 2
-                pool = ACTION_CARDS_T1 if random.random() < 1/3 else ACTION_CARDS_T2
-                card = random.choice(pool)
-                player.action_cards.append(card["id"])
-                state = game.public_state()
-                state["board"] = game.board
-                await game.broadcast({"type": "game_state", **state})
 
             # ── draw_tech_card ────────────────────────────────────────────────
             elif kind == "draw_tech_card":

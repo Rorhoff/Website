@@ -261,29 +261,59 @@ h1 { font-size: 2rem; font-weight: 700; color: var(--accent); text-align: center
   background: var(--accent2); border-color: var(--accent2); color: #fff; font-weight: 600;
 }
 
-/* ── Action card hand ────────────────────────────────────── */
-.action-cards-section { }
-.action-cards-heading {
-  font-size: .7rem; color: var(--muted); text-transform: uppercase;
-  letter-spacing: .06rem; margin-bottom: .4rem; font-weight: 600;
+/* ── Card viewer overlay ─────────────────────────────────── */
+.card-viewer {
+  position: fixed; inset: 0; z-index: 1000;
+  background: rgba(0,0,0,.88);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  padding: 1.25rem;
 }
-.action-card-list { display: flex; flex-direction: column; gap: .45rem; }
-.action-card {
-  display: flex; align-items: center; gap: .7rem;
-  background: #0a0f18; border: 1px solid var(--border);
-  border-radius: 7px; padding: .5rem .75rem;
+.card-viewer.hidden { display: none !important; }
+.card-viewer-close {
+  position: absolute; top: 1rem; right: 1rem;
+  background: transparent; border: 1px solid var(--border);
+  color: var(--text); font-size: 1.1rem;
+  width: 36px; height: 36px; border-radius: 50%;
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+  line-height: 1;
 }
-.action-card-icon { width: 36px; height: 36px; flex-shrink: 0; }
-.action-card-body { flex: 1; min-width: 0; }
-.action-card-header { display: flex; align-items: center; justify-content: space-between; gap: .4rem; margin-bottom: .2rem; }
-.action-card-name { font-size: .88rem; font-weight: 700; color: var(--text); }
-.action-card-tier {
-  font-size: .6rem; font-weight: 700; border-radius: 4px;
-  padding: .1rem .4rem; white-space: nowrap; flex-shrink: 0;
+.card-viewer-close:hover { border-color: var(--accent); color: var(--accent); }
+.card-viewer-card {
+  width: 100%; max-width: 380px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 1.5rem;
+  touch-action: pan-y; user-select: none;
+}
+.cv-card-header {
+  display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.25rem;
+}
+.cv-card-title { font-size: 1.05rem; font-weight: 700; color: var(--accent); }
+.cv-card-rate {
+  font-size: .68rem; font-weight: 700; border-radius: 4px; padding: .18rem .5rem;
 }
 .act-tier1 { background: #164e63; color: #38bdf8; }
 .act-tier2 { background: #450a0a; color: #f87171; }
-.action-card-desc { font-size: .75rem; color: var(--muted); line-height: 1.4; }
+.cv-card-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; }
+.cv-action-item {
+  display: flex; flex-direction: column; align-items: center; text-align: center;
+  gap: .35rem; padding: .75rem .5rem;
+  background: #0a0f18; border: 1px solid var(--border); border-radius: 7px;
+}
+.cv-action-icon { width: 40px; height: 40px; }
+.cv-action-name { font-size: .83rem; font-weight: 700; color: var(--text); }
+.cv-action-desc { font-size: .7rem; color: var(--muted); line-height: 1.4; }
+.card-viewer-nav {
+  display: flex; align-items: center; gap: 1.25rem; margin-top: 1rem;
+}
+.card-nav-btn {
+  background: transparent; border: 1px solid var(--border); color: var(--text);
+  font-size: 1.6rem; width: 42px; height: 42px; border-radius: 50%;
+  cursor: pointer; display: flex; align-items: center; justify-content: center; line-height: 1;
+}
+.card-nav-btn:hover { border-color: var(--accent); color: var(--accent); }
+.card-nav-dots { display: flex; gap: .5rem; align-items: center; }
+.cv-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--border); transition: background .15s; }
+.cv-dot.active { background: var(--accent); }
 
 /* ── Tech card hand ───────────────────────────────────────── */
 .tech-cards-section { }

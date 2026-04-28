@@ -690,16 +690,93 @@ const TECH_COSTS = [
 const _ICON_RES = `<img src="icons/research.svg" class="icon-res" alt="research">`;
 const _ICON_VP  = `<img src="icons/vp.svg" class="icon-vp" alt="VP">`;
 
-const ACTION_CARD_DATA = {
-  act_growth:       { name: "Growth",       tier: 1, icon: "icons/act_growth.svg",       desc: "Grow your population in a system you control." },
-  act_research:     { name: "Research",     tier: 1, icon: "icons/act_research.svg",     desc: "Draw 1 tech card immediately." },
-  act_construction: { name: "Construction", tier: 1, icon: "icons/act_construction.svg", desc: "Place 1 piece in a system you control." },
-  act_diplomacy:    { name: "Diplomacy",    tier: 1, icon: "icons/act_diplomacy.svg",    desc: "Broker a trade or alliance with another player." },
-  act_flight:       { name: "Flight",       tier: 2, icon: "icons/act_flight.svg",       desc: "Move any of your ships to an adjacent system." },
-  act_attack:       { name: "Attack",       tier: 2, icon: "icons/act_attack.svg",       desc: "Initiate combat with enemy pieces in a system." },
-  act_invasion:     { name: "Invasion",     tier: 2, icon: "icons/act_invasion.svg",     desc: "Launch an assault to capture an enemy system." },
-  act_exploration:  { name: "Exploration",  tier: 2, icon: "icons/act_exploration.svg",  desc: "Scout an unoccupied system and reveal its contents." },
-};
+const ACTION_CARDS = [
+  {
+    id: "base1", name: "Base Actions I", rate: "33%", rateClass: "act-tier1",
+    actions: [
+      { name: "Growth",       icon: "icons/act_growth.svg",       desc: "Grow your population in a system you control." },
+      { name: "Research",     icon: "icons/act_research.svg",     desc: "Draw 1 tech card immediately." },
+      { name: "Construction", icon: "icons/act_construction.svg", desc: "Place 1 piece in a system you control." },
+      { name: "Diplomacy",    icon: "icons/act_diplomacy.svg",    desc: "Broker a trade or alliance with another player." },
+    ],
+  },
+  {
+    id: "base2", name: "Base Actions II", rate: "66%", rateClass: "act-tier2",
+    actions: [
+      { name: "Flight",      icon: "icons/act_flight.svg",      desc: "Move any of your ships to an adjacent system." },
+      { name: "Attack",      icon: "icons/act_attack.svg",      desc: "Initiate combat with enemy pieces in a system." },
+      { name: "Invasion",    icon: "icons/act_invasion.svg",    desc: "Launch an assault to capture an enemy system." },
+      { name: "Exploration", icon: "icons/act_exploration.svg", desc: "Scout an unoccupied system and reveal its contents." },
+    ],
+  },
+];
+
+// ── Card Viewer ─────────────────────────────────────────────────────────────
+let _cvIdx = 0;
+
+function initCardViewer() {
+  const el = document.createElement("div");
+  el.id = "card-viewer";
+  el.className = "card-viewer hidden";
+  el.innerHTML = `
+    <button class="card-viewer-close" id="btn-cv-close">✕</button>
+    <div class="card-viewer-card" id="cv-card"></div>
+    <div class="card-viewer-nav">
+      <button class="card-nav-btn" id="btn-cv-prev">‹</button>
+      <div class="card-nav-dots" id="cv-dots"></div>
+      <button class="card-nav-btn" id="btn-cv-next">›</button>
+    </div>`;
+  document.body.appendChild(el);
+
+  document.getElementById("btn-cv-close").addEventListener("click", closeCardViewer);
+  document.getElementById("btn-cv-prev").addEventListener("click", () => cvShow(_cvIdx - 1));
+  document.getElementById("btn-cv-next").addEventListener("click", () => cvShow(_cvIdx + 1));
+  el.addEventListener("click", e => { if (e.target === el) closeCardViewer(); });
+
+  // Swipe support
+  const cardEl = document.getElementById("cv-card");
+  let startX = 0;
+  cardEl.addEventListener("pointerdown", e => { startX = e.clientX; });
+  cardEl.addEventListener("pointerup",   e => {
+    const dx = e.clientX - startX;
+    if (Math.abs(dx) > 40) cvShow(_cvIdx + (dx < 0 ? 1 : -1));
+  });
+}
+
+function openCardViewer() {
+  _cvIdx = 0;
+  document.getElementById("card-viewer").classList.remove("hidden");
+  cvRender();
+}
+
+function closeCardViewer() {
+  document.getElementById("card-viewer").classList.add("hidden");
+}
+
+function cvShow(idx) {
+  _cvIdx = Math.max(0, Math.min(idx, ACTION_CARDS.length - 1));
+  cvRender();
+}
+
+function cvRender() {
+  const c = ACTION_CARDS[_cvIdx];
+  document.getElementById("cv-card").innerHTML = `
+    <div class="cv-card-header">
+      <span class="cv-card-title">${c.name}</span>
+      <span class="cv-card-rate ${c.rateClass}">${c.rate} draw</span>
+    </div>
+    <div class="cv-card-grid">
+      ${c.actions.map(a => `
+        <div class="cv-action-item">
+          <img class="cv-action-icon" src="${a.icon}" alt="${a.name}">
+          <div class="cv-action-name">${a.name}</div>
+          <div class="cv-action-desc">${a.desc}</div>
+        </div>`).join("")}
+    </div>`;
+  document.getElementById("cv-dots").innerHTML = ACTION_CARDS.map((_, i) =>
+    `<span class="cv-dot${i === _cvIdx ? " active" : ""}"></span>`
+  ).join("");
+}
 
 const TECH_CARD_DATA = {
   fungal_farms:           { name: "Fungal Farms",           timing: "Your Turn",          effect: "Spend 1 money to perform a +1 person. This increases resource production by 1." },
@@ -773,26 +850,6 @@ function renderFullPlayerCard(state) {
     </div>`;
   }).join("");
 
-  // Action card hand
-  const myActionCards = me.action_cards ?? [];
-  const actionCardListHtml = myActionCards.length === 0
-    ? `<div class="hint">No action cards yet.</div>`
-    : myActionCards.map(id => {
-        const c = ACTION_CARD_DATA[id];
-        if (!c) return "";
-        const tierLabel = c.tier === 1 ? "Base I" : "Base II";
-        const tierClass = c.tier === 1 ? "act-tier1" : "act-tier2";
-        return `<div class="action-card">
-          <img class="action-card-icon" src="${c.icon}" alt="${c.name}">
-          <div class="action-card-body">
-            <div class="action-card-header">
-              <span class="action-card-name">${c.name}</span>
-              <span class="action-card-tier ${tierClass}">${tierLabel}</span>
-            </div>
-            <div class="action-card-desc">${c.desc}</div>
-          </div>
-        </div>`;
-      }).join("");
 
   // Tech card hand
   const myTechCards = me.tech_cards ?? [];
@@ -832,11 +889,7 @@ function renderFullPlayerCard(state) {
       </div>
       <div class="tech-tree mt2">${costsColHtml}${techColsHtml}</div>
       ${pieceRows ? `<div class="piece-grid mt2" style="gap:.4rem 1rem;font-size:.9rem">${pieceRows}</div>` : ""}
-      <div class="action-cards-section mt2">
-        <div class="action-cards-heading">Action Cards</div>
-        <div class="action-card-list">${actionCardListHtml}</div>
-        <button class="btn btn-primary mt1" id="btn-draw-action" style="width:100%">Draw Action Card</button>
-      </div>
+      <button class="btn btn-primary mt2" id="btn-view-actions" style="width:100%">View Action Cards</button>
       <div class="tech-cards-section mt2">
         <div class="tech-cards-heading">Tech Cards</div>
         <div class="tech-card-list">${techCardListHtml}</div>
@@ -853,12 +906,8 @@ function renderFullPlayerCard(state) {
     });
   });
 
-  const drawActionBtn = cardEl.querySelector("#btn-draw-action");
-  if (drawActionBtn) {
-    drawActionBtn.addEventListener("click", () => {
-      ws.send(JSON.stringify({ type: "draw_action_card" }));
-    });
-  }
+  const viewActionsBtn = cardEl.querySelector("#btn-view-actions");
+  if (viewActionsBtn) viewActionsBtn.addEventListener("click", openCardViewer);
 
   const drawBtn = cardEl.querySelector("#btn-draw-tech");
   if (drawBtn) {
@@ -992,3 +1041,4 @@ $("btn-toggle-view").addEventListener("click",  () => setViewMode(viewMode === "
 setInterval(() => send({ type: "ping" }), 25_000);
 
 initBoardPan();
+initCardViewer();
