@@ -88,7 +88,9 @@ function connectWs(code, onOpen, errId, btn) {
 }
 
 function send(obj) {
-  if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj));
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify(obj));
+  }
 }
 
 // ── Message handler ────────────────────────────────────────────────────────
@@ -132,7 +134,16 @@ function handleMsg(msg) {
       if (msg.board) boardCache = msg.board;
       _lastState = msg;
       applyState(msg);
-      showCombatPrompt(msg);
+      showCombatPrompt(msg, true);
+      break;
+    case "combat_defender_prompt":
+      if (msg.board) boardCache = msg.board;
+      _lastState = msg;
+      applyState(msg);
+      showCombatPrompt(msg, false);
+      break;
+    case "combat_attacker_rolled":
+      showCombatAttackerRolled(msg);
       break;
     case "combat_result":
       if (msg.seq !== undefined && msg.seq <= _lastStateSeq) break;
@@ -163,7 +174,22 @@ function routeError(msg) {
     "screen-race-pick":  "race-error",
   };
   const errId = map[active.id];
-  if (errId) showError(errId, msg);
+  if (errId) { showError(errId, msg); return; }
+  if (active.id === "screen-board") showBoardToast(msg);
+}
+
+function showBoardToast(msg) {
+  let toast = document.getElementById("board-toast");
+  if (!toast) {
+    toast = document.createElement("div");
+    toast.id = "board-toast";
+    toast.style.cssText = "position:fixed;top:60px;left:50%;transform:translateX(-50%);background:#7f1d1d;color:#fca5a5;padding:.5rem 1.25rem;border-radius:8px;font-size:.85rem;font-weight:600;z-index:2000;pointer-events:none";
+    document.body.appendChild(toast);
+  }
+  toast.textContent = msg;
+  toast.style.display = "block";
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => { toast.style.display = "none"; }, 4000);
 }
 
 // ── State → UI ─────────────────────────────────────────────────────────────
@@ -402,9 +428,34 @@ function drawBoardPieces(pieceLayer, hexes, players) {
 
   for (const h of hexes) {
     if (!h.pieces || h.pieces.length === 0) continue;
-    const flags    = h.pieces.filter(p => p.type === "empire_flag");
-    const frigates = h.pieces.filter(p => p.type === "frigate");
-    const others   = h.pieces.filter(p => p.type !== "empire_flag" && p.type !== "frigate");
+    const flags     = h.pieces.filter(p => p.type === "empire_flag");
+    const frigates  = h.pieces.filter(p => p.type === "frigate");
+    const buildings = h.pieces.filter(p => BUILDING_TYPES.has(p.type));
+    const others    = h.pieces.filter(p => p.type !== "empire_flag" && p.type !== "frigate" && !BUILDING_TYPES.has(p.type));
+
+    // Buildings: pyramid of squares + smoke, centered in the hex, up to 3
+    if (buildings.length > 0) {
+      const slotW = 13;
+      const startX = h.x - (buildings.length - 1) * slotW / 2;
+      buildings.forEach((b, bi) => {
+        const bx = startX + bi * slotW;
+        const by = h.y + 4;
+        const bColor = b.type === "building_tool"    ? "#9e6b2a"
+                     : b.type === "building_science"  ? "#6040a0"
+                     : "#b8900a";
+        // Base row: 3 squares
+        for (let i = 0; i < 3; i++)
+          pieceLayer.appendChild(mk("rect", { x: bx - 4 + i * 3, y: by, width: "2.5", height: "2", fill: bColor, opacity: "0.9" }));
+        // Mid row: 2 squares
+        for (let i = 0; i < 2; i++)
+          pieceLayer.appendChild(mk("rect", { x: bx - 2.5 + i * 3, y: by - 2.5, width: "2.5", height: "2", fill: bColor, opacity: "0.9" }));
+        // Top square
+        pieceLayer.appendChild(mk("rect", { x: bx - 1.25, y: by - 5, width: "2.5", height: "2", fill: bColor, opacity: "0.9" }));
+        // Smoke wisps
+        pieceLayer.appendChild(mk("path", { d: `M${bx - 0.5},${by - 5} q-1,-2 0,-4`, stroke: "#9ab8b0", "stroke-width": "0.8", fill: "none", opacity: "0.75" }));
+        pieceLayer.appendChild(mk("path", { d: `M${bx + 1.2},${by - 5} q1,-2 0,-4`, stroke: "#9ab8b0", "stroke-width": "0.8", fill: "none", opacity: "0.75" }));
+      });
+    }
 
     // Empire flag: small square pinned to top-left area of hex
     flags.forEach((fp, fi) => {
@@ -504,18 +555,14 @@ function renderBoard(state, placementMode) {
     infoCard.classList.remove("hidden");
     const me = (state.players ?? []).find(p => p.name === myName);
     if (me && me.race) {
-      const unrest = (me.pieces ?? {}).unrest ?? 0;
       const currentTurn = state.current_turn ?? null;
       const isMyTurnNow = currentTurn === myName;
 
-      const UNREST_ICON = `<svg class="hud-unrest-icon" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
-        <circle cx="10" cy="5" r="3.5"/>
-        <path d="M3 18c0-3.866 3.134-7 7-7s7 3.134 7 7" stroke-width="0" fill-rule="evenodd"/>
-      </svg>`;
-
+      const actionsLeft = state.actions_remaining ?? 3;
       let actionHtml = "";
       if (_constructionPiece) {
-        actionHtml = `<div class="hud-hint">Place <strong>${_constructionPiece.label}</strong> on an orbital hex.</div>
+        const _placeTarget = BUILDING_TYPES.has(_constructionPiece.type) ? "a science hex" : "an orbital hex";
+        actionHtml = `<div class="hud-hint">Place <strong>${_constructionPiece.label}</strong> on ${_placeTarget}.</div>
           <div class="hud-actions"><button class="btn btn-ghost btn-sm" id="btn-cancel-construct">Cancel</button></div>`;
       } else if (_actionMode) {
         const hint = _selectedCluster !== null
@@ -526,10 +573,11 @@ function renderBoard(state, placementMode) {
         actionHtml = `<div class="hud-hint">${hint}</div>
           <div class="hud-actions"><button class="btn btn-ghost btn-sm" id="btn-cancel-action">Cancel</button></div>`;
       } else if (isMyTurnNow) {
-        actionHtml = `<div class="hud-actions">
-          <button class="btn btn-ghost btn-sm" id="btn-skip-turn">Skip</button>
-          <button class="btn btn-primary btn-sm" id="btn-play-card">Action</button>
-        </div>`;
+        actionHtml = `<div class="hud-hint" style="font-size:.78rem;color:var(--muted)">Actions: ${actionsLeft} / 3 remaining</div>
+          <div class="hud-actions">
+            <button class="btn btn-ghost btn-sm" id="btn-end-turn">End Turn</button>
+            <button class="btn btn-primary btn-sm" id="btn-play-card">Action</button>
+          </div>`;
       } else if (currentTurn) {
         actionHtml = `<div class="hud-hint">${currentTurn}'s turn</div>`;
       }
@@ -539,7 +587,6 @@ function renderBoard(state, placementMode) {
           <span class="hud-race-name" style="color:${me.color}">${me.race_name}</span>
           <button class="btn btn-ghost hud-toggle-btn" id="btn-toggle-view">Card ▶</button>
         </div>
-        <div class="hud-unrest-row">${UNREST_ICON}<span>${unrest} / 20 unrest</span></div>
         ${actionHtml}`;
 
       // Wire dynamic buttons
@@ -549,8 +596,8 @@ function renderBoard(state, placementMode) {
         ?.addEventListener("click", () => { _constructionPiece = null; _actionMode = null; if (_lastState) renderBoard(_lastState, false); });
       infoCard.querySelector("#btn-cancel-action")
         ?.addEventListener("click", () => { _actionMode = null; _selectedCluster = null; _selectedRoutes = []; if (_lastState) renderBoard(_lastState, false); });
-      infoCard.querySelector("#btn-skip-turn")
-        ?.addEventListener("click", () => send({ type: "skip_turn" }));
+      infoCard.querySelector("#btn-end-turn")
+        ?.addEventListener("click", () => send({ type: "end_turn" }));
       infoCard.querySelector("#btn-play-card")
         ?.addEventListener("click", () => showActionPicker());
 
@@ -667,7 +714,8 @@ function renderBoard(state, placementMode) {
                       && !claimedByOthers.has(h.cluster)
                       && coreType[h.cluster] !== "black_hole";
       } else if (nextPiece === "frigate") {
-        validTarget = h.cluster === mySystem && h.local > 0;
+        const frigatesHere = (h.pieces ?? []).filter(p => p.type === "frigate").length;
+        validTarget = h.cluster === mySystem && h.type === "orbital" && frigatesHere < 3;
       } else if (nextPiece === "influence_token") {
         validTarget = h.cluster === mySystem
                       && !h.pieces.some(p => p.type === "influence_token");
@@ -679,7 +727,10 @@ function renderBoard(state, placementMode) {
       && state.current_turn === myName && myRole !== "watcher";
     let validConstructTarget = false;
     if (isConstructionTurn && h.cluster === mySystem && h.local > 0) {
-      if (_constructionPiece.type === "battle_station") {
+      if (BUILDING_TYPES.has(_constructionPiece.type)) {
+        const existingBuildings = (h.pieces ?? []).filter(p => BUILDING_TYPES.has(p.type));
+        validConstructTarget = h.type === "science" && existingBuildings.length < 3;
+      } else if (_constructionPiece.type === "battle_station") {
         validConstructTarget = h.type === "bs_slot";
       } else {
         validConstructTarget = h.type === "orbital";
@@ -736,7 +787,7 @@ function renderBoard(state, placementMode) {
       poly.style.cursor = "pointer";
       const handler = () => {
         const route = _selectedRoutes.find(r => r.dest_cluster === h.cluster);
-        if (!route) return;
+        if (!route || !_actionMode) return;
         const type = _actionMode.type;
         const fromCluster = _selectedCluster;
         _actionMode = null; _selectedCluster = null; _selectedRoutes = [];
@@ -827,35 +878,6 @@ function renderBoard(state, placementMode) {
   drawWormholeLines(wormholeLayer, hexes, hexById);
   drawBoardPieces(pieceLayer, hexes, state.players);
 
-  // Legend
-  const legend = $("board-legend");
-  legend.innerHTML = "";
-  const tiles = [
-    { color: "#d0d0d0", label: "White system" },
-    { color: "#1a5296", label: "Blue system" },
-    { color: "#1a5c32", label: "Green system" },
-    { color: "#7a1515", label: "Red system" },
-    { color: "#7a6315", label: "Yellow system" },
-    { color: "#000",    label: "Black Hole", border: "#7c3aed" },
-    { color: "#0e1825", label: "Deep space" },
-    { color: "#3e8fba", label: "Orbital" },
-    { color: "#b8dcb8", label: "Battle station slot" },
-    { color: "#baaad8", label: "Science hex" },
-    { color: "#a78bfa", label: "Wormhole link", border: "#7c3aed" },
-  ];
-  for (const t of tiles) {
-    const item = document.createElement("div");
-    item.className = "legend-item";
-    item.innerHTML = `<div class="legend-dot" style="background:${t.color};${t.border ? `border-color:${t.border}` : ""}"></div><span>${t.label}</span>`;
-    legend.appendChild(item);
-  }
-  for (const p of (state.players ?? [])) {
-    if (!p.race) continue;
-    const item = document.createElement("div");
-    item.className = "legend-item";
-    item.innerHTML = `<div class="legend-dot" style="background:${p.color}"></div><span>${p.race_name} — ${p.name}</span>`;
-    legend.appendChild(item);
-  }
 }
 
 function renderPlacementInfo(state, infoCard) {
@@ -957,10 +979,10 @@ const ACTION_CARDS = [
   {
     id: "base1", name: "Base Actions I", rate: "33%", rateClass: "act-tier1",
     actions: [
-      { name: "Growth",       icon: "icons/act_growth.svg",       desc: "Grow your population in a system you control." },
-      { name: "Research",     icon: "icons/act_research.svg",     desc: "Draw 1 tech card immediately." },
-      { name: "Construction", icon: "icons/act_construction.svg", desc: "Place 1 piece in a system you control." },
-      { name: "Diplomacy",    icon: "icons/act_diplomacy.svg",    desc: "Broker a trade or alliance with another player." },
+      { name: "Biology and Chem", icon: "icons/act_growth.svg",       desc: "Advance growth and agriculture in your colonies." },
+      { name: "Physics",          icon: "icons/act_research.svg",     desc: "Draw 1 tech card immediately." },
+      { name: "Engineering",      icon: "icons/act_construction.svg", desc: "Level up your engineering skill tree." },
+      { name: "Diplomacy",        icon: "icons/act_diplomacy.svg",    desc: "Broker a trade or alliance with another player." },
     ],
   },
   {
@@ -972,6 +994,21 @@ const ACTION_CARDS = [
       { name: "Exploration", icon: "icons/act_exploration.svg", desc: "Scout an unoccupied system and reveal its contents." },
     ],
   },
+];
+
+// Ordered action list for the picker — independent of card hand composition.
+// techKey links to TECH_COLS key so showActionPicker can read the player's current level.
+const PICKER_ACTIONS = [
+  { id: "flight",           label: "Flight",           icon: "icons/act_flight.svg"      },
+  { id: "exploration",      label: "Exploration",      icon: "icons/act_exploration.svg" },
+  { id: "build_ships",      label: "Build Ships",      icon: "icons/act_flight.svg",       sub: true },
+  { id: "build_buildings",  label: "Build Buildings",  icon: "icons/act_construction.svg", sub: true },
+  { id: "attack",           label: "Attack",           icon: "icons/act_attack.svg"      },
+  { id: "invasion",         label: "Invasion",         icon: "icons/act_invasion.svg"    },
+  { id: "biology_and_chem", label: "Biology and Chem", icon: "icons/act_growth.svg",       techKey: "biology"     },
+  { id: "physics",          label: "Physics",          icon: "icons/act_research.svg",     techKey: "physics"     },
+  { id: "engineering",      label: "Engineering",      icon: "icons/act_construction.svg", techKey: "engineering" },
+  { id: "government",       label: "Government",       icon: "icons/act_invasion.svg",     techKey: "government"  },
 ];
 
 // ── Empire card data ────────────────────────────────────────────────────────
@@ -1189,20 +1226,35 @@ function renderFullPlayerCard(state) {
     if (c.length >= 3) { upkeep.tool += c[0]; upkeep.food += c[1]; upkeep.science += c[2]; }
   }
 
-  // Income row (shows per-turn income + upkeep cost)
-  const incomeHtml = RES_KEYS.map(r => {
-    const inc = income[r] ?? 0;
-    const cost = upkeep[r] ?? 0;
-    const net = inc - cost;
-    const sign = net >= 0 ? "+" : "";
-    const netClass = net < 0 ? "income-negative" : net > 0 ? "income-count" : "income-zero";
-    const upkeepBit = cost > 0 ? ` <span class="upkeep-cost">-${cost}</span>` : "";
-    return `<div class="resource-item income-item">
-      ${RESOURCE_ICONS[r] ?? ""}
-      <span class="resource-label">${r}</span>
-      <span class="resource-count ${netClass}">${sign}${net}</span>${upkeepBit}
+  // Income / Turn — 4-column grid layout
+  // Row 0: headers | Row 1: food | Row 2: tool | Row 3: science | Row 4: money
+  // Cols: resource icon+name | Income (food+tool) | Cost (food+tool) | Income (sci+money) | Cost (sci+money)
+  const FT_KEYS  = ["food", "tool"];
+  const SM_KEYS  = ["science", "money"];
+
+  function fmtInc(r)  { const v = income[r] ?? 0; return v > 0 ? `<span class="income-count">+${v}</span>` : `<span class="income-zero">${v}</span>`; }
+  function fmtCost(r) { const v = upkeep[r] ?? 0; return v > 0 ? `<span class="upkeep-cost">-${v}</span>` : `<span class="income-zero">—</span>`; }
+
+  const incomeHtml = `
+    <div class="income-grid-4">
+      <div class="income-col-hdr"></div>
+      <div class="income-col-hdr">Income</div>
+      <div class="income-col-hdr cost-hdr">Cost</div>
+      <div class="income-col-hdr">Income</div>
+      <div class="income-col-hdr cost-hdr">Cost</div>
+      ${FT_KEYS.map(r => `
+        <div class="income-res-label">${RESOURCE_ICONS[r] ?? ""}<span>${r}</span></div>
+        <div class="income-cell">${fmtInc(r)}</div>
+        <div class="income-cell">${fmtCost(r)}</div>
+        <div class="income-cell income-spacer"></div>
+        <div class="income-cell income-spacer"></div>`).join("")}
+      ${SM_KEYS.map(r => `
+        <div class="income-res-label">${RESOURCE_ICONS[r] ?? ""}<span>${r}</span></div>
+        <div class="income-cell income-spacer"></div>
+        <div class="income-cell income-spacer"></div>
+        <div class="income-cell">${fmtInc(r)}</div>
+        <div class="income-cell">${fmtCost(r)}</div>`).join("")}
     </div>`;
-  }).join("");
 
   // Costs column (left of tech tree)
   const costsColHtml = `
@@ -1238,7 +1290,7 @@ function renderFullPlayerCard(state) {
     _cvCards = [];
     const seenAction = new Set();
     for (const id of actionIds) {
-      if (id.startsWith("empire_") || seenAction.has(id)) continue;
+      if (id.startsWith("empire_") || id === "base1" || id === "base2" || seenAction.has(id)) continue;
       const def = ACTION_CARDS.find(c => c.id === id);
       if (def) { _cvCards.push({ type: "action", ...def }); seenAction.add(id); }
     }
@@ -1259,17 +1311,24 @@ function renderFullPlayerCard(state) {
     .map(([k, n]) => `<span><span class="pc">${n}</span> ${PIECE_NAMES[k] ?? k}</span>`)
     .join("");
 
+  const unrest = pieces.unrest ?? 0;
   cardEl.innerHTML = `
     <div class="player-race-card">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.75rem">
+        <button class="btn btn-ghost btn-sm" id="btn-card-close">◀ Map</button>
+        <span style="font-size:.8rem;color:var(--muted)">${unrest} / 20 unrest</span>
+      </div>
       <div class="resource-row">${resHtml}</div>
       <div class="income-section mt2">
         <div class="income-heading">Income / Turn</div>
-        <div class="resource-row">${incomeHtml}</div>
+        ${incomeHtml}
       </div>
       <div class="tech-tree mt2">${costsColHtml}${techColsHtml}</div>
       ${pieceRows ? `<div class="piece-grid mt2" style="gap:.4rem 1rem;font-size:.9rem">${pieceRows}</div>` : ""}
       <button class="btn btn-primary mt2" id="btn-view-actions" style="width:100%">View Cards</button>
     </div>`;
+
+  cardEl.querySelector("#btn-card-close")?.addEventListener("click", () => setViewMode("map"));
 
   // Tap to reveal tech name (one open at a time)
   cardEl.querySelectorAll(".tech-level").forEach(el => {
@@ -1303,7 +1362,14 @@ function computeFlightRoutes(hexes, fromCluster) {
   return routes;
 }
 
+// True if dest cluster has an orbital hex with fewer than 3 frigates
+function hasFrigateSlot(hexes, cluster) {
+  return hexes.some(h => h.cluster === cluster && h.type === "orbital"
+    && (h.pieces ?? []).filter(p => p.type === "frigate").length < 3);
+}
+
 // Flight without combat: exclude clusters that have enemy frigates (use Attack for those)
+// Orbital-slot enforcement is done server-side; server will error if dest is full.
 function computeFlightOnlyRoutes(hexes, fromCluster) {
   return computeFlightRoutes(hexes, fromCluster).filter(r =>
     !hexes.some(h => h.cluster === r.dest_cluster
@@ -1314,7 +1380,7 @@ function computeFlightOnlyRoutes(hexes, fromCluster) {
 function computeInvasionRoutes(hexes, fromCluster) {
   return computeFlightRoutes(hexes, fromCluster).filter(r => {
     const core = hexes.find(h => h.cluster === r.dest_cluster && h.local === 0);
-    return core && core.planet;
+    return core && core.planet && hasFrigateSlot(hexes, r.dest_cluster);
   });
 }
 
@@ -1423,14 +1489,32 @@ function initActionPicker() {
 }
 
 function showActionPicker() {
-  const allActions = ACTION_CARDS.flatMap(card => card.actions);
-
   const list = document.getElementById("action-pick-list");
-  list.innerHTML = allActions.map(a => `
-    <div class="action-pick-row" data-action="${a.name.toLowerCase()}">
-      <img class="cv-action-icon-sm" src="${a.icon}" alt="${a.name}">
-      <span class="cv-action-label">${a.name.toUpperCase()}</span>
-    </div>`).join("");
+
+  // Resolve player's current tech levels for dynamic skill costs.
+  const me = _lastState ? (_lastState.players ?? []).find(p => p.name === myName) : null;
+  const myTech = me?.tech ?? {};
+
+  list.innerHTML = PICKER_ACTIONS.map(a => {
+    const subCls = a.sub ? " sub-action" : "";
+    let costHtml = "";
+    if (a.techKey) {
+      const levels   = myTech[a.techKey] ?? [false,false,false,false,false];
+      const nextLvl  = levels.findIndex(on => !on);  // -1 if all unlocked
+      if (nextLvl >= 0 && nextLvl < TECH_COSTS.length) {
+        const c = TECH_COSTS[nextLvl];
+        costHtml = `<span class="action-skill-cost">Lv${nextLvl + 1}: -${c.res} sci${c.vp ? ` +${c.vp}VP` : ""}</span>`;
+      } else if (nextLvl === -1) {
+        costHtml = `<span class="action-skill-cost" style="color:var(--gold)">Maxed</span>`;
+      }
+    }
+    return `
+      <div class="action-pick-row${subCls}" data-action="${a.id}">
+        <img class="cv-action-icon-sm" src="${a.icon}" alt="${a.label}">
+        <span class="cv-action-label">${a.label}</span>
+        ${costHtml}
+      </div>`;
+  }).join("");
 
   document.getElementById("action-picker").classList.remove("hidden");
 
@@ -1441,6 +1525,12 @@ function showActionPicker() {
       if (action === "flight" || action === "invasion" || action === "attack") {
         _actionMode = { type: action };
         if (_lastState) renderBoard(_lastState, false);
+      } else if (action === "build_ships") {
+        showConstructionPicker("ships");
+      } else if (action === "build_buildings") {
+        showConstructionPicker("buildings");
+      } else if (action === "biology_and_chem" || action === "physics" || action === "engineering" || action === "government") {
+        showBoardToast("Skill tree coming soon.");
       } else if (action === "construction") {
         showConstructionPicker();
       }
@@ -1451,13 +1541,17 @@ function showActionPicker() {
 // ── Construction picker ────────────────────────────────────────────────────
 
 const CONSTRUCTION_ITEMS = [
-  { type: "death_star",  label: "Death Star",   cost: 100 },
-  { type: "super_ship",  label: "Super Ship",   cost: 50  },
-  { type: "cruise_ship", label: "Cruise Ship",  cost: 20  },
-  { type: "frigate",     label: "Frigate",      cost: 20  },
-  { type: "outpost",     label: "Outpost",      cost: 50  },
-  { type: "battle_station", label: "Battle Station", cost: 100 },
+  { type: "cruise_ship",      label: "Cruise Ship",         cost: 10  },
+  { type: "frigate",          label: "Frigate",             cost: 15  },
+  { type: "outpost",          label: "Outpost",             cost: 30  },
+  { type: "super_ship",       label: "Super Ship",          cost: 60  },
+  { type: "battle_station",   label: "Battle Station",      cost: 75  },
+  { type: "death_star",       label: "Death Star",          cost: 130 },
+  { type: "building_tool",    label: "Workshop (+1 Tool)",  cost: 4   },
+  { type: "building_science", label: "Lab (+1 Science)",    cost: 4   },
+  { type: "building_money",   label: "Treasury (+2 ¤)",     cost: 6   },
 ];
+const BUILDING_TYPES = new Set(["building_tool", "building_science", "building_money"]);
 
 function initConstructionPicker() {
   const el = document.createElement("div");
@@ -1466,7 +1560,7 @@ function initConstructionPicker() {
   el.innerHTML = `
     <div class="action-picker-modal">
       <button class="action-picker-close" id="btn-cp-close">✕</button>
-      <div class="action-picker-title">Construction — Choose What to Build</div>
+      <div class="action-picker-title" id="construction-picker-title">Build Ships</div>
       <div class="action-pick-list" id="construction-pick-list"></div>
     </div>`;
   document.body.appendChild(el);
@@ -1474,12 +1568,21 @@ function initConstructionPicker() {
   document.getElementById("btn-cp-close").addEventListener("click", () => el.classList.add("hidden"));
 }
 
-function showConstructionPicker() {
+function showConstructionPicker(filter = "all") {
+  const titles = { ships: "Build Ships", buildings: "Build Buildings", all: "Construction" };
+  document.getElementById("construction-picker-title").textContent = titles[filter] ?? "Construction";
+
   const me = (_lastState?.players ?? []).find(p => p.name === myName);
   const money = me?.resources?.money ?? 0;
 
+  const items = filter === "ships"
+    ? CONSTRUCTION_ITEMS.filter(i => !BUILDING_TYPES.has(i.type))
+    : filter === "buildings"
+    ? CONSTRUCTION_ITEMS.filter(i =>  BUILDING_TYPES.has(i.type))
+    : CONSTRUCTION_ITEMS;
+
   const list = document.getElementById("construction-pick-list");
-  list.innerHTML = CONSTRUCTION_ITEMS.map(item => `
+  list.innerHTML = items.map(item => `
     <div class="action-pick-row construct-row ${money < item.cost ? "disabled" : ""}"
          data-type="${item.type}" data-cost="${item.cost}">
       <span class="cv-action-label">${item.label}</span>
@@ -1516,51 +1619,110 @@ function initCombatModal() {
   document.body.appendChild(el);
 }
 
-function showCombatPrompt(msg) {
+function throwDice(container, dice, fromRight = false) {
+  container.innerHTML = "";
+  dice.forEach((val, i) => {
+    const die = document.createElement("span");
+    die.className = "die die-throw" + (fromRight ? " from-right" : "");
+    die.style.animationDelay = `${i * 90}ms`;
+    die.textContent = val;
+    container.appendChild(die);
+  });
+}
+
+function showCombatPrompt(msg, isAttacker) {
   const overlay = document.getElementById("combat-modal");
   const board = msg.board ?? boardCache ?? [];
   const clusterLabel = board.find(h => h.cluster === msg.dest_cluster && h.local === 0)?.label ?? msg.dest_cluster;
-  const techCards = (msg.tech_cards ?? []).filter(id => ["nuclear_missile", "titanium_armor"].includes(id));
   let selectedTech = null;
 
-  const techHtml = techCards.length > 0 ? `
-    <div class="combat-tech-label">Play a tech card (optional — 1 max):</div>
-    <div class="combat-tech-list" id="combat-tech-list">
-      ${techCards.map(id => {
-        const t = TECH_CARD_DATA[id];
-        return `<div class="combat-tech-item" data-id="${id}">
-          <span class="combat-tech-name">${t?.name ?? id}</span>
-          <span class="combat-tech-effect">${t?.effect ?? ""}</span>
-        </div>`;
-      }).join("")}
-    </div>` : `<div class="hint" style="margin-bottom:.5rem">No combat tech cards in hand.</div>`;
+  if (isAttacker) {
+    const techCards = (msg.tech_cards ?? []).filter(id => ["nuclear_missile", "titanium_armor"].includes(id));
+    const techHtml = techCards.length > 0 ? `
+      <div class="combat-tech-label">Play a tech card (optional):</div>
+      <div class="combat-tech-list" id="combat-tech-list">
+        ${techCards.map(id => {
+          const t = TECH_CARD_DATA[id];
+          return `<div class="combat-tech-item" data-id="${id}">
+            <span class="combat-tech-name">${t?.name ?? id}</span>
+            <span class="combat-tech-effect">${t?.effect ?? ""}</span>
+          </div>`;
+        }).join("")}
+      </div>` : "";
 
-  document.getElementById("combat-title").textContent = `Enemy frigates in System ${clusterLabel}!`;
-  document.getElementById("combat-body").innerHTML = `
-    <div class="hint" style="margin-bottom:.75rem">Combat is mandatory. Use a tech card to gain an advantage.</div>
-    ${techHtml}`;
-  document.getElementById("combat-footer").innerHTML =
-    `<button class="btn btn-danger" id="btn-attack-confirm" style="width:100%">Roll Dice &amp; Attack</button>`;
+    document.getElementById("combat-title").textContent = `Attack — System ${clusterLabel}`;
+    document.getElementById("combat-body").innerHTML =
+      `<div class="hint" style="margin-bottom:.6rem">You initiated combat. Roll your dice to attack.</div>${techHtml}`;
+    document.getElementById("combat-footer").innerHTML =
+      `<button class="btn btn-danger" id="btn-roll-my-dice" style="width:100%">🎲 Roll My Dice</button>`;
 
-  overlay.classList.remove("hidden");
+    overlay.classList.remove("hidden");
 
-  document.querySelectorAll(".combat-tech-item").forEach(item => {
-    item.addEventListener("click", () => {
-      if (selectedTech === item.dataset.id) {
-        selectedTech = null;
-        item.classList.remove("selected");
-      } else {
-        document.querySelectorAll(".combat-tech-item").forEach(i => i.classList.remove("selected"));
-        selectedTech = item.dataset.id;
-        item.classList.add("selected");
-      }
+    document.querySelectorAll(".combat-tech-item").forEach(item => {
+      item.addEventListener("click", () => {
+        if (selectedTech === item.dataset.id) {
+          selectedTech = null; item.classList.remove("selected");
+        } else {
+          document.querySelectorAll(".combat-tech-item").forEach(i => i.classList.remove("selected"));
+          selectedTech = item.dataset.id; item.classList.add("selected");
+        }
+      });
     });
-  });
 
-  document.getElementById("btn-attack-confirm").addEventListener("click", () => {
-    overlay.classList.add("hidden");
-    send({ type: "start_combat", tech_card: selectedTech });
-  });
+    document.getElementById("btn-roll-my-dice").addEventListener("click", () => {
+      document.getElementById("btn-roll-my-dice").disabled = true;
+      document.getElementById("btn-roll-my-dice").textContent = "Rolled — waiting for defender…";
+      send({ type: "roll_combat_dice", tech_card: selectedTech });
+    });
+  } else {
+    document.getElementById("combat-title").textContent = `Incoming Attack — System ${clusterLabel}`;
+    document.getElementById("combat-body").innerHTML =
+      `<div class="hint" style="margin-bottom:.6rem">${msg.attacker} is attacking your system. Roll your dice to defend.</div>`;
+    document.getElementById("combat-footer").innerHTML =
+      `<button class="btn btn-primary" id="btn-roll-my-dice" style="width:100%">🎲 Roll My Dice</button>`;
+
+    overlay.classList.remove("hidden");
+
+    document.getElementById("btn-roll-my-dice").addEventListener("click", () => {
+      document.getElementById("btn-roll-my-dice").disabled = true;
+      document.getElementById("btn-roll-my-dice").textContent = "Rolled — waiting for attacker…";
+      send({ type: "roll_combat_dice" });
+    });
+  }
+}
+
+function showCombatAttackerRolled(msg) {
+  const overlay = document.getElementById("combat-modal");
+  const isAttacker = msg.attacker === myName;
+  const board = boardCache ?? [];
+  const clusterLabel = board.find(h => h.cluster === msg.dest_cluster && h.local === 0)?.label ?? msg.dest_cluster;
+
+  if (isAttacker) {
+    document.getElementById("combat-title").textContent = `Attack — System ${clusterLabel}`;
+    document.getElementById("combat-body").innerHTML =
+      `<div class="hint" style="margin-bottom:.5rem">You rolled:</div>
+       <div class="combat-rolled-preview" id="atk-dice-preview"></div>
+       <div class="hint" style="margin-top:.5rem">Total: <strong>${msg.atk_total}</strong> — waiting for defender…</div>`;
+    overlay.classList.remove("hidden");
+    throwDice(document.getElementById("atk-dice-preview"), msg.atk_dice, false);
+    document.getElementById("combat-footer").innerHTML = "";
+  } else {
+    document.getElementById("combat-title").textContent = `Incoming Attack — System ${clusterLabel}`;
+    document.getElementById("combat-body").innerHTML =
+      `<div class="hint" style="margin-bottom:.5rem">${msg.attacker} rolled:</div>
+       <div class="combat-rolled-preview" id="atk-dice-preview"></div>
+       <div class="hint" style="margin-top:.5rem">Total: <strong>${msg.atk_total}</strong> — now roll your dice!</div>`;
+    overlay.classList.remove("hidden");
+    throwDice(document.getElementById("atk-dice-preview"), msg.atk_dice, false);
+
+    const footer = document.getElementById("combat-footer");
+    footer.innerHTML = `<button class="btn btn-primary" id="btn-roll-my-dice" style="width:100%">🎲 Roll My Dice</button>`;
+    footer.querySelector("#btn-roll-my-dice").addEventListener("click", () => {
+      footer.querySelector("#btn-roll-my-dice").disabled = true;
+      footer.querySelector("#btn-roll-my-dice").textContent = "Rolled!";
+      send({ type: "roll_combat_dice" });
+    });
+  }
 }
 
 function showCombatResult(msg) {
@@ -1572,11 +1734,11 @@ function showCombatResult(msg) {
   if (attackerWon) {
     outcomeText = isAttacker
       ? "Victory! Enemy frigates destroyed — their battleship remains."
-      : "Your frigates were destroyed. Their battleship is now vulnerable.";
+      : "Your frigates were destroyed. Your battleship is now vulnerable.";
   } else {
     outcomeText = isAttacker
-      ? "Attack failed — your frigates hold position."
-      : "You repelled the attack! No casualties on either side.";
+      ? "Attack failed — your frigates were destroyed."
+      : "You repelled the attack! Enemy frigates destroyed.";
   }
 
   const iWon = (isAttacker && attackerWon) || (!isAttacker && !attackerWon);
@@ -1586,17 +1748,42 @@ function showCombatResult(msg) {
     <div class="combat-dice-row">
       <div class="combat-dice-block">
         <div class="combat-dice-label">Attacker — ${msg.attacker}</div>
-        <div class="combat-dice-vals">${msg.atk_dice.map(d => `<span class="die">${d}</span>`).join("")} <span style="margin-left:.3rem">= <strong>${msg.atk_total}</strong></span></div>
+        <div class="combat-dice-vals" id="result-atk-dice">
+          <span style="margin-left:.3rem">= <strong>${msg.atk_total}</strong></span>
+        </div>
       </div>
       <div class="combat-dice-block">
         <div class="combat-dice-label">Defender — ${msg.defender}</div>
-        <div class="combat-dice-vals">${msg.def_dice.map(d => `<span class="die">${d}</span>`).join("")} <span style="margin-left:.3rem">= <strong>${msg.def_total}</strong></span></div>
+        <div class="combat-dice-vals" id="result-def-dice">
+          <span style="margin-left:.3rem">= <strong>${msg.def_total}</strong></span>
+        </div>
       </div>
     </div>`;
   document.getElementById("combat-footer").innerHTML =
     `<button class="btn btn-primary" id="btn-combat-close" style="width:100%">Continue</button>`;
 
   overlay.classList.remove("hidden");
+
+  const atkContainer = document.getElementById("result-atk-dice");
+  const defContainer = document.getElementById("result-def-dice");
+  const atkTotal = atkContainer.querySelector("span");
+  const defTotal = defContainer.querySelector("span");
+
+  msg.atk_dice.forEach((val, i) => {
+    const die = document.createElement("span");
+    die.className = "die die-throw";
+    die.style.animationDelay = `${i * 90}ms`;
+    die.textContent = val;
+    atkContainer.insertBefore(die, atkTotal);
+  });
+  msg.def_dice.forEach((val, i) => {
+    const die = document.createElement("span");
+    die.className = "die die-throw from-right";
+    die.style.animationDelay = `${i * 90}ms`;
+    die.textContent = val;
+    defContainer.insertBefore(die, defTotal);
+  });
+
   document.getElementById("btn-combat-close").addEventListener("click", () => {
     overlay.classList.add("hidden");
   });

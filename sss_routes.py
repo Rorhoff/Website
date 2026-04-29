@@ -132,22 +132,64 @@ CLUSTER_LABELS = ["018", "011", "015", "002", "001", "003", "009", "007", "013"]
 _TRI_TYPES = {"red", "blue", "yellow"}
 
 
-def _build_board() -> list[dict]:
+def _build_board(player_count: int = 2) -> list[dict]:
+    # ── Cluster layout (extended per player count) ─────────────────────────────
+    # Base 9 clusters: 0=N 1=NW 2=NE 3=W 4=CTR 5=E 6=SW 7=SE 8=S
+    positions: list = list(_CLUSTER_POSITIONS)
+    colors: list    = list(_CENTER_COLORS)
+    labels: list    = list(CLUSTER_LABELS)
+    adj: list       = [
+        (0, 1), (0, 2),
+        (1, 3), (1, 4),
+        (2, 4), (2, 5),
+        (3, 4), (3, 6),
+        (4, 5), (4, 6), (4, 7),
+        (5, 7),
+        (6, 8), (7, 8),
+    ]
+
+    if player_count >= 3:
+        # 2 bottom-left (9,10) + 2 top-right (11,12) — all triangle hex
+        positions += [
+            (_CX - 2*_DX,           _CY),          # 9  BL1 — left of W
+            (_CX - _DX - _DX//2,    _CY + _DY),    # 10 BL2 — left of SW
+            (_CX + 2*_DX,           _CY),          # 11 TR1 — right of E
+            (_CX + _DX + _DX//2,    _CY - _DY),    # 12 TR2 — right of NE
+        ]
+        colors += ["yellow", "blue", "red", "yellow"]
+        labels += ["020", "021", "022", "023"]
+        adj += [
+            (3, 9), (9, 10), (3, 10), (6, 10),
+            (5, 11), (11, 12), (2, 12), (5, 12),
+        ]
+
+    if player_count >= 4:
+        # 2 top-left (13,14) + 2 bottom-right (15,16) — all triangle hex
+        # + 2 far corners (17,18): upper-right and lower-left
+        positions += [
+            (_CX - _DX - _DX//2,    _CY - _DY),    # 13 TL1 — left of NW
+            (_CX - _DX,             _CY - 2*_DY),  # 14 TL2 — left of N
+            (_CX + _DX + _DX//2,    _CY + _DY),    # 15 BR1 — right of SE
+            (_CX + _DX,             _CY + 2*_DY),  # 16 BR2 — right of S
+            (_CX + 2*_DX,           _CY - 2*_DY),  # 17 UR  — above TR2 (upper-right corner)
+            (_CX - 2*_DX,           _CY + 2*_DY),  # 18 LL  — below BL2 (lower-left corner)
+        ]
+        colors += ["blue", "yellow", "red", "blue", "red", "yellow"]
+        labels += ["024", "025", "026", "027", "028", "029"]
+        adj += [
+            (1, 13), (3, 13), (13, 14), (0, 14), (1, 14),
+            (7, 15), (5, 15), (15, 16), (8, 16), (7, 16),
+            (12, 17),   # TR2 — upper-right corner
+            (10, 18),   # BL2 — lower-left corner
+        ]
+
+    # ── Generate hexes ─────────────────────────────────────────────────────────
     hexes = []
     hex_id = 0
-    for cluster_idx, (cx, cy) in enumerate(_CLUSTER_POSITIONS):
-        center_color = _CENTER_COLORS[cluster_idx]
-        label = CLUSTER_LABELS[cluster_idx]
+    for cluster_idx, (cx, cy) in enumerate(positions):
+        center_color = colors[cluster_idx]
+        label = labels[cluster_idx]
 
-        # Layout starting at the tri anchor (going clockwise):
-        #   offset 0 = tri (space type with marker)
-        #   offset 1 = frigate  (immediately clockwise of tri)
-        #   offset 2 = fill A   (bs_slot or science, random)
-        #   offset 3 = frigate  (directly across from tri — non-adjacent to 1 or 5)
-        #   offset 4 = fill B   (the other of bs_slot / science)
-        #   offset 5 = frigate  (immediately counter-clockwise of tri — non-adjacent to 3 or 1)
-        # Result: 3 frigates at alternating positions (1,3,5), never adjacent to each other.
-        # For non-tri systems the same alternating pattern applies; the "tri" slot becomes space.
         fill = ["bs_slot", "science"]
         random.shuffle(fill)
 
@@ -174,7 +216,6 @@ def _build_board() -> list[dict]:
                 "label": label if local_idx == 0 else "",
                 "tri": is_tri,
                 "tri_color": center_color if is_tri else "",
-                # [yellow/workers, red-green/farmers, blue/scientists]
                 "tri_counts": [random.randint(1, 2), random.randint(1, 2), random.randint(1, 2)] if is_tri else [],
                 "tri_farmer_green": False,
                 "x": round(cx + ox, 1),
@@ -186,115 +227,78 @@ def _build_board() -> list[dict]:
             })
             hex_id += 1
 
-    # ── Wormholes ─────────────────────────────────────────────────────────────
-    # True adjacency for the 9-cluster diamond layout.
-    # Cluster indices: 0=N, 1=NW, 2=NE, 3=W, 4=CTR, 5=E, 6=SW, 7=SE, 8=S
-    _ADJ_PAIRS = [
-        (0, 1), (0, 2),
-        (1, 3), (1, 4),
-        (2, 4), (2, 5),
-        (3, 4), (3, 6),
-        (4, 5), (4, 6), (4, 7),
-        (5, 7),
-        (6, 8), (7, 8),
-    ]
-
+    # ── Wormholes ──────────────────────────────────────────────────────────────
     by_cluster: dict = {}
     for h in hexes:
         if h["local"] > 0:
             by_cluster.setdefault(h["cluster"], []).append(h)
 
-    # Any ring hex (local > 0, already filtered by by_cluster) can host a wormhole.
-    endpoints: dict = by_cluster
-
     def _facing(ci_xy: tuple, hx: float, hy: float, cj_xy: tuple) -> bool:
-        """True if the ring hex at (hx,hy) in cluster ci faces toward cluster cj."""
         return (hx - ci_xy[0]) * (cj_xy[0] - ci_xy[0]) \
              + (hy - ci_xy[1]) * (cj_xy[1] - ci_xy[1]) > 0
 
-    # Build sorted candidate lists for each adjacent pair.
-    # Both endpoints must face toward each other (positive dot product) so that
-    # wormhole lines never pass through a cluster's own territory.
     all_candidates: dict = {}
-    for ci, cj in _ADJ_PAIRS:
-        ci_xy = _CLUSTER_POSITIONS[ci]
-        cj_xy = _CLUSTER_POSITIONS[cj]
+    for ci, cj in adj:
+        ci_xy = positions[ci]
+        cj_xy = positions[cj]
         pairs = []
-        for hi in endpoints.get(ci, []):
+        for hi in by_cluster.get(ci, []):
             if not _facing(ci_xy, hi["x"], hi["y"], cj_xy):
                 continue
-            for hj in endpoints.get(cj, []):
+            for hj in by_cluster.get(cj, []):
                 if not _facing(cj_xy, hj["x"], hj["y"], ci_xy):
                     continue
                 d = math.sqrt((hi["x"] - hj["x"]) ** 2 + (hi["y"] - hj["y"]) ** 2)
                 pairs.append((d, hi["id"], hj["id"]))
         all_candidates[(ci, cj)] = sorted(pairs)
 
-    # Degree of each cluster in the adjacency graph
-    true_degree: dict = {ci: 0 for ci in range(len(_CLUSTER_POSITIONS))}
-    for ci, cj in _ADJ_PAIRS:
-        true_degree[ci] += 1
-        true_degree[cj] += 1
+    def _aug_match(pairs: list, candidates: dict) -> dict:
+        """Augmenting-path bipartite matching (left=pairs, right=hex ids)."""
+        match_l: dict = {}
+        match_r: dict = {}
 
-    # Minimum wormholes per cluster: 1 for degree-2, 2 for degree 3+
-    min_wh: dict = {
-        ci: (1 if true_degree[ci] <= 2 else 2)
-        for ci in range(len(_CLUSTER_POSITIONS))
-    }
+        def _augment(u, seen: set) -> bool:
+            for v in candidates.get(u, []):
+                if v in seen:
+                    continue
+                seen.add(v)
+                if v not in match_r or _augment(match_r[v], seen):
+                    match_l[u] = v
+                    match_r[v] = u
+                    return True
+            return False
 
-    # Each cluster gets a random target in [min, degree]
-    target_wh: dict = {
-        ci: random.randint(min_wh[ci], true_degree[ci])
-        for ci in range(len(_CLUSTER_POSITIONS))
-    }
+        for u in pairs:
+            _augment(u, set())
+        return match_l
 
-    wh_counts: dict = {ci: 0 for ci in range(len(_CLUSTER_POSITIONS))}
-    used_hexes: set = set()
-    placed_pairs: set = set()
+    # Per-cluster bipartite matching: for each adjacency pair assign one ring hex
+    # from each cluster that faces the neighbour.  The greedy single-pass can
+    # fail for the high-degree centre cluster (degree 6, ring hexes each face two
+    # neighbours) because an unlucky processing order exhausts facing-hex slots
+    # before all pairs are covered.  Augmenting-path matching on each cluster
+    # independently guarantees a perfect assignment (Hall's condition is satisfied
+    # by the symmetric hex layout).
+    cluster_facing: dict = {}   # cluster_idx -> {pair -> [hex_ids facing neighbour]}
+    for ci, cj in adj:
+        # Preserve distance ordering so closer hexes are preferred.
+        ci_hexes = list(dict.fromkeys(ha for _d, ha, hb in all_candidates.get((ci, cj), [])))
+        cj_hexes = list(dict.fromkeys(hb for _d, ha, hb in all_candidates.get((ci, cj), [])))
+        cluster_facing.setdefault(ci, {})[(ci, cj)] = ci_hexes
+        cluster_facing.setdefault(cj, {})[(ci, cj)] = cj_hexes
 
-    def _place(ha: int, hb: int, ci: int, cj: int) -> None:
-        hexes[ha]["wormhole"] = True
-        hexes[ha]["wormhole_partner"] = hb
-        hexes[hb]["wormhole"] = True
-        hexes[hb]["wormhole_partner"] = ha
-        used_hexes.add(ha)
-        used_hexes.add(hb)
-        wh_counts[ci] += 1
-        wh_counts[cj] += 1
-        placed_pairs.add((min(ci, cj), max(ci, cj)))
+    assign: dict = {}   # cluster_idx -> {pair -> hex_id}
+    for cluster_idx, pair_cands in cluster_facing.items():
+        assign[cluster_idx] = _aug_match(list(pair_cands.keys()), pair_cands)
 
-    # Phase 1: connect pairs in random order while at least one cluster still
-    # wants more wormholes (hasn't reached its random target).
-    shuffled = list(_ADJ_PAIRS)
-    random.shuffle(shuffled)
-    for ci, cj in shuffled:
-        if (min(ci, cj), max(ci, cj)) in placed_pairs:
-            continue
-        if wh_counts[ci] >= target_wh[ci] and wh_counts[cj] >= target_wh[cj]:
-            continue
-        for _d, ha, hb in all_candidates.get((ci, cj), []):
-            if ha not in used_hexes and hb not in used_hexes:
-                _place(ha, hb, ci, cj)
-                break
-
-    # Phase 2: guarantee every cluster meets its minimum, in random order
-    cluster_order = list(range(len(_CLUSTER_POSITIONS)))
-    random.shuffle(cluster_order)
-    for ci in cluster_order:
-        if wh_counts[ci] >= min_wh[ci]:
-            continue
-        for ci2, cj2 in _ADJ_PAIRS:
-            if ci2 != ci and cj2 != ci:
-                continue
-            key = (min(ci2, cj2), max(ci2, cj2))
-            if key in placed_pairs:
-                continue
-            for _d, ha, hb in all_candidates.get((ci2, cj2), []):
-                if ha not in used_hexes and hb not in used_hexes:
-                    _place(ha, hb, ci2, cj2)
-                    break
-            if wh_counts[ci] >= min_wh[ci]:
-                break
+    for ci, cj in adj:
+        ha = assign.get(ci, {}).get((ci, cj))
+        hb = assign.get(cj, {}).get((ci, cj))
+        if ha is not None and hb is not None:
+            hexes[ha]["wormhole"] = True
+            hexes[ha]["wormhole_partner"] = hb
+            hexes[hb]["wormhole"] = True
+            hexes[hb]["wormhole_partner"] = ha
 
     return hexes
 
@@ -319,8 +323,14 @@ def _deal_draft(game) -> None:
             p.tech_cards.append(random.choice(TECH_CARDS)["id"])
 
 
+_BUILDING_INCOME = {
+    "building_tool":    {"tool": 1},
+    "building_science": {"science": 1},
+    "building_money":   {"money": 2},
+}
+
 def _apply_turn_income(game, player) -> None:
-    """Collect income minus triangle upkeep at end of a player's turn."""
+    """Collect income minus triangle upkeep, plus building bonuses."""
     upkeep: dict = {"food": 0, "science": 0, "tool": 0}
     # Find all clusters where this player has an empire_flag
     flag_clusters: set = set()
@@ -337,9 +347,17 @@ def _apply_turn_income(game, player) -> None:
             upkeep["tool"]    += counts[0]  # yellow  → tools
             upkeep["food"]    += counts[1]  # red/green → food
             upkeep["science"] += counts[2]  # blue    → science
-    # Apply: resources += income − upkeep (floor 0)
+    # Building bonuses — all buildings owned by the player anywhere on the board
+    building_bonus: dict = {"food": 0, "science": 0, "tool": 0, "money": 0}
+    for h in game.board:
+        for p in h["pieces"]:
+            if p.get("owner") != player.name:
+                continue
+            for key, amount in _BUILDING_INCOME.get(p["type"], {}).items():
+                building_bonus[key] = building_bonus.get(key, 0) + amount
+    # Apply: resources += income − upkeep + building_bonus (floor 0)
     for key in ("food", "science", "tool", "money"):
-        net = player.income.get(key, 0) - upkeep.get(key, 0)
+        net = player.income.get(key, 0) - upkeep.get(key, 0) + building_bonus.get(key, 0)
         player.resources[key] = max(0, player.resources.get(key, 0) + net)
 
 
@@ -351,6 +369,14 @@ def _advance_turn(game) -> None:
         if p:
             _apply_turn_income(game, p)
     game.turn_idx += 1
+    game.turn_actions_remaining = 3
+
+
+def _use_action(game) -> None:
+    """Consume one action token; advance turn if the player has used all 3."""
+    game.turn_actions_remaining -= 1
+    if game.turn_actions_remaining <= 0:
+        _advance_turn(game)
 
 
 # ── Game state ────────────────────────────────────────────────────────────────
@@ -388,6 +414,7 @@ class Game:
     created_at: float = field(default_factory=time.time)
     _seq: int = 0
     turn_idx: int = 0
+    turn_actions_remaining: int = 3
     pending_combat: Any = None
 
     def public_state(self) -> dict:
@@ -430,6 +457,7 @@ class Game:
                 self.turn_order[self.turn_idx % len(self.turn_order)]
                 if self.phase == "board" and self.turn_order else None
             ),
+            "actions_remaining": self.turn_actions_remaining,
         }
 
     async def broadcast(self, msg: dict, exclude: WebSocket | None = None) -> None:
@@ -671,6 +699,9 @@ async def sss_ws(ws: WebSocket, game_code: str):
                             next_tied = group
                             break
                     if next_tied:
+                        # Show the rolled values first, then reset for re-roll
+                        await game.broadcast({"type": "game_state", **game.public_state()})
+                        await asyncio.sleep(1.5)
                         for n in next_tied:
                             game.players[n].dice_roll = 0
                         game.dice_round = next_tied
@@ -690,7 +721,9 @@ async def sss_ws(ws: WebSocket, game_code: str):
                             tie_groups.append(group)
                     for n in remaining_losers:
                         game.turn_order.append(n)
-                    # Re-roll winners; schedule loser tie-breaks after
+                    # Show the tied rolls before resetting for re-roll
+                    await game.broadcast({"type": "game_state", **game.public_state()})
+                    await asyncio.sleep(1.5)
                     for n in winners:
                         game.players[n].dice_roll = 0
                     game.dice_round = winners
@@ -720,7 +753,7 @@ async def sss_ws(ws: WebSocket, game_code: str):
                                   for col in ["biology", "physics", "engineering", "government"]}
                         p.action_cards = []
                         p.tech_cards   = []
-                    game.board = _build_board()
+                    game.board = _build_board(len(game.players))
                     game.board[29]["pieces"].append({"type": "pirate_base", "owner": "neutral"})
                     for name in game.turn_order:
                         game.player_placement[name] = list(START_PIECES)
@@ -794,6 +827,12 @@ async def sss_ws(ws: WebSocket, game_code: str):
                         continue
                     if h["cluster"] != sys_cluster:
                         await ws.send_json({"type": "error", "msg": "Must place within your system"})
+                        continue
+                    if h["type"] != "orbital":
+                        await ws.send_json({"type": "error", "msg": "Frigates must be placed on frigate tiles (orbital hexes)"})
+                        continue
+                    if sum(1 for p in h["pieces"] if p["type"] == "frigate") >= 3:
+                        await ws.send_json({"type": "error", "msg": "That frigate tile is full (max 3)"})
                         continue
                     h["pieces"].append({"type": "frigate", "owner": player.name})
                     player.pieces["frigate"] = player.pieces.get("frigate", 1) - 1
@@ -880,6 +919,20 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 state["board"] = game.board
                 await game.broadcast({"type": "game_state", **state})
 
+            # ── end_turn ──────────────────────────────────────────────────────
+            elif kind == "end_turn":
+                if not game or not player:
+                    continue
+                if game.phase != "board" or not game.turn_order:
+                    continue
+                current = game.turn_order[game.turn_idx % len(game.turn_order)]
+                if player.name != current:
+                    continue
+                _advance_turn(game)
+                state = game.public_state()
+                state["board"] = game.board
+                await game.broadcast({"type": "game_state", **state})
+
             # ── build_piece ───────────────────────────────────────────────────
             elif kind == "build_piece":
                 if not game or not player:
@@ -890,15 +943,18 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 if player.name != current:
                     await ws.send_json({"type": "error", "msg": "Not your turn"})
                     continue
-                piece_type = msg.get("piece_type")
-                hex_id     = msg.get("hex_id")
+                piece_type = raw.get("piece_type")
+                hex_id     = raw.get("hex_id")
                 COSTS = {
-                    "death_star":    100,
-                    "super_ship":    50,
-                    "cruise_ship":   20,
-                    "frigate":       20,
-                    "outpost":       50,
-                    "battle_station":100,
+                    "cruise_ship":       10,
+                    "frigate":           15,
+                    "outpost":           30,
+                    "super_ship":        60,
+                    "battle_station":    75,
+                    "death_star":       130,
+                    "building_tool":      4,
+                    "building_science":   4,
+                    "building_money":     6,
                 }
                 cost = COSTS.get(piece_type)
                 if cost is None:
@@ -917,15 +973,26 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 if target_hex["cluster"] != player_cluster or target_hex["local"] == 0:
                     await ws.send_json({"type": "error", "msg": "Must build in your home system"})
                     continue
-                if piece_type == "battle_station" and target_hex["type"] != "bs_slot":
-                    await ws.send_json({"type": "error", "msg": "Battle stations must be placed on a battle station slot"})
-                    continue
-                if piece_type != "battle_station" and target_hex["type"] != "orbital":
-                    await ws.send_json({"type": "error", "msg": "That piece must be placed on an orbital hex"})
-                    continue
+                _building_types = set(_BUILDING_INCOME)
+                if piece_type in _building_types:
+                    if target_hex["type"] != "science":
+                        await ws.send_json({"type": "error", "msg": "Buildings must be placed on science hexes (light purple)"})
+                        continue
+                    existing = [p for p in target_hex["pieces"] if p["type"] in _building_types]
+                    if len(existing) >= 3:
+                        await ws.send_json({"type": "error", "msg": "That hex already has 3 buildings (max)"})
+                        continue
+                elif piece_type == "battle_station":
+                    if target_hex["type"] != "bs_slot":
+                        await ws.send_json({"type": "error", "msg": "Battle stations must be placed on a battle station slot"})
+                        continue
+                else:
+                    if target_hex["type"] != "orbital":
+                        await ws.send_json({"type": "error", "msg": "That piece must be placed on an orbital hex"})
+                        continue
                 player.resources["money"] = money - cost
                 target_hex["pieces"].append({"type": piece_type, "owner": player.name})
-                _advance_turn(game)
+                _use_action(game)
                 state = game.public_state()
                 state["board"] = game.board
                 await game.broadcast({"type": "game_state", **state})
@@ -940,7 +1007,7 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 if player.name != current:
                     await ws.send_json({"type": "error", "msg": "Not your turn"})
                     continue
-                card = msg.get("card")
+                card = raw.get("card")
                 if card == "flight":
                     player_clusters: set = set()
                     for h in game.board:
@@ -983,8 +1050,8 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 current = game.turn_order[game.turn_idx % len(game.turn_order)]
                 if player.name != current:
                     continue
-                from_wh = msg.get("from_wormhole")
-                to_wh   = msg.get("to_wormhole")
+                from_wh = raw.get("from_wormhole")
+                to_wh   = raw.get("to_wormhole")
                 if from_wh is None or to_wh is None:
                     continue
                 if not (0 <= from_wh < len(game.board)) or not (0 <= to_wh < len(game.board)):
@@ -995,6 +1062,16 @@ async def sss_ws(ws: WebSocket, game_code: str):
                     await ws.send_json({"type": "error", "msg": "Invalid wormhole route"})
                     continue
                 from_cluster = from_hex["cluster"]
+                dest_cluster = to_hex["cluster"]
+                # Frigate must land on an orbital tile with fewer than 3 frigates
+                landing_hex = next(
+                    (h for h in game.board
+                     if h["cluster"] == dest_cluster and h["type"] == "orbital"
+                     and sum(1 for p in h["pieces"] if p["type"] == "frigate") < 3),
+                    None)
+                if landing_hex is None:
+                    await ws.send_json({"type": "error", "msg": "No available frigate tiles in that system"})
+                    continue
                 moved_piece = None
                 for h in game.board:
                     if h["cluster"] != from_cluster:
@@ -1008,8 +1085,7 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 if not moved_piece:
                     await ws.send_json({"type": "error", "msg": "No frigate to move"})
                     continue
-                to_hex["pieces"].append(moved_piece)
-                dest_cluster = to_hex["cluster"]
+                landing_hex["pieces"].append(moved_piece)
                 enemy_frigates = []
                 for h in game.board:
                     if h["cluster"] != dest_cluster:
@@ -1020,17 +1096,29 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 state = game.public_state()
                 state["board"] = game.board
                 if enemy_frigates:
+                    defender_name = enemy_frigates[0]["owner"]
                     game.pending_combat = {
+                        "type": "combat",
                         "attacker": player.name,
+                        "defender": defender_name,
                         "dest_cluster": dest_cluster,
                         "enemy_frigates": enemy_frigates,
+                        "atk_rolled": False,
+                        "def_rolled": False,
+                        "atk_dice": [],
+                        "def_dice": [],
                     }
                     await game.broadcast({"type": "game_state", **state}, exclude=ws)
                     await ws.send_json({"type": "combat_prompt", "dest_cluster": dest_cluster,
-                                        "tech_cards": player.tech_cards, **state})
+                                        "attacker": player.name, "tech_cards": player.tech_cards, **state})
+                    def_p = game.players.get(defender_name)
+                    if def_p and def_p.ws:
+                        await def_p.ws.send_json({"type": "combat_defender_prompt",
+                                                   "dest_cluster": dest_cluster,
+                                                   "attacker": player.name, **state})
                 else:
                     game.pending_combat = None
-                    game.turn_idx += 1
+                    _use_action(game)
                     state = game.public_state()
                     state["board"] = game.board
                     await game.broadcast({"type": "game_state", **state})
@@ -1041,14 +1129,14 @@ async def sss_ws(ws: WebSocket, game_code: str):
                     continue
                 if game.phase != "board" or not game.turn_order:
                     continue
-                if game.turn_order[game.turn_idx % len(game.turn_order)] != player.name:
+                current = game.turn_order[game.turn_idx % len(game.turn_order)]
+                if current != player.name:
                     await ws.send_json({"type": "error", "msg": "Not your turn"})
                     continue
-                from_cluster = msg.get("from_cluster")
-                dest_cluster = msg.get("dest_cluster")
+                from_cluster = raw.get("from_cluster")
+                dest_cluster = raw.get("dest_cluster")
                 if from_cluster is None or dest_cluster is None:
                     continue
-                # Validate attacker has frigates in from_cluster
                 atk_frigates = [
                     p for h in game.board if h["cluster"] == from_cluster
                     for p in h.get("pieces", [])
@@ -1057,7 +1145,6 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 if not atk_frigates:
                     await ws.send_json({"type": "error", "msg": "No frigates in that system."})
                     continue
-                # Validate wormhole connection
                 connected = any(
                     game.board[h["wormhole_partner"]]["cluster"] == dest_cluster
                     for h in game.board
@@ -1066,7 +1153,6 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 if not connected:
                     await ws.send_json({"type": "error", "msg": "Systems not wormhole-connected."})
                     continue
-                # Validate enemy has frigates in dest_cluster
                 enemy_frigates = [
                     {"owner": p["owner"]}
                     for h in game.board if h["cluster"] == dest_cluster
@@ -1076,81 +1162,105 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 if not enemy_frigates:
                     await ws.send_json({"type": "error", "msg": "No enemy frigates in target system."})
                     continue
+                defender_name = enemy_frigates[0]["owner"]
                 game.pending_combat = {
                     "type": "attack",
                     "attacker": player.name,
+                    "defender": defender_name,
                     "from_cluster": from_cluster,
                     "dest_cluster": dest_cluster,
                     "enemy_frigates": enemy_frigates,
+                    "atk_rolled": False,
+                    "def_rolled": False,
+                    "atk_dice": [],
+                    "def_dice": [],
                 }
                 state = game.public_state()
                 state["board"] = game.board
                 await game.broadcast({"type": "game_state", **state}, exclude=ws)
                 await ws.send_json({"type": "combat_prompt", "dest_cluster": dest_cluster,
-                                    "tech_cards": player.tech_cards, **state})
+                                    "attacker": player.name, "tech_cards": player.tech_cards, **state})
+                def_p = game.players.get(defender_name)
+                if def_p and def_p.ws:
+                    await def_p.ws.send_json({"type": "combat_defender_prompt",
+                                               "dest_cluster": dest_cluster,
+                                               "attacker": player.name, **state})
 
-            # ── start_combat ──────────────────────────────────────────────────
-            elif kind == "start_combat":
+            # ── roll_combat_dice ──────────────────────────────────────────────
+            elif kind == "roll_combat_dice":
                 if not game or not player:
                     continue
                 if game.phase != "board" or not game.pending_combat:
                     continue
-                if player.name != game.pending_combat["attacker"]:
-                    continue
-                tech_card = msg.get("tech_card")
                 combat = game.pending_combat
+                attacker_name = combat.get("attacker")
+                defender_name = combat.get("defender")
+                if player.name not in (attacker_name, defender_name):
+                    continue
                 dest_cluster = combat["dest_cluster"]
-                defender_name = combat["enemy_frigates"][0]["owner"]
-                # Attacker dice: 1 per frigate in source cluster (max 3)
-                from_cluster = combat.get("from_cluster", dest_cluster)
-                atk_count = sum(
-                    1 for h in game.board if h["cluster"] == from_cluster
-                    for p in h.get("pieces", [])
-                    if p["type"] == "frigate" and p["owner"] == player.name
-                )
-                atk_dice_count = min(max(atk_count, 1), 3)
-                if tech_card == "nuclear_missile":
-                    atk_dice_count += 1
-                atk_dice = [random.randint(1, 6) for _ in range(atk_dice_count)]
-                atk_total = sum(atk_dice)
-                # Defender dice: 1 per frigate in dest cluster (max 3)
-                def_count = sum(
-                    1 for h in game.board if h["cluster"] == dest_cluster
-                    for p in h.get("pieces", [])
-                    if p["type"] == "frigate" and p["owner"] == defender_name
-                )
-                def_dice_count = min(max(def_count, 1), 3)
-                def_dice = [random.randint(1, 6) for _ in range(def_dice_count)]
-                def_total = sum(def_dice)
-                # Defender wins ties
-                attacker_won = atk_total > def_total
-                winner = player.name if attacker_won else defender_name
-                if attacker_won:
-                    # Destroy only enemy frigates; battleship stays
-                    for h in game.board:
-                        if h["cluster"] != dest_cluster:
-                            continue
-                        h["pieces"] = [
-                            p for p in h["pieces"]
-                            if not (p["type"] == "frigate" and p["owner"] == defender_name)
-                        ]
-                # Attacker loses → no casualties; frigates hold position
-                game.pending_combat = None
-                _advance_turn(game)
-                state = game.public_state()
-                state["board"] = game.board
-                await game.broadcast({
-                    "type": "combat_result",
-                    "attacker": player.name,
-                    "defender": defender_name,
-                    "attacker_won": attacker_won,
-                    "winner": winner,
-                    "atk_dice": atk_dice,
-                    "def_dice": def_dice,
-                    "atk_total": atk_total,
-                    "def_total": def_total,
-                    **state,
-                })
+                is_attacker = player.name == attacker_name
+
+                if is_attacker and not combat["atk_rolled"]:
+                    tech_card = raw.get("tech_card")
+                    atk_dice_count = 2 if tech_card == "nuclear_missile" else 1
+                    atk_dice = [random.randint(1, 6) for _ in range(atk_dice_count)]
+                    combat["atk_dice"]  = atk_dice
+                    combat["atk_total"] = sum(atk_dice)
+                    combat["atk_rolled"] = True
+                    await game.broadcast({
+                        "type": "combat_attacker_rolled",
+                        "attacker": attacker_name,
+                        "defender": defender_name,
+                        "atk_dice": atk_dice,
+                        "atk_total": combat["atk_total"],
+                        "dest_cluster": dest_cluster,
+                    })
+
+                elif not is_attacker and player.name == defender_name and not combat["def_rolled"]:
+                    def_dice = [random.randint(1, 6)]
+                    combat["def_dice"]  = def_dice
+                    combat["def_total"] = sum(def_dice)
+                    combat["def_rolled"] = True
+
+                if combat["atk_rolled"] and combat["def_rolled"]:
+                    atk_total = combat["atk_total"]
+                    def_total = combat["def_total"]
+                    attacker_won = atk_total > def_total
+                    if attacker_won:
+                        # Destroy defender's frigates in the target cluster
+                        for h in game.board:
+                            if h["cluster"] != dest_cluster:
+                                continue
+                            h["pieces"] = [
+                                p for p in h["pieces"]
+                                if not (p["type"] == "frigate" and p["owner"] == defender_name)
+                            ]
+                    else:
+                        # Destroy attacker's frigates in their source cluster
+                        from_cluster = combat.get("from_cluster", dest_cluster)
+                        for h in game.board:
+                            if h["cluster"] != from_cluster:
+                                continue
+                            h["pieces"] = [
+                                p for p in h["pieces"]
+                                if not (p["type"] == "frigate" and p["owner"] == attacker_name)
+                            ]
+                    game.pending_combat = None
+                    _use_action(game)
+                    state = game.public_state()
+                    state["board"] = game.board
+                    await game.broadcast({
+                        "type": "combat_result",
+                        "attacker": attacker_name,
+                        "defender": defender_name,
+                        "attacker_won": attacker_won,
+                        "winner": attacker_name if attacker_won else defender_name,
+                        "atk_dice": combat["atk_dice"],
+                        "def_dice": combat["def_dice"],
+                        "atk_total": atk_total,
+                        "def_total": def_total,
+                        **state,
+                    })
 
             # ── invasion_move ─────────────────────────────────────────────────
             elif kind == "invasion_move":
@@ -1161,8 +1271,8 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 current = game.turn_order[game.turn_idx % len(game.turn_order)]
                 if player.name != current:
                     continue
-                from_wh = msg.get("from_wormhole")
-                to_wh   = msg.get("to_wormhole")
+                from_wh = raw.get("from_wormhole")
+                to_wh   = raw.get("to_wormhole")
                 if from_wh is None or to_wh is None:
                     continue
                 if not (0 <= from_wh < len(game.board)) or not (0 <= to_wh < len(game.board)):
@@ -1180,6 +1290,14 @@ async def sss_ws(ws: WebSocket, game_code: str):
                     continue
                 # Find and move a frigate from from_hex's cluster
                 from_cluster = from_hex["cluster"]
+                landing_hex = next(
+                    (h for h in game.board
+                     if h["cluster"] == dest_cluster and h["type"] == "orbital"
+                     and sum(1 for p in h["pieces"] if p["type"] == "frigate") < 3),
+                    None)
+                if landing_hex is None:
+                    await ws.send_json({"type": "error", "msg": "No available frigate tiles in that system"})
+                    continue
                 moved_piece = None
                 for h in game.board:
                     if h["cluster"] != from_cluster:
@@ -1193,7 +1311,7 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 if not moved_piece:
                     await ws.send_json({"type": "error", "msg": "No frigate to move"})
                     continue
-                to_hex["pieces"].append(moved_piece)
+                landing_hex["pieces"].append(moved_piece)
                 game.pending_combat = {
                     "type": "invasion",
                     "attacker": player.name,
@@ -1221,7 +1339,7 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 if player.name != current:
                     await ws.send_json({"type": "error", "msg": "Not your turn"})
                     continue
-                cluster = msg.get("cluster")
+                cluster = raw.get("cluster")
                 if cluster is None:
                     continue
                 core_hex = next(
@@ -1284,7 +1402,7 @@ async def sss_ws(ws: WebSocket, game_code: str):
                             p for p in h["pieces"]
                             if not (p["type"] == "frigate" and p["owner"] == player.name)
                         ]
-                _advance_turn(game)
+                _use_action(game)
                 state = game.public_state()
                 state["board"] = game.board
                 await game.broadcast({
@@ -1309,7 +1427,7 @@ async def sss_ws(ws: WebSocket, game_code: str):
                     continue
                 if player.name != game.pending_combat["attacker"]:
                     continue
-                tech_card = msg.get("tech_card")
+                tech_card = raw.get("tech_card")
                 combat = game.pending_combat
                 dest_cluster = combat["dest_cluster"]
                 planet = combat["planet"]
@@ -1347,7 +1465,7 @@ async def sss_ws(ws: WebSocket, game_code: str):
                                 h["pieces"].pop(i)
                                 break
                 game.pending_combat = None
-                _advance_turn(game)
+                _use_action(game)
                 state = game.public_state()
                 state["board"] = game.board
                 await game.broadcast({
@@ -1379,8 +1497,10 @@ async def sss_ws(ws: WebSocket, game_code: str):
 
     except WebSocketDisconnect:
         pass
-    except Exception:
-        pass
+    except Exception as _e:
+        import traceback
+        traceback.print_exc()
+        print(f"[sss_ws unhandled] {type(_e).__name__}: {_e}")
     finally:
         if game and player:
             if player.role == "watcher":

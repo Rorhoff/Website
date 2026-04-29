@@ -115,17 +115,30 @@ h1 { font-size: 2rem; font-weight: 700; color: var(--accent); text-align: center
 
 /* ── Board screen ─────────────────────────────────────────── */
 #screen-board { position: relative; }
-#board-wrap { overflow: auto; border: 1px solid var(--border); border-radius: var(--radius); cursor: grab; touch-action: none; }
+#board-wrap { position: relative; overflow: auto; border: 1px solid var(--border); border-radius: var(--radius); cursor: grab; touch-action: none; }
 #board-wrap.panning { cursor: grabbing; }
 #board-svg { display: block; margin: 0 auto; }
 #board-wrap text { pointer-events: none; user-select: none; }
-
-/* ── Player HUD — sits above the map in normal flow ────── */
-.player-hud {
+#board-card-view {
+  position: fixed;
+  inset: 0;
+  overflow-y: auto;
   background: var(--surface);
+  z-index: 200;
+  padding: 1rem;
+}
+
+/* ── Player HUD — fixed to viewport top-left (stays put while map pans) ── */
+.player-hud {
+  position: fixed;
+  top: 8px;
+  left: 8px;
+  z-index: 50;
+  background: rgba(8, 12, 20, 0.92);
   border: 1px solid var(--border); border-radius: var(--radius);
-  padding: .5rem .75rem; margin-bottom: .5rem;
-  max-width: 100%;
+  padding: .5rem .75rem;
+  max-width: 280px;
+  backdrop-filter: blur(6px);
 }
 .hud-race-row {
   display: flex; align-items: center; gap: .5rem; flex-wrap: nowrap;
@@ -227,7 +240,7 @@ h1 { font-size: 2rem; font-weight: 700; color: var(--accent); text-align: center
 
 /* Hex types */
 .hex-space      { fill: #0e1825; }
-.hex-tri        { fill: #1c3550 !important; }
+.hex-tri        { fill: #1e4070 !important; }
 .hex-white      { fill: #d0d0d0; }
 .hex-blue       { fill: #1a5296; }
 .hex-green      { fill: #1a5c32; }
@@ -346,17 +359,36 @@ h1 { font-size: 2rem; font-weight: 700; color: var(--accent); text-align: center
 .icon-tool  { width: 14px; height: 14px; vertical-align: middle; }
 .icon-money { width: 15px; height: 15px; vertical-align: middle; }
 
-/* ── Income row ───────────────────────────────────────────── */
+/* ── Income / Turn — 4-column grid ────────────────────────── */
 .income-section { }
 .income-heading {
   font-size: .7rem; color: var(--muted); text-transform: uppercase;
   letter-spacing: .06rem; margin-bottom: .4rem; font-weight: 600;
 }
-.income-item { border-color: #233148; }
-.income-count { color: #22c55e !important; }
-.income-negative { color: var(--danger) !important; }
+/* 5-col grid: [res label] [ft-income] [ft-cost] [sm-income] [sm-cost] */
+.income-grid-4 {
+  display: grid;
+  grid-template-columns: 1fr repeat(4, auto);
+  gap: .2rem .5rem;
+  align-items: center;
+  font-size: .78rem;
+}
+.income-col-hdr {
+  font-size: .65rem; color: var(--muted); text-transform: uppercase;
+  letter-spacing: .05rem; font-weight: 600; text-align: center;
+}
+.income-col-hdr.cost-hdr { color: #ef444488; }
+.income-res-label {
+  display: flex; align-items: center; gap: .25rem;
+  color: var(--text); font-size: .78rem; text-transform: capitalize;
+}
+.income-res-label img, .income-res-label svg { width: 14px; height: 14px; }
+.income-cell { text-align: center; min-width: 2rem; }
+.income-cell.income-spacer { color: transparent; pointer-events: none; }
+.income-count { color: #22c55e !important; font-weight: 600; }
+.income-negative { color: var(--danger) !important; font-weight: 600; }
 .income-zero { color: var(--muted) !important; }
-.upkeep-cost { font-size: .72rem; color: var(--danger); font-weight: 600; margin-left: .3rem; }
+.upkeep-cost { font-size: .78rem; color: var(--danger); font-weight: 600; }
 .tech-level {
   height: 26px; border-radius: 5px;
   background: #0a0f18; border: 1px solid var(--border);
@@ -549,6 +581,14 @@ h1 { font-size: 2rem; font-weight: 700; color: var(--accent); text-align: center
   padding: .55rem .85rem; cursor: pointer; transition: border-color .15s;
 }
 .action-pick-row:hover { border-color: var(--accent); }
+.action-pick-row.sub-action {
+  margin-left: 1.5rem; border-left: 2px solid var(--border);
+  border-radius: 0 7px 7px 0; font-size: .9rem; opacity: .9;
+}
+.action-skill-cost {
+  margin-left: auto; font-size: .75rem; color: var(--muted);
+  white-space: nowrap; padding-left: .5rem;
+}
 
 /* ── Combat modal ───────────────────────────────────────────── */
 .combat-overlay {
@@ -591,3 +631,29 @@ h1 { font-size: 2rem; font-weight: 700; color: var(--accent); text-align: center
 }
 .btn-danger { background: var(--danger); border-color: var(--danger); color: #fff; font-weight: 600; }
 .btn-danger:hover { background: #dc2626; border-color: #dc2626; }
+
+/* ── Dice throw animation ─────────────────────────────────────── */
+@keyframes dice-fly-left {
+  0%   { transform: translateX(-320%) rotate(-200deg); opacity: 0; }
+  70%  { transform: translateX(8%)    rotate(20deg);   opacity: 1; }
+  100% { transform: translateX(0)     rotate(0deg);    opacity: 1; }
+}
+@keyframes dice-fly-right {
+  0%   { transform: translateX(320%)  rotate(200deg);  opacity: 0; }
+  70%  { transform: translateX(-8%)   rotate(-20deg);  opacity: 1; }
+  100% { transform: translateX(0)     rotate(0deg);    opacity: 1; }
+}
+.die-throw {
+  animation: dice-fly-left .55s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+.die-throw.from-right {
+  animation-name: dice-fly-right;
+}
+.combat-waiting-msg {
+  font-size: .85rem; color: var(--muted); text-align: center;
+  padding: .5rem; border: 1px dashed var(--border); border-radius: 7px;
+}
+.combat-rolled-preview {
+  display: flex; align-items: center; gap: .4rem; flex-wrap: wrap;
+  margin-top: .35rem;
+}
