@@ -193,6 +193,12 @@
     .send-row { display: flex; gap: .3rem; }
     .send-inp { flex: 1; min-width: 0; background: #0a0f18; border: 1px solid var(--border); border-radius: 5px; color: var(--text); padding: .28rem .45rem; font-size: .68rem; font-family: monospace; }
     .send-inp:focus { outline: none; border-color: var(--accent); }
+
+    /* ── Mini board ── */
+    .board-view { margin-bottom: .65rem; }
+    .board-view.hidden { display: none; }
+    .board-view-label { font-size: .6rem; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; font-weight: 600; margin-bottom: .3rem; }
+    #board-mini-svg { width: 100%; max-width: 800px; border: 1px solid var(--border); border-radius: 8px; background: #050810; display: block; }
   </style>
 </head>
 <body>
@@ -243,6 +249,12 @@
     <span id="turn-strip-inner"></span>
   </div>
 
+  <!-- Mini board view -->
+  <div class="board-view hidden" id="board-view">
+    <div class="board-view-label">Board — pieces being placed</div>
+    <svg id="board-mini-svg" xmlns="http://www.w3.org/2000/svg"></svg>
+  </div>
+
   <div class="panel-grid" id="panel-grid"></div>
 
   <script>
@@ -279,6 +291,7 @@
   let autoRaceConfirmed = false; // guard: host confirm_race sent once
   let autoBeginAction   = false; // guard: host begin_action sent once
   let lastBoard         = null;  // most recent board from any message
+  // (per-panel lastEndTurnSeq tracks last seq at which we sent end_turn)
 
   // ── Shuffle helper ────────────────────────────────────────────────────────
   function shuffle(arr) {
@@ -358,7 +371,7 @@
 
       panels.push({
         ws: null, name: NAMES[i], role: null, lastState: null,
-        autoRolled: false, lastDiceRound: null,
+        autoRolled: false, lastDiceRound: null, lastEndTurnSeq: -1,
         el,
         dotEl:   document.getElementById(`dot-${i}`),
         roleEl:  document.getElementById(`role-${i}`),
@@ -372,13 +385,15 @@
 
   // ── Phase stepper ─────────────────────────────────────────────────────────
   function advanceStep(phase) {
+    // server uses "board"; stepper calls it "playing"
+    const mapped = phase === "board" ? "playing" : phase;
     let found = false;
     PHASE_ORDER.forEach(p => {
       const el = document.getElementById(`step-${p}`);
       if (!el) return;
       if (found) { el.className = "step"; return; }
-      if (p === phase) { el.className = "step active"; found = true; }
-      else             { el.className = "step done"; }
+      if (p === mapped) { el.className = "step active"; found = true; }
+      else              { el.className = "step done"; }
     });
   }
 
@@ -445,10 +460,12 @@
     let targetHex = null;
 
     if (nextPiece === "battle_station") {
+      // Server requires: bs_slot type, cluster has a triangle tile, not black_hole, not claimed
+      const triClusters = new Set(board.filter(h => h.tri).map(h => h.cluster));
       for (const h of board) {
         if (h.type !== "bs_slot") continue;
-        const core = board[h.cluster * 7];
-        if (core?.type === "black_hole") continue;
+        if (!triClusters.has(h.cluster)) continue;
+        if (board[h.cluster * 7]?.type === "black_hole") continue;
         if (claimed.has(h.cluster)) continue;
         targetHex = h; break;
       }
@@ -474,7 +491,98 @@
     if (targetHex != null) {
       sysLog(idx, `Auto-placing ${nextPiece} on hex ${targetHex.id}`);
       setTimeout(() => send(idx, { type: "place_piece", hex_id: targetHex.id }), 400);
+    } else {
+      sysLog(idx, `No valid hex found for ${nextPiece} — skipping`);
     }
+  }
+
+  // ── Mini board renderer ───────────────────────────────────────────────────
+  function renderMiniBoard(state) {
+    const board = state.board ?? lastBoard;
+    if (!board?.length) return;
+    const svgEl = document.getElementById("board-mini-svg");
+    document.getElementById("board-view").classList.remove("hidden");
+
+    const xs = board.map(h => h.x), ys = board.map(h => h.y);
+    const minX = Math.min(...xs), maxX = Math.max(...xs);
+    const minY = Math.min(...ys), maxY = Math.max(...ys);
+    const pad  = 28;
+    const vw   = 800;
+    const scale = (vw - pad * 2) / (maxX - minX || 1);
+    const vh   = Math.round((maxY - minY) * scale + pad * 2);
+    const tx   = x => (x - minX) * scale + pad;
+    const ty   = y => (y - minY) * scale + pad;
+
+    // Flat-top hex polygon points — scale the original R=25.2 by the board scale
+    const rr = Math.max(6, Math.min(16, 25.2 * scale));
+    function hexPts(cx, cy) {
+      return Array.from({length: 6}, (_, i) => {
+        const a = Math.PI / 6 + Math.PI / 3 * i;
+        return `${(cx + rr * Math.cos(a)).toFixed(1)},${(cy + rr * Math.sin(a)).toFixed(1)}`;
+      }).join(" ");
+    }
+
+    const clusterOwner = {};
+    for (const [name, cl] of Object.entries(state.player_system ?? {})) clusterOwner[cl] = name;
+    const playerColor = {};
+    for (const pl of state.players ?? []) {
+      if (pl.race) playerColor[pl.name] = RACE_COLORS[pl.race] ?? "#64748b";
+    }
+
+    const PIECE_ICONS = {
+      battle_station: (cx, cy, col) => `<circle cx="${cx}" cy="${cy}" r="${rr*0.42}" fill="${col}" stroke="#fff" stroke-width="0.6"/>`,
+      empire_flag:    (cx, cy, col) => `<polygon points="${cx},${cy-rr*0.45} ${cx+rr*0.32},${cy+rr*0.28} ${cx-rr*0.32},${cy+rr*0.28}" fill="${col}"/>`,
+      frigate:        (cx, cy, col) => `<circle cx="${cx}" cy="${cy}" r="${rr*0.26}" fill="${col}99"/>`,
+      influence_token:(cx, cy, col) => `<circle cx="${cx}" cy="${cy}" r="${rr*0.18}" fill="${col}66" stroke="${col}" stroke-width="0.5"/>`,
+    };
+
+    svgEl.setAttribute("viewBox", `0 0 ${vw} ${vh}`);
+    svgEl.setAttribute("height", Math.min(vh, 320));
+
+    let inner = `<rect width="${vw}" height="${vh}" fill="#050810"/>`;
+    // Draw wormhole lines first
+    const drawn = new Set();
+    for (const h of board) {
+      if (!h.wormhole || h.wormhole_partner == null) continue;
+      const key = [Math.min(h.id, h.wormhole_partner), Math.max(h.id, h.wormhole_partner)].join("-");
+      if (drawn.has(key)) continue;
+      drawn.add(key);
+      const p2 = board[h.wormhole_partner];
+      inner += `<line x1="${tx(h.x).toFixed(1)}" y1="${ty(h.y).toFixed(1)}" x2="${tx(p2.x).toFixed(1)}" y2="${ty(p2.y).toFixed(1)}" stroke="#38bdf844" stroke-width="1" stroke-dasharray="3,3"/>`;
+    }
+
+    for (const h of board) {
+      const cx = tx(h.x), cy = ty(h.y);
+      const owner    = clusterOwner[h.cluster];
+      const ownColor = owner ? (playerColor[owner] ?? "#64748b") : null;
+
+      let fill   = h.type === "black_hole" ? "#200030" : "#0a0f1a";
+      let stroke = "#1e2d45";
+      let sw = "0.8";
+      if (ownColor) { fill = ownColor + "1a"; stroke = ownColor + "99"; sw = "1"; }
+      if (h.tri)    { stroke = h.tri_color && h.tri_color !== "" ? h.tri_color : "#f59e0b"; sw = "1.5"; }
+
+      inner += `<polygon points="${hexPts(cx, cy)}" fill="${fill}" stroke="${stroke}" stroke-width="${sw}"/>`;
+
+      // Piece icons — stack up to 3
+      const pieces = h.pieces ?? [];
+      if (pieces.length) {
+        const col = ownColor ?? "#64748b";
+        const fn  = PIECE_ICONS[pieces[0].type];
+        if (fn) inner += fn(cx, cy, col);
+        if (pieces.length > 1) {
+          inner += `<text x="${cx+rr*0.55}" y="${cy-rr*0.55}" text-anchor="middle" font-size="${rr*0.55}" fill="#ffffffaa" font-family="system-ui">+${pieces.length-1}</text>`;
+        }
+      }
+
+      // System name label
+      if (h.label) {
+        const lx = cx, ly = cy - rr - 3;
+        inner += `<text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="middle" font-size="${Math.max(6, rr * 0.5)}" fill="${ownColor ?? '#94a3b8'}" font-family="system-ui" font-weight="600">${h.label}</text>`;
+      }
+    }
+
+    svgEl.innerHTML = inner;
   }
 
   // ── Shared state handler (game_state / place_pieces_start / draft_start) ──
@@ -491,6 +599,7 @@
     renderActions(idx, msg);
     renderTurnStrip(msg);
     if (phase) advanceStep(phase);
+    if (msg.board || lastBoard) renderMiniBoard(msg);
 
     // Lobby: auto-start when all players present
     if (phase === "lobby") {
@@ -556,10 +665,20 @@
       }
     }
 
-    // Board: setup fully complete
+    // Board: auto-cycle turns so all features get exercised
     if (phase === "board") {
       advanceStep("playing");
-      setAutoMsg("");
+      const currentTurn = msg.current_turn;
+      const round       = msg.round ?? 1;
+      const seq         = msg.seq ?? 0;
+      setAutoMsg(`Round ${round} — ${currentTurn ?? "?"}'s turn`);
+      if (currentTurn === p.name && seq !== p.lastEndTurnSeq) {
+        p.lastEndTurnSeq = seq;
+        setTimeout(() => {
+          sysLog(idx, `Auto end_turn (round ${round}, seq ${seq})`);
+          send(idx, { type: "end_turn" });
+        }, 600 + idx * 200);
+      }
     }
 
     // Panel turn glow
@@ -595,11 +714,23 @@
     }
 
     // All state-bearing message types share the same handler
-    if (["game_state","place_pieces_start","draft_start"].includes(msg.type)) {
+    if (["game_state","place_pieces_start","draft_start","board_ready"].includes(msg.type)) {
       handleState(idx, msg);
     }
 
-    if (msg.type === "error") log(idx, "err", msg.msg ?? JSON.stringify(msg));
+    if (msg.type === "error") {
+      log(idx, "err", msg.msg ?? JSON.stringify(msg));
+      // Retry placement if the server rejected our piece placement
+      const state = panels[idx].lastState;
+      if (state?.phase === "place_pieces") {
+        const order = state.turn_order ?? [];
+        const pi    = state.placement_idx ?? 0;
+        if (pi < order.length && order[pi] === panels[idx].name) {
+          sysLog(idx, "Placement rejected — retrying…");
+          setTimeout(() => autoPlacePiece(idx, state), 800);
+        }
+      }
+    }
   }
 
   // ── Turn strip ────────────────────────────────────────────────────────────
