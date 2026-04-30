@@ -679,7 +679,12 @@
       if (ownColor && isCenter) { fill = ownColor + "2a"; stroke = ownColor + "cc"; sw = "2"; }
       else if (ownColor)        { fill = ownColor + "12"; stroke = ownColor + "66"; sw = "1"; }
       if (h.tri)                { stroke = h.tri_color || "#f59e0b"; sw = "1.8"; }
-      inner += `<polygon points="${hexPts(cx, cy)}" fill="${fill}" stroke="${stroke}" stroke-width="${sw}"/>`;
+      let sciClick = "";
+      if (!isCenter && h.type === "science" && ownColor) {
+        stroke = "#a855f7"; sw = "1.6";
+        sciClick = ` onclick="miniSciClick(${h.id})" style="cursor:pointer"`;
+      }
+      inner += `<polygon points="${hexPts(cx, cy)}" fill="${fill}" stroke="${stroke}" stroke-width="${sw}"${sciClick}/>`;
 
       // Center hex: planet marker + system ID
       if (isCenter) {
@@ -739,6 +744,31 @@
     }
 
     svgEl.innerHTML = inner;
+  }
+
+  // Click handler for science hexes in the mini-board
+  function miniSciClick(hexId) {
+    const board = lastBoard;
+    if (!board) return;
+    const hex = board[hexId];
+    if (!hex) return;
+    const cluster = hex.cluster;
+    const BUILD_TYPES = ["building_tool","building_science","building_money"];
+    for (let i = 0; i < panels.length; i++) {
+      const state = panels[i].lastState;
+      if (!state) continue;
+      const sys = (state.player_system ?? {})[panels[i].name];
+      if (sys !== cluster) continue;
+      const existing = (hex.pieces ?? []).filter(pc => BUILD_TYPES.includes(pc.type)).length;
+      if (existing >= 3) { sysLog(i, "Science hex is full"); return; }
+      const me = (state.players ?? []).find(pl => pl.name === panels[i].name);
+      const money = (me?.resources ?? {}).money ?? 0;
+      const type = money >= 6 ? "building_science" : money >= 4 ? "building_tool" : null;
+      if (!type) { sysLog(i, `Not enough money (${money}) to build`); return; }
+      sysLog(i, `Manual build ${type} on hex ${hexId}`);
+      send(i, { type: "build_piece", piece_type: type, hex_id: hexId });
+      return;
+    }
   }
 
   // ── Shared state handler (game_state / place_pieces_start / draft_start) ──

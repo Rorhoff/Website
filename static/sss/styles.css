@@ -257,6 +257,9 @@ h1 { font-size: 2rem; font-weight: 700; color: var(--accent); text-align: center
 .hex-poly.hex-placeable:hover { filter: brightness(1.6) drop-shadow(0 0 8px #00ff55); }
 .hex-poly.hex-construct-target { fill: rgba(251,191,36,0.25) !important; stroke: #fbbf24 !important; stroke-width: 1.5 !important; cursor: pointer !important; }
 .hex-poly.hex-construct-target:hover { filter: brightness(1.5) drop-shadow(0 0 6px #fbbf24); }
+.hex-poly.hex-science-available { stroke: #a855f7 !important; stroke-width: 1.8 !important; cursor: pointer !important; animation: sciPulse 1.8s ease-in-out infinite; }
+.hex-poly.hex-science-available:hover { filter: brightness(1.5) drop-shadow(0 0 7px #a855f7); }
+@keyframes sciPulse { 0%,100%{stroke-opacity:1} 50%{stroke-opacity:0.4} }
 .construct-row { display: flex; align-items: center; justify-content: space-between; padding: .6rem .8rem; border-radius: 6px; cursor: pointer; transition: background .15s; }
 .construct-row:hover:not(.disabled) { background: var(--card-hover, rgba(255,255,255,0.06)); }
 .construct-row.disabled { opacity: 0.4; cursor: not-allowed; }

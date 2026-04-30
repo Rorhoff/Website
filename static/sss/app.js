@@ -41,6 +41,7 @@ let _actionMode      = null;  // { type: "flight"|"invasion"|"attack"|"construct
 let _selectedCluster = null;  // cluster index of selected source, or null
 let _selectedRoutes  = [];    // routes from _selectedCluster
 let _constructionPiece = null; // { type, cost } when in construction placement mode
+let _pendingScienceHex = null; // hex_id of science tile clicked directly (skips general re-render)
 let _lastState       = null;  // most recent full state for re-renders
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -768,6 +769,18 @@ function renderBoard(state, placementMode) {
       hit.addEventListener("click", handler);
       dragLayer.appendChild(hit);
     };
+
+    // Science hex direct-click shortcut: when idle on your turn, click S tile to open building picker
+    const isScienceDirect = !placementMode && !_constructionPiece && !_actionMode
+      && state.phase === "board" && state.current_turn === myName && myRole !== "watcher"
+      && h.cluster === mySystem && h.type === "science" && h.local > 0;
+    if (isScienceDirect) {
+      cls += " hex-science-available";
+      const capturedId = h.id;
+      const sciHandler = () => { _pendingScienceHex = capturedId; showConstructionPicker("buildings"); };
+      poly.addEventListener("click", sciHandler);
+      addHit(sciHandler);
+    }
 
     if (validConstructTarget) {
       poly.style.cursor = "pointer";
@@ -1564,8 +1577,9 @@ function initConstructionPicker() {
       <div class="action-pick-list" id="construction-pick-list"></div>
     </div>`;
   document.body.appendChild(el);
-  el.addEventListener("click", e => { if (e.target === el) el.classList.add("hidden"); });
-  document.getElementById("btn-cp-close").addEventListener("click", () => el.classList.add("hidden"));
+  const closeCP = () => { el.classList.add("hidden"); _pendingScienceHex = null; };
+  el.addEventListener("click", e => { if (e.target === el) closeCP(); });
+  document.getElementById("btn-cp-close").addEventListener("click", closeCP);
 }
 
 function showConstructionPicker(filter = "all") {
@@ -1594,12 +1608,18 @@ function showConstructionPicker(filter = "all") {
   list.querySelectorAll(".construct-row:not(.disabled)").forEach(row => {
     row.addEventListener("click", () => {
       const type = row.dataset.type;
-      const cost = parseInt(row.dataset.cost, 10);
       const item = CONSTRUCTION_ITEMS.find(i => i.type === type);
       document.getElementById("construction-picker").classList.add("hidden");
-      _actionMode = { type: "construction" };
-      _constructionPiece = { ...item };
-      if (_lastState) renderBoard(_lastState, false);
+      if (_pendingScienceHex !== null) {
+        // Clicked directly on the S tile — place immediately without re-render
+        const hexId = _pendingScienceHex;
+        _pendingScienceHex = null;
+        send({ type: "build_piece", piece_type: type, hex_id: hexId });
+      } else {
+        _actionMode = { type: "construction" };
+        _constructionPiece = { ...item };
+        if (_lastState) renderBoard(_lastState, false);
+      }
     });
   });
 }
