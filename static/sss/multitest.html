@@ -44,6 +44,8 @@
     .btn-3p  { background: #7c3aed; color: #fff; }
     .btn-4p  { background: var(--accent); color: #0a0f18; }
     .btn-rst { background: var(--danger); color: #fff; }
+    .btn-pause       { background: #374151; color: #e2e8f0; border: 1px solid #4b5563; }
+    .btn-pause.paused { background: #064e3b; color: #6ee7b7; border-color: #059669; }
     .btn-ghost { background: transparent; border: 1px solid var(--border); color: var(--text); }
     .btn-ghost:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
     .btn-sm { font-size: .73rem; padding: .25rem .5rem; }
@@ -215,6 +217,7 @@
     <button class="btn-3p" id="btn-3p">&#9654; 3-Player Game</button>
     <button class="btn-4p" id="btn-4p">&#9654; 4-Player Game</button>
     <button class="btn-rst" id="btn-reset">&#9724; Reset</button>
+    <button class="btn-pause" id="btn-pause" disabled>&#9646;&#9646; Pause</button>
     <div class="pill"><span class="pill-label">Code</span><span class="pill-val" id="info-code">—</span></div>
     <div class="pill"><span class="pill-label">Phase</span><span class="pill-val" id="info-phase">—</span></div>
     <div class="pill"><span class="pill-label">Round</span><span class="pill-val" id="info-round">—</span></div>
@@ -291,6 +294,7 @@
   let autoRaceConfirmed = false; // guard: host confirm_race sent once
   let autoBeginAction   = false; // guard: host begin_action sent once
   let lastBoard         = null;  // most recent board from any message
+  let autoPaused        = false; // pause all auto-play when true
   // (per-panel lastEndTurnSeq tracks last seq at which we sent end_turn)
 
   // ── Shuffle helper ────────────────────────────────────────────────────────
@@ -371,7 +375,7 @@
 
       panels.push({
         ws: null, name: NAMES[i], role: null, lastState: null,
-        autoRolled: false, lastDiceRound: null, lastEndTurnSeq: -1, flightTimeout: null,
+        autoRolled: false, lastDiceRound: null, lastEndTurnSeq: -1,
         el,
         dotEl:   document.getElementById(`dot-${i}`),
         roleEl:  document.getElementById(`role-${i}`),
@@ -498,46 +502,107 @@
 
   // ── Auto-turn action sequence ─────────────────────────────────────────────
   function autoTurnAction(idx, state) {
-    const p = panels[idx];
-    // Ask server for available flight routes — it's a free query (no action cost)
-    sysLog(idx, "Auto-turn: checking flight routes…");
-    send(idx, { type: "play_card", card: "flight" });
-    // Fallback: if no flight_targets arrives within 1s, try build or end turn
-    clearTimeout(p.flightTimeout);
-    p.flightTimeout = setTimeout(() => autoTryBuildOrEnd(idx, state), 1100);
+    if (autoPaused) return;
+    const p     = panels[idx];
+    const board = state.board ?? lastBoard;
+    if (!board) { send(idx, { type: "end_turn" }); return; }
+
+    const me        = (state.players ?? []).find(pl => pl.name === p.name);
+    const money     = (me?.resources ?? {}).money ?? 0;
+    const myCluster = (state.player_system ?? {})[p.name];
+    const allSystems = new Set(Object.values(state.player_system ?? {}));
+
+    // Build set of clusters where this player has frigates
+    const myFrigClusters = new Set();
+    for (const h of board) {
+      if ((h.pieces ?? []).some(pc => pc.type === "frigate" && pc.owner === p.name)) {
+        myFrigClusters.add(h.cluster);
+      }
+    }
+
+    // Compute wormhole routes from all clusters I have frigates in
+    const routes = [];
+    const seen   = new Set();
+    for (const h of board) {
+      if (!h.wormhole || h.wormhole_partner == null) continue;
+      if (!myFrigClusters.has(h.cluster)) continue;
+      const partner = board[h.wormhole_partner];
+      if (!partner) continue;
+      const destCluster = partner.cluster;
+      const key = `${h.cluster}-${destCluster}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+
+      const enemiesAtDest = board.some(dh =>
+        dh.cluster === destCluster &&
+        (dh.pieces ?? []).some(pc => pc.type === "frigate" && pc.owner !== p.name)
+      );
+      const isNewSystem = !allSystems.has(destCluster);
+
+      routes.push({
+        from_wormhole: h.id,
+        to_wormhole:   h.wormhole_partner,
+        from_cluster:  h.cluster,
+        dest_cluster:  destCluster,
+        enemiesAtDest,
+        isNewSystem,
+      });
+    }
+
+    if (routes.length > 0) {
+      // Priority 1: attack clusters with enemy frigates
+      // Priority 2: expand to unclaimed systems
+      // Priority 3: any available move
+      const attackRoutes = routes.filter(r => r.enemiesAtDest);
+      const expandRoutes = routes.filter(r => r.isNewSystem);
+      const pool = attackRoutes.length > 0 ? attackRoutes
+                 : expandRoutes.length > 0  ? expandRoutes
+                 : routes;
+
+      const route = pool[Math.floor(Math.random() * pool.length)];
+      sysLog(idx, `${route.enemiesAtDest ? "⚔ Attack" : "✈ Flight"} cluster ${route.dest_cluster} (from ${route.from_cluster})`);
+      send(idx, { type: "flight_move", from_wormhole: route.from_wormhole, to_wormhole: route.to_wormhole });
+      return;
+    }
+
+    // No movement possible — try building
+    autoTryBuildOrEnd(idx, state);
   }
 
   function autoTryBuildOrEnd(idx, state) {
-    const p     = panels[idx];
-    const board = state.board ?? lastBoard;
-    const me    = (state.players ?? []).find(pl => pl.name === p.name);
-    const money = (me?.resources ?? {}).money ?? 0;
+    if (autoPaused) { send(idx, { type: "end_turn" }); return; }
+    const p         = panels[idx];
+    const board     = state.board ?? lastBoard;
+    const me        = (state.players ?? []).find(pl => pl.name === p.name);
+    const money     = (me?.resources ?? {}).money ?? 0;
     const myCluster = (state.player_system ?? {})[p.name];
 
-    // Try to build a frigate on an orbital in home system (costs 15 money)
-    if (money >= 15 && myCluster != null && board) {
-      const orbital = board.find(h => h.cluster === myCluster && h.type === "orbital");
-      if (orbital) {
-        sysLog(idx, `Auto-build frigate on hex ${orbital.id} (money: ${money})`);
-        send(idx, { type: "build_piece", piece_type: "frigate", hex_id: orbital.id });
-        return; // game_state broadcast after build will re-trigger handleState
+    if (myCluster != null && board) {
+      // Build a frigate (orbital hex, costs 15 money)
+      if (money >= 15) {
+        const orbital = board.find(h => h.cluster === myCluster && h.type === "orbital");
+        if (orbital) {
+          sysLog(idx, `Build frigate on hex ${orbital.id} (${money} money)`);
+          send(idx, { type: "build_piece", piece_type: "frigate", hex_id: orbital.id });
+          return;
+        }
+      }
+      // Build a tool building (science hex, costs 4 money)
+      if (money >= 4) {
+        const BUILD_TYPES = ["building_tool","building_science","building_money"];
+        const sciHex = board.find(h =>
+          h.cluster === myCluster && h.type === "science" &&
+          (h.pieces ?? []).filter(pc => BUILD_TYPES.includes(pc.type)).length < 3
+        );
+        if (sciHex) {
+          sysLog(idx, `Build building_tool on hex ${sciHex.id} (${money} money)`);
+          send(idx, { type: "build_piece", piece_type: "building_tool", hex_id: sciHex.id });
+          return;
+        }
       }
     }
 
-    // Try building a tool building if money ≥ 4 and there's a science hex
-    if (money >= 4 && myCluster != null && board) {
-      const sciHex = board.find(h =>
-        h.cluster === myCluster && h.type === "science" &&
-        (h.pieces ?? []).filter(pc => ["building_tool","building_science","building_money"].includes(pc.type)).length < 3
-      );
-      if (sciHex) {
-        sysLog(idx, `Auto-build building_tool on hex ${sciHex.id} (money: ${money})`);
-        send(idx, { type: "build_piece", piece_type: "building_tool", hex_id: sciHex.id });
-        return;
-      }
-    }
-
-    sysLog(idx, "No useful action — end_turn");
+    sysLog(idx, "No action available — end_turn");
     send(idx, { type: "end_turn" });
   }
 
@@ -719,6 +784,7 @@
     // Board: auto-play — try actions then end turn
     if (phase === "board") {
       advanceStep("playing");
+      document.getElementById("btn-pause").disabled = false;
       const currentTurn = msg.current_turn;
       const round       = msg.round ?? 1;
       const seq         = msg.seq ?? 0;
@@ -774,34 +840,16 @@
       handleState(idx, msg);
     }
 
-    // Flight targets: pick a random reachable route and fly
-    if (msg.type === "flight_targets") {
-      clearTimeout(panels[idx].flightTimeout);
-      const routes = msg.routes ?? [];
-      if (routes.length > 0) {
-        const route = routes[Math.floor(Math.random() * routes.length)];
-        sysLog(idx, `Auto-flight → cluster ${route.dest_cluster}`);
-        setTimeout(() => send(idx, {
-          type: "flight_move",
-          from_wormhole: route.from_wormhole,
-          to_wormhole:   route.to_wormhole,
-        }), 350);
-      } else {
-        sysLog(idx, "No flight routes — trying build/end");
-        autoTryBuildOrEnd(idx, panels[idx].lastState ?? {});
-      }
-    }
-
     // Combat: auto-roll as attacker
     if (msg.type === "combat_prompt") {
       sysLog(idx, `⚔ Attacker! vs ${msg.defender ?? "?"} at cluster ${msg.dest_cluster ?? "?"}`);
-      setTimeout(() => send(idx, { type: "roll_combat_dice" }), 350);
+      if (!autoPaused) setTimeout(() => send(idx, { type: "roll_combat_dice" }), 350);
     }
 
     // Combat: auto-roll as defender
     if (msg.type === "combat_defender_prompt") {
       sysLog(idx, `🛡 Defender! vs ${msg.attacker ?? "?"} at cluster ${msg.dest_cluster ?? "?"}`);
-      setTimeout(() => send(idx, { type: "roll_combat_dice" }), 350 + idx * 80);
+      if (!autoPaused) setTimeout(() => send(idx, { type: "roll_combat_dice" }), 350 + idx * 80);
     }
 
     if (msg.type === "error") {
@@ -976,6 +1024,11 @@
     autoRaceConfirmed = false;
     autoBeginAction   = false;
     lastBoard         = null;
+    autoPaused        = false;
+    const pauseBtn = document.getElementById("btn-pause");
+    pauseBtn.disabled = true;
+    pauseBtn.classList.remove("paused");
+    pauseBtn.innerHTML = "&#9646;&#9646; Pause";
     ["info-code","info-phase","info-round"].forEach(id => document.getElementById(id).textContent = "—");
     document.getElementById("turn-strip").classList.remove("visible");
     document.getElementById("phase-stepper").classList.remove("visible");
@@ -993,6 +1046,13 @@
   document.getElementById("btn-3p").addEventListener("click", () => launch(3));
   document.getElementById("btn-4p").addEventListener("click", () => launch(4));
   document.getElementById("btn-reset").addEventListener("click", resetAll);
+  document.getElementById("btn-pause").addEventListener("click", () => {
+    autoPaused = !autoPaused;
+    const btn = document.getElementById("btn-pause");
+    btn.classList.toggle("paused", autoPaused);
+    btn.innerHTML = autoPaused ? "&#9654; Resume" : "&#9646;&#9646; Pause";
+    setAutoMsg(autoPaused ? "⏸ Paused — click Resume to continue" : "");
+  });
   </script>
 </body>
 </html>
