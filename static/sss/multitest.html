@@ -476,16 +476,16 @@
     } else if (nextPiece === "frigate") {
       if (myCluster != null) {
         for (const h of board) {
-          if (h.cluster !== myCluster || h.type !== "orbital") continue;
+          if (h.cluster !== myCluster || h.type !== "orbital" || h.local === 0) continue;
           const cnt = (h.pieces ?? []).filter(pc => pc.type === "frigate").length;
           if (cnt < 3) { targetHex = h; break; }
         }
       }
     } else {
-      // influence_token: any hex in cluster without one already
+      // influence_token: any non-center hex in cluster without one already
       if (myCluster != null) {
         for (const h of board) {
-          if (h.cluster !== myCluster) continue;
+          if (h.cluster !== myCluster || h.local === 0) continue;
           if ((h.pieces ?? []).some(pc => pc.type === "influence_token")) continue;
           targetHex = h; break;
         }
@@ -580,7 +580,7 @@
     if (myCluster != null && board) {
       // Build a frigate (orbital hex, costs 15 money)
       if (money >= 15) {
-        const orbital = board.find(h => h.cluster === myCluster && h.type === "orbital");
+        const orbital = board.find(h => h.cluster === myCluster && h.type === "orbital" && h.local !== 0);
         if (orbital) {
           sysLog(idx, `Build frigate on hex ${orbital.id} (${money} money)`);
           send(idx, { type: "build_piece", piece_type: "frigate", hex_id: orbital.id });
@@ -639,18 +639,23 @@
       if (pl.race) playerColor[pl.name] = RACE_COLORS[pl.race] ?? "#64748b";
     }
 
-    const PIECE_ICONS = {
-      battle_station: (cx, cy, col) => `<circle cx="${cx}" cy="${cy}" r="${rr*0.42}" fill="${col}" stroke="#fff" stroke-width="0.6"/>`,
-      empire_flag:    (cx, cy, col) => `<polygon points="${cx},${cy-rr*0.45} ${cx+rr*0.32},${cy+rr*0.28} ${cx-rr*0.32},${cy+rr*0.28}" fill="${col}"/>`,
-      frigate:        (cx, cy, col) => `<circle cx="${cx}" cy="${cy}" r="${rr*0.26}" fill="${col}99"/>`,
-      influence_token:(cx, cy, col) => `<circle cx="${cx}" cy="${cy}" r="${rr*0.18}" fill="${col}66" stroke="${col}" stroke-width="0.5"/>`,
-    };
-
     svgEl.setAttribute("viewBox", `0 0 ${vw} ${vh}`);
-    svgEl.setAttribute("height", Math.min(vh, 320));
+    svgEl.setAttribute("height", Math.min(vh, 340));
+
+    // Hex type → subtle tint color
+    const HEX_TINTS = {
+      orbital:  "#0a1f35",
+      bs_slot:  "#1a1000",
+      science:  "#130a20",
+      space:    "#050810",
+      black_hole:"#200030",
+    };
+    // Hex type → small label rendered inside hex
+    const HEX_LABELS = { orbital: "O", bs_slot: "B", science: "S" };
 
     let inner = `<rect width="${vw}" height="${vh}" fill="#050810"/>`;
-    // Draw wormhole lines first
+
+    // Wormhole connection lines
     const drawn = new Set();
     for (const h of board) {
       if (!h.wormhole || h.wormhole_partner == null) continue;
@@ -665,30 +670,71 @@
       const cx = tx(h.x), cy = ty(h.y);
       const owner    = clusterOwner[h.cluster];
       const ownColor = owner ? (playerColor[owner] ?? "#64748b") : null;
+      const isCenter = h.local === 0;
 
-      let fill   = h.type === "black_hole" ? "#200030" : "#0a0f1a";
+      // Hex fill and stroke
+      let fill   = HEX_TINTS[h.type] ?? "#050810";
       let stroke = "#1e2d45";
-      let sw = "0.8";
-      if (ownColor) { fill = ownColor + "1a"; stroke = ownColor + "99"; sw = "1"; }
-      if (h.tri)    { stroke = h.tri_color && h.tri_color !== "" ? h.tri_color : "#f59e0b"; sw = "1.5"; }
-
+      let sw     = "0.8";
+      if (ownColor && isCenter) { fill = ownColor + "2a"; stroke = ownColor + "cc"; sw = "2"; }
+      else if (ownColor)        { fill = ownColor + "12"; stroke = ownColor + "66"; sw = "1"; }
+      if (h.tri)                { stroke = h.tri_color || "#f59e0b"; sw = "1.8"; }
       inner += `<polygon points="${hexPts(cx, cy)}" fill="${fill}" stroke="${stroke}" stroke-width="${sw}"/>`;
 
-      // Piece icons — stack up to 3
-      const pieces = h.pieces ?? [];
-      if (pieces.length) {
-        const col = ownColor ?? "#64748b";
-        const fn  = PIECE_ICONS[pieces[0].type];
-        if (fn) inner += fn(cx, cy, col);
-        if (pieces.length > 1) {
-          inner += `<text x="${cx+rr*0.55}" y="${cy-rr*0.55}" text-anchor="middle" font-size="${rr*0.55}" fill="#ffffffaa" font-family="system-ui">+${pieces.length-1}</text>`;
+      // Center hex: planet marker + system ID
+      if (isCenter) {
+        const pCol = ownColor ?? "#94a3b8";
+        inner += `<circle cx="${cx}" cy="${cy}" r="${rr * 0.28}" fill="${pCol}44" stroke="${pCol}88" stroke-width="0.8"/>`;
+        if (h.label) {
+          inner += `<text x="${cx}" y="${(cy - rr - 3).toFixed(1)}" text-anchor="middle" font-size="${Math.max(5.5, rr * 0.48)}" fill="${pCol}" font-family="system-ui" font-weight="700">${h.label}</text>`;
         }
       }
 
-      // System name label
-      if (h.label) {
-        const lx = cx, ly = cy - rr - 3;
-        inner += `<text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="middle" font-size="${Math.max(6, rr * 0.5)}" fill="${ownColor ?? '#94a3b8'}" font-family="system-ui" font-weight="600">${h.label}</text>`;
+      // Ring hexes: type label (O / B / S)
+      if (!isCenter && HEX_LABELS[h.type]) {
+        inner += `<text x="${cx}" y="${(cy + rr * 0.35).toFixed(1)}" text-anchor="middle" font-size="${Math.max(4, rr * 0.38)}" fill="#ffffff22" font-family="monospace">${HEX_LABELS[h.type]}</text>`;
+      }
+
+      // Piece icons (skip empire_flag — ownership shown by cluster color)
+      const pieces = (h.pieces ?? []).filter(pc => pc.type !== "empire_flag");
+      if (pieces.length === 0) continue;
+
+      const col = ownColor ?? "#64748b";
+      // Count by type
+      const frigates   = pieces.filter(pc => pc.type === "frigate").length;
+      const bs         = pieces.filter(pc => pc.type === "battle_station").length;
+      const influence  = pieces.filter(pc => pc.type === "influence_token").length;
+      const buildings  = pieces.filter(pc => ["building_tool","building_science","building_money"].includes(pc.type)).length;
+
+      // Frigate: solid upward-pointing triangle, one per frigate stacked horizontally
+      if (frigates > 0) {
+        const triW = rr * 0.32, triH = rr * 0.38;
+        const step = triW * 1.6;
+        const totalW = step * (frigates - 1);
+        for (let fi = 0; fi < frigates; fi++) {
+          const fx = cx - totalW / 2 + fi * step;
+          const fy = cy;
+          inner += `<polygon points="${fx},${fy - triH * 0.6} ${fx + triW * 0.6},${fy + triH * 0.4} ${fx - triW * 0.6},${fy + triH * 0.4}" fill="${col}" stroke="#fff" stroke-width="0.5"/>`;
+        }
+      }
+
+      // Battle station: bold diamond
+      if (bs > 0) {
+        const d = rr * 0.42;
+        inner += `<polygon points="${cx},${cy - d} ${cx + d * 0.65},${cy} ${cx},${cy + d} ${cx - d * 0.65},${cy}" fill="${col}" stroke="#fff" stroke-width="0.7"/>`;
+      }
+
+      // Influence token: small ring
+      if (influence > 0) {
+        inner += `<circle cx="${cx}" cy="${cy}" r="${rr * 0.22}" fill="none" stroke="${col}" stroke-width="1.2"/>`;
+        inner += `<circle cx="${cx}" cy="${cy}" r="${rr * 0.1}" fill="${col}88"/>`;
+      }
+
+      // Building: small square
+      if (buildings > 0) {
+        const bs2 = rr * 0.2;
+        inner += `<rect x="${cx - bs2}" y="${cy - bs2}" width="${bs2 * 2}" height="${bs2 * 2}" fill="${col}88" stroke="${col}" stroke-width="0.6"/>`;
+        if (buildings > 1) inner += `<text x="${cx + bs2 + 1}" y="${cy + bs2 * 0.5}" font-size="${rr * 0.38}" fill="${col}" font-family="monospace">×${buildings}</text>`;
       }
     }
 
