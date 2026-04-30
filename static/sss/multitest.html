@@ -266,12 +266,13 @@
   const PHASE_ORDER = ["connect","lobby","race_pick","dice_roll","playing"];
   const WS_BASE = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/sss/ws/`;
 
-  let gameCode       = null;
-  let playerCount    = 4;
-  let panels         = [];
-  let assignedRaces  = [];   // pre-shuffled race per panel index
-  let autoStarted    = false; // guard: don't send start_game twice
-  let autoRacePicked = [];    // guard per panel
+  let gameCode         = null;
+  let playerCount      = 4;
+  let panels           = [];
+  let assignedRaces    = [];   // pre-shuffled race per panel index
+  let autoStarted      = false; // guard: don't send start_game twice
+  let autoRacePicked   = [];    // guard per panel
+  let autoRaceConfirmed = false; // guard: host confirm_race sent once
 
   // ── Shuffle helper ────────────────────────────────────────────────────────
   function shuffle(arr) {
@@ -286,8 +287,9 @@
   // ── Build DOM ─────────────────────────────────────────────────────────────
   function buildPanels(count) {
     playerCount    = count;
-    autoStarted    = false;
-    autoRacePicked = Array(count).fill(false);
+    autoStarted       = false;
+    autoRacePicked    = Array(count).fill(false);
+    autoRaceConfirmed = false;
     assignedRaces  = shuffle(RACES).slice(0, count);
 
     const grid = document.getElementById("panel-grid");
@@ -483,6 +485,14 @@
             sysLog(idx, `Auto-picked ${RACE_LABELS[race]}`);
           }, 300 + idx * 400);
         }
+        // Host confirms once all players have a race
+        const allPicked = (msg.players ?? []).every(pl => pl.race);
+        if (allPicked && !autoRaceConfirmed && p.role === "host") {
+          autoRaceConfirmed = true;
+          const delay = 300 + playerCount * 400 + 300;
+          setAutoMsg("All races locked — confirming…");
+          setTimeout(() => send(idx, { type: "confirm_race" }), delay);
+        }
       }
 
       // Dice roll: auto-roll — only if this player is in the current round and hasn't rolled yet
@@ -661,9 +671,10 @@
   function resetAll() {
     panels.forEach(p => { try { p.ws?.close(); } catch(_){} });
     panels = [];
-    gameCode = null;
-    autoStarted = false;
-    autoRacePicked = [];
+    gameCode          = null;
+    autoStarted       = false;
+    autoRacePicked    = [];
+    autoRaceConfirmed = false;
     ["info-code","info-phase","info-round"].forEach(id => document.getElementById(id).textContent = "—");
     document.getElementById("turn-strip").classList.remove("visible");
     document.getElementById("phase-stepper").classList.remove("visible");
