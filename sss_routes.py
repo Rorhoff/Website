@@ -457,6 +457,10 @@ class Game:
                 self.turn_order[self.turn_idx % len(self.turn_order)]
                 if self.phase == "board" and self.turn_order else None
             ),
+            "round": (
+                self.turn_idx // len(self.turn_order) + 1
+                if self.phase == "board" and self.turn_order else None
+            ),
             "actions_remaining": self.turn_actions_remaining,
         }
 

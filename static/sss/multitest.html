@@ -501,6 +501,9 @@
   }
 
   // ── Auto-turn action sequence ─────────────────────────────────────────────
+  // Priority: ⚔ attack enemy frigates → ✈ expand to unclaimed systems →
+  //           🔨 build frigate → 🏗 build building → end turn
+  // Never fly to already-owned systems — those moves waste actions.
   function autoTurnAction(idx, state) {
     if (autoPaused) return;
     const p     = panels[idx];
@@ -511,18 +514,18 @@
     const money     = (me?.resources ?? {}).money ?? 0;
     const myCluster = (state.player_system ?? {})[p.name];
     const allSystems = new Set(Object.values(state.player_system ?? {}));
+    const BUILD_TYPES = ["building_tool","building_science","building_money"];
 
-    // Build set of clusters where this player has frigates
+    // Clusters where this player has frigates
     const myFrigClusters = new Set();
     for (const h of board) {
-      if ((h.pieces ?? []).some(pc => pc.type === "frigate" && pc.owner === p.name)) {
+      if ((h.pieces ?? []).some(pc => pc.type === "frigate" && pc.owner === p.name))
         myFrigClusters.add(h.cluster);
-      }
     }
 
-    // Compute wormhole routes from all clusters I have frigates in
-    const routes = [];
-    const seen   = new Set();
+    // Scan wormhole routes — only care about attack (enemy frigates) and expand (unclaimed)
+    const attackRoutes = [], expandRoutes = [];
+    const seen = new Set();
     for (const h of board) {
       if (!h.wormhole || h.wormhole_partner == null) continue;
       if (!myFrigClusters.has(h.cluster)) continue;
@@ -532,77 +535,61 @@
       const key = `${h.cluster}-${destCluster}`;
       if (seen.has(key)) continue;
       seen.add(key);
-
-      const enemiesAtDest = board.some(dh =>
-        dh.cluster === destCluster &&
-        (dh.pieces ?? []).some(pc => pc.type === "frigate" && pc.owner !== p.name)
-      );
-      const isNewSystem = !allSystems.has(destCluster);
-
-      routes.push({
-        from_wormhole: h.id,
-        to_wormhole:   h.wormhole_partner,
-        from_cluster:  h.cluster,
-        dest_cluster:  destCluster,
-        enemiesAtDest,
-        isNewSystem,
-      });
+      const route = { from_wormhole: h.id, to_wormhole: h.wormhole_partner,
+                      from_cluster: h.cluster, dest_cluster: destCluster };
+      const hasEnemy = board.some(dh => dh.cluster === destCluster
+        && (dh.pieces ?? []).some(pc => pc.type === "frigate" && pc.owner !== p.name));
+      if (hasEnemy) {
+        attackRoutes.push(route);
+      } else if (!allSystems.has(destCluster)) {
+        expandRoutes.push(route);
+      }
+      // Ignore routes to already-owned non-enemy systems — pointless moves
     }
 
-    if (routes.length > 0) {
-      // Priority 1: attack clusters with enemy frigates
-      // Priority 2: expand to unclaimed systems
-      // Priority 3: any available move
-      const attackRoutes = routes.filter(r => r.enemiesAtDest);
-      const expandRoutes = routes.filter(r => r.isNewSystem);
-      const pool = attackRoutes.length > 0 ? attackRoutes
-                 : expandRoutes.length > 0  ? expandRoutes
-                 : routes;
-
-      const route = pool[Math.floor(Math.random() * pool.length)];
-      sysLog(idx, `${route.enemiesAtDest ? "⚔ Attack" : "✈ Flight"} cluster ${route.dest_cluster} (from ${route.from_cluster})`);
-      send(idx, { type: "flight_move", from_wormhole: route.from_wormhole, to_wormhole: route.to_wormhole });
+    // 1. Attack
+    if (attackRoutes.length > 0) {
+      const r = attackRoutes[Math.floor(Math.random() * attackRoutes.length)];
+      sysLog(idx, `⚔ Attack cluster ${r.dest_cluster} from ${r.from_cluster}`);
+      send(idx, { type: "flight_move", from_wormhole: r.from_wormhole, to_wormhole: r.to_wormhole });
       return;
     }
 
-    // No movement possible — try building
-    autoTryBuildOrEnd(idx, state);
-  }
-
-  function autoTryBuildOrEnd(idx, state) {
-    if (autoPaused) { send(idx, { type: "end_turn" }); return; }
-    const p         = panels[idx];
-    const board     = state.board ?? lastBoard;
-    const me        = (state.players ?? []).find(pl => pl.name === p.name);
-    const money     = (me?.resources ?? {}).money ?? 0;
-    const myCluster = (state.player_system ?? {})[p.name];
-
-    if (myCluster != null && board) {
-      // Build a frigate (orbital hex, costs 15 money)
-      if (money >= 15) {
-        const orbital = board.find(h => h.cluster === myCluster && h.type === "orbital" && h.local !== 0);
-        if (orbital) {
-          sysLog(idx, `Build frigate on hex ${orbital.id} (${money} money)`);
-          send(idx, { type: "build_piece", piece_type: "frigate", hex_id: orbital.id });
-          return;
-        }
-      }
-      // Build a tool building (science hex, costs 4 money)
-      if (money >= 4) {
-        const BUILD_TYPES = ["building_tool","building_science","building_money"];
-        const sciHex = board.find(h =>
-          h.cluster === myCluster && h.type === "science" &&
-          (h.pieces ?? []).filter(pc => BUILD_TYPES.includes(pc.type)).length < 3
-        );
-        if (sciHex) {
-          sysLog(idx, `Build building_tool on hex ${sciHex.id} (${money} money)`);
-          send(idx, { type: "build_piece", piece_type: "building_tool", hex_id: sciHex.id });
-          return;
-        }
+    // 2. Build frigate (more firepower before expanding)
+    if (myCluster != null && money >= 15) {
+      const orbital = board.find(h =>
+        h.cluster === myCluster && h.type === "orbital" && h.local !== 0 &&
+        (h.pieces ?? []).filter(pc => pc.type === "frigate").length < 3
+      );
+      if (orbital) {
+        sysLog(idx, `🚀 Build frigate on hex ${orbital.id} ($${money})`);
+        send(idx, { type: "build_piece", piece_type: "frigate", hex_id: orbital.id });
+        return;
       }
     }
 
-    sysLog(idx, "No action available — end_turn");
+    // 3. Expand to unclaimed system
+    if (expandRoutes.length > 0) {
+      const r = expandRoutes[Math.floor(Math.random() * expandRoutes.length)];
+      sysLog(idx, `✈ Expand to cluster ${r.dest_cluster} from ${r.from_cluster}`);
+      send(idx, { type: "flight_move", from_wormhole: r.from_wormhole, to_wormhole: r.to_wormhole });
+      return;
+    }
+
+    // 4. Build a building (income boost)
+    if (myCluster != null && money >= 4) {
+      const sciHex = board.find(h =>
+        h.cluster === myCluster && h.type === "science" && h.local !== 0 &&
+        (h.pieces ?? []).filter(pc => BUILD_TYPES.includes(pc.type)).length < 3
+      );
+      if (sciHex) {
+        sysLog(idx, `🏗 Build building on hex ${sciHex.id} ($${money})`);
+        send(idx, { type: "build_piece", piece_type: "building_tool", hex_id: sciHex.id });
+        return;
+      }
+    }
+
+    sysLog(idx, `No useful action — end_turn ($${money})`);
     send(idx, { type: "end_turn" });
   }
 
