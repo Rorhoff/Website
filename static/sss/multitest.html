@@ -485,12 +485,13 @@
         }
       }
 
-      // Dice roll: auto-roll
+      // Dice roll: auto-roll — only if this player is in the current round and hasn't rolled yet
       if (phase === "dice_roll") {
         advanceStep("dice_roll");
-        const me = (msg.players ?? []).find(pl => pl.name === p.name);
-        if (me && !me.roll) {
-          setTimeout(() => send(idx, { type: "roll_dice" }), 400 + idx * 350);
+        const me      = (msg.players ?? []).find(pl => pl.name === p.name);
+        const inRound = (msg.dice_round ?? []).includes(p.name);
+        if (me && inRound && me.dice_roll === 0) {
+          setTimeout(() => send(idx, { type: "roll_dice" }), 300 + idx * 300);
         }
       }
 
