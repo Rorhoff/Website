@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>SSS — 4-Player Test Harness</title>
+  <title>SSS — Multi-Player Test Harness</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
@@ -20,108 +20,220 @@
     body {
       background: var(--bg); color: var(--text);
       font-family: 'Segoe UI', system-ui, sans-serif;
-      padding: 1rem; min-height: 100vh;
+      padding: .75rem 1rem 2rem; min-height: 100vh;
     }
-    h1 { color: var(--accent); font-size: 1.1rem; margin-bottom: .75rem; letter-spacing: .03em; }
+
+    /* ── Nav ── */
+    .site-nav { display: flex; gap: 1.25rem; margin-bottom: .75rem; font-size: .85rem; }
+    .site-nav a { color: var(--muted); text-decoration: none; }
+    .site-nav a.active { color: var(--accent); font-weight: 600; }
+    .site-nav a:hover { color: var(--text); }
+
+    h1 { color: var(--accent); font-size: 1.05rem; font-weight: 700;
+         letter-spacing: .04em; margin-bottom: .65rem; }
 
     /* ── Top bar ── */
-    .top-bar { display: flex; align-items: center; gap: .65rem; flex-wrap: wrap; margin-bottom: 1rem; }
+    .top-bar {
+      display: flex; align-items: center; gap: .5rem;
+      flex-wrap: wrap; margin-bottom: .75rem;
+    }
     .pill {
       background: var(--surface); border: 1px solid var(--border);
-      border-radius: 6px; padding: .3rem .75rem; font-size: .82rem;
+      border-radius: 6px; padding: .28rem .65rem; font-size: .8rem;
     }
-    .pill span { color: var(--accent); font-weight: 700; }
+    .pill-label { color: var(--muted); margin-right: .25rem; }
+    .pill-val   { color: var(--accent); font-weight: 700; }
 
     /* ── Buttons ── */
     button {
-      background: var(--accent); color: #0a0f18; border: none;
-      border-radius: 6px; padding: .4rem .9rem; font-size: .82rem;
-      font-weight: 700; cursor: pointer; transition: opacity .15s;
+      border: none; border-radius: 6px; padding: .38rem .85rem;
+      font-size: .82rem; font-weight: 700; cursor: pointer;
+      transition: filter .15s;
     }
+    button:hover:not(:disabled) { filter: brightness(1.15); }
     button:disabled { opacity: .35; cursor: default; }
-    button.danger  { background: var(--danger); color: #fff; }
-    button.ghost   { background: transparent; border: 1px solid var(--border); color: var(--text); }
-    button.ghost:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
-    button.sm { font-size: .75rem; padding: .28rem .55rem; }
+    .btn-3p  { background: #7c3aed; color: #fff; }
+    .btn-4p  { background: var(--accent); color: #0a0f18; }
+    .btn-rst { background: var(--danger); color: #fff; }
+    .btn-ghost {
+      background: transparent; border: 1px solid var(--border);
+      color: var(--text);
+    }
+    .btn-ghost:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+    .btn-sm { font-size: .73rem; padding: .25rem .5rem; }
+    .btn-action { background: #1e3a5a; color: var(--accent); border: 1px solid #2a4f78; }
+    .btn-start  { background: var(--green); color: #071a0f; }
+    .btn-end    { background: #1a1a2e; color: #a78bfa; border: 1px solid #3730a3; }
+
+    /* ── Turn order strip ── */
+    .turn-strip {
+      display: flex; align-items: center; gap: .4rem;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 8px; padding: .4rem .75rem;
+      margin-bottom: .65rem; flex-wrap: wrap;
+    }
+    .turn-strip-label { font-size: .68rem; color: var(--muted);
+                        text-transform: uppercase; letter-spacing: .05em;
+                        font-weight: 600; margin-right: .25rem; }
+    .turn-chip {
+      display: flex; align-items: center; gap: .3rem;
+      background: #0a0f18; border: 1px solid var(--border);
+      border-radius: 5px; padding: .2rem .5rem; font-size: .78rem;
+      transition: all .2s;
+    }
+    .turn-chip.active {
+      border-color: var(--gold); color: var(--gold);
+      background: #1a1200; font-weight: 700;
+      box-shadow: 0 0 8px #f59e0b44;
+    }
+    .turn-chip .race-dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: var(--muted); flex-shrink: 0;
+    }
+    .turn-arrow { color: var(--muted); font-size: .7rem; }
 
     /* ── Panel grid ── */
-    .panel-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; }
-    @media (max-width: 700px) { .panel-grid { grid-template-columns: 1fr; } }
-
-    .panel {
-      background: var(--surface); border: 1px solid var(--border);
-      border-radius: 10px; padding: .75rem;
-      display: flex; flex-direction: column; gap: .5rem;
+    .panel-grid {
+      display: grid;
+      gap: .65rem;
     }
-    .panel.active  { border-color: var(--green); }
-    .panel.myturn  { border-color: var(--gold); }
+    .panel-grid.g3 { grid-template-columns: repeat(3, 1fr); }
+    .panel-grid.g4 { grid-template-columns: repeat(2, 1fr); }
+    @media (max-width: 800px) {
+      .panel-grid.g3, .panel-grid.g4 { grid-template-columns: 1fr 1fr; }
+    }
+    @media (max-width: 500px) {
+      .panel-grid.g3, .panel-grid.g4 { grid-template-columns: 1fr; }
+    }
+
+    /* ── Panel ── */
+    .panel {
+      background: var(--surface);
+      border: 2px solid var(--border);
+      border-top: 3px solid var(--border);
+      border-radius: 10px; padding: .65rem;
+      display: flex; flex-direction: column; gap: .45rem;
+      transition: border-color .25s, box-shadow .25s;
+    }
+    .panel.connected  { border-top-color: #22c55e44; }
+    .panel.myturn {
+      border-color: var(--gold);
+      box-shadow: 0 0 14px #f59e0b33;
+    }
 
     /* ── Panel header ── */
-    .panel-hdr { display: flex; align-items: center; gap: .5rem; }
-    .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); flex-shrink: 0; }
-    .dot.on  { background: var(--green); }
-    .dot.err { background: var(--danger); }
+    .panel-hdr {
+      display: flex; align-items: center; gap: .45rem;
+      padding-bottom: .4rem;
+      border-bottom: 1px solid var(--border);
+    }
+    .conn-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--muted); flex-shrink: 0;
+      transition: background .2s;
+    }
+    .conn-dot.on  { background: var(--green); box-shadow: 0 0 6px #22c55e88; }
+    .conn-dot.err { background: var(--danger); }
     .panel-name { font-weight: 700; font-size: .95rem; flex: 1; }
     .role-badge {
-      font-size: .68rem; font-weight: 700; text-transform: uppercase;
+      font-size: .65rem; font-weight: 700; text-transform: uppercase;
       letter-spacing: .05em; border-radius: 4px;
-      padding: .12rem .4rem; background: #1e2d45; color: var(--muted);
+      padding: .1rem .38rem; background: #1e2d45; color: var(--muted);
     }
-    .role-badge.host   { background: #3a2a00; color: var(--gold); }
-    .role-badge.player { background: #0a2a1a; color: var(--green); }
-    .role-badge.turn   { background: #0a2a1a; color: var(--green); animation: pulse 1s infinite; }
-    @keyframes pulse { 0%,100% { opacity:1 } 50% { opacity:.55 } }
+    .role-badge.host   { background: #2a1d00; color: var(--gold); border: 1px solid #6b4500; }
+    .role-badge.player { background: #0a2418; color: var(--green); border: 1px solid #155235; }
+    .role-badge.turn   {
+      background: #0a2418; color: var(--green);
+      border: 1px solid var(--green);
+      animation: pulse 1s ease-in-out infinite;
+    }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
+
+    /* ── Race banner ── */
+    .race-banner {
+      display: flex; align-items: center; gap: .5rem;
+      border-radius: 6px; padding: .3rem .55rem;
+      font-size: .78rem; font-weight: 600;
+      background: #0a0f18; border: 1px solid var(--border);
+    }
+    .race-swatch { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+    .race-name   { flex: 1; color: var(--text); }
+    .race-vp     { color: var(--gold); font-size: .72rem; }
 
     /* ── Resources ── */
-    .res-row { display: flex; gap: .4rem; flex-wrap: wrap; }
-    .res-chip {
-      background: #0a0f18; border-radius: 4px; padding: .15rem .45rem;
-      font-size: .78rem; display: flex; gap: .25rem; align-items: center;
+    .res-grid {
+      display: grid; grid-template-columns: 1fr 1fr;
+      gap: .3rem;
     }
-    .res-key { color: var(--muted); text-transform: uppercase; font-size: .65rem; font-weight: 600; }
-    .res-val { color: var(--text); font-weight: 700; }
-    .res-chip.race .res-val { color: var(--accent); font-size: .7rem; }
+    .res-block {
+      border-radius: 6px; padding: .3rem .5rem;
+      display: flex; align-items: center; justify-content: space-between;
+      font-size: .8rem;
+    }
+    .res-block.food    { background: #0d2218; border: 1px solid #14532d; }
+    .res-block.science { background: #0a1c2e; border: 1px solid #1e3a5a; }
+    .res-block.tool    { background: #1c1400; border: 1px solid #451a00; }
+    .res-block.money   { background: #1c1600; border: 1px solid #713f12; }
+    .res-label { color: var(--muted); font-size: .65rem; text-transform: uppercase;
+                 letter-spacing: .05em; font-weight: 600; }
+    .res-val   { font-weight: 700; font-size: .95rem; }
+    .res-block.food    .res-val { color: #4ade80; }
+    .res-block.science .res-val { color: var(--accent); }
+    .res-block.tool    .res-val { color: #fb923c; }
+    .res-block.money   .res-val { color: #fbbf24; }
+    .res-inc { font-size: .65rem; color: var(--muted); }
+    .res-inc.pos { color: #4ade8099; }
+    .res-inc.neg { color: #f8717199; }
 
     /* ── Log ── */
+    .log-wrap { position: relative; }
+    .log-label {
+      font-size: .6rem; color: var(--muted); text-transform: uppercase;
+      letter-spacing: .05em; font-weight: 600; margin-bottom: .2rem;
+    }
     .log {
       background: #050810; border: 1px solid var(--border); border-radius: 6px;
-      padding: .4rem .5rem; font-size: .7rem; font-family: monospace;
-      color: var(--muted); height: 110px; overflow-y: auto; flex-shrink: 0;
+      padding: .35rem .45rem; font-size: .67rem; font-family: monospace;
+      color: var(--muted); height: 90px; overflow-y: auto;
     }
-    .log-line { margin-bottom: .1rem; }
+    .log-line { margin-bottom: .08rem; line-height: 1.35; word-break: break-all; }
     .log-line.in  { color: #7dd3fc; }
     .log-line.out { color: #86efac; }
     .log-line.err { color: var(--danger); }
 
     /* ── Actions ── */
-    .act-row { display: flex; flex-wrap: wrap; gap: .3rem; min-height: 1.6rem; }
+    .act-row { display: flex; flex-wrap: wrap; gap: .3rem; min-height: 1.8rem; }
 
     /* ── Raw send ── */
-    .send-row { display: flex; gap: .35rem; }
+    .send-row { display: flex; gap: .3rem; }
     .send-inp {
       flex: 1; min-width: 0;
       background: #0a0f18; border: 1px solid var(--border); border-radius: 5px;
-      color: var(--text); padding: .3rem .5rem; font-size: .72rem; font-family: monospace;
+      color: var(--text); padding: .28rem .45rem; font-size: .68rem; font-family: monospace;
     }
     .send-inp:focus { outline: none; border-color: var(--accent); }
   </style>
 </head>
 <body>
-  <nav style="display:flex;gap:1rem;margin-bottom:.75rem;font-size:.85rem;">
-    <a href="../index.html"     style="color:var(--muted);text-decoration:none">About</a>
-    <a href="./"               style="color:var(--muted);text-decoration:none">SSS</a>
-    <a href="multitest.html"   style="color:var(--accent);text-decoration:none;font-weight:600">SSS Test</a>
+
+  <nav class="site-nav">
+    <a href="../index.html">About</a>
+    <a href="./">SSS</a>
+    <a href="multitest.html" class="active">SSS Test</a>
   </nav>
-  <h1>SSS — 4-Player Test Harness</h1>
+
+  <h1>SSS — Multi-Player Test Harness</h1>
 
   <div class="top-bar">
-    <button id="btn-launch">&#9654; Launch 4-Player Game</button>
-    <button class="danger" id="btn-reset">Reset</button>
-    <div class="pill">Code: <span id="info-code">—</span></div>
-    <div class="pill">Phase: <span id="info-phase">—</span></div>
-    <div class="pill">Turn: <span id="info-turn">—</span></div>
+    <button class="btn-3p" id="btn-3p">&#9654; 3-Player Game</button>
+    <button class="btn-4p" id="btn-4p">&#9654; 4-Player Game</button>
+    <button class="btn-rst" id="btn-reset">&#9724; Reset</button>
+    <div class="pill"><span class="pill-label">Code</span><span class="pill-val" id="info-code">—</span></div>
+    <div class="pill"><span class="pill-label">Phase</span><span class="pill-val" id="info-phase">—</span></div>
+    <div class="pill"><span class="pill-label">Round</span><span class="pill-val" id="info-round">—</span></div>
   </div>
 
+  <div class="turn-strip" id="turn-strip" style="display:none"></div>
   <div class="panel-grid" id="panel-grid"></div>
 
   <script>
@@ -129,34 +241,75 @@
 
   const NAMES = ["Alice", "Bob", "Carol", "Dave"];
   const RACES = ["vorrkai","nexari","luminae","thornveld","obsidian_pact","dust_runners"];
-  const WS_BASE = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/sss/ws/`;
+  const RACE_COLORS = {
+    vorrkai:       "#e74c3c",
+    nexari:        "#1a5fa8",
+    luminae:       "#ff69b4",
+    thornveld:     "#27ae60",
+    obsidian_pact: "#9b59b6",
+    dust_runners:  "#8B4513",
+  };
+  const RACE_LABELS = {
+    vorrkai:       "Vorrkai",
+    nexari:        "Nexari",
+    luminae:       "Luminae",
+    thornveld:     "Thornveld",
+    obsidian_pact: "Obsidian Pact",
+    dust_runners:  "Dust Runners",
+  };
+  const RES_KEYS = ["food","science","tool","money"];
+  const WS_BASE  = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/sss/ws/`;
 
-  let gameCode = null;
-  let panels   = [];
+  let gameCode    = null;
+  let playerCount = 4;
+  let panels      = [];
 
   // ── Build panel DOM ──────────────────────────────────────────────────────
 
-  function buildPanels() {
+  function buildPanels(count) {
+    playerCount = count;
     const grid = document.getElementById("panel-grid");
     grid.innerHTML = "";
+    grid.className = `panel-grid g${count}`;
     panels = [];
 
-    for (let i = 0; i < 4; i++) {
+    const strip = document.getElementById("turn-strip");
+    strip.style.display = "none";
+    strip.innerHTML     = "";
+
+    for (let i = 0; i < count; i++) {
       const el = document.createElement("div");
       el.className = "panel";
       el.id = `panel-${i}`;
       el.innerHTML = `
         <div class="panel-hdr">
-          <div class="dot" id="dot-${i}"></div>
-          <span class="panel-name">${NAMES[i]}</span>
+          <div class="conn-dot" id="dot-${i}"></div>
+          <span class="panel-name" id="pname-${i}">${NAMES[i]}</span>
           <span class="role-badge" id="role-${i}">offline</span>
         </div>
-        <div class="res-row" id="res-${i}"><span style="color:var(--muted);font-size:.78rem">—</span></div>
-        <div class="log" id="log-${i}"></div>
+        <div id="race-${i}" style="display:none" class="race-banner">
+          <div class="race-swatch" id="race-swatch-${i}"></div>
+          <span class="race-name"  id="race-name-${i}">—</span>
+          <span class="race-vp"   id="race-vp-${i}"></span>
+        </div>
+        <div class="res-grid" id="res-${i}">
+          ${RES_KEYS.map(k => `
+          <div class="res-block ${k}">
+            <span class="res-label">${k}</span>
+            <div style="text-align:right">
+              <div class="res-val"  id="res-${i}-${k}">—</div>
+              <div class="res-inc" id="inc-${i}-${k}"></div>
+            </div>
+          </div>`).join("")}
+        </div>
+        <div class="log-wrap">
+          <div class="log-label">Message log</div>
+          <div class="log" id="log-${i}"></div>
+        </div>
         <div class="act-row" id="act-${i}"></div>
         <div class="send-row">
           <input class="send-inp" type="text" id="send-${i}" placeholder='{"type":"end_turn"}'>
-          <button class="ghost sm" onclick="sendRaw(${i})">Send</button>
+          <button class="btn-ghost btn-sm" onclick="sendRaw(${i})">Send</button>
         </div>`;
       grid.appendChild(el);
 
@@ -164,27 +317,27 @@
         ws: null, name: NAMES[i], role: null,
         lastState: null, raceIdx: i,
         el,
-        dotEl:  document.getElementById(`dot-${i}`),
-        roleEl: document.getElementById(`role-${i}`),
-        resEl:  document.getElementById(`res-${i}`),
-        logEl:  document.getElementById(`log-${i}`),
-        actEl:  document.getElementById(`act-${i}`),
-        sendEl: document.getElementById(`send-${i}`),
+        dotEl:   document.getElementById(`dot-${i}`),
+        roleEl:  document.getElementById(`role-${i}`),
+        raceEl:  document.getElementById(`race-${i}`),
+        logEl:   document.getElementById(`log-${i}`),
+        actEl:   document.getElementById(`act-${i}`),
+        sendEl:  document.getElementById(`send-${i}`),
       });
     }
   }
 
-  // ── Log ──────────────────────────────────────────────────────────────────
+  // ── Logging ──────────────────────────────────────────────────────────────
 
   function log(idx, dir, payload) {
     const el   = panels[idx].logEl;
     const line = document.createElement("div");
     line.className = `log-line ${dir}`;
     const text = typeof payload === "object" ? JSON.stringify(payload) : String(payload);
-    line.textContent = `[${dir}] ${text}`;
+    const ts   = new Date().toLocaleTimeString("en-US", { hour12: false, hour:"2-digit", minute:"2-digit", second:"2-digit" });
+    line.textContent = `${ts} [${dir}] ${text}`;
     el.appendChild(line);
-    // Keep last 60 lines
-    while (el.children.length > 60) el.removeChild(el.firstChild);
+    while (el.children.length > 80) el.removeChild(el.firstChild);
     el.scrollTop = el.scrollHeight;
   }
 
@@ -192,21 +345,15 @@
 
   function send(idx, obj) {
     const p = panels[idx];
-    if (!p.ws || p.ws.readyState !== WebSocket.OPEN) {
-      log(idx, "err", "Not connected"); return;
-    }
+    if (!p.ws || p.ws.readyState !== WebSocket.OPEN) { log(idx, "err", "Not connected"); return; }
     log(idx, "out", obj);
     p.ws.send(JSON.stringify(obj));
   }
 
   function sendRaw(idx) {
     const inp = panels[idx].sendEl;
-    try {
-      send(idx, JSON.parse(inp.value));
-      inp.value = "";
-    } catch (e) {
-      log(idx, "err", "Bad JSON: " + e.message);
-    }
+    try { send(idx, JSON.parse(inp.value)); inp.value = ""; }
+    catch (e) { log(idx, "err", "Bad JSON: " + e.message); }
   }
 
   // ── Message handler ───────────────────────────────────────────────────────
@@ -219,15 +366,14 @@
       p.role = msg.role;
       p.roleEl.textContent = msg.role;
       p.roleEl.className   = `role-badge ${msg.role}`;
-      p.dotEl.className    = "dot on";
-      p.el.classList.add("active");
+      p.dotEl.className    = "conn-dot on";
+      p.el.classList.add("connected");
 
       if (msg.role === "host") {
         gameCode = msg.code;
         document.getElementById("info-code").textContent = msg.code;
-        // Stagger joins so server processes them cleanly
         let delay = 200;
-        for (let i = 1; i < 4; i++) {
+        for (let i = 1; i < playerCount; i++) {
           setTimeout(() => connectPlayer(i, msg.code), delay);
           delay += 200;
         }
@@ -237,36 +383,83 @@
     if (msg.type === "game_state") {
       p.lastState = msg;
       document.getElementById("info-phase").textContent = msg.phase  ?? "—";
-      document.getElementById("info-turn").textContent  = msg.current_turn ?? "—";
+      document.getElementById("info-round").textContent = msg.round  ?? "—";
       renderResources(idx, msg);
+      renderRace(idx, msg);
       renderActions(idx, msg);
-      // Highlight whose turn it is
-      for (let i = 0; i < 4; i++) {
+      renderTurnStrip(msg);
+
+      // Panel border highlight
+      for (let i = 0; i < panels.length; i++) {
         const isTurn = msg.current_turn === panels[i].name;
-        panels[i].el.classList.toggle("myturn",  isTurn);
-        panels[i].el.classList.toggle("active", !isTurn);
+        panels[i].el.classList.toggle("myturn", isTurn);
       }
     }
 
-    if (msg.type === "error") {
-      log(idx, "err", msg.msg ?? JSON.stringify(msg));
-    }
+    if (msg.type === "error") log(idx, "err", msg.msg ?? JSON.stringify(msg));
+  }
+
+  // ── Turn strip ───────────────────────────────────────────────────────────
+
+  function renderTurnStrip(state) {
+    const strip = document.getElementById("turn-strip");
+    const order = state.turn_order ?? state.players?.map(p => p.name) ?? [];
+    if (!order.length) return;
+    strip.style.display = "flex";
+
+    const allPlayers = state.players ?? [];
+    strip.innerHTML = `<span class="turn-strip-label">Turn Order</span>`;
+    order.forEach((name, i) => {
+      const pl    = allPlayers.find(p => p.name === name);
+      const color = pl?.race ? (RACE_COLORS[pl.race] ?? "#64748b") : "#64748b";
+      const active = state.current_turn === name;
+      const chip = document.createElement("div");
+      chip.className = "turn-chip" + (active ? " active" : "");
+      chip.innerHTML = `<div class="race-dot" style="background:${color}"></div>${name}`;
+      strip.appendChild(chip);
+      if (i < order.length - 1) {
+        const arr = document.createElement("span");
+        arr.className = "turn-arrow"; arr.textContent = "›";
+        strip.appendChild(arr);
+      }
+    });
+  }
+
+  // ── Render race banner ────────────────────────────────────────────────────
+
+  function renderRace(idx, state) {
+    const p  = panels[idx];
+    const me = (state.players ?? []).find(pl => pl.name === p.name);
+    if (!me?.race) return;
+    const color = RACE_COLORS[me.race] ?? "#64748b";
+    p.raceEl.style.display = "flex";
+    p.raceEl.style.borderColor = color + "66";
+    document.getElementById(`race-swatch-${idx}`).style.background = color;
+    document.getElementById(`race-name-${idx}`).textContent = RACE_LABELS[me.race] ?? me.race;
+    const vp = me.vp ?? me.victory_points;
+    const vpEl = document.getElementById(`race-vp-${idx}`);
+    vpEl.textContent = vp != null ? `${vp} VP` : "";
+    // Color the panel top border to match race
+    p.el.style.borderTopColor = color;
   }
 
   // ── Render resources ──────────────────────────────────────────────────────
 
   function renderResources(idx, state) {
-    const me = (state.players ?? []).find(p => p.name === panels[idx].name);
+    const me = (state.players ?? []).find(pl => pl.name === panels[idx].name);
     if (!me) return;
-    const r    = me.resources ?? {};
-    const keys = ["food","science","tool","money"];
-    let html   = keys.map(k =>
-      `<div class="res-chip">
-        <span class="res-key">${k[0]}</span>
-        <span class="res-val">${r[k] ?? 0}</span>
-      </div>`).join("");
-    if (me.race) html += `<div class="res-chip race"><span class="res-key">race</span><span class="res-val">${me.race}</span></div>`;
-    panels[idx].resEl.innerHTML = html;
+    const res    = me.resources ?? {};
+    const income = me.income    ?? {};
+    RES_KEYS.forEach(k => {
+      const valEl = document.getElementById(`res-${idx}-${k}`);
+      const incEl = document.getElementById(`inc-${idx}-${k}`);
+      if (valEl) valEl.textContent = res[k] ?? 0;
+      if (incEl) {
+        const n = income[k] ?? 0;
+        incEl.textContent = n > 0 ? `+${n}/turn` : "";
+        incEl.className   = `res-inc ${n > 0 ? "pos" : n < 0 ? "neg" : ""}`;
+      }
+    });
   }
 
   // ── Render action buttons ─────────────────────────────────────────────────
@@ -277,40 +470,42 @@
     const myTurn = state.current_turn === p.name;
     const btns   = [];
 
-    // Lobby: host can start
     if (phase === "lobby" && p.role === "host") {
-      btns.push(mkBtn("Start Game", () => send(idx, { type: "start_game" })));
+      btns.push(mkBtn("▶ Start Game", "btn-start", () => send(idx, { type: "start_game" })));
     }
 
-    // Race pick: cycle through races
     if (phase === "race_pick") {
       const me = (state.players ?? []).find(pl => pl.name === p.name);
       if (!me?.race) {
-        const race = RACES[p.raceIdx % RACES.length];
-        const label = race.replace("_", " ");
-        btns.push(mkBtn(`Pick: ${label}`, () => {
+        const race  = RACES[p.raceIdx % RACES.length];
+        const color = RACE_COLORS[race] ?? "#64748b";
+        const label = RACE_LABELS[race] ?? race;
+        const pb = mkBtn(`Pick: ${label}`, "btn-action", () => {
           send(idx, { type: "pick_race", race });
           p.raceIdx = (p.raceIdx + 1) % RACES.length;
-          // Re-render immediately after click
-          setTimeout(() => renderActions(idx, p.lastState ?? state), 50);
-        }));
-        btns.push(mkBtn("Next Race ▶", () => {
+          setTimeout(() => renderActions(idx, p.lastState ?? state), 60);
+        });
+        pb.style.borderColor = color + "99";
+        pb.style.color       = color;
+        btns.push(pb);
+        btns.push(mkBtn("Next ▶", "btn-ghost btn-sm", () => {
           p.raceIdx = (p.raceIdx + 1) % RACES.length;
           renderActions(idx, p.lastState ?? state);
         }));
       } else {
         const lbl = document.createElement("span");
-        lbl.style.cssText = "font-size:.78rem;color:var(--green);align-self:center";
-        lbl.textContent = `✓ ${me.race}`;
+        const color = RACE_COLORS[me.race] ?? "#64748b";
+        lbl.style.cssText = `font-size:.78rem;color:${color};align-self:center;font-weight:700`;
+        lbl.textContent = `✓ ${RACE_LABELS[me.race] ?? me.race}`;
         btns.push(lbl);
       }
     }
 
-    // My turn: end turn button + role badge update
     if (myTurn && !["lobby","race_pick"].includes(phase)) {
       p.roleEl.textContent = "YOUR TURN";
       p.roleEl.className   = "role-badge turn";
-      btns.push(mkBtn("End Turn", () => send(idx, { type: "end_turn" })));
+      btns.push(mkBtn("End Turn", "btn-end btn-sm", () => send(idx, { type: "end_turn" })));
+      btns.push(mkBtn("Roll Dice", "btn-action btn-sm", () => send(idx, { type: "roll_dice" })));
     } else if (!["lobby","race_pick"].includes(phase)) {
       p.roleEl.textContent = p.role ?? "player";
       p.roleEl.className   = `role-badge ${p.role ?? "player"}`;
@@ -320,9 +515,9 @@
     btns.forEach(b => p.actEl.appendChild(b));
   }
 
-  function mkBtn(label, onClick) {
+  function mkBtn(label, cls, onClick) {
     const b = document.createElement("button");
-    b.className = "ghost sm";
+    b.className = cls;
     b.textContent = label;
     b.addEventListener("click", onClick);
     return b;
@@ -333,22 +528,18 @@
   function connectPlayer(idx, code) {
     const p      = panels[idx];
     const isHost = idx === 0;
-
     if (p.ws) { try { p.ws.close(); } catch (_) {} p.ws = null; }
-
-    p.dotEl.className = "dot";
+    p.dotEl.className    = "conn-dot";
     p.roleEl.textContent = "connecting…";
     p.roleEl.className   = "role-badge";
 
     p.ws = new WebSocket(WS_BASE + (isHost ? "NEW" : code));
 
     p.ws.onopen = () => {
-      p.dotEl.className = "dot on";
-      if (isHost) {
-        send(idx, { type: "host", name: p.name });
-      } else {
-        send(idx, { type: "join", name: p.name, code });
-      }
+      p.dotEl.className = "conn-dot on";
+      send(idx, isHost
+        ? { type: "host", name: p.name }
+        : { type: "join", name: p.name, code });
     };
 
     p.ws.onmessage = e => {
@@ -356,38 +547,44 @@
     };
 
     p.ws.onclose = () => {
-      p.dotEl.className = "dot err";
+      p.dotEl.className    = "conn-dot err";
       p.roleEl.textContent = "offline";
       p.roleEl.className   = "role-badge";
-      p.el.classList.remove("active", "myturn");
+      p.el.classList.remove("connected","myturn");
+      p.el.style.borderTopColor = "";
     };
 
     p.ws.onerror = () => {
-      p.dotEl.className = "dot err";
+      p.dotEl.className = "conn-dot err";
       log(idx, "err", "WebSocket error");
     };
   }
 
-  // ── Top-bar controls ──────────────────────────────────────────────────────
+  // ── Controls ──────────────────────────────────────────────────────────────
 
   function resetAll() {
     panels.forEach(p => { try { p.ws?.close(); } catch (_) {} });
-    buildPanels();
+    panels = [];
     gameCode = null;
-    ["info-code","info-phase","info-turn"].forEach(id => {
-      document.getElementById(id).textContent = "—";
-    });
+    document.getElementById("info-code").textContent  = "—";
+    document.getElementById("info-phase").textContent = "—";
+    document.getElementById("info-round").textContent = "—";
+    document.getElementById("turn-strip").style.display = "none";
+    document.getElementById("panel-grid").innerHTML = "";
   }
 
-  document.getElementById("btn-launch").addEventListener("click", () => {
+  function launch(count) {
     resetAll();
+    buildPanels(count);
     connectPlayer(0, null);
-  });
+  }
 
+  document.getElementById("btn-3p").addEventListener("click", () => launch(3));
+  document.getElementById("btn-4p").addEventListener("click", () => launch(4));
   document.getElementById("btn-reset").addEventListener("click", resetAll);
 
-  // Init on load
-  buildPanels();
+  // Empty grid on load — user picks 3 or 4
+  buildPanels(4);
   </script>
 </body>
 </html>
