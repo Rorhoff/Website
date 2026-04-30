@@ -1574,15 +1574,16 @@ function showActionPicker() {
 // ── Construction picker ────────────────────────────────────────────────────
 
 const CONSTRUCTION_ITEMS = [
-  { type: "cruise_ship",      label: "Cruise Ship",         cost: 10  },
-  { type: "frigate",          label: "Frigate",             cost: 15  },
-  { type: "outpost",          label: "Outpost",             cost: 30  },
-  { type: "super_ship",       label: "Super Ship",          cost: 60  },
-  { type: "battle_station",   label: "Battle Station",      cost: 75  },
-  { type: "death_star",       label: "Death Star",          cost: 130 },
-  { type: "building_tool",    label: "Workshop (+1 Tool)",  cost: 4   },
-  { type: "building_science", label: "Lab (+1 Science)",    cost: 4   },
-  { type: "building_money",   label: "Treasury (+2 ¤)",     cost: 6   },
+  { type: "cruise_ship",      label: "Cruise Ship",                  cost: 10,  toolCost: 0  },
+  { type: "frigate",          label: "Frigate",                      cost: 10,  toolCost: 2  },
+  { type: "outpost",          label: "Outpost",                      cost: 25,  toolCost: 4  },
+  { type: "super_ship",       label: "Super Ship",                   cost: 50,  toolCost: 8  },
+  { type: "battle_station",   label: "Battle Station",               cost: 60,  toolCost: 12 },
+  { type: "death_star",       label: "Death Star",                   cost: 100, toolCost: 20 },
+  { type: "building_tool",    label: "Workshop (+1 Tool)",           cost: 4,   toolCost: 0  },
+  { type: "building_science", label: "Lab (+1 Science)",             cost: 4,   toolCost: 0  },
+  { type: "building_money",   label: "Treasury (+2 ¤)",              cost: 6,   toolCost: 0  },
+  { type: "farmer_upgrade",   label: "Farmer Upgrade (−1 food upkeep)", cost: 0, toolCost: 3, upgrade: true },
 ];
 const BUILDING_TYPES = new Set(["building_tool", "building_science", "building_money"]);
 
@@ -1603,25 +1604,33 @@ function initConstructionPicker() {
 }
 
 function showConstructionPicker(filter = "all") {
-  const titles = { ships: "Build Ships", buildings: "Build Buildings", all: "Construction" };
+  const titles = { ships: "Build Ships", buildings: "Build / Upgrade", all: "Construction" };
   document.getElementById("construction-picker-title").textContent = titles[filter] ?? "Construction";
 
   const me = (_lastState?.players ?? []).find(p => p.name === myName);
   const money = me?.resources?.money ?? 0;
+  const tools = me?.resources?.tool ?? 0;
 
   const items = filter === "ships"
-    ? CONSTRUCTION_ITEMS.filter(i => !BUILDING_TYPES.has(i.type))
+    ? CONSTRUCTION_ITEMS.filter(i => !BUILDING_TYPES.has(i.type) && !i.upgrade)
     : filter === "buildings"
-    ? CONSTRUCTION_ITEMS.filter(i =>  BUILDING_TYPES.has(i.type))
+    ? CONSTRUCTION_ITEMS.filter(i => BUILDING_TYPES.has(i.type) || i.upgrade)
     : CONSTRUCTION_ITEMS;
 
   const list = document.getElementById("construction-pick-list");
-  list.innerHTML = items.map(item => `
-    <div class="action-pick-row construct-row ${money < item.cost ? "disabled" : ""}"
-         data-type="${item.type}" data-cost="${item.cost}">
+  list.innerHTML = items.map(item => {
+    const canAfford = money >= item.cost && tools >= item.toolCost;
+    const parts = [];
+    if (item.cost > 0)     parts.push(`${item.cost} ¤`);
+    if (item.toolCost > 0) parts.push(`${item.toolCost} ⚙`);
+    const costStr = parts.join(" + ") || "Free";
+    return `
+    <div class="action-pick-row construct-row ${canAfford ? "" : "disabled"}"
+         data-type="${item.type}">
       <span class="cv-action-label">${item.label}</span>
-      <span class="construct-cost ${money < item.cost ? "cant-afford" : ""}">${item.cost} ¤</span>
-    </div>`).join("");
+      <span class="construct-cost ${canAfford ? "" : "cant-afford"}">${costStr}</span>
+    </div>`;
+  }).join("");
 
   document.getElementById("construction-picker").classList.remove("hidden");
 
@@ -1630,8 +1639,11 @@ function showConstructionPicker(filter = "all") {
       const type = row.dataset.type;
       const item = CONSTRUCTION_ITEMS.find(i => i.type === type);
       document.getElementById("construction-picker").classList.add("hidden");
+      if (type === "farmer_upgrade") {
+        send({ type: "build_piece", piece_type: "farmer_upgrade" });
+        return;
+      }
       if (_pendingScienceHex !== null) {
-        // Clicked directly on the S tile — place immediately without re-render
         const hexId = _pendingScienceHex;
         _pendingScienceHex = null;
         send({ type: "build_piece", piece_type: type, hex_id: hexId });

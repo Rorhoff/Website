@@ -344,9 +344,10 @@ def _apply_turn_income(game, player) -> None:
             continue
         counts = h.get("tri_counts") or []
         if len(counts) >= 3:
-            upkeep["tool"]    += counts[0]  # yellow  → tools
-            upkeep["food"]    += counts[1]  # red/green → food
-            upkeep["science"] += counts[2]  # blue    → science
+            upkeep["tool"]    += counts[0]
+            food = max(1, counts[1] - 1) if h.get("tri_farmer_green") else counts[1]
+            upkeep["food"]    += food
+            upkeep["science"] += counts[2]
     # Building bonuses — all buildings owned by the player anywhere on the board
     building_bonus: dict = {"food": 0, "science": 0, "tool": 0, "money": 0}
     for h in game.board:
@@ -950,30 +951,54 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 piece_type = raw.get("piece_type")
                 hex_id     = raw.get("hex_id")
                 COSTS = {
-                    "cruise_ship":       10,
-                    "frigate":           15,
-                    "outpost":           30,
-                    "super_ship":        60,
-                    "battle_station":    75,
-                    "death_star":       130,
-                    "building_tool":      4,
-                    "building_science":   4,
-                    "building_money":     6,
+                    "cruise_ship":      {"money": 10},
+                    "frigate":          {"money": 10, "tool": 2},
+                    "outpost":          {"money": 25, "tool": 4},
+                    "super_ship":       {"money": 50, "tool": 8},
+                    "battle_station":   {"money": 60, "tool": 12},
+                    "death_star":       {"money": 100, "tool": 20},
+                    "building_tool":    {"money": 4},
+                    "building_science": {"money": 4},
+                    "building_money":   {"money": 6},
+                    "farmer_upgrade":   {"tool": 3},
                 }
                 cost = COSTS.get(piece_type)
                 if cost is None:
                     await ws.send_json({"type": "error", "msg": "Unknown piece type"})
                     continue
+                money_cost = cost.get("money", 0)
+                tool_cost  = cost.get("tool", 0)
                 money = player.resources.get("money", 0)
-                if money < cost:
-                    await ws.send_json({"type": "error", "msg": f"Not enough money (need {cost}, have {money})"})
+                tools = player.resources.get("tool", 0)
+                if money < money_cost:
+                    await ws.send_json({"type": "error", "msg": f"Not enough money (need {money_cost}, have {money})"})
+                    continue
+                if tools < tool_cost:
+                    await ws.send_json({"type": "error", "msg": f"Not enough tools (need {tool_cost}, have {tools})"})
+                    continue
+                player_cluster = game.player_system.get(player.name)
+                if piece_type == "farmer_upgrade":
+                    tri_hex = next(
+                        (h for h in game.board if h.get("tri") and h["cluster"] == player_cluster),
+                        None
+                    )
+                    if tri_hex is None:
+                        await ws.send_json({"type": "error", "msg": "No triangle hex in your system"})
+                        continue
+                    if tri_hex.get("tri_farmer_green"):
+                        await ws.send_json({"type": "error", "msg": "Farmer upgrade already applied"})
+                        continue
+                    tri_hex["tri_farmer_green"] = True
+                    player.resources["tool"] = tools - tool_cost
+                    _use_action(game)
+                    state = game.public_state()
+                    state["board"] = game.board
+                    await game.broadcast({"type": "game_state", **state})
                     continue
                 if not (0 <= hex_id < len(game.board)):
                     await ws.send_json({"type": "error", "msg": "Invalid hex"})
                     continue
                 target_hex = game.board[hex_id]
-                # Validate placement: must be a ring hex in the player's home cluster
-                player_cluster = game.player_system.get(player.name)
                 if target_hex["cluster"] != player_cluster or target_hex["local"] == 0:
                     await ws.send_json({"type": "error", "msg": "Must build in your home system"})
                     continue
@@ -994,7 +1019,9 @@ async def sss_ws(ws: WebSocket, game_code: str):
                     if target_hex["type"] != "orbital":
                         await ws.send_json({"type": "error", "msg": "That piece must be placed on an orbital hex"})
                         continue
-                player.resources["money"] = money - cost
+                player.resources["money"] = money - money_cost
+                if tool_cost:
+                    player.resources["tool"] = tools - tool_cost
                 target_hex["pieces"].append({"type": piece_type, "owner": player.name})
                 _use_action(game)
                 state = game.public_state()

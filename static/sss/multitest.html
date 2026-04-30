@@ -512,6 +512,7 @@
 
     const me        = (state.players ?? []).find(pl => pl.name === p.name);
     const money     = (me?.resources ?? {}).money ?? 0;
+    const tools     = (me?.resources ?? {}).tool  ?? 0;
     const myCluster = (state.player_system ?? {})[p.name];
     const allSystems = new Set(Object.values(state.player_system ?? {}));
     const BUILD_TYPES = ["building_tool","building_science","building_money"];
@@ -556,13 +557,13 @@
     }
 
     // 2. Build frigate (more firepower before expanding)
-    if (myCluster != null && money >= 15) {
+    if (myCluster != null && money >= 10 && tools >= 2) {
       const orbital = board.find(h =>
         h.cluster === myCluster && h.type === "orbital" && h.local !== 0 &&
         (h.pieces ?? []).filter(pc => pc.type === "frigate").length < 3
       );
       if (orbital) {
-        sysLog(idx, `🚀 Build frigate on hex ${orbital.id} ($${money})`);
+        sysLog(idx, `🚀 Build frigate on hex ${orbital.id} ($${money} + ⚙${tools})`);
         send(idx, { type: "build_piece", piece_type: "frigate", hex_id: orbital.id });
         return;
       }
@@ -589,7 +590,19 @@
       }
     }
 
-    sysLog(idx, `No useful action — end_turn ($${money})`);
+    // 5. Farmer upgrade (reduce food upkeep if not yet upgraded and has 3+ tools)
+    if (myCluster != null && tools >= 3) {
+      const triHex = board.find(h =>
+        h.cluster === myCluster && h.tri && !h.tri_farmer_green
+      );
+      if (triHex) {
+        sysLog(idx, `🌿 Farmer upgrade (⚙${tools})`);
+        send(idx, { type: "build_piece", piece_type: "farmer_upgrade" });
+        return;
+      }
+    }
+
+    sysLog(idx, `No useful action — end_turn ($${money} ⚙${tools})`);
     send(idx, { type: "end_turn" });
   }
 
