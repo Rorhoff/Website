@@ -358,6 +358,7 @@
 
       panels.push({
         ws: null, name: NAMES[i], role: null, lastState: null,
+        autoRolled: false, lastDiceRound: null,
         el,
         dotEl:   document.getElementById(`dot-${i}`),
         roleEl:  document.getElementById(`role-${i}`),
@@ -518,13 +519,24 @@
       }
     }
 
-    // Dice roll: auto-roll
+    // Dice roll: auto-roll — one roll per player per round, guard via autoRolled
     if (phase === "dice_roll") {
-      const me      = (msg.players ?? []).find(pl => pl.name === p.name);
-      const inRound = (msg.dice_round ?? []).includes(p.name);
-      if (me && inRound && me.dice_roll === 0) {
+      const me       = (msg.players ?? []).find(pl => pl.name === p.name);
+      const drKey    = (msg.dice_round ?? []).join(",");
+      const inRound  = (msg.dice_round ?? []).includes(p.name);
+
+      // Reset guard when server assigns a new dice_round (tie-break re-rolls)
+      if (drKey !== p.lastDiceRound) {
+        p.lastDiceRound = drKey;
+        p.autoRolled    = false;
+      }
+
+      sysLog(idx, `dice_roll: inRound=${inRound} rolled=${me?.dice_roll} autoRolled=${p.autoRolled} round=[${drKey}]`);
+
+      if (me && inRound && me.dice_roll === 0 && !p.autoRolled) {
+        p.autoRolled = true;
         setAutoMsg("Rolling dice for turn order…");
-        setTimeout(() => send(idx, { type: "roll_dice" }), 300 + idx * 300);
+        setTimeout(() => send(idx, { type: "roll_dice" }), 150 + idx * 150);
       }
     }
 
