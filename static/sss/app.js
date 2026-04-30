@@ -662,7 +662,7 @@ function renderBoard(state, placementMode) {
     && state.current_turn === myName && myRole !== "watcher";
 
   if (isActionTurn && _actionMode.type === "invasion") {
-    // Invasion sources: clusters where player has frigates in a non-owned planet system
+    // Clusters this player already owns (home system + any empire_flag clusters)
     const myOwnedClusters = new Set();
     const homeCluster = (state.player_system ?? {})[myName];
     if (homeCluster != null) myOwnedClusters.add(homeCluster);
@@ -670,11 +670,31 @@ function renderBoard(state, placementMode) {
       if ((h.pieces ?? []).some(p => p.type === "empire_flag" && p.owner === myName))
         myOwnedClusters.add(h.cluster);
     }
-    for (const h of hexes) {
-      if (!(h.pieces ?? []).some(p => p.type === "frigate" && p.owner === myName)) continue;
-      if (myOwnedClusters.has(h.cluster)) continue;
-      const core = hexes.find(c => c.cluster === h.cluster && c.local === 0);
-      if (core && core.planet) invasionSourceClusters.add(h.cluster);
+
+    if (_selectedCluster === null) {
+      const seen = new Set();
+      for (const h of hexes) {
+        if (!(h.pieces ?? []).some(p => p.type === "frigate" && p.owner === myName)) continue;
+        if (seen.has(h.cluster)) continue;
+        seen.add(h.cluster);
+
+        // In-system: frigates already in a non-owned planet cluster → direct invasion_attack
+        const core = hexes.find(c => c.cluster === h.cluster && c.local === 0);
+        if (core?.planet && !myOwnedClusters.has(h.cluster)) {
+          invasionSourceClusters.add(h.cluster);
+        }
+
+        // Wormhole: compute invasion routes from this cluster to adjacent planet clusters
+        const routes = computeInvasionRoutes(hexes, h.cluster);
+        if (routes.length > 0) {
+          actionSourceClusters.add(h.cluster);
+          actionRoutesMap[h.cluster] = routes;
+        }
+      }
+    } else {
+      // Source already selected — expose target planet clusters
+      actionSourceClusters.add(_selectedCluster);
+      for (const r of _selectedRoutes) actionTargetClusters.add(r.dest_cluster);
     }
   } else if (isActionTurn) {
     if (_selectedCluster === null) {
@@ -1717,6 +1737,8 @@ function showCombatAttackerRolled(msg) {
   const board = boardCache ?? [];
   const clusterLabel = board.find(h => h.cluster === msg.dest_cluster && h.local === 0)?.label ?? msg.dest_cluster;
 
+  const isDefender = msg.defender === myName;
+
   if (isAttacker) {
     document.getElementById("combat-title").textContent = `Attack — System ${clusterLabel}`;
     document.getElementById("combat-body").innerHTML =
@@ -1726,7 +1748,7 @@ function showCombatAttackerRolled(msg) {
     overlay.classList.remove("hidden");
     throwDice(document.getElementById("atk-dice-preview"), msg.atk_dice, false);
     document.getElementById("combat-footer").innerHTML = "";
-  } else {
+  } else if (isDefender) {
     document.getElementById("combat-title").textContent = `Incoming Attack — System ${clusterLabel}`;
     document.getElementById("combat-body").innerHTML =
       `<div class="hint" style="margin-bottom:.5rem">${msg.attacker} rolled:</div>
@@ -1743,6 +1765,7 @@ function showCombatAttackerRolled(msg) {
       send({ type: "roll_combat_dice" });
     });
   }
+  // Non-combatant players receive combat_attacker_rolled too but should not see the roll UI
 }
 
 function showCombatResult(msg) {
