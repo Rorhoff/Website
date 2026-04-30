@@ -629,13 +629,21 @@
     svgEl.setAttribute("viewBox", `0 0 ${vw} ${vh}`);
     svgEl.setAttribute("height", Math.min(vh, 340));
 
-    // Hex type → subtle tint color
+    // Ring hex type → subtle background tint
     const HEX_TINTS = {
-      orbital:  "#0a1f35",
-      bs_slot:  "#1a1000",
-      science:  "#130a20",
-      space:    "#050810",
-      black_hole:"#200030",
+      orbital:   "#0a1f35",
+      bs_slot:   "#1a1000",
+      science:   "#130a20",
+      space:     "#050810",
+    };
+    // Center hex (planet) type → fill and stroke colors
+    const PLANET_FILLS = {
+      yellow:     "#1e1600", blue:  "#001020", white: "#10131a",
+      red:        "#1e0800", green: "#001a08", black_hole: "#1a0030",
+    };
+    const PLANET_STROKES = {
+      yellow:     "#9b7a14", blue:  "#1a65b0", white: "#606878",
+      red:        "#952010", green: "#0a6830", black_hole: "#7000c0",
     };
     // Hex type → small label rendered inside hex
     const HEX_LABELS = { orbital: "O", bs_slot: "B", science: "S" };
@@ -659,13 +667,25 @@
       const ownColor = owner ? (playerColor[owner] ?? "#64748b") : null;
       const isCenter = h.local === 0;
 
-      // Hex fill and stroke
-      let fill   = HEX_TINTS[h.type] ?? "#050810";
-      let stroke = "#1e2d45";
-      let sw     = "0.8";
-      if (ownColor && isCenter) { fill = ownColor + "2a"; stroke = ownColor + "cc"; sw = "2"; }
-      else if (ownColor)        { fill = ownColor + "12"; stroke = ownColor + "66"; sw = "1"; }
-      if (h.tri)                { stroke = h.tri_color || "#f59e0b"; sw = "1.8"; }
+      // Center hex: color by empire_flag owner (claimed/invaded) or planet type
+      // Ring hex: type tint + subtle home-cluster ownership hint
+      let fill, stroke, sw;
+      if (isCenter) {
+        const flag = (h.pieces ?? []).find(pc => pc.type === "empire_flag");
+        const flagCol = flag ? (playerColor[flag.owner] ?? null) : null;
+        if (flagCol) {
+          fill = flagCol + "38"; stroke = flagCol + "ee"; sw = "2.5";
+        } else {
+          fill = PLANET_FILLS[h.type] ?? "#080c14";
+          stroke = PLANET_STROKES[h.type] ?? "#1e2d45";
+          sw = "1.5";
+        }
+      } else {
+        fill = HEX_TINTS[h.type] ?? "#050810";
+        stroke = "#1e2d45"; sw = "0.8";
+        if (ownColor) { fill = ownColor + "10"; stroke = ownColor + "44"; sw = "0.9"; }
+        if (h.tri)    { stroke = h.tri_color || "#f59e0b"; sw = "1.8"; }
+      }
       let sciClick = "";
       if (!isCenter && h.type === "science" && ownColor) {
         stroke = "#a855f7"; sw = "1.6";
@@ -673,10 +693,12 @@
       }
       inner += `<polygon points="${hexPts(cx, cy)}" fill="${fill}" stroke="${stroke}" stroke-width="${sw}"${sciClick}/>`;
 
-      // Center hex: planet marker + system ID
+      // Center hex: planet marker circle + system label
       if (isCenter) {
-        const pCol = ownColor ?? "#94a3b8";
-        inner += `<circle cx="${cx}" cy="${cy}" r="${rr * 0.28}" fill="${pCol}44" stroke="${pCol}88" stroke-width="0.8"/>`;
+        const flag = (h.pieces ?? []).find(pc => pc.type === "empire_flag");
+        const pCol = flag ? (playerColor[flag.owner] ?? PLANET_STROKES[h.type] ?? "#94a3b8")
+                         : (PLANET_STROKES[h.type] ?? "#94a3b8");
+        inner += `<circle cx="${cx}" cy="${cy}" r="${rr * 0.32}" fill="${pCol}55" stroke="${pCol}aa" stroke-width="1"/>`;
         if (h.label) {
           inner += `<text x="${cx}" y="${(cy - rr - 3).toFixed(1)}" text-anchor="middle" font-size="${Math.max(5.5, rr * 0.48)}" fill="${pCol}" font-family="system-ui" font-weight="700">${h.label}</text>`;
         }
@@ -687,11 +709,13 @@
         inner += `<text x="${cx}" y="${(cy + rr * 0.35).toFixed(1)}" text-anchor="middle" font-size="${Math.max(4, rr * 0.38)}" fill="#ffffff22" font-family="monospace">${HEX_LABELS[h.type]}</text>`;
       }
 
-      // Piece icons (skip empire_flag — ownership shown by cluster color)
+      // Piece icons (skip empire_flag — ownership shown by center hex color)
       const pieces = (h.pieces ?? []).filter(pc => pc.type !== "empire_flag");
       if (pieces.length === 0) continue;
 
-      const col = ownColor ?? "#64748b";
+      // Use the primary piece owner's color (handles frigates from any player)
+      const pieceOwner = pieces[0]?.owner;
+      const col = (pieceOwner ? playerColor[pieceOwner] : null) ?? ownColor ?? "#64748b";
       // Count by type
       const frigates   = pieces.filter(pc => pc.type === "frigate").length;
       const bs         = pieces.filter(pc => pc.type === "battle_station").length;
