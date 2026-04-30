@@ -1319,6 +1319,15 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 if not core_hex or not core_hex.get("planet"):
                     await ws.send_json({"type": "error", "msg": "No planet to invade there"})
                     continue
+                # Require no enemy ships in destination — defeat them first
+                enemy_present = any(
+                    p["type"] == "frigate" and p["owner"] != player.name
+                    for h in game.board if h["cluster"] == dest_cluster
+                    for p in h["pieces"]
+                )
+                if enemy_present:
+                    await ws.send_json({"type": "error", "msg": "Enemy ships present — defeat them before invading"})
+                    continue
                 # Find and move a frigate from from_hex's cluster
                 from_cluster = from_hex["cluster"]
                 landing_hex = next(
@@ -1387,6 +1396,15 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 if not player_frigates:
                     await ws.send_json({"type": "error", "msg": "No frigates in that cluster"})
                     continue
+                # Require no enemy ships — defeat them first
+                enemy_present = any(
+                    p["type"] == "frigate" and p["owner"] != player.name
+                    for h in game.board if h["cluster"] == cluster
+                    for p in h["pieces"]
+                )
+                if enemy_present:
+                    await ws.send_json({"type": "error", "msg": "Enemy ships present — defeat them before invading"})
+                    continue
                 # Verify player doesn't own it
                 already_owns = (
                     game.player_system.get(player.name) == cluster
@@ -1445,6 +1463,7 @@ async def sss_ws(ws: WebSocket, game_code: str):
                     "atk_total": atk_total,
                     "planet_total": planet_total,
                     "won": won,
+                    "planet": planet,
                     **state,
                 })
 
@@ -1506,7 +1525,8 @@ async def sss_ws(ws: WebSocket, game_code: str):
                     "planet_dice": planet_dice,
                     "atk_total": atk_total,
                     "planet_total": planet_total,
-                    "winner": winner,
+                    "won": winner == "player",
+                    "planet": planet,
                     **state,
                 })
 

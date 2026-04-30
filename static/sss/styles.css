@@ -131,7 +131,7 @@ h1 { font-size: 2rem; font-weight: 700; color: var(--accent); text-align: center
 /* ── Player HUD — fixed to viewport top-left (stays put while map pans) ── */
 .player-hud {
   position: fixed;
-  top: 8px;
+  top: 32px;
   left: 8px;
   z-index: 50;
   background: rgba(8, 12, 20, 0.92);
@@ -362,17 +362,16 @@ h1 { font-size: 2rem; font-weight: 700; color: var(--accent); text-align: center
 .icon-tool  { width: 14px; height: 14px; vertical-align: middle; }
 .icon-money { width: 15px; height: 15px; vertical-align: middle; }
 
-/* ── Income / Turn — 4-column grid ────────────────────────── */
+/* ── Income / Turn — 3-column grid ────────────────────────── */
 .income-section { }
 .income-heading {
   font-size: .7rem; color: var(--muted); text-transform: uppercase;
   letter-spacing: .06rem; margin-bottom: .4rem; font-weight: 600;
 }
-/* 5-col grid: [res label] [ft-income] [ft-cost] [sm-income] [sm-cost] */
-.income-grid-4 {
+.income-grid-3 {
   display: grid;
-  grid-template-columns: 1fr repeat(4, auto);
-  gap: .2rem .5rem;
+  grid-template-columns: 1fr auto auto;
+  gap: .3rem .5rem;
   align-items: center;
   font-size: .78rem;
 }
@@ -382,16 +381,22 @@ h1 { font-size: 2rem; font-weight: 700; color: var(--accent); text-align: center
 }
 .income-col-hdr.cost-hdr { color: #ef444488; }
 .income-res-label {
-  display: flex; align-items: center; gap: .25rem;
-  color: var(--text); font-size: .78rem; text-transform: capitalize;
+  display: flex; align-items: center; gap: .3rem;
+  background: #0a0f18; border: 1px solid var(--border);
+  border-radius: 6px; padding: .28rem .55rem;
+  color: var(--text); font-size: .75rem; text-transform: capitalize;
 }
 .income-res-label img, .income-res-label svg { width: 14px; height: 14px; }
-.income-cell { text-align: center; min-width: 2rem; }
-.income-cell.income-spacer { color: transparent; pointer-events: none; }
-.income-count { color: #22c55e !important; font-weight: 600; }
-.income-negative { color: var(--danger) !important; font-weight: 600; }
+.income-cell {
+  display: flex; align-items: center; justify-content: center;
+  background: #0a0f18; border: 1px solid var(--border);
+  border-radius: 6px; padding: .28rem .55rem;
+  min-width: 2.6rem; text-align: center;
+}
+.income-count { color: #22c55e !important; font-weight: 700; }
+.income-negative { color: var(--danger) !important; font-weight: 700; }
 .income-zero { color: var(--muted) !important; }
-.upkeep-cost { font-size: .78rem; color: var(--danger); font-weight: 600; }
+.upkeep-cost { color: var(--danger); font-weight: 700; }
 .tech-level {
   height: 26px; border-radius: 5px;
   background: #0a0f18; border: 1px solid var(--border);
@@ -652,6 +657,17 @@ h1 { font-size: 2rem; font-weight: 700; color: var(--accent); text-align: center
 .die-throw.from-right {
   animation-name: dice-fly-right;
 }
+.combat-resource-gain {
+  margin-top: .75rem;
+  display: flex; flex-wrap: wrap; gap: .4rem; align-items: center;
+}
+.res-chip {
+  font-size: .8rem; font-weight: 700; padding: .2rem .55rem;
+  border-radius: 999px; border: 1px solid;
+}
+.res-chip.food    { color: #86efac; border-color: #4ade80; background: rgba(74,222,128,.08); }
+.res-chip.science { color: #93c5fd; border-color: #60a5fa; background: rgba(96,165,250,.08); }
+.res-chip.tool    { color: #fcd34d; border-color: #f59e0b; background: rgba(245,158,11,.08); }
 .combat-waiting-msg {
   font-size: .85rem; color: var(--muted); text-align: center;
   padding: .5rem; border: 1px dashed var(--border); border-radius: 7px;

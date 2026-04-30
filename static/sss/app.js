@@ -679,8 +679,13 @@ function renderBoard(state, placementMode) {
         seen.add(h.cluster);
 
         // In-system: frigates already in a non-owned planet cluster → direct invasion_attack
+        // Enemy ships must be cleared first before invading
         const core = hexes.find(c => c.cluster === h.cluster && c.local === 0);
-        if (core?.planet && !myOwnedClusters.has(h.cluster)) {
+        const hasEnemyHere = hexes.some(hh =>
+          hh.cluster === h.cluster &&
+          (hh.pieces ?? []).some(p => p.type === "frigate" && p.owner !== myName)
+        );
+        if (core?.planet && !myOwnedClusters.has(h.cluster) && !hasEnemyHere) {
           invasionSourceClusters.add(h.cluster);
         }
 
@@ -1259,34 +1264,21 @@ function renderFullPlayerCard(state) {
     if (c.length >= 3) { upkeep.tool += c[0]; upkeep.food += c[1]; upkeep.science += c[2]; }
   }
 
-  // Income / Turn — 4-column grid layout
-  // Row 0: headers | Row 1: food | Row 2: tool | Row 3: science | Row 4: money
-  // Cols: resource icon+name | Income (food+tool) | Cost (food+tool) | Income (sci+money) | Cost (sci+money)
-  const FT_KEYS  = ["food", "tool"];
-  const SM_KEYS  = ["science", "money"];
-
-  function fmtInc(r)  { const v = income[r] ?? 0; return v > 0 ? `<span class="income-count">+${v}</span>` : `<span class="income-zero">${v}</span>`; }
-  function fmtCost(r) { const v = upkeep[r] ?? 0; return v > 0 ? `<span class="upkeep-cost">-${v}</span>` : `<span class="income-zero">—</span>`; }
-
   const incomeHtml = `
-    <div class="income-grid-4">
+    <div class="income-grid-3">
       <div class="income-col-hdr"></div>
       <div class="income-col-hdr">Income</div>
-      <div class="income-col-hdr cost-hdr">Cost</div>
-      <div class="income-col-hdr">Income</div>
-      <div class="income-col-hdr cost-hdr">Cost</div>
-      ${FT_KEYS.map(r => `
+      <div class="income-col-hdr cost-hdr">Upkeep</div>
+      ${RES_KEYS.map(r => {
+        const inc  = income[r]  ?? 0;
+        const cost = upkeep[r]  ?? 0;
+        const incStr  = inc  > 0 ? `<span class="income-count">+${inc}</span>`   : `<span class="income-zero">—</span>`;
+        const costStr = cost > 0 ? `<span class="upkeep-cost">−${cost}</span>` : `<span class="income-zero">—</span>`;
+        return `
         <div class="income-res-label">${RESOURCE_ICONS[r] ?? ""}<span>${r}</span></div>
-        <div class="income-cell">${fmtInc(r)}</div>
-        <div class="income-cell">${fmtCost(r)}</div>
-        <div class="income-cell income-spacer"></div>
-        <div class="income-cell income-spacer"></div>`).join("")}
-      ${SM_KEYS.map(r => `
-        <div class="income-res-label">${RESOURCE_ICONS[r] ?? ""}<span>${r}</span></div>
-        <div class="income-cell income-spacer"></div>
-        <div class="income-cell income-spacer"></div>
-        <div class="income-cell">${fmtInc(r)}</div>
-        <div class="income-cell">${fmtCost(r)}</div>`).join("")}
+        <div class="income-cell">${incStr}</div>
+        <div class="income-cell">${costStr}</div>`;
+      }).join("")}
     </div>`;
 
   // Costs column (left of tech tree)
@@ -1413,7 +1405,11 @@ function computeFlightOnlyRoutes(hexes, fromCluster) {
 function computeInvasionRoutes(hexes, fromCluster) {
   return computeFlightRoutes(hexes, fromCluster).filter(r => {
     const core = hexes.find(h => h.cluster === r.dest_cluster && h.local === 0);
-    return core && core.planet && hasFrigateSlot(hexes, r.dest_cluster);
+    const hasEnemy = hexes.some(h =>
+      h.cluster === r.dest_cluster &&
+      (h.pieces ?? []).some(p => p.type === "frigate" && p.owner !== myName)
+    );
+    return core && core.planet && hasFrigateSlot(hexes, r.dest_cluster) && !hasEnemy;
   });
 }
 
@@ -1457,7 +1453,7 @@ function showInvasionPrompt(msg) {
     </div>
     ${techHtml}`;
   document.getElementById("combat-footer").innerHTML =
-    `<button class="btn btn-danger" id="btn-invasion-confirm" style="width:100%">Launch Invasion!</button>`;
+    `<button class="btn btn-danger" id="btn-invasion-confirm" style="width:100%">Roll Dice</button>`;
 
   overlay.classList.remove("hidden");
 
@@ -1481,20 +1477,39 @@ function showInvasionPrompt(msg) {
 function showInvasionResult(msg) {
   const overlay = document.getElementById("combat-modal");
   const won = !!msg.won;
+  const isMe = msg.attacker === myName;
+  const planet = msg.planet ?? {};
 
-  document.getElementById("combat-title").textContent = won ? "Invasion Successful!" : "Invasion Failed!";
+  const resourceChips = [];
+  if (won && isMe) {
+    if (planet.food)    resourceChips.push(`<span class="res-chip food">+${planet.food} Food</span>`);
+    if (planet.science) resourceChips.push(`<span class="res-chip science">+${planet.science} Science</span>`);
+    if (planet.tool)    resourceChips.push(`<span class="res-chip tool">+${planet.tool} Tool</span>`);
+  }
+  const resourceHtml = resourceChips.length
+    ? `<div class="combat-resource-gain">
+        <div class="combat-dice-label" style="width:100%;margin-bottom:.2rem">Added to your income:</div>
+        ${resourceChips.join("")}
+       </div>`
+    : "";
+
+  document.getElementById("combat-title").textContent = won
+    ? (isMe ? "Invasion Successful!" : `${msg.attacker} Conquered a Planet!`)
+    : (isMe ? "Invasion Failed!" : `${msg.attacker}'s Invasion Failed`);
+
   document.getElementById("combat-body").innerHTML = `
-    <div class="combat-result-outcome ${won ? "win" : "lose"}">${won ? "You conquered the planet!" : "The planet repelled your attack."}</div>
+    <div class="combat-result-outcome ${won ? "win" : "lose"}">${won ? "The planet is conquered!" : "The planet repelled the attack."}</div>
     <div class="combat-dice-row">
       <div class="combat-dice-block">
-        <div class="combat-dice-label">Your Attack</div>
-        <div class="combat-dice-vals">${msg.atk_dice.map(d => `<span class="die">${d}</span>`).join("")} <span style="margin-left:.3rem">= <strong>${msg.atk_total}</strong></span></div>
+        <div class="combat-dice-label">Attacker</div>
+        <div class="combat-dice-vals">${(msg.atk_dice ?? []).map(d => `<span class="die">${d}</span>`).join("")} <span style="margin-left:.3rem">= <strong>${msg.atk_total}</strong></span></div>
       </div>
       <div class="combat-dice-block">
         <div class="combat-dice-label">Planet Defense (3 dice)</div>
-        <div class="combat-dice-vals">${msg.planet_dice.map(d => `<span class="die">${d}</span>`).join("")} <span style="margin-left:.3rem">= <strong>${msg.planet_total}</strong></span></div>
+        <div class="combat-dice-vals">${(msg.planet_dice ?? []).map(d => `<span class="die">${d}</span>`).join("")} <span style="margin-left:.3rem">= <strong>${msg.planet_total}</strong></span></div>
       </div>
-    </div>`;
+    </div>
+    ${resourceHtml}`;
   document.getElementById("combat-footer").innerHTML =
     `<button class="btn btn-primary" id="btn-combat-close" style="width:100%">Continue</button>`;
 
