@@ -224,7 +224,11 @@
     <span class="step-arrow">›</span>
     <div class="step" id="step-dice_roll"><div class="step-circle">4</div>Dice Roll</div>
     <span class="step-arrow">›</span>
-    <div class="step" id="step-playing"><div class="step-circle">5</div>Playing</div>
+    <div class="step" id="step-place_pieces"><div class="step-circle">5</div>Place Pieces</div>
+    <span class="step-arrow">›</span>
+    <div class="step" id="step-draft"><div class="step-circle">6</div>Draft</div>
+    <span class="step-arrow">›</span>
+    <div class="step" id="step-playing"><div class="step-circle">7</div>Playing</div>
   </div>
 
   <!-- Auto-status -->
@@ -263,16 +267,18 @@
     dust_runners:  "Dust Runners",
   };
   const RES_KEYS = ["food","science","tool","money"];
-  const PHASE_ORDER = ["connect","lobby","race_pick","dice_roll","playing"];
+  const PHASE_ORDER = ["connect","lobby","race_pick","dice_roll","place_pieces","draft","playing"];
   const WS_BASE = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/sss/ws/`;
 
   let gameCode         = null;
   let playerCount      = 4;
   let panels           = [];
   let assignedRaces    = [];   // pre-shuffled race per panel index
-  let autoStarted      = false; // guard: don't send start_game twice
-  let autoRacePicked   = [];    // guard per panel
+  let autoStarted       = false; // guard: don't send start_game twice
+  let autoRacePicked    = [];    // guard per panel
   let autoRaceConfirmed = false; // guard: host confirm_race sent once
+  let autoBeginAction   = false; // guard: host begin_action sent once
+  let lastBoard         = null;  // most recent board from any message
 
   // ── Shuffle helper ────────────────────────────────────────────────────────
   function shuffle(arr) {
@@ -290,6 +296,8 @@
     autoStarted       = false;
     autoRacePicked    = Array(count).fill(false);
     autoRaceConfirmed = false;
+    autoBeginAction   = false;
+    lastBoard         = null;
     assignedRaces  = shuffle(RACES).slice(0, count);
 
     const grid = document.getElementById("panel-grid");
@@ -417,6 +425,137 @@
     catch (e) { log(idx, "err", "Bad JSON: " + e.message); }
   }
 
+  // ── Auto piece placement ──────────────────────────────────────────────────
+  function autoPlacePiece(idx, state) {
+    const p           = panels[idx];
+    const board       = state.board ?? lastBoard;
+    if (!board) return;
+    const turnOrder   = state.turn_order ?? [];
+    const placementIdx = state.placement_idx ?? 0;
+    if (placementIdx >= turnOrder.length) return;
+    if (turnOrder[placementIdx] !== p.name) return; // not this player's turn to place
+
+    const remaining  = (state.player_placement ?? {})[p.name] ?? [];
+    if (!remaining.length) return;
+    const nextPiece  = remaining[0];
+    const myCluster  = (state.player_system ?? {})[p.name];
+    const claimed    = new Set(Object.values(state.player_system ?? {}));
+
+    let targetHex = null;
+
+    if (nextPiece === "battle_station") {
+      for (const h of board) {
+        if (h.type !== "bs_slot") continue;
+        const core = board[h.cluster * 7];
+        if (core?.type === "black_hole") continue;
+        if (claimed.has(h.cluster)) continue;
+        targetHex = h; break;
+      }
+    } else if (nextPiece === "frigate") {
+      if (myCluster != null) {
+        for (const h of board) {
+          if (h.cluster !== myCluster || h.type !== "orbital") continue;
+          const cnt = (h.pieces ?? []).filter(pc => pc.type === "frigate").length;
+          if (cnt < 3) { targetHex = h; break; }
+        }
+      }
+    } else {
+      // influence_token: any hex in cluster without one already
+      if (myCluster != null) {
+        for (const h of board) {
+          if (h.cluster !== myCluster) continue;
+          if ((h.pieces ?? []).some(pc => pc.type === "influence_token")) continue;
+          targetHex = h; break;
+        }
+      }
+    }
+
+    if (targetHex != null) {
+      sysLog(idx, `Auto-placing ${nextPiece} on hex ${targetHex.id}`);
+      setTimeout(() => send(idx, { type: "place_piece", hex_id: targetHex.id }), 400);
+    }
+  }
+
+  // ── Shared state handler (game_state / place_pieces_start / draft_start) ──
+  function handleState(idx, msg) {
+    const p     = panels[idx];
+    const phase = msg.phase ?? "";
+    if (msg.board) lastBoard = msg.board;
+    p.lastState = msg;
+
+    document.getElementById("info-phase").textContent = phase;
+    document.getElementById("info-round").textContent = msg.round ?? "—";
+    renderResources(idx, msg);
+    renderRace(idx, msg);
+    renderActions(idx, msg);
+    renderTurnStrip(msg);
+    if (phase) advanceStep(phase);
+
+    // Lobby: auto-start when all players present
+    if (phase === "lobby") {
+      const joined = (msg.players ?? []).length;
+      if (joined === playerCount && !autoStarted && p.role === "host") {
+        autoStarted = true;
+        setAutoMsg(`All ${playerCount} players in lobby — starting game…`);
+        setTimeout(() => { send(idx, { type: "start_game" }); setAutoMsg("Starting game…"); }, 700);
+      }
+    }
+
+    // Race pick: auto-pick, then host confirms
+    if (phase === "race_pick") {
+      const me = (msg.players ?? []).find(pl => pl.name === p.name);
+      if (!me?.race && !autoRacePicked[idx]) {
+        autoRacePicked[idx] = true;
+        const race = assignedRaces[idx];
+        setAutoMsg("Auto-picking races…");
+        setTimeout(() => { send(idx, { type: "pick_race", race }); sysLog(idx, `Auto-picked ${RACE_LABELS[race]}`); }, 300 + idx * 400);
+      }
+      const allPicked = (msg.players ?? []).every(pl => pl.race);
+      if (allPicked && !autoRaceConfirmed && p.role === "host") {
+        autoRaceConfirmed = true;
+        setAutoMsg("All races locked — confirming…");
+        setTimeout(() => send(idx, { type: "confirm_race" }), 300 + playerCount * 400 + 300);
+      }
+    }
+
+    // Dice roll: auto-roll
+    if (phase === "dice_roll") {
+      const me      = (msg.players ?? []).find(pl => pl.name === p.name);
+      const inRound = (msg.dice_round ?? []).includes(p.name);
+      if (me && inRound && me.dice_roll === 0) {
+        setAutoMsg("Rolling dice for turn order…");
+        setTimeout(() => send(idx, { type: "roll_dice" }), 300 + idx * 300);
+      }
+    }
+
+    // Place pieces: auto-place in turn order
+    if (phase === "place_pieces") {
+      const placer = (msg.turn_order ?? [])[msg.placement_idx ?? 0];
+      setAutoMsg(`Placing pieces… (${placer}'s turn)`);
+      autoPlacePiece(idx, msg);
+    }
+
+    // Draft: host auto-advances to board
+    if (phase === "draft") {
+      setAutoMsg("Draft complete — starting board…");
+      if (!autoBeginAction && p.role === "host") {
+        autoBeginAction = true;
+        setTimeout(() => { send(idx, { type: "begin_action" }); setAutoMsg(""); }, 800);
+      }
+    }
+
+    // Board: setup fully complete
+    if (phase === "board") {
+      advanceStep("playing");
+      setAutoMsg("");
+    }
+
+    // Panel turn glow
+    for (let i = 0; i < panels.length; i++) {
+      panels[i].el.classList.toggle("myturn", msg.current_turn === panels[i].name);
+    }
+  }
+
   // ── Message handler ───────────────────────────────────────────────────────
   function handleMsg(idx, msg) {
     log(idx, "in", msg);
@@ -428,7 +567,6 @@
       p.roleEl.className   = `role-badge ${msg.role}`;
       p.dotEl.className    = "conn-dot on";
       p.el.classList.add("connected");
-
       if (msg.role === "host") {
         gameCode = msg.code;
         document.getElementById("info-code").textContent = msg.code;
@@ -444,77 +582,9 @@
       }
     }
 
-    if (msg.type === "game_state") {
-      p.lastState = msg;
-      const phase = msg.phase ?? "";
-      document.getElementById("info-phase").textContent = phase;
-      document.getElementById("info-round").textContent = msg.round ?? "—";
-
-      renderResources(idx, msg);
-      renderRace(idx, msg);
-      renderActions(idx, msg);
-      renderTurnStrip(msg);
-
-      // Phase stepper + auto-actions
-      if (phase !== "connect") advanceStep(phase);
-
-      // Lobby: auto-start when all players present
-      if (phase === "lobby") {
-        const joined = (msg.players ?? []).length;
-        if (joined === playerCount && !autoStarted && p.role === "host") {
-          autoStarted = true;
-          advanceStep("lobby");
-          setAutoMsg(`All ${playerCount} players in lobby — starting game…`);
-          setTimeout(() => {
-            send(idx, { type: "start_game" });
-            setAutoMsg("Starting game…");
-          }, 700);
-        }
-      }
-
-      // Race pick: auto-pick assigned race
-      if (phase === "race_pick") {
-        advanceStep("race_pick");
-        const me = (msg.players ?? []).find(pl => pl.name === p.name);
-        if (!me?.race && !autoRacePicked[idx]) {
-          autoRacePicked[idx] = true;
-          const race = assignedRaces[idx];
-          setAutoMsg(`Auto-picking races…`);
-          setTimeout(() => {
-            send(idx, { type: "pick_race", race });
-            sysLog(idx, `Auto-picked ${RACE_LABELS[race]}`);
-          }, 300 + idx * 400);
-        }
-        // Host confirms once all players have a race
-        const allPicked = (msg.players ?? []).every(pl => pl.race);
-        if (allPicked && !autoRaceConfirmed && p.role === "host") {
-          autoRaceConfirmed = true;
-          const delay = 300 + playerCount * 400 + 300;
-          setAutoMsg("All races locked — confirming…");
-          setTimeout(() => send(idx, { type: "confirm_race" }), delay);
-        }
-      }
-
-      // Dice roll: auto-roll — only if this player is in the current round and hasn't rolled yet
-      if (phase === "dice_roll") {
-        advanceStep("dice_roll");
-        const me      = (msg.players ?? []).find(pl => pl.name === p.name);
-        const inRound = (msg.dice_round ?? []).includes(p.name);
-        if (me && inRound && me.dice_roll === 0) {
-          setTimeout(() => send(idx, { type: "roll_dice" }), 300 + idx * 300);
-        }
-      }
-
-      // Playing — all setup done
-      if (phase === "playing" || phase === "income" || phase === "action") {
-        advanceStep("playing");
-        setAutoMsg("");
-      }
-
-      // Panel border glow for active turn
-      for (let i = 0; i < panels.length; i++) {
-        panels[i].el.classList.toggle("myturn", msg.current_turn === panels[i].name);
-      }
+    // All state-bearing message types share the same handler
+    if (["game_state","place_pieces_start","draft_start"].includes(msg.type)) {
+      handleState(idx, msg);
     }
 
     if (msg.type === "error") log(idx, "err", msg.msg ?? JSON.stringify(msg));
@@ -675,6 +745,8 @@
     autoStarted       = false;
     autoRacePicked    = [];
     autoRaceConfirmed = false;
+    autoBeginAction   = false;
+    lastBoard         = null;
     ["info-code","info-phase","info-round"].forEach(id => document.getElementById(id).textContent = "—");
     document.getElementById("turn-strip").classList.remove("visible");
     document.getElementById("phase-stepper").classList.remove("visible");
