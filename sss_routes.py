@@ -26,11 +26,11 @@ RACES = {
 PIECE_SET = {
     "death": 1, "super_ship": 3, "cruise_ship": 6,
     "frigate": 9, "outpost": 3, "battle_station": 4,
-    "empire_flag": 6, "influence_token": 3, "unrest": 1,
+    "empire_flag": 6, "unrest": 1,
 }
 
 # Pieces each player places at game start (empire_flag is auto-placed on core)
-START_PIECES = ["battle_station", "frigate", "frigate", "influence_token"]
+START_PIECES = ["battle_station", "frigate", "frigate"]
 
 NEUTRAL_PIECES = {
     "guardian": 1, "moon_shark": 2, "pirate": 7, "pirate_base": 1,
@@ -842,21 +842,8 @@ async def sss_ws(ws: WebSocket, game_code: str):
                     h["pieces"].append({"type": "frigate", "owner": player.name})
                     player.pieces["frigate"] = player.pieces.get("frigate", 1) - 1
                 else:
-                    # influence_token and others: any hex within the system
-                    sys_cluster = game.player_system.get(player.name)
-                    if sys_cluster is None:
-                        await ws.send_json({"type": "error", "msg": "Place battle station first"})
-                        continue
-                    if h["cluster"] != sys_cluster:
-                        await ws.send_json({"type": "error", "msg": "Must place within your system"})
-                        continue
-                    if next_piece == "influence_token" and any(
-                        p["type"] == "influence_token" for p in h["pieces"]
-                    ):
-                        await ws.send_json({"type": "error", "msg": "That hex already has an influence token"})
-                        continue
-                    h["pieces"].append({"type": next_piece, "owner": player.name})
-                    player.pieces[next_piece] = player.pieces.get(next_piece, 1) - 1
+                    await ws.send_json({"type": "error", "msg": "Unknown piece type"})
+                    continue
                 game.player_placement[player.name].pop(0)
 
                 # Auto-advance when this player's queue is empty

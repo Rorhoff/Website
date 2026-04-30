@@ -481,15 +481,6 @@
           if (cnt < 3) { targetHex = h; break; }
         }
       }
-    } else {
-      // influence_token: any non-center hex in cluster without one already
-      if (myCluster != null) {
-        for (const h of board) {
-          if (h.cluster !== myCluster || h.local === 0) continue;
-          if ((h.pieces ?? []).some(pc => pc.type === "influence_token")) continue;
-          targetHex = h; break;
-        }
-      }
     }
 
     if (targetHex != null) {
@@ -732,7 +723,6 @@
       // Count by type
       const frigates   = pieces.filter(pc => pc.type === "frigate").length;
       const bs         = pieces.filter(pc => pc.type === "battle_station").length;
-      const influence  = pieces.filter(pc => pc.type === "influence_token").length;
       const buildings  = pieces.filter(pc => ["building_tool","building_science","building_money"].includes(pc.type)).length;
 
       // Frigate: solid upward-pointing triangle, one per frigate stacked horizontally
@@ -753,11 +743,6 @@
         inner += `<polygon points="${cx},${cy - d} ${cx + d * 0.65},${cy} ${cx},${cy + d} ${cx - d * 0.65},${cy}" fill="${col}" stroke="#fff" stroke-width="0.7"/>`;
       }
 
-      // Influence token: small ring
-      if (influence > 0) {
-        inner += `<circle cx="${cx}" cy="${cy}" r="${rr * 0.22}" fill="none" stroke="${col}" stroke-width="1.2"/>`;
-        inner += `<circle cx="${cx}" cy="${cy}" r="${rr * 0.1}" fill="${col}88"/>`;
-      }
 
       // Building: small square
       if (buildings > 0) {

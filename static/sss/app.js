@@ -498,14 +498,7 @@ function drawBoardPieces(pieceLayer, hexes, players) {
       const cy = baseY;
       xCursor += otherSlotW;
 
-      if (piece.type === "influence_token") {
-        const r = 4.5;
-        pieceLayer.appendChild(mk("rect", {
-          x: cx - r, y: cy - r, width: r * 2, height: r * 2,
-          fill: c, opacity: "0.85", rx: "1.5",
-          stroke: "rgba(255,255,255,0.4)", "stroke-width": "0.8",
-        }));
-      } else if (piece.type === "battle_station") {
+      if (piece.type === "battle_station") {
         pieceLayer.appendChild(mk("circle", { cx, cy, r: "7", fill: c, opacity: "0.85", stroke: "rgba(255,255,255,0.4)", "stroke-width": "0.8" }));
         pieceLayer.appendChild(mk("line", { x1: cx - 3.5, y1: cy, x2: cx + 3.5, y2: cy, stroke: "rgba(0,0,0,0.5)", "stroke-width": "1.5" }));
         pieceLayer.appendChild(mk("line", { x1: cx, y1: cy - 3.5, x2: cx, y2: cy + 3.5, stroke: "rgba(0,0,0,0.5)", "stroke-width": "1.5" }));
@@ -742,9 +735,6 @@ function renderBoard(state, placementMode) {
       } else if (nextPiece === "frigate") {
         const frigatesHere = (h.pieces ?? []).filter(p => p.type === "frigate").length;
         validTarget = h.cluster === mySystem && h.type === "orbital" && frigatesHere < 3;
-      } else if (nextPiece === "influence_token") {
-        validTarget = h.cluster === mySystem
-                      && !h.pieces.some(p => p.type === "influence_token");
       }
     }
 
@@ -927,7 +917,6 @@ function renderPlacementInfo(state, infoCard) {
   const PIECE_DISPLAY = {
     battle_station: "Battle Station",
     frigate:        "Frigate",
-    influence_token:"Influence Token",
   };
 
   if (myRole === "watcher") {
