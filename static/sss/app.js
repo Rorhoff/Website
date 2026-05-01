@@ -1309,15 +1309,24 @@ function cvRender() {
       </div>
       <div class="cv-card-effect">${c.effect}</div>`;
   } else {
+    const playableIds = ["command_surge"];
+    const canPlay = c.type === "tech" && playableIds.includes(c.id);
     inner = `
       <div class="cv-card-header">
         <span class="cv-card-title">${c.name}</span>
         <span class="cv-card-timing">${c.timing}</span>
       </div>
-      <div class="cv-card-effect">${c.effect}</div>`;
+      <div class="cv-card-effect">${c.effect}</div>
+      ${canPlay ? `<button class="btn btn-primary btn-sm mt2" id="btn-cv-play" style="width:100%;margin-top:.75rem">Play Card</button>` : ""}`;
   }
 
   document.getElementById("cv-card").innerHTML = inner;
+  if (c.type === "tech" && ["command_surge"].includes(c.id)) {
+    document.getElementById("btn-cv-play")?.addEventListener("click", () => {
+      send({ type: "play_tech_card", card_id: c.id });
+      closeCardViewer();
+    });
+  }
   document.getElementById("cv-dots").innerHTML = _cvCards.map((_, i) =>
     `<span class="cv-dot${i === _cvIdx ? " active" : ""}"></span>`
   ).join("");
@@ -1331,6 +1340,7 @@ const TECH_CARD_DATA = {
   death_spores:           { name: "Death Spores",           timing: "Invasion — Start",    effect: "Gain 1 die in the invasion roll and remove 1 person from the defending system." },
   molecular_manipulation: { name: "Molecular Manipulation", timing: "During +Person",      effect: "Create a new person in a system you own with a battle station. Costs 1 food less (minimum 1)." },
   invasion_dice:          { name: "Orbital Bombardment",    timing: "Invasion — Start",    effect: "+1 attack die when invading a planet." },
+  command_surge:          { name: "Command Surge",          timing: "Any Time (Your Turn)", effect: "Discard to gain 1 extra action this turn." },
 };
 
 const RESOURCE_ICONS = {
@@ -1523,12 +1533,11 @@ function hasFrigateSlot(hexes, cluster) {
     && (h.pieces ?? []).filter(p => p.type === "frigate").length < 3);
 }
 
-// Flight without combat: exclude clusters that have enemy frigates (use Attack for those)
-// Orbital-slot enforcement is done server-side; server will error if dest is full.
+// Flight: any adjacent cluster with at least one open orbital slot.
+// Enemy frigates are allowed — the server triggers combat on landing.
 function computeFlightOnlyRoutes(hexes, fromCluster) {
   return computeFlightRoutes(hexes, fromCluster).filter(r =>
-    !hexes.some(h => h.cluster === r.dest_cluster
-      && (h.pieces ?? []).some(p => p.type === "frigate" && p.owner !== myName))
+    hasFrigateSlot(hexes, r.dest_cluster)
   );
 }
 

@@ -100,6 +100,12 @@ TECH_CARDS = [
         "timing": "Invasion — Start",
         "effect": "+1 attack die when invading a planet.",
     },
+    {
+        "id": "command_surge",
+        "name": "Command Surge",
+        "timing": "Any Time (Your Turn)",
+        "effect": "Discard to gain 1 extra action this turn.",
+    },
 ]
 
 # ── Board geometry ────────────────────────────────────────────────────────────
@@ -2317,6 +2323,29 @@ async def sss_ws(ws: WebSocket, game_code: str):
                     **({"game_over": vp_winner} if vp_winner else {}),
                     **state,
                 })
+
+            # ── play_tech_card ────────────────────────────────────────────────
+            elif kind == "play_tech_card":
+                if not game or not player:
+                    continue
+                if game.phase != "board" or not game.turn_order:
+                    continue
+                current = game.turn_order[game.turn_idx % len(game.turn_order)]
+                if player.name != current:
+                    await ws.send_json({"type": "error", "msg": "Not your turn"})
+                    continue
+                card_id = raw.get("card_id")
+                if card_id not in player.tech_cards:
+                    await ws.send_json({"type": "error", "msg": "Card not in hand"})
+                    continue
+                if card_id == "command_surge":
+                    player.tech_cards.remove(card_id)
+                    game.turn_actions_remaining += 1
+                    state = game.public_state()
+                    state["board"] = game.board
+                    await game.broadcast({"type": "game_state", **state})
+                else:
+                    await ws.send_json({"type": "error", "msg": "That card cannot be played this way"})
 
             # ── draw_tech_card ────────────────────────────────────────────────
             elif kind == "draw_tech_card":
