@@ -222,7 +222,7 @@ def _build_endgame_stats(game) -> dict:
             "tech_upgrades":   tech_total,
             "tech_by_col":     tech_by_col,
             "invasions_won":   p.invasions_won,
-            "color":           p.color,
+            "color":           RACES[p.race]["color"] if p.race else None,
             "race":            p.race,
         }
 
@@ -738,7 +738,7 @@ class Game:
                     "name": n,
                     "role": p.role,
                     "race": p.race,
-                    "color": p.color,
+                    "color": RACES[p.race]["color"] if p.race else None,
                     "race_name": RACES[p.race]["name"] if p.race else None,
                     "pieces": dict(p.pieces) if in_board else {},
                     "dice_roll": p.dice_roll,
@@ -755,7 +755,6 @@ class Game:
             "watcher_count": len(self.watchers),
             "races_taken": self.races_taken,
             "races": {k: v for k, v in RACES.items()},
-            "player_colors": _PLAYER_COLORS,
             "turn_order": self.turn_order,
             "dice_round": self.dice_round,
             "placement_idx": self.placement_idx,
@@ -1432,14 +1431,6 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 if len(game.players) < 1:
                     await ws.send_json({"type": "error", "msg": "Need at least 1 player"})
                     continue
-                # Assign remaining colors to AI players that don't have one
-                taken_colors = {p.color for p in game.players.values() if p.color}
-                for p in game.players.values():
-                    if p.role == "ai" and not p.color:
-                        remaining = [c for c in _PLAYER_COLORS if c not in taken_colors]
-                        if remaining:
-                            p.color = remaining[0]
-                            taken_colors.add(p.color)
                 game.phase = "race_pick"
                 await game.broadcast({"type": "game_state", **game.public_state()})
                 if any(p.role == "ai" for p in game.players.values()):

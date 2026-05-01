@@ -364,33 +364,6 @@ function renderLobby(state) {
     list.appendChild(li);
   }
   $("lobby-host-actions").style.display = myRole === "host" ? "" : "none";
-
-  // Color picker — only for human players (not watchers)
-  const pickerContainer = $("lobby-color-picker");
-  if (!pickerContainer) return;
-  if (myRole === "watcher") { pickerContainer.style.display = "none"; return; }
-  pickerContainer.style.display = "";
-  pickerContainer.innerHTML = '<div class="hint" style="margin-bottom:.4rem">Pick your color:</div>';
-  const takenBy = {};
-  for (const p of state.players) if (p.color) takenBy[p.color] = p.name;
-  const palette = state.player_colors || ["#e74c3c","#3b82f6","#22c55e","#f59e0b","#a855f7","#f97316"];
-  const myColor = state.players.find(p => p.name === myName)?.color;
-  for (const c of palette) {
-    const swatch = document.createElement("button");
-    swatch.className = "color-swatch";
-    const owner = takenBy[c];
-    const isMine = c === myColor;
-    const isTaken = owner && owner !== myName;
-    swatch.style.cssText = `width:32px;height:32px;border-radius:50%;border:3px solid ${isMine ? "#fff" : isTaken ? "transparent" : "rgba(255,255,255,.3)"};background:${c};margin:.2rem;cursor:${isTaken ? "default" : "pointer"};opacity:${isTaken ? ".35" : "1"};transition:border-color .15s,opacity .15s;`;
-    if (isTaken) {
-      swatch.title = `Taken by ${owner}`;
-      swatch.disabled = true;
-    } else {
-      swatch.title = isMine ? "Your color" : "Choose this color";
-      swatch.addEventListener("click", () => send({ type: "pick_color", color: c }));
-    }
-    pickerContainer.appendChild(swatch);
-  }
 }
 
 // ── Race pick ──────────────────────────────────────────────────────────────
@@ -409,6 +382,7 @@ function renderRacePick(state) {
     const card = document.createElement("div");
     card.className = "race-card" + (isMine ? " selected" : "") + (isTaken ? " taken" : "");
     card.innerHTML = `
+      <div class="race-dot" style="background:${race.color}"></div>
       <div class="race-name">${race.name}</div>
       <div class="race-taker">${taker ? (isMine ? "You" : taker) : ""}</div>
     `;
