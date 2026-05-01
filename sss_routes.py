@@ -23,6 +23,8 @@ RACES = {
     "dust_runners":   {"name": "Dust Runners",    "color": "#8B4513"},
 }
 
+_AI_NAMES = ["Nova", "Orion", "Lyra", "Zeta", "Vega"]
+
 PIECE_SET = {
     "death": 1, "super_ship": 3, "cruise_ship": 6,
     "frigate": 9, "outpost": 3, "battle_station": 4,
@@ -648,6 +650,7 @@ class Game:
     deferred_groups: list = field(default_factory=list)
     eliminated: list = field(default_factory=list)
     ever_owned_planet: set = field(default_factory=set)
+    ai_task: Any = None
 
     def public_state(self) -> dict:
         in_board = self.phase in ("place_pieces", "draft", "board")
@@ -727,6 +730,508 @@ def _new_code() -> str:
         if code not in _games:
             return code
     raise RuntimeError("Could not generate unique code")
+
+
+# ── Dice-round resolution helper ─────────────────────────────────────────────
+
+async def _resolve_dice_round(game: Game) -> None:
+    """Resolve a completed dice round. Called after all players in dice_round have rolled."""
+    from itertools import groupby
+
+    dice_round = game.dice_round
+    rolls = {n: game.players[n].dice_roll for n in dice_round}
+    max_roll = max(rolls.values())
+    winners = [n for n, r in rolls.items() if r == max_roll]
+    losers = sorted(
+        [n for n, r in rolls.items() if r != max_roll],
+        key=lambda n: rolls[n], reverse=True
+    )
+
+    if len(winners) == 1:
+        game.turn_order.append(winners[0])
+        loser_sorted = sorted(losers, key=lambda n: rolls[n], reverse=True)
+        loser_groups = [list(g) for _, g in groupby(loser_sorted, key=lambda n: rolls[n])]
+        next_tied: list[str] = []
+        found_tie = False
+        for group in loser_groups:
+            if found_tie:
+                game.deferred_groups.append(group)
+            elif len(group) == 1:
+                game.turn_order.append(group[0])
+            else:
+                next_tied = group
+                found_tie = True
+        if next_tied:
+            await game.broadcast({"type": "game_state", **game.public_state()})
+            await asyncio.sleep(1.5)
+            for n in next_tied:
+                game.players[n].dice_roll = 0
+            game.dice_round = next_tied
+            await game.broadcast({"type": "game_state", **game.public_state()})
+            return
+    else:
+        loser_sorted = sorted(losers, key=lambda n: rolls[n], reverse=True)
+        loser_groups = [list(g) for _, g in groupby(loser_sorted, key=lambda n: rolls[n])]
+        game.deferred_groups = loser_groups + game.deferred_groups
+        await game.broadcast({"type": "game_state", **game.public_state()})
+        await asyncio.sleep(1.5)
+        for n in winners:
+            game.players[n].dice_roll = 0
+        game.dice_round = winners
+        await game.broadcast({"type": "game_state", **game.public_state()})
+        return
+
+    # Drain deferred groups
+    while game.deferred_groups and len(game.deferred_groups[0]) == 1:
+        game.turn_order.append(game.deferred_groups.pop(0)[0])
+    if game.deferred_groups:
+        next_group = game.deferred_groups.pop(0)
+        await game.broadcast({"type": "game_state", **game.public_state()})
+        await asyncio.sleep(1.5)
+        for n in next_group:
+            game.players[n].dice_roll = 0
+        game.dice_round = next_group
+        await game.broadcast({"type": "game_state", **game.public_state()})
+        return
+
+    # All players ordered — transition to place_pieces
+    if len(game.turn_order) == len(game.players):
+        await game.broadcast({"type": "game_state", **game.public_state()})
+        await asyncio.sleep(0.4)
+        for p in game.players.values():
+            p.pieces = dict(PIECE_SET)
+            food = random.randint(4, 10)
+            rem = 10 - food
+            sci = random.randint(0, rem)
+            p.resources = {
+                "food": food, "science": sci, "tool": rem - sci,
+                "money": random.randint(5, 10),
+            }
+            p.income = {
+                "food": random.randint(0, 2), "science": random.randint(0, 1),
+                "tool": random.randint(0, 1), "money": random.randint(1, 3),
+            }
+            p.tech = {col: [False] * 5 for col in ["biology", "physics", "engineering", "government"]}
+            p.action_cards = []
+            p.tech_cards = []
+        game.board = _build_board(len(game.players))
+        bh_cluster = next(
+            (h["cluster"] for h in game.board if h["local"] == 0 and h["type"] == "black_hole"), 4
+        )
+        game.board[bh_cluster * 7 + 1]["pieces"].append({"type": "pirate_base", "owner": "neutral"})
+        for name in game.turn_order:
+            game.player_placement[name] = list(START_PIECES)
+        game.placement_idx = 0
+        game.phase = "place_pieces"
+        state = game.public_state()
+        state["board"] = game.board
+        await game.broadcast({"type": "place_pieces_start", **state})
+
+
+# ── Placement advance helper ──────────────────────────────────────────────────
+
+async def _advance_placement(game: Game) -> None:
+    """Advance placement_idx; transition to draft if all players placed."""
+    game.placement_idx += 1
+    if game.placement_idx >= len(game.turn_order):
+        _deal_draft(game)
+        state = game.public_state()
+        state["board"] = game.board
+        await game.broadcast({"type": "draft_start", **state})
+    else:
+        state = game.public_state()
+        state["board"] = game.board
+        await game.broadcast({"type": "game_state", **state})
+
+
+# ── AI player helpers ─────────────────────────────────────────────────────────
+
+def _ai_pick_races(game: Game) -> bool:
+    """Pick races for any AI players that haven't chosen. Returns True if any changed."""
+    changed = False
+    for p in game.players.values():
+        if p.role != "ai" or p.race:
+            continue
+        available = [r for r in RACES if r not in game.races_taken]
+        if not available:
+            continue
+        race = random.choice(available)
+        p.race = race
+        game.races_taken[race] = p.name
+        changed = True
+    return changed
+
+
+async def _ai_place_pieces_turn(game: Game) -> None:
+    """Place all pieces for the current AI player then advance placement."""
+    if game.phase != "place_pieces" or game.placement_idx >= len(game.turn_order):
+        return
+    current_name = game.turn_order[game.placement_idx]
+    p = game.players.get(current_name)
+    if not p or p.role != "ai":
+        return
+
+    remaining = game.player_placement.get(current_name, [])
+    while remaining:
+        next_piece = remaining[0]
+        if next_piece == "battle_station":
+            claimed = set(game.player_system.values())
+            n_players = len(game.players)
+            if n_players >= 5:
+                valid_clusters = list(range(13, 19))
+            else:
+                valid_clusters = list(range(len(game.board) // 7))
+            eligible = []
+            for cluster in valid_clusters:
+                if cluster in claimed:
+                    continue
+                if game.board[cluster * 7]["type"] == "black_hole":
+                    continue
+                if not any(h["tri"] for h in game.board if h["cluster"] == cluster):
+                    continue
+                orb = next((h for h in game.board if h["cluster"] == cluster and h["type"] == "orbital"), None)
+                if orb:
+                    eligible.append(orb)
+            if not eligible:
+                # fallback: any unclaimed orbital
+                for h in game.board:
+                    if h["type"] == "orbital" and h["cluster"] not in claimed:
+                        eligible.append(h)
+            if not eligible:
+                break
+            chosen = random.choice(eligible)
+            h = chosen
+            h["pieces"].append({"type": "battle_station", "owner": current_name})
+            game.player_system[current_name] = h["cluster"]
+            core_id = h["cluster"] * 7
+            game.board[core_id]["pieces"].append({"type": "empire_flag", "owner": current_name})
+            planet = {
+                "vp": 1,
+                "unrest": random.randint(0, 2),
+                "food": random.randint(1, 4),
+                "science": random.randint(0, 1),
+                "tool": random.randint(0, 2),
+                "money": random.randint(1, 3),
+            }
+            game.board[core_id]["planet"] = planet
+            p.resources["unrest"] = p.resources.get("unrest", 0) + planet["unrest"]
+            p.income["food"] = p.income.get("food", 0) + planet["food"]
+            p.income["science"] = p.income.get("science", 0) + planet["science"]
+            p.income["tool"] = p.income.get("tool", 0) + planet["tool"]
+            p.income["money"] = p.income.get("money", 0) + planet["money"]
+            p.pieces["battle_station"] = p.pieces.get("battle_station", 1) - 1
+            p.pieces["empire_flag"] = p.pieces.get("empire_flag", 1) - 1
+            remaining.pop(0)
+        elif next_piece == "frigate":
+            sys_cluster = game.player_system.get(current_name)
+            if sys_cluster is None:
+                break
+            orbitals = [
+                h for h in game.board
+                if h["cluster"] == sys_cluster and h["type"] == "orbital"
+                and sum(1 for pc in h["pieces"] if pc["type"] == "frigate") < 3
+            ]
+            if not orbitals:
+                break
+            chosen = random.choice(orbitals)
+            chosen["pieces"].append({"type": "frigate", "owner": current_name})
+            p.pieces["frigate"] = p.pieces.get("frigate", 1) - 1
+            remaining.pop(0)
+        else:
+            break
+
+    game.player_placement[current_name] = remaining
+    if not remaining:
+        await _advance_placement(game)
+    else:
+        state = game.public_state()
+        state["board"] = game.board
+        await game.broadcast({"type": "game_state", **state})
+
+
+async def _ai_board_action(game: Game, ai_name: str) -> None:
+    """Execute one board action for an AI player."""
+    ai_p = game.players.get(ai_name)
+    if not ai_p:
+        return
+
+    # Build sets of clusters the AI occupies
+    my_clusters: set[int] = set()
+    for h in game.board:
+        for pc in h["pieces"]:
+            if pc.get("owner") == ai_name and pc["type"] in ("empire_flag", "battle_station", "frigate"):
+                my_clusters.add(h["cluster"])
+
+    # Find wormhole routes from AI clusters where AI has a frigate
+    expand_routes = []
+    for h in game.board:
+        if h.get("wormhole_partner") is None:
+            continue
+        if h["cluster"] not in my_clusters:
+            continue
+        if not any(pc["type"] == "frigate" and pc["owner"] == ai_name for pc in h["pieces"]):
+            continue
+        dest_h = game.board[h["wormhole_partner"]]
+        dest_cluster = dest_h["cluster"]
+        landing = next(
+            (dh for dh in game.board
+             if dh["cluster"] == dest_cluster and dh["type"] == "orbital"
+             and sum(1 for pc in dh["pieces"] if pc["type"] == "frigate") < 3),
+            None
+        )
+        if landing:
+            expand_routes.append({"from_wh": h["id"], "to_wh": h["wormhole_partner"], "dest_cluster": dest_cluster})
+
+    # Split into attack vs unclaimed expand
+    def has_enemy_frigates(cluster: int) -> bool:
+        return any(
+            pc["type"] == "frigate" and pc["owner"] != ai_name
+            for dh in game.board if dh["cluster"] == cluster
+            for pc in dh["pieces"]
+        )
+
+    attack_routes = [r for r in expand_routes if has_enemy_frigates(r["dest_cluster"])]
+    plain_expand = [r for r in expand_routes if not has_enemy_frigates(r["dest_cluster"]) and r["dest_cluster"] not in my_clusters]
+
+    # 1. Try invasion_attack in a cluster AI already has frigates and planet is not owned
+    for h in game.board:
+        if h.get("local") != 0 or h["cluster"] not in my_clusters:
+            continue
+        planet = h.get("planet")
+        if not planet:
+            continue
+        already_mine = any(pc["type"] == "empire_flag" and pc["owner"] == ai_name for pc in h["pieces"])
+        if already_mine:
+            continue
+        enemy_ships = has_enemy_frigates(h["cluster"])
+        if enemy_ships:
+            continue
+        my_frigates = [
+            pc for dh in game.board if dh["cluster"] == h["cluster"]
+            for pc in dh["pieces"] if pc["type"] == "frigate" and pc["owner"] == ai_name
+        ]
+        if not my_frigates:
+            continue
+        # Perform invasion_attack directly
+        cluster = h["cluster"]
+        num_dice = min(len(my_frigates), 3)
+        atk_dice = [random.randint(1, 6) for _ in range(num_dice)]
+        atk_total = sum(atk_dice)
+        planet_dice = [random.randint(1, 6) for _ in range(3)]
+        planet_total = sum(planet_dice)
+        won = atk_total > planet_total
+        if won:
+            prev_owner = next(
+                (pc["owner"] for pc in h.get("pieces", []) if pc["type"] == "empire_flag"), None
+            )
+            h["pieces"] = [pc for pc in h.get("pieces", []) if pc["type"] != "empire_flag"]
+            h["pieces"].append({"type": "empire_flag", "owner": ai_name})
+            game.ever_owned_planet.add(ai_name)
+            if prev_owner and prev_owner != ai_name:
+                prev_p = game.players.get(prev_owner)
+                if prev_p:
+                    for _k in ("food", "science", "tool", "money"):
+                        prev_p.income[_k] = max(0, prev_p.income.get(_k, 0) - planet.get(_k, 0))
+                    lost = _strip_buildings_from_cluster(game, cluster, prev_owner)
+                    for _k, _amt in lost.items():
+                        prev_p.income[_k] = max(0, prev_p.income.get(_k, 0) - _amt)
+            for _k in ("food", "science", "tool", "money"):
+                ai_p.income[_k] = ai_p.income.get(_k, 0) + planet.get(_k, 0)
+        else:
+            for dh in game.board:
+                if dh["cluster"] == cluster:
+                    dh["pieces"] = [pc for pc in dh["pieces"] if not (pc["type"] == "frigate" and pc["owner"] == ai_name)]
+        _use_action(game)
+        await _flush_eliminations(game)
+        state = game.public_state()
+        state["board"] = game.board
+        await game.broadcast({
+            "type": "invasion_result",
+            "attacker": ai_name,
+            "cluster": cluster,
+            "atk_dice": atk_dice,
+            "planet_dice": planet_dice,
+            "atk_total": atk_total,
+            "planet_total": planet_total,
+            "won": won,
+            "planet": planet,
+            **state,
+        })
+        return
+
+    # 2. Expand to unclaimed cluster
+    if plain_expand:
+        r = random.choice(plain_expand)
+        _ai_do_flight(game, ai_name, r["from_wh"], r["to_wh"])
+        _use_action(game)
+        await _flush_eliminations(game)
+        state = game.public_state()
+        state["board"] = game.board
+        await game.broadcast({"type": "game_state", **state})
+        return
+
+    # 3. Attack enemy cluster
+    if attack_routes:
+        r = random.choice(attack_routes)
+        moved = _ai_do_flight(game, ai_name, r["from_wh"], r["to_wh"])
+        if moved:
+            dest_cluster = r["dest_cluster"]
+            enemy_frigates = [
+                {"owner": pc["owner"], "hex_id": dh["id"]}
+                for dh in game.board if dh["cluster"] == dest_cluster
+                for pc in dh["pieces"] if pc["type"] == "frigate" and pc["owner"] != ai_name
+            ]
+            if enemy_frigates:
+                defender_name = enemy_frigates[0]["owner"]
+                atk_count = sum(
+                    1 for dh in game.board if dh["cluster"] == dest_cluster
+                    for pc in dh["pieces"] if pc["type"] == "frigate" and pc["owner"] == ai_name
+                )
+                def_count = sum(1 for ef in enemy_frigates if ef["owner"] == defender_name)
+                atk_dice = [random.randint(1, 6) for _ in range(max(1, atk_count))]
+                def_dice = [random.randint(1, 6) for _ in range(max(1, def_count))]
+                atk_total = sum(atk_dice)
+                def_total = sum(def_dice)
+                attacker_won = atk_total > def_total
+                target_hex_id = enemy_frigates[0]["hex_id"]
+                if attacker_won:
+                    t_hex = game.board[target_hex_id]
+                    for i, pc in enumerate(t_hex["pieces"]):
+                        if pc["type"] == "frigate" and pc["owner"] == defender_name:
+                            t_hex["pieces"].pop(i)
+                            break
+                else:
+                    for dh in game.board:
+                        if dh["cluster"] != dest_cluster:
+                            continue
+                        for i, pc in enumerate(dh["pieces"]):
+                            if pc["type"] == "frigate" and pc["owner"] == ai_name:
+                                dh["pieces"].pop(i)
+                                break
+                        else:
+                            continue
+                        break
+                _use_action(game)
+                await _flush_eliminations(game)
+                state = game.public_state()
+                state["board"] = game.board
+                await game.broadcast({
+                    "type": "combat_result",
+                    "attacker": ai_name,
+                    "defender": defender_name,
+                    "attacker_won": attacker_won,
+                    "winner": ai_name if attacker_won else defender_name,
+                    "atk_dice": atk_dice,
+                    "def_dice": def_dice,
+                    "atk_total": atk_total,
+                    "def_total": def_total,
+                    **state,
+                })
+                return
+        _use_action(game)
+        await _flush_eliminations(game)
+        state = game.public_state()
+        state["board"] = game.board
+        await game.broadcast({"type": "game_state", **state})
+        return
+
+    # 4. Build frigate if affordable
+    sys_cluster = game.player_system.get(ai_name)
+    if sys_cluster is not None:
+        cost = {"food": 2, "tool": 1}
+        can_afford = all(ai_p.resources.get(r, 0) >= v for r, v in cost.items())
+        avail_orbs = [
+            h for h in game.board
+            if h["cluster"] == sys_cluster and h["type"] == "orbital"
+            and sum(1 for pc in h["pieces"] if pc["type"] == "frigate") < 3
+        ]
+        if can_afford and avail_orbs and ai_p.pieces.get("frigate", 0) > 0:
+            chosen = random.choice(avail_orbs)
+            chosen["pieces"].append({"type": "frigate", "owner": ai_name})
+            ai_p.pieces["frigate"] = ai_p.pieces.get("frigate", 1) - 1
+            for r, v in cost.items():
+                ai_p.resources[r] = ai_p.resources.get(r, 0) - v
+            _use_action(game)
+            await _flush_eliminations(game)
+            state = game.public_state()
+            state["board"] = game.board
+            await game.broadcast({"type": "game_state", **state})
+            return
+
+    # 5. Skip
+    _use_action(game)
+    await _flush_eliminations(game)
+    state = game.public_state()
+    state["board"] = game.board
+    await game.broadcast({"type": "game_state", **state})
+
+
+def _ai_do_flight(game: Game, ai_name: str, from_wh: int, to_wh: int) -> bool:
+    """Move one AI frigate via wormhole. Returns True if moved."""
+    from_hex = game.board[from_wh]
+    to_hex = game.board[to_wh]
+    from_cluster = from_hex["cluster"]
+    dest_cluster = to_hex["cluster"]
+    landing = next(
+        (h for h in game.board
+         if h["cluster"] == dest_cluster and h["type"] == "orbital"
+         and sum(1 for pc in h["pieces"] if pc["type"] == "frigate") < 3),
+        None
+    )
+    if not landing:
+        return False
+    moved_piece = None
+    for h in game.board:
+        if h["cluster"] != from_cluster:
+            continue
+        for i, pc in enumerate(h["pieces"]):
+            if pc["type"] == "frigate" and pc["owner"] == ai_name:
+                moved_piece = h["pieces"].pop(i)
+                break
+        if moved_piece:
+            break
+    if not moved_piece:
+        return False
+    landing["pieces"].append(moved_piece)
+    return True
+
+
+async def _ai_loop(game: Game) -> None:
+    """Background coroutine that drives all AI players through the full game lifecycle."""
+    await asyncio.sleep(0.8)
+    while game.phase not in ("ended", "lobby"):
+        try:
+            if game.phase == "race_pick":
+                if _ai_pick_races(game):
+                    await game.broadcast({"type": "game_state", **game.public_state()})
+
+            elif game.phase == "dice_roll":
+                changed = False
+                for name in list(game.dice_round):
+                    p = game.players.get(name)
+                    if p and p.role == "ai" and p.dice_roll == 0:
+                        p.dice_roll = random.randint(1, 6) + random.randint(1, 6)
+                        changed = True
+                if changed:
+                    all_rolled = all(game.players[n].dice_roll != 0 for n in game.dice_round)
+                    if all_rolled:
+                        await _resolve_dice_round(game)
+                    else:
+                        await game.broadcast({"type": "game_state", **game.public_state()})
+
+            elif game.phase == "place_pieces":
+                await _ai_place_pieces_turn(game)
+
+            elif game.phase == "board" and not game.pending_combat:
+                if game.turn_order:
+                    current = game.turn_order[game.turn_idx % len(game.turn_order)]
+                    p = game.players.get(current)
+                    if p and p.role == "ai":
+                        await _ai_board_action(game, current)
+
+        except Exception:
+            pass
+        await asyncio.sleep(0.7)
 
 
 # ── WebSocket endpoint ────────────────────────────────────────────────────────
@@ -848,6 +1353,46 @@ async def sss_ws(ws: WebSocket, game_code: str):
                     continue
                 game.phase = "race_pick"
                 await game.broadcast({"type": "game_state", **game.public_state()})
+                if any(p.role == "ai" for p in game.players.values()):
+                    game.ai_task = asyncio.create_task(_ai_loop(game))
+
+            # ── add_ai ────────────────────────────────────────────────────────
+            elif kind == "add_ai":
+                if not game or not player:
+                    continue
+                if player.role != "host" or game.phase != "lobby":
+                    await ws.send_json({"type": "error", "msg": "Only host can add AI in lobby"})
+                    continue
+                ai_count = sum(1 for p in game.players.values() if p.role == "ai")
+                if len(game.players) >= 6:
+                    await ws.send_json({"type": "error", "msg": "Game is full (max 6)"})
+                    continue
+                if ai_count >= 5:
+                    await ws.send_json({"type": "error", "msg": "Max 5 AI players"})
+                    continue
+                used_names = {p.name for p in game.players.values()}
+                ai_name = next((n for n in _AI_NAMES if n not in used_names), None)
+                if ai_name is None:
+                    await ws.send_json({"type": "error", "msg": "No AI names available"})
+                    continue
+                ai_player = Player(ws=None, name=ai_name, role="ai", connected=True)
+                game.players[ai_name] = ai_player
+                await game.broadcast({"type": "game_state", **game.public_state()})
+
+            # ── remove_ai ─────────────────────────────────────────────────────
+            elif kind == "remove_ai":
+                if not game or not player:
+                    continue
+                if player.role != "host" or game.phase != "lobby":
+                    await ws.send_json({"type": "error", "msg": "Only host can remove AI in lobby"})
+                    continue
+                name = raw.get("name")
+                ai_p = game.players.get(name)
+                if not ai_p or ai_p.role != "ai":
+                    await ws.send_json({"type": "error", "msg": "No such AI player"})
+                    continue
+                del game.players[name]
+                await game.broadcast({"type": "game_state", **game.public_state()})
 
             # ── pick_race ─────────────────────────────────────────────────────
             elif kind == "pick_race":
@@ -908,112 +1453,9 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 rolled = {n for n in game.dice_round
                           if game.players[n].dice_roll != 0}
                 if rolled < set(game.dice_round):
-                    # Others still need to roll; broadcast progress and wait.
                     await game.broadcast({"type": "game_state", **game.public_state()})
                     continue
-
-                # Every player in this round has rolled.  We own this resolution
-                # (still no await since player.dice_roll was set).
-                rolls = {n: game.players[n].dice_roll for n in game.dice_round}
-                max_roll = max(rolls.values())
-                winners = [n for n, r in rolls.items() if r == max_roll]
-                losers  = sorted(
-                    [n for n, r in rolls.items() if r != max_roll],
-                    key=lambda n: rolls[n], reverse=True
-                )
-
-                if len(winners) == 1:
-                    # Unique high roll — place winner, then resolve losers by score
-                    game.turn_order.append(winners[0])
-                    from itertools import groupby
-                    loser_sorted = sorted(losers, key=lambda n: rolls[n], reverse=True)
-                    loser_groups = [list(g) for _, g in groupby(loser_sorted, key=lambda n: rolls[n])]
-                    next_tied: list[str] = []
-                    found_tie = False
-                    for group in loser_groups:
-                        if found_tie:
-                            # Groups after the first tie must wait for that tie to resolve
-                            game.deferred_groups.append(group)
-                        elif len(group) == 1:
-                            game.turn_order.append(group[0])
-                        else:
-                            next_tied = group
-                            found_tie = True
-                    if next_tied:
-                        # Show the rolled values first, then reset for re-roll
-                        await game.broadcast({"type": "game_state", **game.public_state()})
-                        await asyncio.sleep(1.5)
-                        for n in next_tied:
-                            game.players[n].dice_roll = 0
-                        game.dice_round = next_tied
-                        await game.broadcast({"type": "game_state", **game.public_state()})
-                        continue
-                else:
-                    # All tied for high roll — re-roll among winners; queue ALL losers for after
-                    from itertools import groupby as _gb
-                    loser_sorted = sorted(losers, key=lambda n: rolls[n], reverse=True)
-                    loser_groups = [list(g) for _, g in _gb(loser_sorted, key=lambda n: rolls[n])]
-                    # Prepend new loser groups (they rank above any previously deferred groups)
-                    game.deferred_groups = loser_groups + game.deferred_groups
-                    await game.broadcast({"type": "game_state", **game.public_state()})
-                    await asyncio.sleep(1.5)
-                    for n in winners:
-                        game.players[n].dice_roll = 0
-                    game.dice_round = winners
-                    await game.broadcast({"type": "game_state", **game.public_state()})
-                    continue
-
-                # Drain deferred groups: singletons go straight to turn_order;
-                # any tied group becomes the next dice sub-round.
-                while game.deferred_groups and len(game.deferred_groups[0]) == 1:
-                    game.turn_order.append(game.deferred_groups.pop(0)[0])
-                if game.deferred_groups:
-                    next_group = game.deferred_groups.pop(0)
-                    await game.broadcast({"type": "game_state", **game.public_state()})
-                    await asyncio.sleep(1.5)
-                    for n in next_group:
-                        game.players[n].dice_roll = 0
-                    game.dice_round = next_group
-                    await game.broadcast({"type": "game_state", **game.public_state()})
-                    continue
-
-                # All players ordered — show final rolls, pause, then start
-                if len(game.turn_order) == len(game.players):
-                    await game.broadcast({"type": "game_state", **game.public_state()})
-                    await asyncio.sleep(0.4)
-                    for p in game.players.values():
-                        p.pieces = dict(PIECE_SET)
-                        # Food minimum 4; remaining split between science and tool; money 0-3
-                        food = random.randint(4, 10)
-                        rem  = 10 - food
-                        sci  = random.randint(0, rem)
-                        p.resources = {
-                            "food":    food,
-                            "science": sci,
-                            "tool":    rem - sci,
-                            "money":   random.randint(5, 10),
-                        }
-                        # Money guaranteed 1-3/turn; science/tool scarcer at 0-1/turn
-                        p.income = {
-                            "food":    random.randint(0, 2),
-                            "science": random.randint(0, 1),
-                            "tool":    random.randint(0, 1),
-                            "money":   random.randint(1, 3),
-                        }
-                        p.tech = {col: [False] * 5
-                                  for col in ["biology", "physics", "engineering", "government"]}
-                        p.action_cards = []
-                        p.tech_cards   = []
-                    game.board = _build_board(len(game.players))
-                    bh_cluster = next((h["cluster"] for h in game.board if h["local"] == 0 and h["type"] == "black_hole"), 4)
-                    game.board[bh_cluster * 7 + 1]["pieces"].append({"type": "pirate_base", "owner": "neutral"})
-                    for name in game.turn_order:
-                        game.player_placement[name] = list(START_PIECES)
-                    game.placement_idx = 0
-                    game.phase = "place_pieces"
-                    state = game.public_state()
-                    state["board"] = game.board
-                    await game.broadcast({"type": "place_pieces_start", **state})
+                await _resolve_dice_round(game)
 
             # ── place_piece ───────────────────────────────────────────────────
             elif kind == "place_piece":
@@ -1101,16 +1543,7 @@ async def sss_ws(ws: WebSocket, game_code: str):
 
                 # Auto-advance when this player's queue is empty
                 if not game.player_placement.get(player.name):
-                    game.placement_idx += 1
-                    if game.placement_idx >= len(game.turn_order):
-                        _deal_draft(game)
-                        state = game.public_state()
-                        state["board"] = game.board
-                        await game.broadcast({"type": "draft_start", **state})
-                    else:
-                        state = game.public_state()
-                        state["board"] = game.board
-                        await game.broadcast({"type": "game_state", **state})
+                    await _advance_placement(game)
                 else:
                     state = game.public_state()
                     state["board"] = game.board
@@ -1127,16 +1560,7 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 if player.name != game.turn_order[game.placement_idx]:
                     continue
                 game.player_placement[player.name] = []
-                game.placement_idx += 1
-                if game.placement_idx >= len(game.turn_order):
-                    _deal_draft(game)
-                    state = game.public_state()
-                    state["board"] = game.board
-                    await game.broadcast({"type": "draft_start", **state})
-                else:
-                    state = game.public_state()
-                    state["board"] = game.board
-                    await game.broadcast({"type": "game_state", **state})
+                await _advance_placement(game)
 
             # ── begin_action ──────────────────────────────────────────────────
             elif kind == "begin_action":

@@ -273,7 +273,15 @@ function renderLobby(state) {
     const badge = document.createElement("span");
     badge.className = "player-badge" + (p.role === "host" ? " host" : "");
     li.appendChild(badge);
-    li.appendChild(document.createTextNode(p.name + (p.role === "host" ? " (Host)" : "")));
+    li.appendChild(document.createTextNode(p.name + (p.role === "host" ? " (Host)" : p.role === "ai" ? " 🤖" : "")));
+    if (myRole === "host" && p.role === "ai") {
+      const rm = document.createElement("button");
+      rm.textContent = "✕";
+      rm.className = "btn-remove-ai";
+      rm.style.cssText = "margin-left:.5rem;background:none;border:none;cursor:pointer;color:#ef4444;font-size:.9rem;";
+      rm.addEventListener("click", () => send({ type: "remove_ai", name: p.name }));
+      li.appendChild(rm);
+    }
     list.appendChild(li);
   }
   $("lobby-host-actions").style.display = myRole === "host" ? "" : "none";
@@ -2254,6 +2262,7 @@ $("watch-code-input").addEventListener("input", () => {
 });
 
 $("btn-start-game").addEventListener("click",   () => send({ type: "start_game" }));
+$("btn-add-ai").addEventListener("click",       () => send({ type: "add_ai" }));
 $("btn-confirm-race").addEventListener("click", () => send({ type: "confirm_race" }));
 $("btn-roll-dice").addEventListener("click",    () => send({ type: "roll_dice" }));
 
