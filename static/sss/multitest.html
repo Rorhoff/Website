@@ -690,6 +690,8 @@
       const seen = new Set();
       for (const h of board) {
         if (!h.wormhole || h.wormhole_partner == null || !myFrigClusters.has(h.cluster)) continue;
+        // Require a frigate actually sitting on this wormhole hex (not just anywhere in cluster)
+        if (!(h.pieces ?? []).some(pc => pc.type === "frigate" && pc.owner === p.name)) continue;
         const partner = board[h.wormhole_partner];
         if (!partner) continue;
         const dest = partner.cluster;
@@ -1232,6 +1234,11 @@
       setAutoMsg(`🏆 ${winner} wins! Game over.`);
     }
 
+    if (msg.type === "eliminated") {
+      log(idx, "sys", `ELIMINATED: ${msg.msg ?? "removed from game"}`);
+      panels[idx].eliminated = true;
+    }
+
     if (msg.type === "error") {
       log(idx, "err", msg.msg ?? JSON.stringify(msg));
       const state = panels[idx].lastState;
@@ -1243,9 +1250,9 @@
           setTimeout(() => autoPlacePiece(idx, state), 800);
         }
       } else if (state?.phase === "board" && state.current_turn === panels[idx].name) {
-        // Board action rejected (e.g. can't afford) — retry with fresh state
-        sysLog(idx, "Action rejected — retrying turn…");
-        setTimeout(() => autoTurnAction(idx, state), 500 + idx * 80);
+        // Board action rejected — end turn to avoid infinite retry loops
+        sysLog(idx, "Action rejected — ending turn");
+        send(idx, { type: "end_turn" });
       }
     }
   }
@@ -1503,6 +1510,12 @@
   });
   document.getElementById("btn-step-back").addEventListener("click", stepBack);
   document.getElementById("btn-step-fwd").addEventListener("click", stepForward);
+
+  document.addEventListener("keydown", e => {
+    if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
+    if (e.key === "ArrowLeft")  { e.preventDefault(); stepBack(); }
+    if (e.key === "ArrowRight") { e.preventDefault(); stepForward(); }
+  });
   </script>
 </body>
 </html>

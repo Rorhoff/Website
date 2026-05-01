@@ -461,19 +461,80 @@ def _apply_turn_income(game, player) -> None:
             food = max(1, counts[1] - 1) if h.get("tri_farmer_green") else counts[1]
             upkeep["food"]    += food
             upkeep["science"] += counts[2]
-    # Building bonuses — all buildings owned by the player anywhere on the board
-    building_bonus: dict = {"food": 0, "science": 0, "tool": 0, "money": 0}
-    for h in game.board:
-        for p in h["pieces"]:
-            if p.get("owner") != player.name:
-                continue
-            for key, amount in _BUILDING_INCOME.get(p["type"], {}).items():
-                building_bonus[key] = building_bonus.get(key, 0) + amount
     player.upkeep = dict(upkeep)
-    # Apply: resources += income − upkeep + building_bonus (floor 0)
+    # Apply: resources += income − upkeep  (building income is already in player.income)
+    # Any resource that would go negative adds +1 unrest instead of going below 0.
+    unrest_gain = 0
     for key in ("food", "science", "tool", "money"):
-        net = player.income.get(key, 0) - upkeep.get(key, 0) + building_bonus.get(key, 0)
-        player.resources[key] = max(0, player.resources.get(key, 0) + net)
+        net = player.income.get(key, 0) - upkeep.get(key, 0)
+        new_val = player.resources.get(key, 0) + net
+        if new_val < 0:
+            unrest_gain += 1
+            new_val = 0
+        player.resources[key] = new_val
+    if unrest_gain:
+        _gov = player.tech.get("government", [])
+        _gov_reduction = (1 if len(_gov) > 0 and _gov[0] else 0) + (1 if len(_gov) > 3 and _gov[3] else 0)
+        unrest_gain = max(0, unrest_gain - _gov_reduction)
+    if unrest_gain:
+        player.resources["unrest"] = player.resources.get("unrest", 0) + unrest_gain
+
+
+def _strip_buildings_from_cluster(game, cluster: int, owner: str) -> dict:
+    """Remove all buildings owned by `owner` from `cluster`. Returns dict of income lost."""
+    lost: dict[str, int] = {}
+    for h in game.board:
+        if h["cluster"] != cluster:
+            continue
+        kept = []
+        for p in h.get("pieces", []):
+            if p.get("owner") == owner and p.get("type") in _BUILDING_INCOME:
+                for res, amt in _BUILDING_INCOME[p["type"]].items():
+                    lost[res] = lost.get(res, 0) + amt
+            else:
+                kept.append(p)
+        h["pieces"] = kept
+    return lost
+
+
+_SKILL_EFFECTS: dict[str, list[dict]] = {
+    "biology": [
+        {"science": 2, "vp": 0, "income": {"food": 1},    "name": "Hydroponics"},
+        {"science": 3, "vp": 0, "income": {"science": 1}, "name": "Chemical Synthesis"},
+        {"science": 4, "vp": 1, "income": {"food": 2},    "name": "Soil Enrichment"},
+        {"science": 5, "vp": 0, "income": {"tool": 1},    "name": "Organic Chemistry"},
+        {"science": 6, "vp": 2, "income": {"science": 2}, "name": "Genetic Mastery"},
+    ],
+    "physics": [
+        {"science": 2, "vp": 0, "income": {}, "name": "Ballistics"},
+        {"science": 3, "vp": 0, "income": {}, "name": "Deflector Fields"},
+        {"science": 4, "vp": 1, "income": {}, "name": "Plasma Cannons"},
+        {"science": 5, "vp": 0, "income": {}, "name": "Quantum Shields"},
+        {"science": 6, "vp": 2, "income": {}, "name": "Antimatter Weapons"},
+    ],
+    "government": [
+        {"science": 2, "vp": 0, "income": {}, "name": "Civil Order"},
+        {"science": 3, "vp": 0, "income": {}, "name": "Expanded Senate"},
+        {"science": 4, "vp": 1, "income": {}, "name": "Martial Command"},
+        {"science": 5, "vp": 0, "income": {}, "name": "Pacification Bureau"},
+        {"science": 6, "vp": 2, "income": {}, "name": "Imperial Authority"},
+    ],
+    "engineering": [
+        {"science": 2, "vp": 0, "income": {}, "name": "Workshop Efficiency"},
+        {"science": 3, "vp": 0, "income": {}, "name": "Shipyard Optimization"},
+        {"science": 4, "vp": 1, "income": {}, "name": "Advanced Metallurgy"},
+        {"science": 5, "vp": 0, "income": {}, "name": "Modular Construction"},
+        {"science": 6, "vp": 2, "income": {}, "name": "Orbital Expansion"},
+    ],
+}
+
+
+def _do_elimination(game, name: str) -> None:
+    """Strip all pieces belonging to the eliminated player from the board and turn order."""
+    for h in game.board:
+        h["pieces"] = [p for p in h["pieces"] if p.get("owner") != name]
+    if name in game.turn_order:
+        game.turn_order.remove(name)
 
 
 def _advance_turn(game) -> None:
@@ -483,8 +544,60 @@ def _advance_turn(game) -> None:
         p = game.players.get(name)
         if p:
             _apply_turn_income(game, p)
+            if p.resources.get("unrest", 0) >= 20:
+                game.eliminated.append(name)
+                _do_elimination(game, name)
+                # Don't increment turn_idx — removing current player already shifts pointer
+                game.turn_actions_remaining = 2 if len(game.turn_order) >= 5 else 3
+                return
     game.turn_idx += 1
-    game.turn_actions_remaining = 2 if len(game.turn_order) >= 5 else 3
+    _base_actions = 2 if len(game.turn_order) >= 5 else 3
+    if game.turn_order:
+        _next_name = game.turn_order[game.turn_idx % len(game.turn_order)]
+        _next_p = game.players.get(_next_name)
+        if _next_p:
+            _gov = _next_p.tech.get("government", [])
+            if len(_gov) > 1 and _gov[1]: _base_actions += 1  # Lv2 Expanded Senate
+            if len(_gov) > 4 and _gov[4]: _base_actions += 1  # Lv5 Imperial Authority
+    game.turn_actions_remaining = _base_actions
+
+
+def _player_planet_count(game, name: str) -> int:
+    return sum(
+        1 for h in game.board
+        if h.get("local") == 0 and h.get("planet")
+        and any(p.get("type") == "empire_flag" and p.get("owner") == name
+                for p in h.get("pieces", []))
+    )
+
+
+async def _flush_eliminations(game) -> None:
+    """Send personal elimination message to any newly eliminated players."""
+    # Eliminate players who once owned a planet but now own none
+    for name in list(game.turn_order):
+        if name in game.ever_owned_planet and name not in game.eliminated:
+            if _player_planet_count(game, name) == 0:
+                game.eliminated.append(name)
+                _do_elimination(game, name)
+
+    if not game.eliminated:
+        return
+    for name in list(game.eliminated):
+        p = game.players.get(name)
+        if p and p.ws:
+            try:
+                await p.ws.send_json({
+                    "type": "eliminated",
+                    "msg": "Your inability to govern has made you a failure.",
+                })
+            except Exception:
+                pass
+    game.eliminated.clear()
+    # If only one player remains, declare them the winner
+    remaining = [n for n, p in game.players.items()
+                 if n in game.turn_order and p.connected]
+    if len(remaining) == 1:
+        game.phase = "ended"
 
 
 def _use_action(game) -> None:
@@ -533,6 +646,8 @@ class Game:
     turn_actions_remaining: int = 3
     pending_combat: Any = None
     deferred_groups: list = field(default_factory=list)
+    eliminated: list = field(default_factory=list)
+    ever_owned_planet: set = field(default_factory=set)
 
     def public_state(self) -> dict:
         in_board = self.phase in ("place_pieces", "draft", "board")
@@ -1093,6 +1208,15 @@ async def sss_ws(ws: WebSocket, game_code: str):
                     continue
                 money_cost = cost.get("money", 0)
                 tool_cost  = cost.get("tool", 0)
+                # Engineering discounts
+                _eng = player.tech.get("engineering", [])
+                _building_types_set = set(_BUILDING_INCOME)
+                _spacecraft_types_set = {"cruise_ship", "frigate", "outpost", "super_ship", "battle_station", "death_star"}
+                if piece_type in _building_types_set:
+                    if len(_eng) > 0 and _eng[0]: money_cost = max(1, money_cost - 1)  # Lv1
+                elif piece_type in _spacecraft_types_set:
+                    if len(_eng) > 1 and _eng[1]: money_cost = max(1, money_cost - 2)  # Lv2
+                    if len(_eng) > 2 and _eng[2]: tool_cost  = max(0, tool_cost  - 1)  # Lv3
                 money = player.resources.get("money", 0)
                 tools = player.resources.get("tool", 0)
                 if money < money_cost:
@@ -1116,6 +1240,7 @@ async def sss_ws(ws: WebSocket, game_code: str):
                     tri_hex["tri_farmer_green"] = True
                     player.resources["tool"] = tools - tool_cost
                     _use_action(game)
+                    await _flush_eliminations(game)
                     state = game.public_state()
                     state["board"] = game.board
                     await game.broadcast({"type": "game_state", **state})
@@ -1134,22 +1259,28 @@ async def sss_ws(ws: WebSocket, game_code: str):
                         await ws.send_json({"type": "error", "msg": "Buildings must be placed on the light blue hex"})
                         continue
                     existing = [p for p in target_hex["pieces"] if p["type"] in _building_types]
-                    if len(existing) >= 3:
-                        await ws.send_json({"type": "error", "msg": "That tile already has 3 buildings (max)"})
+                    _bld_cap = 4 if (len(_eng) > 3 and _eng[3]) else 3  # Lv4 Modular Construction
+                    if len(existing) >= _bld_cap:
+                        await ws.send_json({"type": "error", "msg": f"That tile already has {_bld_cap} buildings (max)"})
                         continue
                 else:
                     if target_hex["type"] != "orbital":
                         await ws.send_json({"type": "error", "msg": "Spacecraft must be placed on an orbital hex"})
                         continue
                     spacecraft_count = sum(1 for p in target_hex["pieces"] if p["type"] in _spacecraft_types)
-                    if spacecraft_count >= 3:
-                        await ws.send_json({"type": "error", "msg": "That orbital tile is full (max 3 spacecraft)"})
+                    _orb_cap = 4 if (len(_eng) > 4 and _eng[4]) else 3  # Lv5 Orbital Expansion
+                    if spacecraft_count >= _orb_cap:
+                        await ws.send_json({"type": "error", "msg": f"That orbital tile is full (max {_orb_cap} spacecraft)"})
                         continue
                 player.resources["money"] = money - money_cost
                 if tool_cost:
                     player.resources["tool"] = tools - tool_cost
                 target_hex["pieces"].append({"type": piece_type, "owner": player.name})
+                # Buildings add to permanent income so the display is correct immediately
+                for _bkey, _bamt in _BUILDING_INCOME.get(piece_type, {}).items():
+                    player.income[_bkey] = player.income.get(_bkey, 0) + _bamt
                 _use_action(game)
+                await _flush_eliminations(game)
                 state = game.public_state()
                 state["board"] = game.board
                 await game.broadcast({"type": "game_state", **state})
@@ -1276,6 +1407,7 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 else:
                     game.pending_combat = None
                     _use_action(game)
+                    await _flush_eliminations(game)
                     state = game.public_state()
                     state["board"] = game.board
                     await game.broadcast({"type": "game_state", **state})
@@ -1360,6 +1492,9 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 if is_attacker and not combat["atk_rolled"]:
                     tech_card = raw.get("tech_card")
                     atk_dice_count = 2 if tech_card == "nuclear_missile" else 1
+                    _atk_phys = game.players.get(attacker_name)
+                    _atk_phys = (_atk_phys.tech.get("physics", []) if _atk_phys else [])
+                    if len(_atk_phys) > 0 and _atk_phys[0]: atk_dice_count += 1  # Lv1 Ballistics
                     atk_dice = [random.randint(1, 6) for _ in range(atk_dice_count)]
                     combat["atk_dice"]  = atk_dice
                     combat["atk_total"] = sum(atk_dice)
@@ -1374,7 +1509,11 @@ async def sss_ws(ws: WebSocket, game_code: str):
                     })
 
                 elif not is_attacker and player.name == defender_name and not combat["def_rolled"]:
-                    def_dice = [random.randint(1, 6)]
+                    _def_phys = player.tech.get("physics", [])
+                    def_dice_count = 1
+                    if len(_def_phys) > 1 and _def_phys[1]: def_dice_count += 1  # Lv2 Deflector Fields
+                    if len(_def_phys) > 3 and _def_phys[3]: def_dice_count += 1  # Lv4 Quantum Shields
+                    def_dice = [random.randint(1, 6) for _ in range(def_dice_count)]
                     combat["def_dice"]  = def_dice
                     combat["def_total"] = sum(def_dice)
                     combat["def_rolled"] = True
@@ -1404,6 +1543,7 @@ async def sss_ws(ws: WebSocket, game_code: str):
                             ]
                     game.pending_combat = None
                     _use_action(game)
+                    await _flush_eliminations(game)
                     state = game.public_state()
                     state["board"] = game.board
                     await game.broadcast({
@@ -1541,11 +1681,16 @@ async def sss_ws(ws: WebSocket, game_code: str):
                     await ws.send_json({"type": "error", "msg": "You already own this cluster"})
                     continue
                 planet = core_hex["planet"]
-                # Roll: 1d6 per frigate (up to 3) vs planet 3d6
+                # Roll: 1d6 per frigate (up to 3) vs planet 3d6; Physics Lv3/5 add extra dice
                 num_dice = min(len(player_frigates), 3)
+                _inv_phys = player.tech.get("physics", [])
+                if len(_inv_phys) > 2 and _inv_phys[2]: num_dice += 1  # Lv3 Plasma Cannons
+                if len(_inv_phys) > 4 and _inv_phys[4]: num_dice += 1  # Lv5 Antimatter Weapons
                 atk_dice = [random.randint(1, 6) for _ in range(num_dice)]
                 atk_total = sum(atk_dice)
-                planet_dice = [random.randint(1, 6) for _ in range(3)]
+                _inv_gov = player.tech.get("government", [])
+                planet_def_dice = 2 if (len(_inv_gov) > 2 and _inv_gov[2]) else 3  # Lv3 Martial Command
+                planet_dice = [random.randint(1, 6) for _ in range(planet_def_dice)]
                 planet_total = sum(planet_dice)
                 won = atk_total > planet_total  # planet wins ties
                 if won:
@@ -1557,12 +1702,16 @@ async def sss_ws(ws: WebSocket, game_code: str):
                     # Plant flag
                     core_hex["pieces"] = [p for p in core_hex.get("pieces", []) if p["type"] != "empire_flag"]
                     core_hex["pieces"].append({"type": "empire_flag", "owner": player.name})
-                    # Remove income from previous owner
+                    game.ever_owned_planet.add(player.name)
+                    # Remove income from previous owner and strip their buildings
                     if prev_owner and prev_owner != player.name:
                         prev_p = game.players.get(prev_owner)
                         if prev_p:
                             for _k in ("food", "science", "tool", "money"):
                                 prev_p.income[_k] = max(0, prev_p.income.get(_k, 0) - planet.get(_k, 0))
+                            lost = _strip_buildings_from_cluster(game, cluster, prev_owner)
+                            for _k, _amt in lost.items():
+                                prev_p.income[_k] = max(0, prev_p.income.get(_k, 0) - _amt)
                     # Grant income to attacker
                     for _k in ("food", "science", "tool", "money"):
                         player.income[_k] = player.income.get(_k, 0) + planet.get(_k, 0)
@@ -1576,6 +1725,7 @@ async def sss_ws(ws: WebSocket, game_code: str):
                             if not (p["type"] == "frigate" and p["owner"] == player.name)
                         ]
                 _use_action(game)
+                await _flush_eliminations(game)
                 vp_winner = _check_vp_winner(game) if won else None
                 if vp_winner:
                     game.phase = "ended"
@@ -1609,32 +1759,50 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 combat = game.pending_combat
                 dest_cluster = combat["dest_cluster"]
                 planet = combat["planet"]
-                # Attacker dice (+1 for nuclear_missile / death_spores / invasion_dice)
+                # Attacker dice (+1 for nuclear_missile / death_spores / invasion_dice; Physics Lv3/5)
                 atk_dice = [random.randint(1, 6), random.randint(1, 6)]
                 if tech_card in ("nuclear_missile", "death_spores", "invasion_dice"):
                     atk_dice.append(random.randint(1, 6))
+                _si_phys = player.tech.get("physics", [])
+                if len(_si_phys) > 2 and _si_phys[2]: atk_dice.append(random.randint(1, 6))  # Lv3
+                if len(_si_phys) > 4 and _si_phys[4]: atk_dice.append(random.randint(1, 6))  # Lv5
                 atk_total = sum(atk_dice)
-                # Planet defense: 3 dice
-                planet_dice  = [random.randint(1, 6) for _ in range(3)]
+                # Planet defense: 3 dice (2 if attacker has Government Lv3 Martial Command)
+                _si_gov = player.tech.get("government", [])
+                si_planet_def_dice = 2 if (len(_si_gov) > 2 and _si_gov[2]) else 3
+                planet_dice  = [random.randint(1, 6) for _ in range(si_planet_def_dice)]
                 planet_total = sum(planet_dice)
                 if atk_total > planet_total:
                     winner = "player"
                     # Grant planet income to attacker
                     for _k in ("food", "science", "tool", "money"):
                         player.income[_k] = player.income.get(_k, 0) + planet.get(_k, 0)
-                    # Remove previous owner's income if applicable
-                    for pname, cluster in game.player_system.items():
-                        if cluster == dest_cluster and pname != player.name:
-                            other = game.players.get(pname)
-                            if other:
-                                for _k in ("food", "science", "tool", "money"):
-                                    other.income[_k] = max(0, other.income.get(_k, 0) - planet.get(_k, 0))
-                            break
-                    # Plant empire flag
+                    # Find and evict previous flag owner (empire_flag or home-system owner)
                     inv_core = next((h for h in game.board if h["cluster"] == dest_cluster and h["local"] == 0), None)
+                    prev_flag_owner = next(
+                        (p["owner"] for p in (inv_core.get("pieces", []) if inv_core else [])
+                         if p["type"] == "empire_flag"),
+                        None,
+                    )
+                    home_owner = next(
+                        (pname for pname, cl in game.player_system.items()
+                         if cl == dest_cluster and pname != player.name),
+                        None,
+                    )
+                    prev_planet_owner = prev_flag_owner or home_owner
+                    if prev_planet_owner and prev_planet_owner != player.name:
+                        other = game.players.get(prev_planet_owner)
+                        if other:
+                            for _k in ("food", "science", "tool", "money"):
+                                other.income[_k] = max(0, other.income.get(_k, 0) - planet.get(_k, 0))
+                            lost = _strip_buildings_from_cluster(game, dest_cluster, prev_planet_owner)
+                            for _k, _amt in lost.items():
+                                other.income[_k] = max(0, other.income.get(_k, 0) - _amt)
+                    # Plant empire flag
                     if inv_core:
                         inv_core["pieces"] = [p for p in inv_core.get("pieces", []) if p["type"] != "empire_flag"]
                         inv_core["pieces"].append({"type": "empire_flag", "owner": player.name})
+                    game.ever_owned_planet.add(player.name)
                 else:
                     winner = "planet"
                     # Remove attacker's frigate from dest cluster
@@ -1647,6 +1815,7 @@ async def sss_ws(ws: WebSocket, game_code: str):
                                 break
                 game.pending_combat = None
                 _use_action(game)
+                await _flush_eliminations(game)
                 vp_winner = _check_vp_winner(game) if winner == "player" else None
                 if vp_winner:
                     game.phase = "ended"
@@ -1678,6 +1847,45 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 card = random.choice(TECH_CARDS)
                 player.tech_cards.append(card["id"])
                 _use_action(game)
+                await _flush_eliminations(game)
+                state = game.public_state()
+                state["board"] = game.board
+                await game.broadcast({"type": "game_state", **state})
+
+            # ── research_skill ────────────────────────────────────────────────
+            elif kind == "research_skill":
+                if not game or not player:
+                    continue
+                if game.phase != "board" or not game.turn_order:
+                    continue
+                current = game.turn_order[game.turn_idx % len(game.turn_order)]
+                if player.name != current:
+                    await ws.send_json({"type": "error", "msg": "Not your turn"})
+                    continue
+                column = raw.get("column")
+                if column not in _SKILL_EFFECTS:
+                    await ws.send_json({"type": "error", "msg": "Unknown skill column"})
+                    continue
+                levels = player.tech.setdefault(column, [False] * 5)
+                next_lvl = next((i for i, done in enumerate(levels) if not done), None)
+                if next_lvl is None:
+                    await ws.send_json({"type": "error", "msg": "All levels already unlocked"})
+                    continue
+                effect = _SKILL_EFFECTS[column][next_lvl]
+                cost_sci = effect["science"]
+                sci_have = player.resources.get("science", 0)
+                if sci_have < cost_sci:
+                    await ws.send_json({"type": "error", "msg": f"Need {cost_sci} Science (have {sci_have})"})
+                    continue
+                player.resources["science"] = sci_have - cost_sci
+                levels[next_lvl] = True
+                player.tech[column] = levels
+                for res, amt in effect.get("income", {}).items():
+                    player.income[res] = player.income.get(res, 0) + amt
+                if effect.get("vp"):
+                    player.pieces["vp"] = player.pieces.get("vp", 0) + effect["vp"]
+                _use_action(game)
+                await _flush_eliminations(game)
                 state = game.public_state()
                 state["board"] = game.board
                 await game.broadcast({"type": "game_state", **state})

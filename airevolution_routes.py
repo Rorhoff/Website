@@ -150,7 +150,7 @@ def _call_claude(system: str, user_text: str) -> str:
     key = os.getenv("ANTHROPIC_API_KEY", "").strip()
     if not key:
         return ""
-    model = os.getenv("ANTHROPIC_MODEL", "claude-3-5-sonnet-20241022")
+    model = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
     try:
         r = httpx.post(
             "https://api.anthropic.com/v1/messages",
@@ -174,6 +174,14 @@ def _call_claude(system: str, user_text: str) -> str:
             if block.get("type") == "text":
                 out.append(block.get("text", ""))
         return "\n".join(out).strip()
+    except httpx.HTTPStatusError as e:
+        body = ""
+        try:
+            detail = e.response.json()
+            body = detail.get("error", {}).get("message", "") or str(detail)
+        except Exception:
+            body = e.response.text[:300]
+        return f"(Claude request failed {e.response.status_code}: {body or str(e)})"
     except httpx.HTTPError as e:
         return f"(Claude request failed: {e})"
     except Exception as e:  # noqa: BLE001

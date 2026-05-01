@@ -154,6 +154,9 @@ function handleMsg(msg) {
       applyState(msg);
       showCombatResult(msg);
       break;
+    case "eliminated":
+      showEliminatedOverlay(msg.msg);
+      break;
     case "race_taken":
       showError("race-error", "That race was just taken — pick another.");
       break;
@@ -192,6 +195,23 @@ function showBoardToast(msg) {
   toast.style.display = "block";
   clearTimeout(toast._t);
   toast._t = setTimeout(() => { toast.style.display = "none"; }, 4000);
+}
+
+function showEliminatedOverlay(message) {
+  let el = document.getElementById("eliminated-overlay");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "eliminated-overlay";
+    el.style.cssText = "position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#00000099;z-index:3000";
+    document.body.appendChild(el);
+  }
+  el.innerHTML = `<div style="background:#0f1623;border:2px solid #ef4444;border-radius:16px;padding:2rem 2.5rem;text-align:center;max-width:360px">
+    <div style="font-size:2.5rem">💀</div>
+    <div style="font-size:1.35rem;font-weight:800;color:#ef4444;margin:.5rem 0">Eliminated</div>
+    <div style="color:#e2e8f0;margin-bottom:1rem">${message}</div>
+    <button onclick="this.closest('#eliminated-overlay').remove()" style="background:#ef4444;color:#fff;border:none;border-radius:8px;padding:.5rem 1.5rem;font-weight:700;cursor:pointer;font-size:.9rem">Close</button>
+  </div>`;
+  el.style.display = "flex";
 }
 
 function showGameOver(winner) {
@@ -1003,10 +1023,41 @@ const TECH_COLS = [
 ];
 
 const TECH_NAMES = {
-  biology:     ["Hydroponic Farm HTTP", "Terraforming", "Soil Enrichment Facility TCP", "Advanced Terraforming", "UDP"],
-  physics:     ["Research Laboratory HTTP", "Shared Memories +1 Unrest", "Astro University TCP", "Advanced Database", "UDP"],
-  engineering: ["Automated Factory HTTP", "Jump Drive", "Organic Reprocessing TCP +1 Unrest", "Advanced Jump Drive", "UDP"],
-  government:  ["Mental Overseers HTTP +1 Unrest", "Better Diplomats", "Chosen Birthers TCP +1 Unrest", "Superior Diplomats", "UDP"],
+  biology:     ["Hydroponics", "Chemical Synthesis", "Soil Enrichment", "Organic Chemistry", "Genetic Mastery"],
+  physics:     ["Ballistics", "Deflector Fields", "Plasma Cannons", "Quantum Shields", "Antimatter Weapons"],
+  engineering: ["Workshop Efficiency", "Shipyard Optimization", "Advanced Metallurgy", "Modular Construction", "Orbital Expansion"],
+  government:  ["Civil Order", "Expanded Senate", "Martial Command", "Pacification Bureau", "Imperial Authority"],
+};
+
+const TECH_DESCS = {
+  biology: [
+    { cost: "2 Science",          effect: "+1 Food / turn" },
+    { cost: "3 Science",          effect: "+1 Science / turn" },
+    { cost: "4 Science  +1 VP",   effect: "+2 Food / turn" },
+    { cost: "5 Science",          effect: "+1 Tool / turn" },
+    { cost: "6 Science  +2 VP",   effect: "+2 Science / turn" },
+  ],
+  physics: [
+    { cost: "2 Science",          effect: "+1 attack die in ship combat" },
+    { cost: "3 Science",          effect: "+1 defense die in ship combat" },
+    { cost: "4 Science  +1 VP",   effect: "+1 attack die when invading planets" },
+    { cost: "5 Science",          effect: "+1 more defense die in ship combat" },
+    { cost: "6 Science  +2 VP",   effect: "+1 more attack die when invading planets" },
+  ],
+  government: [
+    { cost: "2 Science",          effect: "Gain 1 less Unrest per turn" },
+    { cost: "3 Science",          effect: "+1 extra action per turn" },
+    { cost: "4 Science  +1 VP",   effect: "Enemy planets roll 1 fewer die when you invade" },
+    { cost: "5 Science",          effect: "Gain 1 less Unrest per turn (stacks)" },
+    { cost: "6 Science  +2 VP",   effect: "+1 more extra action per turn (stacks)" },
+  ],
+  engineering: [
+    { cost: "2 Science",          effect: "Buildings cost 1 less Money" },
+    { cost: "3 Science",          effect: "Ships cost 2 less Money" },
+    { cost: "4 Science  +1 VP",   effect: "Ships cost 1 less Tool" },
+    { cost: "5 Science",          effect: "Building slots per hex: 3 → 4" },
+    { cost: "6 Science  +2 VP",   effect: "Spacecraft per orbital: 3 → 4" },
+  ],
 };
 
 const TECH_COSTS = [
@@ -1303,11 +1354,20 @@ function renderFullPlayerCard(state) {
   const techColsHtml = TECH_COLS.map(col => {
     const levels = tech[col.key] ?? [false,false,false,false,false];
     const names  = TECH_NAMES[col.key] ?? [];
-    const lvls = levels.map((on, i) => `
+    const descs  = TECH_DESCS[col.key] ?? [];
+    const nextUnlocked = levels.findIndex(on => !on); // first locked level index
+    const lvls = levels.map((on, i) => {
+      const d = descs[i];
+      const isNext = i === nextUnlocked;
+      const detailHtml = d
+        ? `<span class="tech-name"><strong>${names[i]}</strong><br><span style="color:var(--muted);font-size:.55rem">${d.cost}</span><br>${d.effect}${isNext && !on ? `<br><button class="btn btn-primary btn-sm tech-unlock-btn" style="margin-top:.25rem;font-size:.6rem;padding:.1rem .4rem" data-tkey="${col.key}">Unlock</button>` : ""}</span>`
+        : `<span class="tech-name">${names[i] ?? ""}</span>`;
+      return `
       <div class="tech-level${on ? " unlocked" : ""}" data-tkey="${col.key}" data-tlvl="${i}">
         <span class="tech-lvl-label">Lv ${i + 1}</span>
-        <span class="tech-name">${names[i] ?? ""}</span>
-      </div>`).join("");
+        ${detailHtml}
+      </div>`;
+    }).join("");
     return `<div class="tech-col">
       <div class="tech-col-header">${col.label}</div>
       ${lvls}
@@ -1362,12 +1422,23 @@ function renderFullPlayerCard(state) {
 
   cardEl.querySelector("#btn-card-close")?.addEventListener("click", () => setViewMode("map"));
 
-  // Tap to reveal tech name (one open at a time)
+  // Tap to reveal tech detail (one open at a time)
   cardEl.querySelectorAll(".tech-level").forEach(el => {
-    el.addEventListener("click", () => {
+    el.addEventListener("click", e => {
+      if (e.target.classList.contains("tech-unlock-btn")) return; // handled separately
       const open = el.classList.contains("revealed");
       cardEl.querySelectorAll(".tech-level.revealed").forEach(r => r.classList.remove("revealed"));
       if (!open) el.classList.add("revealed");
+    });
+  });
+
+  // Unlock button inside revealed tech row
+  cardEl.querySelectorAll(".tech-unlock-btn").forEach(btn => {
+    btn.addEventListener("click", e => {
+      e.stopPropagation();
+      const col = btn.dataset.tkey;
+      send({ type: "research_skill", column: col });
+      cardEl.querySelectorAll(".tech-level.revealed").forEach(r => r.classList.remove("revealed"));
     });
   });
 
@@ -1586,8 +1657,14 @@ function showActionPicker() {
         showConstructionPicker("buildings");
       } else if (action === "draw_tech_card") {
         send({ type: "draw_tech_card" });
-      } else if (action === "biology_and_chem" || action === "physics" || action === "engineering" || action === "government") {
-        showBoardToast("Skill tree coming soon.");
+      } else if (action === "biology_and_chem") {
+        send({ type: "research_skill", column: "biology" });
+      } else if (action === "physics") {
+        send({ type: "research_skill", column: "physics" });
+      } else if (action === "government") {
+        send({ type: "research_skill", column: "government" });
+      } else if (action === "engineering") {
+        send({ type: "research_skill", column: "engineering" });
       } else if (action === "construction") {
         showConstructionPicker();
       }
