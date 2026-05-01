@@ -887,7 +887,7 @@ function renderBoard(state, placementMode) {
     if (validTarget) cls += " hex-placeable";
 
     const isSource  = isActionTurn && actionSourceClusters.has(h.cluster);
-    const isTarget  = isActionTurn && actionTargetClusters.has(h.cluster);
+    const isTarget  = isActionTurn && actionTargetClusters.has(h.cluster) && h.type === "orbital";
     const isSelected = isActionTurn && _selectedCluster !== null && h.cluster === _selectedCluster;
     const isInvasionSource = isActionTurn && _actionMode?.type === "invasion"
       && _actionMode?.phase !== "in_system"
