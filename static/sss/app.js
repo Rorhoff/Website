@@ -43,6 +43,8 @@ let _selectedRoutes  = [];    // routes from _selectedCluster
 let _constructionPiece = null; // { type, cost } when in construction placement mode
 let _pendingScienceHex = null; // hex_id of science tile clicked directly (skips general re-render)
 let _lastState       = null;  // most recent full state for re-renders
+let _hexHandlers     = new Map();  // hex_id → click handler; populated each renderBoard
+let _hexPositions    = [];         // [{id,x,y}] for SVG-coordinate hit dispatch
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -755,6 +757,8 @@ function renderBoard(state, placementMode) {
 
   const hexes = (state.board ?? boardCache ?? []);
   const hexById = {};
+  _hexHandlers = new Map();
+  _hexPositions = hexes.map(h => ({ id: h.id, x: h.x, y: h.y }));
   for (const h of hexes) hexById[h.id] = h;
 
   // Placement validity helpers
@@ -921,20 +925,6 @@ function renderBoard(state, placementMode) {
     poly.setAttribute("class", cls);
     poly.setAttribute("data-id", h.id);
 
-    // Transparent hit-polygon in drag-layer (top layer) so clicks land even when
-    // piece/label SVG elements visually cover the hex polygon below.
-    const addHit = (handler) => {
-      if (!dragLayer) return;
-      const hit = document.createElementNS(svgNS, "polygon");
-      hit.setAttribute("points", hexPoints(h.x, h.y));
-      hit.setAttribute("fill", "rgba(0,0,0,0)");
-      hit.setAttribute("stroke", "none");
-      hit.setAttribute("pointer-events", "all");
-      hit.style.cursor = "pointer";
-      hit.addEventListener("click", handler);
-      dragLayer.appendChild(hit);
-    };
-
     // Science hex direct-click shortcut: when idle on your turn, click S tile to open building picker
     const isScienceDirect = !placementMode && !_constructionPiece && !_actionMode
       && state.phase === "board" && state.current_turn === myName && myRole !== "watcher"
@@ -942,44 +932,35 @@ function renderBoard(state, placementMode) {
     if (isScienceDirect) {
       cls += " hex-science-available";
       const capturedId = h.id;
-      const sciHandler = () => { _pendingScienceHex = capturedId; showConstructionPicker("buildings"); };
-      poly.addEventListener("click", sciHandler);
-      addHit(sciHandler);
+      _hexHandlers.set(h.id, () => { _pendingScienceHex = capturedId; showConstructionPicker("buildings"); });
     }
 
     if (validConstructTarget) {
       poly.style.cursor = "pointer";
-      const handler = () => {
+      _hexHandlers.set(h.id, () => {
         const piece = _constructionPiece;
         _constructionPiece = null; _actionMode = null;
         send({ type: "build_piece", piece_type: piece.type, hex_id: h.id });
-      };
-      poly.addEventListener("click", handler);
-      addHit(handler);
+      });
     } else if (validTarget) {
       poly.style.cursor = "pointer";
-      const handler = () => send({ type: "place_piece", hex_id: h.id });
-      poly.addEventListener("click", handler);
-      addHit(handler);
+      _hexHandlers.set(h.id, () => send({ type: "place_piece", hex_id: h.id }));
     } else if (isAttackHexTarget) {
       poly.style.cursor = "pointer";
-      const handler = () => {
+      _hexHandlers.set(h.id, () => {
         const mode = _actionMode;
         _actionMode = null; _selectedCluster = null; _selectedRoutes = [];
         send({ type: "attack_move", from_cluster: mode.from_cluster, target_hex_id: h.id });
-      };
-      poly.addEventListener("click", handler);
-      addHit(handler);
+      });
     } else if (isTarget) {
       poly.style.cursor = "pointer";
-      const handler = () => {
+      _hexHandlers.set(h.id, () => {
         const route = _selectedRoutes.find(r => r.dest_cluster === h.cluster);
         if (!route || !_actionMode) return;
         const type = _actionMode.type;
         const fromCluster = _selectedCluster;
         let msgToSend;
         if (type === "attack") {
-          // Enter hex-pick mode — user must click a specific enemy hex
           _actionMode = { type: "attack", phase: "pick_hex", from_cluster: fromCluster, dest_cluster: h.cluster };
           _selectedCluster = null; _selectedRoutes = [];
           if (_lastState) renderBoard(_lastState, false);
@@ -992,51 +973,39 @@ function renderBoard(state, placementMode) {
           msgToSend = { type: "flight_move", from_wormhole: route.from_wormhole, to_wormhole: route.to_wormhole, target_hex_id: h.id };
         }
         send(msgToSend);
-      };
-      poly.addEventListener("click", handler);
-      addHit(handler);
+      });
     } else if (isInvasionCoreTgt) {
       poly.style.cursor = "pointer";
-      const handler = () => {
+      _hexHandlers.set(h.id, () => {
         const cluster = _actionMode.cluster;
         _actionMode = null;
         send({ type: "invasion_attack", cluster });
-      };
-      poly.addEventListener("click", handler);
-      addHit(handler);
+      });
     } else if (isInvasionSelected) {
       poly.style.cursor = "pointer";
-      const handler = () => {
+      _hexHandlers.set(h.id, () => {
         _actionMode = { type: "invasion" };
         if (_lastState) renderBoard(_lastState, false);
-      };
-      poly.addEventListener("click", handler);
-      addHit(handler);
+      });
     } else if (isInvasionSource) {
       poly.style.cursor = "pointer";
-      const handler = () => {
+      _hexHandlers.set(h.id, () => {
         _actionMode = { type: "invasion", phase: "in_system", cluster: h.cluster };
         if (_lastState) renderBoard(_lastState, false);
-      };
-      poly.addEventListener("click", handler);
-      addHit(handler);
+      });
     } else if (isSource && _selectedCluster === null) {
       poly.style.cursor = "pointer";
-      const handler = () => {
+      _hexHandlers.set(h.id, () => {
         _selectedCluster = h.cluster;
         _selectedRoutes  = actionRoutesMap[h.cluster] ?? [];
         if (_lastState) renderBoard(_lastState, false);
-      };
-      poly.addEventListener("click", handler);
-      addHit(handler);
+      });
     } else if (isSelected) {
       poly.style.cursor = "pointer";
-      const handler = () => {
+      _hexHandlers.set(h.id, () => {
         _selectedCluster = null; _selectedRoutes = [];
         if (_lastState) renderBoard(_lastState, false);
-      };
-      poly.addEventListener("click", handler);
-      addHit(handler);
+      });
     }
 
     hexLayer.appendChild(poly);
@@ -2311,6 +2280,26 @@ function initBoardPan() {
   wrap.addEventListener("click", (e) => {
     if (didDrag) { e.stopPropagation(); didDrag = false; }
   }, true);
+
+  // Single SVG-coordinate dispatcher — bypasses iOS SVG polygon hit-testing bugs.
+  // Converts raw clientX/clientY to SVG space manually so the correct hex is
+  // always identified regardless of scroll position or zoom level.
+  svg.addEventListener("click", (e) => {
+    if (!_hexHandlers.size || !_hexPositions.length) return;
+    const rect = svg.getBoundingClientRect();
+    const vb   = (svg.getAttribute("viewBox") || "0 0 872 800").split(/\s+/).map(Number);
+    const svgX = vb[0] + (e.clientX - rect.left) * (vb[2] / rect.width);
+    const svgY = vb[1] + (e.clientY - rect.top)  * (vb[3] / rect.height);
+    let nearestId = -1, minDist = Infinity;
+    for (const { id, x, y } of _hexPositions) {
+      const d = Math.hypot(x - svgX, y - svgY);
+      if (d < minDist) { minDist = d; nearestId = id; }
+    }
+    if (nearestId >= 0 && minDist < R * 1.15 && _hexHandlers.has(nearestId)) {
+      e.stopPropagation();
+      _hexHandlers.get(nearestId)();
+    }
+  });
 }
 
 // ── Screens / helpers ──────────────────────────────────────────────────────

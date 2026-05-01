@@ -210,3 +210,92 @@ def test_use_action_three_times_advances_once():
     _use_action(game)
     assert game.turn_idx == 1
     assert game.turn_actions_remaining == 3
+
+
+# ── flight_move landing hex selection ─────────────────────────────────────────
+
+def _pick_landing(board, dest_cluster, req_id):
+    """Mirror of the server-side landing hex selection in the flight_move handler."""
+    landing = None
+    if req_id is not None and 0 <= req_id < len(board):
+        rh = board[req_id]
+        if (rh["cluster"] == dest_cluster and rh["type"] == "orbital"
+                and sum(1 for p in rh["pieces"] if p["type"] == "frigate") < 3):
+            landing = rh
+    if landing is None:
+        landing = next(
+            (h for h in board
+             if h["cluster"] == dest_cluster and h["type"] == "orbital"
+             and sum(1 for p in h["pieces"] if p["type"] == "frigate") < 3),
+            None,
+        )
+    return landing
+
+
+def test_flight_move_fallback_uses_first_orbital():
+    """Without target_hex_id the server picks the first orbital (lowest id) in dest cluster."""
+    board = _build_board(2)
+    src_wh = next(h for h in board if h["wormhole"] and h["wormhole_partner"] is not None)
+    dst_wh_id = src_wh["wormhole_partner"]
+    dest_cluster = board[dst_wh_id]["cluster"]
+
+    orbitals = sorted(
+        [h for h in board if h["cluster"] == dest_cluster and h["type"] == "orbital"],
+        key=lambda h: h["id"],
+    )
+    assert orbitals, "dest cluster must have at least one orbital"
+
+    result = _pick_landing(board, dest_cluster, None)
+    assert result is not None
+    assert result["id"] == orbitals[0]["id"], (
+        f"fallback should pick lowest-id orbital ({orbitals[0]['id']}), got {result['id']}"
+    )
+
+
+def test_flight_move_respects_target_hex_id():
+    """When target_hex_id is provided the server must land on that specific orbital."""
+    board = _build_board(2)
+    src_wh = next(h for h in board if h["wormhole"] and h["wormhole_partner"] is not None)
+    dst_wh_id = src_wh["wormhole_partner"]
+    dest_cluster = board[dst_wh_id]["cluster"]
+
+    orbitals = sorted(
+        [h for h in board if h["cluster"] == dest_cluster and h["type"] == "orbital"],
+        key=lambda h: h["id"],
+    )
+    assert len(orbitals) >= 2, "Need ≥2 orbitals in dest cluster to verify non-default targeting"
+
+    # Ask for the LAST orbital — not the first (which the fallback would pick)
+    target = orbitals[-1]
+    assert target["id"] != orbitals[0]["id"], "target and fallback must differ"
+
+    result = _pick_landing(board, dest_cluster, target["id"])
+    assert result is not None, "Server should accept a valid target_hex_id"
+    assert result["id"] == target["id"], (
+        f"Expected hex {target['id']} (last orbital) but got {result['id']}"
+    )
+
+
+def test_flight_move_target_hex_id_wrong_cluster_falls_back():
+    """A target_hex_id from the wrong cluster must be rejected and the fallback used."""
+    board = _build_board(2)
+    src_wh = next(h for h in board if h["wormhole"] and h["wormhole_partner"] is not None)
+    dst_wh_id = src_wh["wormhole_partner"]
+    src_cluster = src_wh["cluster"]
+    dest_cluster = board[dst_wh_id]["cluster"]
+
+    # Find an orbital from the SOURCE cluster (wrong cluster for this move)
+    wrong_hex = next(
+        h for h in board if h["cluster"] == src_cluster and h["type"] == "orbital"
+    )
+    result = _pick_landing(board, dest_cluster, wrong_hex["id"])
+
+    # Should fall back to first orbital in dest cluster
+    expected_fallback = min(
+        (h for h in board if h["cluster"] == dest_cluster and h["type"] == "orbital"),
+        key=lambda h: h["id"],
+    )
+    assert result is not None
+    assert result["id"] == expected_fallback["id"], (
+        "Wrong-cluster target_hex_id must fall back to first available orbital"
+    )
