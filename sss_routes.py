@@ -25,6 +25,15 @@ RACES = {
 
 _AI_NAMES = ["Nova", "Orion", "Lyra", "Zeta", "Vega"]
 
+_PLAYER_COLORS = [
+    "#e74c3c",  # Red
+    "#3b82f6",  # Blue
+    "#22c55e",  # Green
+    "#f59e0b",  # Amber
+    "#a855f7",  # Purple
+    "#f97316",  # Orange
+]
+
 PIECE_SET = {
     "death": 1, "super_ship": 3, "cruise_ship": 6,
     "frigate": 9, "outpost": 3, "battle_station": 4,
@@ -615,8 +624,9 @@ def _use_action(game) -> None:
 class Player:
     ws: WebSocket
     name: str
-    role: str        # "host" | "player" | "watcher"
+    role: str        # "host" | "player" | "watcher" | "ai"
     race: str | None = None
+    color: str | None = None
     pieces: dict = field(default_factory=dict)
     dice_roll: int = 0
     resources: dict = field(default_factory=dict)   # food, science, tool, money
@@ -663,7 +673,7 @@ class Game:
                     "name": n,
                     "role": p.role,
                     "race": p.race,
-                    "color": RACES[p.race]["color"] if p.race else None,
+                    "color": p.color,
                     "race_name": RACES[p.race]["name"] if p.race else None,
                     "pieces": dict(p.pieces) if in_board else {},
                     "dice_roll": p.dice_roll,
@@ -680,6 +690,7 @@ class Game:
             "watcher_count": len(self.watchers),
             "races_taken": self.races_taken,
             "races": {k: v for k, v in RACES.items()},
+            "player_colors": _PLAYER_COLORS,
             "turn_order": self.turn_order,
             "dice_round": self.dice_round,
             "placement_idx": self.placement_idx,
@@ -1351,10 +1362,34 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 if len(game.players) < 1:
                     await ws.send_json({"type": "error", "msg": "Need at least 1 player"})
                     continue
+                # Assign remaining colors to AI players that don't have one
+                taken_colors = {p.color for p in game.players.values() if p.color}
+                for p in game.players.values():
+                    if p.role == "ai" and not p.color:
+                        remaining = [c for c in _PLAYER_COLORS if c not in taken_colors]
+                        if remaining:
+                            p.color = remaining[0]
+                            taken_colors.add(p.color)
                 game.phase = "race_pick"
                 await game.broadcast({"type": "game_state", **game.public_state()})
                 if any(p.role == "ai" for p in game.players.values()):
                     game.ai_task = asyncio.create_task(_ai_loop(game))
+
+            # ── pick_color ────────────────────────────────────────────────────
+            elif kind == "pick_color":
+                if not game or not player:
+                    continue
+                if game.phase != "lobby":
+                    continue
+                color = raw.get("color")
+                if color not in _PLAYER_COLORS:
+                    await ws.send_json({"type": "error", "msg": "Invalid color"})
+                    continue
+                if any(p.color == color and p.name != player.name for p in game.players.values()):
+                    await ws.send_json({"type": "error", "msg": "Color already taken"})
+                    continue
+                player.color = color
+                await game.broadcast({"type": "game_state", **game.public_state()})
 
             # ── add_ai ────────────────────────────────────────────────────────
             elif kind == "add_ai":
