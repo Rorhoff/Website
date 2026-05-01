@@ -1102,10 +1102,6 @@ const PICKER_ACTIONS = [
   { id: "attack",           label: "Attack",           icon: "icons/act_attack.svg"      },
   { id: "invasion",         label: "Invasion",         icon: "icons/act_invasion.svg"    },
   { id: "draw_tech_card",   label: "Draw Tech Card",   icon: "icons/act_research.svg"    },
-  { id: "biology_and_chem", label: "Biology and Chem", icon: "icons/act_growth.svg",       techKey: "biology"     },
-  { id: "physics",          label: "Physics",          icon: "icons/act_research.svg",     techKey: "physics"     },
-  { id: "engineering",      label: "Engineering",      icon: "icons/act_construction.svg", techKey: "engineering" },
-  { id: "government",       label: "Government",       icon: "icons/act_invasion.svg",     techKey: "government"  },
 ];
 
 // ── Empire card data ────────────────────────────────────────────────────────
