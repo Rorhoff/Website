@@ -986,10 +986,10 @@ function renderBoard(state, placementMode) {
           return;
         } else if (type === "invasion") {
           _actionMode = null; _selectedCluster = null; _selectedRoutes = [];
-          msgToSend = { type: "invasion_move", from_wormhole: route.from_wormhole, to_wormhole: route.to_wormhole };
+          msgToSend = { type: "invasion_move", from_wormhole: route.from_wormhole, to_wormhole: route.to_wormhole, target_hex_id: h.id };
         } else {
           _actionMode = null; _selectedCluster = null; _selectedRoutes = [];
-          msgToSend = { type: "flight_move", from_wormhole: route.from_wormhole, to_wormhole: route.to_wormhole };
+          msgToSend = { type: "flight_move", from_wormhole: route.from_wormhole, to_wormhole: route.to_wormhole, target_hex_id: h.id };
         }
         send(msgToSend);
       };

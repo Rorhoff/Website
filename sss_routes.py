@@ -1874,12 +1874,20 @@ async def sss_ws(ws: WebSocket, game_code: str):
                     continue
                 from_cluster = from_hex["cluster"]
                 dest_cluster = to_hex["cluster"]
-                # Frigate must land on an orbital tile with fewer than 3 frigates
-                landing_hex = next(
-                    (h for h in game.board
-                     if h["cluster"] == dest_cluster and h["type"] == "orbital"
-                     and sum(1 for p in h["pieces"] if p["type"] == "frigate") < 3),
-                    None)
+                # Prefer the specific orbital the player clicked, fall back to first available
+                req_id = raw.get("target_hex_id")
+                landing_hex = None
+                if req_id is not None and 0 <= req_id < len(game.board):
+                    rh = game.board[req_id]
+                    if (rh["cluster"] == dest_cluster and rh["type"] == "orbital"
+                            and sum(1 for p in rh["pieces"] if p["type"] == "frigate") < 3):
+                        landing_hex = rh
+                if landing_hex is None:
+                    landing_hex = next(
+                        (h for h in game.board
+                         if h["cluster"] == dest_cluster and h["type"] == "orbital"
+                         and sum(1 for p in h["pieces"] if p["type"] == "frigate") < 3),
+                        None)
                 if landing_hex is None:
                     await ws.send_json({"type": "error", "msg": "No available frigate tiles in that system"})
                     continue
@@ -2048,6 +2056,17 @@ async def sss_ws(ws: WebSocket, game_code: str):
                     combat["atk_dice"]  = atk_dice
                     combat["atk_total"] = sum(atk_dice)
                     combat["atk_rolled"] = True
+                    # Auto-roll defense for AI defender so combat doesn't freeze
+                    def_p = game.players.get(defender_name)
+                    if def_p and def_p.role == "ai" and not combat["def_rolled"]:
+                        _def_phys = def_p.tech.get("physics", [])
+                        def_dice_count = combat["def_frigate_count"]
+                        if len(_def_phys) > 1 and _def_phys[1]: def_dice_count += 1
+                        if len(_def_phys) > 3 and _def_phys[3]: def_dice_count += 1
+                        def_dice = [random.randint(1, 6) for _ in range(max(1, def_dice_count))]
+                        combat["def_dice"]  = def_dice
+                        combat["def_total"] = sum(def_dice)
+                        combat["def_rolled"] = True
                     await game.broadcast({
                         "type": "combat_attacker_rolled",
                         "attacker": attacker_name,
@@ -2144,11 +2163,19 @@ async def sss_ws(ws: WebSocket, game_code: str):
                     continue
                 # Find and move a frigate from from_hex's cluster
                 from_cluster = from_hex["cluster"]
-                landing_hex = next(
-                    (h for h in game.board
-                     if h["cluster"] == dest_cluster and h["type"] == "orbital"
-                     and sum(1 for p in h["pieces"] if p["type"] == "frigate") < 3),
-                    None)
+                req_id = raw.get("target_hex_id")
+                landing_hex = None
+                if req_id is not None and 0 <= req_id < len(game.board):
+                    rh = game.board[req_id]
+                    if (rh["cluster"] == dest_cluster and rh["type"] == "orbital"
+                            and sum(1 for p in rh["pieces"] if p["type"] == "frigate") < 3):
+                        landing_hex = rh
+                if landing_hex is None:
+                    landing_hex = next(
+                        (h for h in game.board
+                         if h["cluster"] == dest_cluster and h["type"] == "orbital"
+                         and sum(1 for p in h["pieces"] if p["type"] == "frigate") < 3),
+                        None)
                 if landing_hex is None:
                     await ws.send_json({"type": "error", "msg": "No available frigate tiles in that system"})
                     continue
