@@ -115,7 +115,7 @@ h1 { font-size: 2rem; font-weight: 700; color: var(--accent); text-align: center
 
 /* ── Board screen ─────────────────────────────────────────── */
 #screen-board { position: relative; }
-#board-wrap { position: relative; overflow: auto; border: 1px solid var(--border); border-radius: var(--radius); cursor: grab; touch-action: none; }
+#board-wrap { position: relative; overflow: auto; border: 1px solid var(--border); border-radius: var(--radius); cursor: grab; touch-action: none; max-height: calc(100dvh - 100px); }
 #board-wrap.panning { cursor: grabbing; }
 #board-svg { display: block; margin: 0 auto; }
 #board-wrap text { pointer-events: none; user-select: none; }

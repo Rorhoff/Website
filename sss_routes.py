@@ -2211,8 +2211,25 @@ async def sss_ws(ws: WebSocket, game_code: str):
                     await ws.send_json({"type": "error", "msg": "You already own this cluster"})
                     continue
                 planet = core_hex["planet"]
+                # Count attacking frigates: if source_hex_id provided, use only frigates on that hex
+                source_hex_id = raw.get("source_hex_id")
+                if source_hex_id is not None:
+                    source_hex = next(
+                        (h for h in game.board
+                         if h["id"] == source_hex_id and h["cluster"] == cluster and h["type"] == "orbital"),
+                        None,
+                    )
+                    if source_hex is None:
+                        await ws.send_json({"type": "error", "msg": "Invalid source hex"})
+                        continue
+                    attack_frigates = [p for p in source_hex["pieces"] if p["type"] == "frigate" and p["owner"] == player.name]
+                    if not attack_frigates:
+                        await ws.send_json({"type": "error", "msg": "No frigates on that tile"})
+                        continue
+                else:
+                    attack_frigates = player_frigates
                 # Roll: 1d6 per frigate (up to 3) vs planet 3d6; Physics Lv3/5 add extra dice
-                num_dice = min(len(player_frigates), 3)
+                num_dice = min(len(attack_frigates), 3)
                 _inv_phys = player.tech.get("physics", [])
                 if len(_inv_phys) > 2 and _inv_phys[2]: num_dice += 1  # Lv3 Plasma Cannons
                 if len(_inv_phys) > 4 and _inv_phys[4]: num_dice += 1  # Lv5 Antimatter Weapons

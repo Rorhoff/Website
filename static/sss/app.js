@@ -692,7 +692,7 @@ function renderBoard(state, placementMode) {
         const hint = _actionMode?.phase === "pick_hex"
           ? "Click an enemy frigate tile to target it."
           : _actionMode?.phase === "in_system"
-            ? "Click the planet to launch invasion."
+            ? "Click your frigate tile to invade!"
             : _selectedCluster !== null
               ? (_actionMode.type === "attack" ? "Click enemy system to attack." : "Click highlighted system to move.")
               : _actionMode.type === "invasion" ? "Click your frigate cluster to invade."
@@ -910,15 +910,17 @@ function renderBoard(state, placementMode) {
       && invasionSourceClusters.has(h.cluster);
     const isInvasionSelected = isActionTurn && _actionMode?.type === "invasion"
       && _actionMode?.phase === "in_system" && h.cluster === _actionMode?.cluster;
-    const isInvasionCoreTgt = isInvasionSelected && h.local === 0;
+    // Orbital hexes with the player's own frigates in the selected in-system cluster — these are the attack source
+    const isInvasionOrbitSource = isInvasionSelected && h.type === "orbital"
+      && (h.pieces ?? []).some(p => p.type === "frigate" && p.owner === myName);
     const isAttackHexTarget = isActionTurn
       && _actionMode?.phase === "pick_hex"
       && h.cluster === _actionMode.dest_cluster
       && (h.pieces ?? []).some(p => p.type === "frigate" && p.owner !== myName);
-    if (isSelected || isInvasionSelected) cls += " hex-selected";
+    if (isSelected || (isInvasionSelected && !isInvasionOrbitSource)) cls += " hex-selected";
     else if (isSource) cls += " hex-selectable";
     else if (isInvasionSource) cls += " hex-selectable";
-    if (isTarget || isInvasionCoreTgt) cls += " hex-flight-target";
+    if (isTarget || isInvasionOrbitSource) cls += " hex-flight-target";
     if (isAttackHexTarget) cls += " hex-attack-target";
     if (validConstructTarget) cls += " hex-construct-target";
 
@@ -974,12 +976,12 @@ function renderBoard(state, placementMode) {
         }
         send(msgToSend);
       });
-    } else if (isInvasionCoreTgt) {
+    } else if (isInvasionOrbitSource) {
       poly.style.cursor = "pointer";
       _hexHandlers.set(h.id, () => {
         const cluster = _actionMode.cluster;
         _actionMode = null;
-        send({ type: "invasion_attack", cluster });
+        send({ type: "invasion_attack", cluster, source_hex_id: h.id });
       });
     } else if (isInvasionSelected) {
       poly.style.cursor = "pointer";
