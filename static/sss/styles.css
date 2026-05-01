@@ -115,9 +115,9 @@ h1 { font-size: 2rem; font-weight: 700; color: var(--accent); text-align: center
 
 /* ── Board screen ─────────────────────────────────────────── */
 #screen-board { position: relative; }
-#board-wrap { position: relative; overflow: auto; border: 1px solid var(--border); border-radius: var(--radius); cursor: grab; touch-action: none; max-height: calc(100dvh - 100px); }
+#board-wrap { position: relative; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius); cursor: grab; touch-action: none; height: calc(100dvh - 100px); }
 #board-wrap.panning { cursor: grabbing; }
-#board-svg { display: block; margin: 0 auto; }
+#board-svg { display: block; }
 #board-wrap text { pointer-events: none; user-select: none; }
 #board-card-view {
   position: fixed;
@@ -729,3 +729,21 @@ h1 { font-size: 2rem; font-weight: 700; color: var(--accent); text-align: center
   border-radius: 999px; padding: .15rem .5rem; font-size: .78rem;
   white-space: nowrap;
 }
+
+/* ── Breadcrumb toasts ───────────────────────────────────────────────────── */
+#toast-container {
+  position: fixed; bottom: 56px; left: 50%; transform: translateX(-50%);
+  display: flex; flex-direction: column-reverse; align-items: center; gap: .35rem;
+  z-index: 500; pointer-events: none; width: 90%; max-width: 340px;
+}
+.toast-msg {
+  display: flex; align-items: center; gap: .45rem;
+  background: rgba(10,15,24,.95); border: 1px solid var(--border);
+  border-radius: 20px; padding: .38rem .85rem;
+  font-size: .78rem; color: var(--text);
+  opacity: 0; transform: translateY(6px);
+  transition: opacity .2s, transform .2s;
+  white-space: nowrap;
+}
+.toast-msg.toast-visible { opacity: 1; transform: translateY(0); }
+.toast-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }

@@ -37,6 +37,7 @@ let _connectingBtn = null;
 let _connectingErrId = null;
 let _lastStateSeq = -1;  // monotonic seq; reject any state with seq <= this
 let _boardPhaseOpened = false;
+let _prevBoardState  = null;  // last board snapshot for opponent move detection
 let _actionMode      = null;  // { type: "flight"|"invasion"|"attack"|"construction" }
 let _selectedCluster = null;  // cluster index of selected source, or null
 let _selectedRoutes  = [];    // routes from _selectedCluster
@@ -116,7 +117,7 @@ function handleMsg(msg) {
     case "player_disconnected":
       if (msg.seq !== undefined && msg.seq <= _lastStateSeq) break; // stale out-of-order state
       if (msg.seq !== undefined) _lastStateSeq = msg.seq;
-      if (msg.board) boardCache = msg.board;
+      if (msg.board) { detectOpponentMoves(msg.board, msg); boardCache = msg.board; }
       applyState(msg);
       break;
     case "invasion_prompt":
@@ -128,10 +129,15 @@ function handleMsg(msg) {
     case "invasion_result":
       if (msg.seq !== undefined && msg.seq <= _lastStateSeq) break;
       if (msg.seq !== undefined) _lastStateSeq = msg.seq;
-      if (msg.board) boardCache = msg.board;
+      if (msg.board) { _prevBoardState = msg.board; boardCache = msg.board; }
       _lastState = msg;
       applyState(msg);
       showInvasionResult(msg);
+      if (msg.attacker !== myName) {
+        const clbl = (boardCache ?? []).find(h => h.cluster === msg.cluster && h.local === 0)?.label ?? msg.cluster;
+        const col  = (msg.players ?? _lastState?.players ?? []).find(p => p.name === msg.attacker)?.color;
+        showToast(msg.won ? `${msg.attacker} captured <strong>${clbl}</strong>!` : `${msg.attacker} failed to take <strong>${clbl}</strong>`, col);
+      }
       break;
     case "combat_prompt":
       if (msg.board) boardCache = msg.board;
@@ -337,7 +343,13 @@ function applyState(state) {
       break;
     case "board":
       hideDraftOverlay(); showScreen("screen-board");
-      requestAnimationFrame(() => renderBoard(state, false));
+      requestAnimationFrame(() => {
+        if (!_boardPhaseOpened) {
+          _boardPhaseOpened = true;
+          initBoardPan.resetView?.();
+        }
+        renderBoard(state, false);
+      });
       break;
   }
 }
@@ -2171,67 +2183,152 @@ function openPlanetModal(planet, color, label) {
   $("planet-modal").classList.remove("hidden");
 }
 
+// ── Breadcrumb toasts ──────────────────────────────────────────────────────
+
+function showToast(msg, color) {
+  let container = document.getElementById("toast-container");
+  if (!container) {
+    container = document.createElement("div");
+    container.id = "toast-container";
+    document.body.appendChild(container);
+  }
+  const t = document.createElement("div");
+  t.className = "toast-msg";
+  t.innerHTML = `<span class="toast-dot" style="background:${color ?? "var(--accent)"}"></span>${msg}`;
+  container.appendChild(t);
+  requestAnimationFrame(() => t.classList.add("toast-visible"));
+  setTimeout(() => { t.classList.remove("toast-visible"); setTimeout(() => t.remove(), 300); }, 3500);
+}
+
+function detectOpponentMoves(newBoard, state) {
+  if (!_prevBoardState) { _prevBoardState = newBoard; return; }
+  if (state.phase !== "board") { _prevBoardState = newBoard; return; }
+
+  const playerColor = {};
+  for (const p of (state.players ?? [])) if (p.color) playerColor[p.name] = p.color;
+
+  const clusterLabel = {};
+  for (const h of newBoard) if (h.local === 0) clusterLabel[h.cluster] = h.label ?? h.cluster;
+
+  // Track opponent frigate clusters before and after
+  const prevClusters = {};
+  for (const h of _prevBoardState) {
+    for (const p of (h.pieces ?? [])) {
+      if (p.type === "frigate" && p.owner !== myName) {
+        (prevClusters[p.owner] ??= new Set()).add(h.cluster);
+      }
+    }
+  }
+  const newClusters = {};
+  for (const h of newBoard) {
+    for (const p of (h.pieces ?? [])) {
+      if (p.type === "frigate" && p.owner !== myName) {
+        (newClusters[p.owner] ??= new Set()).add(h.cluster);
+      }
+    }
+  }
+  for (const [name, ns] of Object.entries(newClusters)) {
+    for (const c of ns) {
+      if (!(prevClusters[name] ?? new Set()).has(c)) {
+        showToast(`${name} moved to <strong>${clusterLabel[c]}</strong>`, playerColor[name]);
+      }
+    }
+  }
+
+  // Track empire_flag captures by opponents
+  const prevFlags = {};
+  for (const h of _prevBoardState) {
+    for (const p of (h.pieces ?? [])) {
+      if (p.type === "empire_flag") (prevFlags[p.owner] ??= new Set()).add(h.cluster);
+    }
+  }
+  for (const h of newBoard) {
+    for (const p of (h.pieces ?? [])) {
+      if (p.type === "empire_flag" && p.owner !== myName) {
+        if (!(prevFlags[p.owner] ?? new Set()).has(h.cluster)) {
+          showToast(`${p.owner} captured <strong>${clusterLabel[h.cluster]}</strong>!`, playerColor[p.owner]);
+        }
+      }
+    }
+  }
+
+  _prevBoardState = newBoard;
+}
+
 // ── Board pan / pinch-zoom ──────────────────────────────────────────────────
 
 function initBoardPan() {
   const wrap = $("board-wrap");
   const svg  = $("board-svg");
 
+  const BASE_W = 872, BASE_H = 800;
+  const MIN_SCALE = 0.35, MAX_SCALE = 3.5;
+
+  // Transform state: SVG positioned by translate(tx,ty) scale(s) from wrap origin
+  let tx = 0, ty = 0, scale = 1;
+  svg.style.transformOrigin = "0 0";
+
+  function commit() {
+    svg.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
+  }
+
+  function clampPan() {
+    const ww = wrap.clientWidth  || 430;
+    const wh = wrap.clientHeight || 700;
+    const m  = 80; // min px of board that must remain visible
+    tx = Math.min(ww - m, Math.max(-(BASE_W * scale - m), tx));
+    ty = Math.min(wh - m, Math.max(-(BASE_H * scale - m), ty));
+  }
+
+  function applyZoom(newScale, clientX, clientY) {
+    newScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, newScale));
+    const rect  = wrap.getBoundingClientRect();
+    const px    = clientX - rect.left;  // pivot in wrap-space
+    const py    = clientY - rect.top;
+    // SVG point under the pivot stays pinned
+    const svgPx = (px - tx) / scale;
+    const svgPy = (py - ty) / scale;
+    scale = newScale;
+    tx = px - svgPx * scale;
+    ty = py - svgPy * scale;
+    clampPan();
+    commit();
+  }
+
+  // Fit and center the whole board on first show
+  function resetView() {
+    const ww = wrap.clientWidth;
+    const wh = wrap.clientHeight;
+    if (!ww || !wh) return;
+    scale = Math.min(ww / BASE_W, wh / BASE_H, 1.0);
+    tx = (ww - BASE_W * scale) / 2;
+    ty = (wh - BASE_H * scale) / 2;
+    commit();
+  }
+  initBoardPan.resetView = resetView;
+
   // ── pan state ────────────────────────────────────────────────
   let panning = false, didDrag = false, capturedId = null;
-  let startX = 0, startY = 0, scrollX = 0, scrollY = 0;
+  let startX = 0, startY = 0, startTx = 0, startTy = 0;
 
   // ── pinch-zoom state ─────────────────────────────────────────
-  const activePointers = new Map(); // pointerId → {x,y}
-  let pinching         = false;
-  let pinchStartDist   = 0;
-  let pinchPivot       = null;  // client-coords center locked at gesture start
-  let baseScale        = 1;     // scale at pinch start
-  let currentScale     = 1;     // accumulated scale
-
-  const BASE_W = parseInt(svg.getAttribute("width"))  || 872;
-  const BASE_H = parseInt(svg.getAttribute("height")) || 800;
-  const MIN_SCALE = 0.4;
-  const MAX_SCALE = 3.0;
+  const activePointers = new Map();
+  let pinching = false, pinchStartDist = 0, pinchPivot = null, baseScale = 1;
 
   function getPinchDist() {
     const [a, b] = [...activePointers.values()];
-    return Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2);
-  }
-  function getPinchCenter() {
-    const [a, b] = [...activePointers.values()];
-    return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    return Math.hypot(a.x - b.x, a.y - b.y);
   }
 
-  function applyZoom(newScale, pivotClient) {
-    newScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, newScale));
-    const oldW = parseInt(svg.getAttribute("width"));
-    const newW = Math.round(BASE_W * newScale);
-    const newH = Math.round(BASE_H * newScale);
-    const rect  = wrap.getBoundingClientRect();
-    // SVG-space position of the pinch center before zoom
-    const pivotSvgX = wrap.scrollLeft + pivotClient.x - rect.left;
-    const pivotSvgY = wrap.scrollTop  + pivotClient.y - rect.top;
-    const ratio = newW / oldW;
-    svg.setAttribute("width",  newW);
-    svg.setAttribute("height", newH);
-    // Keep pinch center fixed in the viewport
-    wrap.scrollLeft = pivotSvgX * ratio - (pivotClient.x - rect.left);
-    wrap.scrollTop  = pivotSvgY * ratio - (pivotClient.y - rect.top);
-    currentScale = newScale;
-  }
-
-  // ── event handlers ───────────────────────────────────────────
   wrap.addEventListener("pointerdown", (e) => {
     activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
     if (activePointers.size === 2) {
-      // Switch to pinch mode; abort any active pan
-      pinching       = true;
-      panning        = false;
+      pinching = true; panning = false;
       pinchStartDist = getPinchDist();
-      pinchPivot     = getPinchCenter();  // lock pivot for entire gesture
-      baseScale      = currentScale;
+      const [a, b] = [...activePointers.values()];
+      pinchPivot = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+      baseScale = scale;
       if (capturedId !== null) {
         try { wrap.releasePointerCapture(capturedId); } catch (_) {}
         capturedId = null;
@@ -2241,13 +2338,10 @@ function initBoardPan() {
 
     if (e.pointerType === "mouse" && e.button !== 0) return;
     if (pinching) return;
-    panning    = true;
-    didDrag    = false;
+    panning = true; didDrag = false;
     capturedId = e.pointerId;
-    startX     = e.clientX;
-    startY     = e.clientY;
-    scrollX    = wrap.scrollLeft;
-    scrollY    = wrap.scrollTop;
+    startX = e.clientX; startY = e.clientY;
+    startTx = tx; startTy = ty;
   });
 
   wrap.addEventListener("pointermove", (e) => {
@@ -2257,7 +2351,9 @@ function initBoardPan() {
 
     if (pinching && activePointers.size === 2) {
       const d = getPinchDist();
-      if (pinchStartDist > 0 && pinchPivot) applyZoom(baseScale * (d / pinchStartDist), pinchPivot);
+      if (pinchStartDist > 0 && pinchPivot) {
+        applyZoom(baseScale * (d / pinchStartDist), pinchPivot.x, pinchPivot.y);
+      }
       return;
     }
 
@@ -2270,8 +2366,10 @@ function initBoardPan() {
       wrap.classList.add("panning");
     }
     if (didDrag) {
-      wrap.scrollLeft = scrollX - dx;
-      wrap.scrollTop  = scrollY - dy;
+      tx = startTx + dx;
+      ty = startTy + dy;
+      clampPan();
+      commit();
     }
   });
 
@@ -2283,14 +2381,20 @@ function initBoardPan() {
   wrap.addEventListener("pointerup",     stopPointer);
   wrap.addEventListener("pointercancel", stopPointer);
 
-  // Block hex-click only if we actually dragged
   wrap.addEventListener("click", (e) => {
     if (didDrag) { e.stopPropagation(); didDrag = false; }
   }, true);
 
-  // Single SVG-coordinate dispatcher — bypasses iOS SVG polygon hit-testing bugs.
-  // Converts raw clientX/clientY to SVG space manually so the correct hex is
-  // always identified regardless of scroll position or zoom level.
+  // Desktop scroll-wheel zoom
+  wrap.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    applyZoom(scale * (e.deltaY < 0 ? 1.12 : 1 / 1.12), e.clientX, e.clientY);
+  }, { passive: false });
+
+  commit();
+
+  // SVG click dispatcher — converts clientX/Y to SVG coords via getBoundingClientRect,
+  // which accounts for any CSS transform, then finds the nearest hex center.
   svg.addEventListener("click", (e) => {
     if (!_hexHandlers.size || !_hexPositions.length) return;
     const rect = svg.getBoundingClientRect();
