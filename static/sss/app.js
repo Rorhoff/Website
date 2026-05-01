@@ -588,11 +588,13 @@ function renderBoard(state, placementMode) {
         actionHtml = `<div class="hud-hint">Place <strong>${_constructionPiece.label}</strong> on ${_placeTarget}.</div>
           <div class="hud-actions"><button class="btn btn-ghost btn-sm" id="btn-cancel-construct">Cancel</button></div>`;
       } else if (_actionMode) {
-        const hint = _selectedCluster !== null
-          ? (_actionMode.type === "attack" ? "Click enemy system to attack." : "Click highlighted system to move.")
-          : _actionMode.type === "invasion" ? "Click your frigate cluster to invade."
-          : _actionMode.type === "attack"   ? "Click your frigates, then enemy system."
-          : "Click your frigates, then a connected system.";
+        const hint = _actionMode?.phase === "pick_hex"
+          ? "Click an enemy frigate tile to target it."
+          : _selectedCluster !== null
+            ? (_actionMode.type === "attack" ? "Click enemy system to attack." : "Click highlighted system to move.")
+            : _actionMode.type === "invasion" ? "Click your frigate cluster to invade."
+            : _actionMode.type === "attack"   ? "Click your frigate cluster, then enemy system."
+            : "Click your frigates, then a connected system.";
         actionHtml = `<div class="hud-hint">${hint}</div>
           <div class="hud-actions"><button class="btn btn-ghost btn-sm" id="btn-cancel-action">Cancel</button></div>`;
       } else if (isMyTurnNow) {
@@ -800,10 +802,15 @@ function renderBoard(state, placementMode) {
     const isSelected = isActionTurn && _selectedCluster !== null && h.cluster === _selectedCluster;
     const isInvasionSource = isActionTurn && _actionMode?.type === "invasion"
       && invasionSourceClusters.has(h.cluster);
+    const isAttackHexTarget = isActionTurn
+      && _actionMode?.phase === "pick_hex"
+      && h.cluster === _actionMode.dest_cluster
+      && (h.pieces ?? []).some(p => p.type === "frigate" && p.owner !== myName);
     if (isSelected) cls += " hex-selected";
     else if (isSource) cls += " hex-selectable";
     else if (isInvasionSource) cls += " hex-selectable";
     if (isTarget) cls += " hex-flight-target";
+    if (isAttackHexTarget) cls += " hex-attack-target";
     if (validConstructTarget) cls += " hex-construct-target";
 
     poly.setAttribute("class", cls);
@@ -849,6 +856,15 @@ function renderBoard(state, placementMode) {
       const handler = () => send({ type: "place_piece", hex_id: h.id });
       poly.addEventListener("click", handler);
       addHit(handler);
+    } else if (isAttackHexTarget) {
+      poly.style.cursor = "pointer";
+      const handler = () => {
+        const mode = _actionMode;
+        _actionMode = null; _selectedCluster = null; _selectedRoutes = [];
+        send({ type: "attack_move", from_cluster: mode.from_cluster, target_hex_id: h.id });
+      };
+      poly.addEventListener("click", handler);
+      addHit(handler);
     } else if (isTarget) {
       poly.style.cursor = "pointer";
       const handler = () => {
@@ -856,13 +872,18 @@ function renderBoard(state, placementMode) {
         if (!route || !_actionMode) return;
         const type = _actionMode.type;
         const fromCluster = _selectedCluster;
-        _actionMode = null; _selectedCluster = null; _selectedRoutes = [];
         let msgToSend;
         if (type === "attack") {
-          msgToSend = { type: "attack_move", from_cluster: fromCluster, dest_cluster: h.cluster };
+          // Enter hex-pick mode — user must click a specific enemy hex
+          _actionMode = { type: "attack", phase: "pick_hex", from_cluster: fromCluster, dest_cluster: h.cluster };
+          _selectedCluster = null; _selectedRoutes = [];
+          if (_lastState) renderBoard(_lastState, false);
+          return;
         } else if (type === "invasion") {
+          _actionMode = null; _selectedCluster = null; _selectedRoutes = [];
           msgToSend = { type: "invasion_move", from_wormhole: route.from_wormhole, to_wormhole: route.to_wormhole };
         } else {
+          _actionMode = null; _selectedCluster = null; _selectedRoutes = [];
           msgToSend = { type: "flight_move", from_wormhole: route.from_wormhole, to_wormhole: route.to_wormhole };
         }
         send(msgToSend);
@@ -1799,9 +1820,11 @@ function showCombatPrompt(msg, isAttacker) {
         }).join("")}
       </div>` : "";
 
+    const atkCount = msg.atk_frigate_count ?? 1;
+    const defCount = msg.def_frigate_count ?? 1;
     document.getElementById("combat-title").textContent = `Attack — System ${clusterLabel}`;
     document.getElementById("combat-body").innerHTML =
-      `<div class="hint" style="margin-bottom:.6rem">You initiated combat. Roll your dice to attack.</div>${techHtml}`;
+      `<div class="hint" style="margin-bottom:.6rem">You attack with <strong>${atkCount} dice</strong> (${atkCount} frigate${atkCount !== 1 ? "s" : ""}). Defender rolls <strong>${defCount} dice</strong>.</div>${techHtml}`;
     document.getElementById("combat-footer").innerHTML =
       `<button class="btn btn-danger" id="btn-roll-my-dice" style="width:100%">🎲 Roll My Dice</button>`;
 
@@ -1824,9 +1847,11 @@ function showCombatPrompt(msg, isAttacker) {
       send({ type: "roll_combat_dice", tech_card: selectedTech });
     });
   } else {
+    const atkCount = msg.atk_frigate_count ?? 1;
+    const defCount = msg.def_frigate_count ?? 1;
     document.getElementById("combat-title").textContent = `Incoming Attack — System ${clusterLabel}`;
     document.getElementById("combat-body").innerHTML =
-      `<div class="hint" style="margin-bottom:.6rem">${msg.attacker} is attacking your system. Roll your dice to defend.</div>`;
+      `<div class="hint" style="margin-bottom:.6rem">${msg.attacker} attacks with <strong>${atkCount} dice</strong>. You defend with <strong>${defCount} dice</strong> (${defCount} frigate${defCount !== 1 ? "s" : ""} on that tile).</div>`;
     document.getElementById("combat-footer").innerHTML =
       `<button class="btn btn-primary" id="btn-roll-my-dice" style="width:100%">🎲 Roll My Dice</button>`;
 
@@ -1885,12 +1910,12 @@ function showCombatResult(msg) {
   let outcomeText;
   if (attackerWon) {
     outcomeText = isAttacker
-      ? "Victory! Enemy frigates destroyed — their battleship remains."
-      : "Your frigates were destroyed. Your battleship is now vulnerable.";
+      ? "Victory! One enemy frigate destroyed."
+      : `One of your frigates was destroyed.`;
   } else {
     outcomeText = isAttacker
-      ? "Attack failed — your frigates were destroyed."
-      : "You repelled the attack! Enemy frigates destroyed.";
+      ? "Attack failed — one of your frigates was destroyed."
+      : "You repelled the attack! One attacker frigate destroyed.";
   }
 
   const iWon = (isAttacker && attackerWon) || (!isAttacker && !attackerWon);

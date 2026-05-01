@@ -1385,11 +1385,21 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 state["board"] = game.board
                 if enemy_frigates:
                     defender_name = enemy_frigates[0]["owner"]
+                    atk_frigate_count = sum(
+                        1 for h in game.board if h["cluster"] == dest_cluster
+                        for p in h["pieces"] if p["type"] == "frigate" and p["owner"] == player.name
+                    )
+                    def_frigate_count = sum(1 for ef in enemy_frigates if ef["owner"] == defender_name)
+                    target_hex_id = enemy_frigates[0]["hex_id"]
                     game.pending_combat = {
                         "type": "combat",
                         "attacker": player.name,
                         "defender": defender_name,
+                        "from_cluster": dest_cluster,
                         "dest_cluster": dest_cluster,
+                        "target_hex_id": target_hex_id,
+                        "atk_frigate_count": atk_frigate_count,
+                        "def_frigate_count": def_frigate_count,
                         "enemy_frigates": enemy_frigates,
                         "atk_rolled": False,
                         "def_rolled": False,
@@ -1398,12 +1408,16 @@ async def sss_ws(ws: WebSocket, game_code: str):
                     }
                     await game.broadcast({"type": "game_state", **state}, exclude=ws)
                     await ws.send_json({"type": "combat_prompt", "dest_cluster": dest_cluster,
-                                        "attacker": player.name, "tech_cards": player.tech_cards, **state})
+                                        "attacker": player.name, "tech_cards": player.tech_cards,
+                                        "atk_frigate_count": atk_frigate_count,
+                                        "def_frigate_count": def_frigate_count, **state})
                     def_p = game.players.get(defender_name)
                     if def_p and def_p.ws:
                         await def_p.ws.send_json({"type": "combat_defender_prompt",
                                                    "dest_cluster": dest_cluster,
-                                                   "attacker": player.name, **state})
+                                                   "attacker": player.name,
+                                                   "atk_frigate_count": atk_frigate_count,
+                                                   "def_frigate_count": def_frigate_count, **state})
                 else:
                     game.pending_combat = None
                     _use_action(game)
@@ -1423,9 +1437,13 @@ async def sss_ws(ws: WebSocket, game_code: str):
                     await ws.send_json({"type": "error", "msg": "Not your turn"})
                     continue
                 from_cluster = raw.get("from_cluster")
-                dest_cluster = raw.get("dest_cluster")
-                if from_cluster is None or dest_cluster is None:
+                target_hex_id = raw.get("target_hex_id")
+                if from_cluster is None or target_hex_id is None:
                     continue
+                if not (0 <= target_hex_id < len(game.board)):
+                    await ws.send_json({"type": "error", "msg": "Invalid target hex."})
+                    continue
+                dest_cluster = game.board[target_hex_id]["cluster"]
                 atk_frigates = [
                     p for h in game.board if h["cluster"] == from_cluster
                     for p in h.get("pieces", [])
@@ -1434,6 +1452,7 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 if not atk_frigates:
                     await ws.send_json({"type": "error", "msg": "No frigates in that system."})
                     continue
+                atk_frigate_count = len(atk_frigates)
                 connected = any(
                     game.board[h["wormhole_partner"]]["cluster"] == dest_cluster
                     for h in game.board
@@ -1442,23 +1461,25 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 if not connected:
                     await ws.send_json({"type": "error", "msg": "Systems not wormhole-connected."})
                     continue
-                enemy_frigates = [
-                    {"owner": p["owner"]}
-                    for h in game.board if h["cluster"] == dest_cluster
-                    for p in h.get("pieces", [])
+                target_hex = game.board[target_hex_id]
+                def_frigates_on_hex = [
+                    p for p in target_hex.get("pieces", [])
                     if p["type"] == "frigate" and p["owner"] != player.name
                 ]
-                if not enemy_frigates:
-                    await ws.send_json({"type": "error", "msg": "No enemy frigates in target system."})
+                if not def_frigates_on_hex:
+                    await ws.send_json({"type": "error", "msg": "No enemy frigates on that hex."})
                     continue
-                defender_name = enemy_frigates[0]["owner"]
+                def_frigate_count = len(def_frigates_on_hex)
+                defender_name = def_frigates_on_hex[0]["owner"]
                 game.pending_combat = {
                     "type": "attack",
                     "attacker": player.name,
                     "defender": defender_name,
                     "from_cluster": from_cluster,
                     "dest_cluster": dest_cluster,
-                    "enemy_frigates": enemy_frigates,
+                    "target_hex_id": target_hex_id,
+                    "atk_frigate_count": atk_frigate_count,
+                    "def_frigate_count": def_frigate_count,
                     "atk_rolled": False,
                     "def_rolled": False,
                     "atk_dice": [],
@@ -1468,12 +1489,16 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 state["board"] = game.board
                 await game.broadcast({"type": "game_state", **state}, exclude=ws)
                 await ws.send_json({"type": "combat_prompt", "dest_cluster": dest_cluster,
-                                    "attacker": player.name, "tech_cards": player.tech_cards, **state})
+                                    "attacker": player.name, "tech_cards": player.tech_cards,
+                                    "atk_frigate_count": atk_frigate_count,
+                                    "def_frigate_count": def_frigate_count, **state})
                 def_p = game.players.get(defender_name)
                 if def_p and def_p.ws:
                     await def_p.ws.send_json({"type": "combat_defender_prompt",
                                                "dest_cluster": dest_cluster,
-                                               "attacker": player.name, **state})
+                                               "attacker": player.name,
+                                               "atk_frigate_count": atk_frigate_count,
+                                               "def_frigate_count": def_frigate_count, **state})
 
             # ── roll_combat_dice ──────────────────────────────────────────────
             elif kind == "roll_combat_dice":
@@ -1491,7 +1516,8 @@ async def sss_ws(ws: WebSocket, game_code: str):
 
                 if is_attacker and not combat["atk_rolled"]:
                     tech_card = raw.get("tech_card")
-                    atk_dice_count = 2 if tech_card == "nuclear_missile" else 1
+                    atk_dice_count = combat["atk_frigate_count"]
+                    if tech_card == "nuclear_missile": atk_dice_count += 1
                     _atk_phys = game.players.get(attacker_name)
                     _atk_phys = (_atk_phys.tech.get("physics", []) if _atk_phys else [])
                     if len(_atk_phys) > 0 and _atk_phys[0]: atk_dice_count += 1  # Lv1 Ballistics
@@ -1510,9 +1536,9 @@ async def sss_ws(ws: WebSocket, game_code: str):
 
                 elif not is_attacker and player.name == defender_name and not combat["def_rolled"]:
                     _def_phys = player.tech.get("physics", [])
-                    def_dice_count = 1
-                    if len(_def_phys) > 1 and _def_phys[1]: def_dice_count += 1  # Lv2 Deflector Fields
-                    if len(_def_phys) > 3 and _def_phys[3]: def_dice_count += 1  # Lv4 Quantum Shields
+                    def_dice_count = combat["def_frigate_count"]
+                    if len(_def_phys) > 1 and _def_phys[1]: def_dice_count += 1
+                    if len(_def_phys) > 3 and _def_phys[3]: def_dice_count += 1
                     def_dice = [random.randint(1, 6) for _ in range(def_dice_count)]
                     combat["def_dice"]  = def_dice
                     combat["def_total"] = sum(def_dice)
@@ -1522,25 +1548,24 @@ async def sss_ws(ws: WebSocket, game_code: str):
                     atk_total = combat["atk_total"]
                     def_total = combat["def_total"]
                     attacker_won = atk_total > def_total
+                    from_cluster = combat.get("from_cluster", dest_cluster)
                     if attacker_won:
-                        # Destroy defender's frigates in the target cluster
-                        for h in game.board:
-                            if h["cluster"] != dest_cluster:
-                                continue
-                            h["pieces"] = [
-                                p for p in h["pieces"]
-                                if not (p["type"] == "frigate" and p["owner"] == defender_name)
-                            ]
+                        t_hex = game.board[combat["target_hex_id"]]
+                        for i, p in enumerate(t_hex["pieces"]):
+                            if p["type"] == "frigate" and p["owner"] == defender_name:
+                                t_hex["pieces"].pop(i)
+                                break
                     else:
-                        # Destroy attacker's frigates in their source cluster
-                        from_cluster = combat.get("from_cluster", dest_cluster)
                         for h in game.board:
                             if h["cluster"] != from_cluster:
                                 continue
-                            h["pieces"] = [
-                                p for p in h["pieces"]
-                                if not (p["type"] == "frigate" and p["owner"] == attacker_name)
-                            ]
+                            for i, p in enumerate(h["pieces"]):
+                                if p["type"] == "frigate" and p["owner"] == attacker_name:
+                                    h["pieces"].pop(i)
+                                    break
+                            else:
+                                continue
+                            break
                     game.pending_combat = None
                     _use_action(game)
                     await _flush_eliminations(game)

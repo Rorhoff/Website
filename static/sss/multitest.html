@@ -191,6 +191,7 @@
     .log-line { margin-bottom: .05rem; line-height: 1.3; word-break: break-all; }
     .log-line.in  { color: #7dd3fc; }
     .log-line.out { color: #86efac; }
+    .log-line.step-highlight { background: rgba(251,191,36,.22); outline: 1px solid #f59e0b; border-radius: 2px; }
     .log-line.err { color: var(--danger); }
     .log-line.sys { color: var(--gold); }
 
@@ -706,6 +707,18 @@
       return { attack, expand };
     }
 
+    function tryResearchSkill(column) {
+      const science = (me?.resources ?? {}).science ?? 0;
+      const levels  = ((me?.tech ?? {})[column]) ?? [false,false,false,false,false];
+      const nextLvl = levels.findIndex(on => !on);
+      if (nextLvl === -1) return false;
+      const cost = [2, 3, 4, 5, 6][nextLvl] ?? 99;
+      if (science < cost) return false;
+      sysLog(idx, `🔬 Research ${column} Lv${nextLvl + 1} (${cost} sci)`);
+      send(idx, { type: "research_skill", column });
+      return true;
+    }
+
     // ── BUILDER: buildings → draw tech → invade → expand ─────────────────────
     if (strategy === "builder") {
       if (tryBuildBuilding()) return;
@@ -724,6 +737,8 @@
         return;
       }
       if (tryFarmer()) return;
+      if (tryResearchSkill("engineering")) return;
+      if (tryResearchSkill("biology")) return;
       sysLog(idx, `[builder] No action — end_turn ($${money})`);
       send(idx, { type: "end_turn" });
       return;
@@ -742,6 +757,8 @@
       }
       if (tryBuildBuilding()) return;
       if (tryFarmer()) return;
+      if (tryResearchSkill("engineering")) return;
+      if (tryResearchSkill("physics")) return;
       sysLog(idx, `[ships] No action — end_turn ($${money})`);
       send(idx, { type: "end_turn" });
       return;
@@ -777,6 +794,8 @@
       }
       if (tryBuildFrigate()) return;
       if (tryBuildBuilding()) return;
+      if (tryResearchSkill("government")) return;
+      if (tryResearchSkill("physics")) return;
       sysLog(idx, `[conqueror] No action — end_turn ($${money})`);
       send(idx, { type: "end_turn" });
       return;
@@ -810,6 +829,8 @@
       }
       if (tryBuildFrigate()) return;
       if (tryBuildBuilding()) return;
+      if (tryResearchSkill("physics")) return;
+      if (tryResearchSkill("government")) return;
       sysLog(idx, `[aggressor] No action — end_turn ($${money})`);
       send(idx, { type: "end_turn" });
       return;
@@ -1033,7 +1054,7 @@
 
     // Record board snapshot from panel 0 only (avoids duplicates per broadcast)
     if (idx === 0 && lastBoard) {
-      stateHistory.push({ state: { ...msg, board: lastBoard } });
+      stateHistory.push({ state: { ...msg, board: lastBoard }, logLines: panels.map(p => p.logEl.lastElementChild ?? null) });
       if (stateHistory.length > 80) stateHistory.shift();
       historyIdx = stateHistory.length - 1;
       updateStepButtons();
@@ -1050,8 +1071,10 @@
 
     // Combat result banner
     if (msg.type === "combat_result") {
-      const won = msg.winner === p.name;
-      sysLog(idx, `${won ? "⚔ WON" : "🛡 LOST"} combat — ATK ${msg.atk_total} vs DEF ${msg.def_total} (winner: ${msg.winner})`);
+      if (p.name === msg.attacker || p.name === msg.defender) {
+        const won = msg.winner === p.name;
+        sysLog(idx, `${won ? "⚔ WON" : "🛡 LOST"} combat — ATK ${msg.atk_total} vs DEF ${msg.def_total} (winner: ${msg.winner})`);
+      }
     }
 
     // Invasion prompt — auto-roll dice immediately
@@ -1414,6 +1437,16 @@
     fw.disabled  = historyIdx < 0;
   }
 
+  function highlightHistoryLogs(entry) {
+    document.querySelectorAll(".log-line.step-highlight").forEach(el => el.classList.remove("step-highlight"));
+    if (!entry?.logLines) return;
+    for (const line of entry.logLines) {
+      if (line) {
+        line.classList.add("step-highlight");
+      }
+    }
+  }
+
   function stepBack() {
     if (historyIdx <= 0) return;
     // Auto-pause so the live game stops while browsing history
@@ -1427,6 +1460,7 @@
     historyIdx--;
     const entry = stateHistory[historyIdx];
     if (entry) renderMiniBoard(entry.state);
+    highlightHistoryLogs(entry);
     updateStepButtons();
   }
 
@@ -1436,6 +1470,7 @@
       historyIdx++;
       const entry = stateHistory[historyIdx];
       if (entry) renderMiniBoard(entry.state);
+      highlightHistoryLogs(entry);
       updateStepButtons();
       return;
     }

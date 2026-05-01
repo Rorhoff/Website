@@ -553,6 +553,8 @@ h1 { font-size: 2rem; font-weight: 700; color: var(--accent); text-align: center
 .hex-selected   { fill: rgba(74,222,128,0.45) !important; stroke: #4ade80 !important; stroke-width: 2   !important; cursor: pointer !important; }
 /* reachable destination */
 .hex-flight-target { fill: rgba(56,189,248,0.28) !important; stroke: #38bdf8 !important; stroke-width: 1.5 !important; cursor: pointer !important; }
+/* specific enemy hex targeted for attack */
+.hex-attack-target { filter: drop-shadow(0 0 6px #ef4444) drop-shadow(0 0 3px #ef4444); }
 
 /* ── Combat planet stats row ─────────────────────────────────── */
 .combat-planet-stats {
