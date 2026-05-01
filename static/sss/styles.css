@@ -123,9 +123,10 @@ h1 { font-size: 2rem; font-weight: 700; color: var(--accent); text-align: center
   position: fixed;
   inset: 0;
   overflow-y: auto;
+  overflow-x: hidden;
   background: var(--surface);
   z-index: 200;
-  padding: 1rem;
+  padding: .75rem;
 }
 
 /* ── Player HUD — fixed to viewport top-left (stays put while map pans) ── */
@@ -320,12 +321,12 @@ h1 { font-size: 2rem; font-weight: 700; color: var(--accent); text-align: center
 
 /* ── Player card resources ────────────────────────────────── */
 .resource-row {
-  display: grid; grid-template-columns: 1fr 1fr; gap: .5rem;
+  display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: .4rem;
 }
 .resource-item {
-  display: flex; align-items: center; gap: .45rem;
+  display: flex; align-items: center; justify-content: center; gap: .3rem;
   background: #0a0f18; border: 1px solid var(--border);
-  border-radius: 6px; padding: .35rem .7rem;
+  border-radius: 6px; padding: .3rem .4rem;
 }
 .resource-label { font-size: .75rem; color: var(--muted); text-transform: uppercase; letter-spacing: .05rem; }
 .resource-count { font-size: 1rem; font-weight: 700; color: var(--text); }
@@ -381,12 +382,11 @@ h1 { font-size: 2rem; font-weight: 700; color: var(--accent); text-align: center
 }
 .income-col-hdr.cost-hdr { color: #ef444488; }
 .income-res-label {
-  display: flex; align-items: center; gap: .3rem;
+  display: flex; align-items: center; justify-content: center;
   background: #0a0f18; border: 1px solid var(--border);
-  border-radius: 6px; padding: .28rem .55rem;
-  color: var(--text); font-size: .75rem; text-transform: capitalize;
+  border-radius: 6px; padding: .28rem .4rem;
 }
-.income-res-label img, .income-res-label svg { width: 14px; height: 14px; }
+.income-res-label img, .income-res-label svg { width: 16px; height: 16px; }
 .income-cell {
   display: flex; align-items: center; justify-content: center;
   background: #0a0f18; border: 1px solid var(--border);

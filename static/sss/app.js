@@ -1117,13 +1117,16 @@ function renderPlacementInfo(state, infoCard) {
 
 function setViewMode(mode) {
   viewMode = mode;
-  const cardEl = $("board-card-view");
-  const btn    = document.getElementById("btn-toggle-view");
+  const cardEl    = $("board-card-view");
+  const boardWrap = $("board-wrap");
+  const btn       = document.getElementById("btn-toggle-view");
   if (mode === "map") {
     cardEl.classList.add("hidden");
+    if (boardWrap) boardWrap.classList.remove("hidden");
     if (btn) btn.textContent = "Card ▶";
   } else {
     cardEl.classList.remove("hidden");
+    if (boardWrap) boardWrap.classList.add("hidden");
     if (btn) btn.textContent = "◀ Map";
   }
 }
@@ -1419,11 +1422,10 @@ function renderFullPlayerCard(state) {
 
   const RES_KEYS = ["food", "science", "tool", "money"];
 
-  // Resources row
+  // Resources row (icon + count only to keep the card narrow)
   const resHtml = RES_KEYS.map(r => `
     <div class="resource-item">
       ${RESOURCE_ICONS[r] ?? ""}
-      <span class="resource-label">${r}</span>
       <span class="resource-count">${resources[r] ?? 0}</span>
     </div>`).join("");
 
@@ -1452,7 +1454,7 @@ function renderFullPlayerCard(state) {
         const incStr  = inc  > 0 ? `<span class="income-count">+${inc}</span>`   : `<span class="income-zero">—</span>`;
         const costStr = cost > 0 ? `<span class="upkeep-cost">−${cost}</span>` : `<span class="income-zero">—</span>`;
         return `
-        <div class="income-res-label">${RESOURCE_ICONS[r] ?? ""}<span>${r}</span></div>
+        <div class="income-res-label">${RESOURCE_ICONS[r] ?? ""}</div>
         <div class="income-cell">${incStr}</div>
         <div class="income-cell">${costStr}</div>`;
       }).join("")}
@@ -1527,7 +1529,10 @@ function renderFullPlayerCard(state) {
     <div class="player-race-card">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.75rem">
         <button class="btn btn-ghost btn-sm" id="btn-card-close">◀ Map</button>
-        <span style="font-size:.8rem;color:var(--muted)">${unrest} / 20 unrest</span>
+        <div style="display:flex;gap:.6rem;align-items:center;font-size:.8rem">
+          <span style="color:var(--muted)">${unrest}/20 Unrest</span>
+          <span style="color:#f59e0b;font-weight:700">${me.vp ?? 0}/7 VP</span>
+        </div>
       </div>
       <div class="resource-row">${resHtml}</div>
       <div class="income-section mt2">
