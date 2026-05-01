@@ -625,11 +625,13 @@ function renderBoard(state, placementMode) {
       } else if (_actionMode) {
         const hint = _actionMode?.phase === "pick_hex"
           ? "Click an enemy frigate tile to target it."
-          : _selectedCluster !== null
-            ? (_actionMode.type === "attack" ? "Click enemy system to attack." : "Click highlighted system to move.")
-            : _actionMode.type === "invasion" ? "Click your frigate cluster to invade."
-            : _actionMode.type === "attack"   ? "Click your frigate cluster, then enemy system."
-            : "Click your frigates, then a connected system.";
+          : _actionMode?.phase === "in_system"
+            ? "Click the planet to launch invasion."
+            : _selectedCluster !== null
+              ? (_actionMode.type === "attack" ? "Click enemy system to attack." : "Click highlighted system to move.")
+              : _actionMode.type === "invasion" ? "Click your frigate cluster to invade."
+              : _actionMode.type === "attack"   ? "Click your frigate cluster, then enemy system."
+              : "Click your frigates, then a connected system.";
         actionHtml = `<div class="hud-hint">${hint}</div>
           <div class="hud-actions"><button class="btn btn-ghost btn-sm" id="btn-cancel-action">Cancel</button></div>`;
       } else if (isMyTurnNow) {
@@ -836,15 +838,19 @@ function renderBoard(state, placementMode) {
     const isTarget  = isActionTurn && actionTargetClusters.has(h.cluster);
     const isSelected = isActionTurn && _selectedCluster !== null && h.cluster === _selectedCluster;
     const isInvasionSource = isActionTurn && _actionMode?.type === "invasion"
+      && _actionMode?.phase !== "in_system"
       && invasionSourceClusters.has(h.cluster);
+    const isInvasionSelected = isActionTurn && _actionMode?.type === "invasion"
+      && _actionMode?.phase === "in_system" && h.cluster === _actionMode?.cluster;
+    const isInvasionCoreTgt = isInvasionSelected && h.local === 0;
     const isAttackHexTarget = isActionTurn
       && _actionMode?.phase === "pick_hex"
       && h.cluster === _actionMode.dest_cluster
       && (h.pieces ?? []).some(p => p.type === "frigate" && p.owner !== myName);
-    if (isSelected) cls += " hex-selected";
+    if (isSelected || isInvasionSelected) cls += " hex-selected";
     else if (isSource) cls += " hex-selectable";
     else if (isInvasionSource) cls += " hex-selectable";
-    if (isTarget) cls += " hex-flight-target";
+    if (isTarget || isInvasionCoreTgt) cls += " hex-flight-target";
     if (isAttackHexTarget) cls += " hex-attack-target";
     if (validConstructTarget) cls += " hex-construct-target";
 
@@ -925,12 +931,28 @@ function renderBoard(state, placementMode) {
       };
       poly.addEventListener("click", handler);
       addHit(handler);
+    } else if (isInvasionCoreTgt) {
+      poly.style.cursor = "pointer";
+      const handler = () => {
+        const cluster = _actionMode.cluster;
+        _actionMode = null;
+        send({ type: "invasion_attack", cluster });
+      };
+      poly.addEventListener("click", handler);
+      addHit(handler);
+    } else if (isInvasionSelected) {
+      poly.style.cursor = "pointer";
+      const handler = () => {
+        _actionMode = { type: "invasion" };
+        if (_lastState) renderBoard(_lastState, false);
+      };
+      poly.addEventListener("click", handler);
+      addHit(handler);
     } else if (isInvasionSource) {
       poly.style.cursor = "pointer";
       const handler = () => {
-        const cluster = h.cluster;
-        _actionMode = null;
-        send({ type: "invasion_attack", cluster });
+        _actionMode = { type: "invasion", phase: "in_system", cluster: h.cluster };
+        if (_lastState) renderBoard(_lastState, false);
       };
       poly.addEventListener("click", handler);
       addHit(handler);
@@ -1548,7 +1570,8 @@ function computeInvasionRoutes(hexes, fromCluster) {
       h.cluster === r.dest_cluster &&
       (h.pieces ?? []).some(p => p.type === "frigate" && p.owner !== myName)
     );
-    return core && core.planet && hasFrigateSlot(hexes, r.dest_cluster) && !hasEnemy;
+    const alreadyMine = (core?.pieces ?? []).some(p => p.type === "empire_flag" && p.owner === myName);
+    return core && core.planet && hasFrigateSlot(hexes, r.dest_cluster) && !hasEnemy && !alreadyMine;
   });
 }
 
