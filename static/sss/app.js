@@ -2207,10 +2207,11 @@ function initBoardPan() {
 
   // ── pinch-zoom state ─────────────────────────────────────────
   const activePointers = new Map(); // pointerId → {x,y}
-  let pinching      = false;
-  let pinchStartDist = 0;
-  let baseScale     = 1;   // scale at pinch start
-  let currentScale  = 1;   // accumulated scale
+  let pinching         = false;
+  let pinchStartDist   = 0;
+  let pinchPivot       = null;  // client-coords center locked at gesture start
+  let baseScale        = 1;     // scale at pinch start
+  let currentScale     = 1;     // accumulated scale
 
   const BASE_W = parseInt(svg.getAttribute("width"))  || 872;
   const BASE_H = parseInt(svg.getAttribute("height")) || 800;
@@ -2253,6 +2254,7 @@ function initBoardPan() {
       pinching       = true;
       panning        = false;
       pinchStartDist = getPinchDist();
+      pinchPivot     = getPinchCenter();  // lock pivot for entire gesture
       baseScale      = currentScale;
       if (capturedId !== null) {
         try { wrap.releasePointerCapture(capturedId); } catch (_) {}
@@ -2279,7 +2281,7 @@ function initBoardPan() {
 
     if (pinching && activePointers.size === 2) {
       const d = getPinchDist();
-      if (pinchStartDist > 0) applyZoom(baseScale * (d / pinchStartDist), getPinchCenter());
+      if (pinchStartDist > 0 && pinchPivot) applyZoom(baseScale * (d / pinchStartDist), pinchPivot);
       return;
     }
 
@@ -2299,7 +2301,7 @@ function initBoardPan() {
 
   const stopPointer = (e) => {
     activePointers.delete(e.pointerId);
-    if (activePointers.size < 2 && pinching) pinching = false;
+    if (activePointers.size < 2 && pinching) { pinching = false; pinchPivot = null; }
     if (activePointers.size === 0) { panning = false; wrap.classList.remove("panning"); }
   };
   wrap.addEventListener("pointerup",     stopPointer);
