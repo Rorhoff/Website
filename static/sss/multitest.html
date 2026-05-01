@@ -43,6 +43,8 @@
     button:disabled { opacity: .35; cursor: default; }
     .btn-3p  { background: #7c3aed; color: #fff; }
     .btn-4p  { background: var(--accent); color: #0a0f18; }
+    .btn-5p  { background: #d97706; color: #fff; }
+    .btn-6p  { background: #dc2626; color: #fff; }
     .btn-rst { background: var(--danger); color: #fff; }
     .btn-pause       { background: #374151; color: #e2e8f0; border: 1px solid #4b5563; }
     .btn-pause.paused { background: #064e3b; color: #6ee7b7; border-color: #059669; }
@@ -52,6 +54,8 @@
     .btn-action { background: #1e3a5a; color: var(--accent); border: 1px solid #2a4f78; }
     .btn-start  { background: var(--green); color: #071a0f; }
     .btn-end    { background: #1a1a2e; color: #a78bfa; border: 1px solid #3730a3; }
+    .btn-step   { background: #1e293b; color: #94a3b8; border: 1px solid #334155; }
+    .btn-step:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
 
     /* ── Phase progress stepper ── */
     .phase-stepper {
@@ -120,8 +124,10 @@
     .panel-grid { display: grid; gap: .4rem; }
     .panel-grid.g3 { grid-template-columns: repeat(3, 1fr); }
     .panel-grid.g4 { grid-template-columns: repeat(4, 1fr); }
-    @media (max-width: 900px) { .panel-grid.g3, .panel-grid.g4 { grid-template-columns: 1fr 1fr; } }
-    @media (max-width: 500px) { .panel-grid.g3, .panel-grid.g4 { grid-template-columns: 1fr; } }
+    .panel-grid.g5 { grid-template-columns: repeat(3, 1fr); }
+    .panel-grid.g6 { grid-template-columns: repeat(3, 1fr); }
+    @media (max-width: 900px) { .panel-grid.g3, .panel-grid.g4, .panel-grid.g5, .panel-grid.g6 { grid-template-columns: 1fr 1fr; } }
+    @media (max-width: 500px) { .panel-grid.g3, .panel-grid.g4, .panel-grid.g5, .panel-grid.g6 { grid-template-columns: 1fr; } }
 
     /* ── Panel ── */
     .panel {
@@ -199,8 +205,26 @@
     /* ── Mini board ── */
     .board-view { margin-bottom: .65rem; }
     .board-view.hidden { display: none; }
-    .board-view-label { font-size: .6rem; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; font-weight: 600; margin-bottom: .3rem; }
-    #board-mini-svg { width: 100%; max-width: 800px; border: 1px solid var(--border); border-radius: 8px; background: #050810; display: block; }
+    .board-view-hdr { display: flex; align-items: center; gap: .6rem; margin-bottom: .3rem; }
+    .board-view-label { font-size: .6rem; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; font-weight: 600; }
+    .board-zoom-row { display: flex; align-items: center; gap: .35rem; margin-left: auto; }
+    .board-zoom-label { font-size: .58rem; color: var(--muted); white-space: nowrap; }
+    #board-zoom { width: 80px; accent-color: var(--accent); cursor: pointer; }
+    #board-mini-svg { border: 1px solid var(--border); border-radius: 8px; background: #050810; display: block; }
+
+    /* ── Hex hover tooltip ── */
+    #hex-tooltip {
+      position: fixed; pointer-events: none; display: none; z-index: 9999;
+      background: #0a0f18; border: 1px solid var(--accent); border-radius: 7px;
+      padding: .4rem .6rem; font-size: .7rem; font-family: monospace;
+      color: var(--text); max-width: 220px; line-height: 1.45;
+      box-shadow: 0 4px 16px #00000088;
+    }
+    #hex-tooltip .tt-type  { color: var(--accent); font-weight: 700; margin-bottom: .15rem; }
+    #hex-tooltip .tt-planet{ color: #fbbf24; }
+    #hex-tooltip .tt-piece { color: #86efac; }
+    #hex-tooltip .tt-worm  { color: #a78bfa; }
+    #hex-tooltip .tt-tri   { color: #fb923c; }
   </style>
 </head>
 <body>
@@ -216,8 +240,12 @@
   <div class="top-bar">
     <button class="btn-3p" id="btn-3p">&#9654; 3-Player Game</button>
     <button class="btn-4p" id="btn-4p">&#9654; 4-Player Game</button>
+    <button class="btn-5p" id="btn-5p">&#9654; 5-Player Game</button>
+    <button class="btn-6p" id="btn-6p">&#9654; 6-Player Game</button>
     <button class="btn-rst" id="btn-reset">&#9724; Reset</button>
     <button class="btn-pause" id="btn-pause" disabled>&#9646;&#9646; Pause</button>
+    <button class="btn-step" id="btn-step-back" disabled>⏮ Back</button>
+    <button class="btn-step" id="btn-step-fwd"  disabled>Step &#9654;</button>
     <div class="pill"><span class="pill-label">Code</span><span class="pill-val" id="info-code">—</span></div>
     <div class="pill"><span class="pill-label">Phase</span><span class="pill-val" id="info-phase">—</span></div>
     <div class="pill"><span class="pill-label">Round</span><span class="pill-val" id="info-round">—</span></div>
@@ -252,18 +280,27 @@
     <span id="turn-strip-inner"></span>
   </div>
 
-  <!-- Mini board view -->
-  <div class="board-view hidden" id="board-view">
-    <div class="board-view-label">Board — pieces being placed</div>
-    <svg id="board-mini-svg" xmlns="http://www.w3.org/2000/svg"></svg>
-  </div>
+  <div id="hex-tooltip"></div>
 
   <div class="panel-grid" id="panel-grid"></div>
+
+  <!-- Mini board view -->
+  <div class="board-view hidden" id="board-view">
+    <div class="board-view-hdr">
+      <span class="board-view-label">Board — pieces being placed</span>
+      <div class="board-zoom-row">
+        <span class="board-zoom-label">Size</span>
+        <input type="range" id="board-zoom" min="300" max="1600" value="800" step="50">
+        <span class="board-zoom-label" id="board-zoom-val">800</span>
+      </div>
+    </div>
+    <svg id="board-mini-svg" xmlns="http://www.w3.org/2000/svg"></svg>
+  </div>
 
   <script>
   "use strict";
 
-  const NAMES = ["Alice", "Bob", "Carol", "Dave"];
+  const NAMES = ["Alice", "Bob", "Carol", "Dave", "Eve", "Frank"];
   const RACES = ["vorrkai","nexari","luminae","thornveld","obsidian_pact","dust_runners"];
   const RACE_COLORS = {
     vorrkai:       "#e74c3c",
@@ -295,7 +332,65 @@
   let autoBeginAction   = false; // guard: host begin_action sent once
   let lastBoard         = null;  // most recent board from any message
   let autoPaused        = false; // pause all auto-play when true
+  let stateHistory      = [];   // board snapshots for step-back/forward
+  let historyIdx        = -1;   // current position in stateHistory (-1 = none)
+  let _lastRoundLogged  = 0;    // track round changes for log banner
   // (per-panel lastEndTurnSeq tracks last seq at which we sent end_turn)
+
+  // ── Mini-board zoom slider ────────────────────────────────────────────────
+  document.getElementById("board-zoom").addEventListener("input", function() {
+    const v = parseInt(this.value, 10);
+    const svgEl = document.getElementById("board-mini-svg");
+    svgEl.setAttribute("width", v);
+    const vb = svgEl.getAttribute("viewBox");
+    if (vb) {
+      const [,, vbW, vbH] = vb.split(" ").map(Number);
+      svgEl.setAttribute("height", Math.round(v * vbH / vbW));
+    }
+    document.getElementById("board-zoom-val").textContent = v;
+  });
+
+  // ── Hex hover tooltip (event-delegated on SVG — survives innerHTML swaps) ─
+  (function() {
+    const tt  = document.getElementById("hex-tooltip");
+    const svg = document.getElementById("board-mini-svg");
+    const TYPE_NAMES = { orbital:"Orbital", bs_slot:"Build Slot", science:"Science", space:"Space",
+      yellow:"Planet (Yellow)", blue:"Planet (Blue)", red:"Planet (Red)", white:"Planet (White)",
+      green:"Planet (Green)", black_hole:"Black Hole" };
+    svg.addEventListener("mousemove", e => {
+      const hid = e.target?.dataset?.hid;
+      if (hid == null) { tt.style.display = "none"; return; }
+      const board = lastBoard;
+      if (!board) return;
+      const h = board[parseInt(hid, 10)];
+      if (!h) return;
+      let html = `<div class="tt-type">${TYPE_NAMES[h.type] ?? h.type}</div>`;
+      html += `<div>Cluster <b>${h.cluster}</b> · Local ${h.local}`;
+      if (h.label) html += ` · <b>${h.label}</b>`;
+      html += `</div>`;
+      if (h.tri) {
+        const [tu, fu, su] = h.tri_counts ?? [];
+        html += `<div class="tt-tri">⚙Upkeep ${tu} 🌿${fu} 🔬${su}${h.tri_farmer_green ? " (farmed)" : ""}</div>`;
+      }
+      if (h.wormhole && h.wormhole_partner != null)
+        html += `<div class="tt-worm">⟷ Wormhole → hex ${h.wormhole_partner}</div>`;
+      const planet = h.planet;
+      if (planet) {
+        html += `<div class="tt-planet">Planet — 🌿${planet.food} 🔬${planet.science} ⚙${planet.tool} $${planet.money} · ${planet.vp}VP</div>`;
+      }
+      const pieces = (h.pieces ?? []).filter(pc => pc.type !== "empire_flag");
+      const flags  = (h.pieces ?? []).filter(pc => pc.type === "empire_flag");
+      if (flags.length)  html += `<div class="tt-piece">🚩 ${flags.map(f=>f.owner).join(", ")}</div>`;
+      pieces.forEach(pc => {
+        html += `<div class="tt-piece">• ${pc.type}${pc.owner ? ` — ${pc.owner}` : ""}</div>`;
+      });
+      tt.innerHTML = html;
+      tt.style.display = "block";
+      tt.style.left = (e.clientX + 14) + "px";
+      tt.style.top  = (e.clientY - 10) + "px";
+    });
+    svg.addEventListener("mouseleave", () => { tt.style.display = "none"; });
+  })();
 
   // ── Shuffle helper ────────────────────────────────────────────────────────
   function shuffle(arr) {
@@ -373,9 +468,12 @@
         </div>`;
       grid.appendChild(el);
 
+      // Strategy: 0=builder, 1=ships, 2=conqueror, 3-5=aggressor
+      const STRATEGIES = ["builder", "ships", "conqueror", "aggressor", "aggressor", "aggressor"];
       panels.push({
         ws: null, name: NAMES[i], role: null, lastState: null,
-        autoRolled: false, lastDiceRound: null, lastEndTurnSeq: -1,
+        autoRolled: false, lastDiceRound: null, lastDiceRoll: 0, lastEndTurnSeq: -1,
+        strategy: STRATEGIES[i] ?? "aggressor",
         el,
         dotEl:   document.getElementById(`dot-${i}`),
         roleEl:  document.getElementById(`role-${i}`),
@@ -464,13 +562,16 @@
     let targetHex = null;
 
     if (nextPiece === "battle_station") {
-      // Server requires: bs_slot type, cluster has a triangle tile, not black_hole, not claimed
+      // Server requires: orbital type, cluster has a triangle tile, not black_hole, not claimed
+      // 5-6P wheel map: also restrict to mid-clusters 13-18
       const triClusters = new Set(board.filter(h => h.tri).map(h => h.cluster));
+      const is56p = playerCount >= 5;
       for (const h of board) {
-        if (h.type !== "bs_slot") continue;
+        if (h.type !== "orbital") continue;
         if (!triClusters.has(h.cluster)) continue;
         if (board[h.cluster * 7]?.type === "black_hole") continue;
         if (claimed.has(h.cluster)) continue;
+        if (is56p && (h.cluster < 13 || h.cluster > 18)) continue;
         targetHex = h; break;
       }
     } else if (nextPiece === "frigate") {
@@ -492,108 +593,245 @@
   }
 
   // ── Auto-turn action sequence ─────────────────────────────────────────────
-  // Priority: ⚔ attack enemy frigates → ✈ expand to unclaimed systems →
-  //           🔨 build frigate → 🏗 build building → end turn
-  // Never fly to already-owned systems — those moves waste actions.
-  function autoTurnAction(idx, state) {
-    if (autoPaused) return;
-    const p     = panels[idx];
-    const board = state.board ?? lastBoard;
+  // Strategies: builder(0) ships(1) conqueror(2) aggressor(3-5)
+  function autoTurnAction(idx, state, force = false) {
+    if (autoPaused && !force) return;
+    const p        = panels[idx];
+    const board    = state.board ?? lastBoard;
     if (!board) { send(idx, { type: "end_turn" }); return; }
+    const me       = (state.players ?? []).find(pl => pl.name === p.name);
+    const money    = (me?.resources ?? {}).money ?? 0;
+    const tools    = (me?.resources ?? {}).tool  ?? 0;
+    const strategy = p.strategy ?? "default";
+    const BUILD_TYPES    = ["building_tool","building_science","building_money"];
+    const SPACECRAFT_MAX = 3;
+    const SHIP_TYPES     = ["frigate","cruise_ship","outpost","super_ship","battle_station","death_star"];
 
-    const me        = (state.players ?? []).find(pl => pl.name === p.name);
-    const money     = (me?.resources ?? {}).money ?? 0;
-    const tools     = (me?.resources ?? {}).tool  ?? 0;
-    const myCluster = (state.player_system ?? {})[p.name];
-    const allSystems = new Set(Object.values(state.player_system ?? {}));
-    const BUILD_TYPES = ["building_tool","building_science","building_money"];
+    // ── Common derived sets ───────────────────────────────────────────────────
+    const myClusters = new Set();
+    for (const h of board) {
+      if (h.local === 0 && (h.pieces ?? []).some(pc => pc.type === "empire_flag" && pc.owner === p.name))
+        myClusters.add(h.cluster);
+    }
+    const homeCluster = (state.player_system ?? {})[p.name];
+    if (homeCluster != null) myClusters.add(homeCluster);
 
-    // Clusters where this player has frigates
+    const enemyClusters = new Set();
+    for (const h of board) {
+      if (h.local === 0 && (h.pieces ?? []).some(pc => pc.type === "empire_flag" && pc.owner !== p.name))
+        enemyClusters.add(h.cluster);
+    }
+
     const myFrigClusters = new Set();
     for (const h of board) {
       if ((h.pieces ?? []).some(pc => pc.type === "frigate" && pc.owner === p.name))
         myFrigClusters.add(h.cluster);
     }
 
-    // Scan wormhole routes — only care about attack (enemy frigates) and expand (unclaimed)
-    const attackRoutes = [], expandRoutes = [];
-    const seen = new Set();
-    for (const h of board) {
-      if (!h.wormhole || h.wormhole_partner == null) continue;
-      if (!myFrigClusters.has(h.cluster)) continue;
-      const partner = board[h.wormhole_partner];
-      if (!partner) continue;
-      const destCluster = partner.cluster;
-      const key = `${h.cluster}-${destCluster}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      const route = { from_wormhole: h.id, to_wormhole: h.wormhole_partner,
-                      from_cluster: h.cluster, dest_cluster: destCluster };
-      const hasEnemy = board.some(dh => dh.cluster === destCluster
-        && (dh.pieces ?? []).some(pc => pc.type === "frigate" && pc.owner !== p.name));
-      if (hasEnemy) {
-        attackRoutes.push(route);
-      } else if (!allSystems.has(destCluster)) {
-        expandRoutes.push(route);
+    // ── Common helpers ────────────────────────────────────────────────────────
+    function tryInvadeInSystem() {
+      for (const cl of myFrigClusters) {
+        if (myClusters.has(cl)) continue;
+        const core = board.find(h => h.cluster === cl && h.local === 0);
+        if (!core?.planet) continue;
+        if (board.some(h => h.cluster === cl && (h.pieces ?? []).some(pc => pc.type === "frigate" && pc.owner !== p.name))) continue;
+        sysLog(idx, `🌍 Invade cluster ${cl}`);
+        send(idx, { type: "invasion_attack", cluster: cl });
+        return true;
       }
-      // Ignore routes to already-owned non-enemy systems — pointless moves
+      return false;
     }
 
-    // 1. Attack
-    if (attackRoutes.length > 0) {
-      const r = attackRoutes[Math.floor(Math.random() * attackRoutes.length)];
-      sysLog(idx, `⚔ Attack cluster ${r.dest_cluster} from ${r.from_cluster}`);
-      send(idx, { type: "flight_move", from_wormhole: r.from_wormhole, to_wormhole: r.to_wormhole });
+    function tryBuildFrigate() {
+      if (money < 10 || tools < 2) return false;
+      for (const cl of myClusters) {
+        const h = board.find(o => o.cluster === cl && o.type === "orbital" && o.local !== 0
+          && (o.pieces ?? []).filter(pc => SHIP_TYPES.includes(pc.type)).length < SPACECRAFT_MAX);
+        if (h) {
+          sysLog(idx, `🚀 Build frigate cluster ${cl} hex ${h.id} ($${money} ⚙${tools})`);
+          send(idx, { type: "build_piece", piece_type: "frigate", hex_id: h.id });
+          return true;
+        }
+      }
+      return false;
+    }
+
+    function tryBuildBuilding() {
+      const btype = money >= 6 ? "building_money" : money >= 4 ? "building_tool" : null;
+      if (!btype) return false;
+      const minCost = btype === "building_money" ? 6 : 4;
+      if (money < minCost) return false;
+      for (const cl of myClusters) {
+        const h = board.find(o => o.cluster === cl && o.type === "bs_slot" && o.local !== 0
+          && (o.pieces ?? []).filter(pc => BUILD_TYPES.includes(pc.type)).length < 3);
+        if (h) {
+          sysLog(idx, `🏗 Build ${btype} hex ${h.id} ($${money})`);
+          send(idx, { type: "build_piece", piece_type: btype, hex_id: h.id });
+          return true;
+        }
+      }
+      return false;
+    }
+
+    function tryFarmer() {
+      if (tools < 3) return false;
+      for (const cl of myClusters) {
+        if (board.find(h => h.cluster === cl && h.tri && !h.tri_farmer_green)) {
+          sysLog(idx, `🌿 Farmer upgrade (⚙${tools})`);
+          send(idx, { type: "build_piece", piece_type: "farmer_upgrade" });
+          return true;
+        }
+      }
+      return false;
+    }
+
+    function buildRoutes() {
+      const attack = [], expand = [];
+      const seen = new Set();
+      for (const h of board) {
+        if (!h.wormhole || h.wormhole_partner == null || !myFrigClusters.has(h.cluster)) continue;
+        const partner = board[h.wormhole_partner];
+        if (!partner) continue;
+        const dest = partner.cluster;
+        const key = `${h.cluster}-${dest}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const r = { from_wormhole: h.id, to_wormhole: h.wormhole_partner, from_cluster: h.cluster, dest_cluster: dest };
+        const hasEnemy = board.some(dh => dh.cluster === dest && (dh.pieces ?? []).some(pc => pc.type === "frigate" && pc.owner !== p.name));
+        if (hasEnemy) attack.push(r);
+        else if (!myClusters.has(dest)) expand.push(r);
+      }
+      return { attack, expand };
+    }
+
+    // ── BUILDER: buildings → draw tech → invade → expand ─────────────────────
+    if (strategy === "builder") {
+      if (tryBuildBuilding()) return;
+      const techCount = (me?.tech_cards ?? []).length;
+      if (techCount < 2) {
+        sysLog(idx, `📜 Draw tech card (have ${techCount})`);
+        send(idx, { type: "draw_tech_card" });
+        return;
+      }
+      if (tryInvadeInSystem()) return;
+      const { expand } = buildRoutes();
+      if (expand.length > 0) {
+        const r = expand[Math.floor(Math.random() * expand.length)];
+        sysLog(idx, `✈ [builder] Expand to ${r.dest_cluster}`);
+        send(idx, { type: "flight_move", from_wormhole: r.from_wormhole, to_wormhole: r.to_wormhole });
+        return;
+      }
+      if (tryFarmer()) return;
+      sysLog(idx, `[builder] No action — end_turn ($${money})`);
+      send(idx, { type: "end_turn" });
       return;
     }
 
-    // 2. Build frigate (more firepower before expanding)
-    if (myCluster != null && money >= 10 && tools >= 2) {
-      const orbital = board.find(h =>
-        h.cluster === myCluster && h.type === "orbital" && h.local !== 0 &&
-        (h.pieces ?? []).filter(pc => pc.type === "frigate").length < 3
-      );
-      if (orbital) {
-        sysLog(idx, `🚀 Build frigate on hex ${orbital.id} ($${money} + ⚙${tools})`);
-        send(idx, { type: "build_piece", piece_type: "frigate", hex_id: orbital.id });
+    // ── SHIPS: build frigates → invade → expand ───────────────────────────────
+    if (strategy === "ships") {
+      if (tryBuildFrigate()) return;
+      if (tryInvadeInSystem()) return;
+      const { expand } = buildRoutes();
+      if (expand.length > 0) {
+        const r = expand[Math.floor(Math.random() * expand.length)];
+        sysLog(idx, `✈ [ships] Expand to ${r.dest_cluster}`);
+        send(idx, { type: "flight_move", from_wormhole: r.from_wormhole, to_wormhole: r.to_wormhole });
         return;
       }
-    }
-
-    // 3. Expand to unclaimed system
-    if (expandRoutes.length > 0) {
-      const r = expandRoutes[Math.floor(Math.random() * expandRoutes.length)];
-      sysLog(idx, `✈ Expand to cluster ${r.dest_cluster} from ${r.from_cluster}`);
-      send(idx, { type: "flight_move", from_wormhole: r.from_wormhole, to_wormhole: r.to_wormhole });
+      if (tryBuildBuilding()) return;
+      if (tryFarmer()) return;
+      sysLog(idx, `[ships] No action — end_turn ($${money})`);
+      send(idx, { type: "end_turn" });
       return;
     }
 
-    // 4. Build a building (income boost)
-    if (myCluster != null && money >= 4) {
-      const sciHex = board.find(h =>
-        h.cluster === myCluster && h.type === "science" && h.local !== 0 &&
-        (h.pieces ?? []).filter(pc => BUILD_TYPES.includes(pc.type)).length < 3
-      );
-      if (sciHex) {
-        sysLog(idx, `🏗 Build building on hex ${sciHex.id} ($${money})`);
-        send(idx, { type: "build_piece", piece_type: "building_tool", hex_id: sciHex.id });
+    // ── CONQUEROR: unclaimed planets first → expand to new systems ────────────
+    if (strategy === "conqueror") {
+      // Prefer unclaimed (no empire_flag) over enemy-owned
+      const unclaimedFirst = [...myFrigClusters].filter(cl => {
+        if (myClusters.has(cl)) return false;
+        const core = board.find(h => h.cluster === cl && h.local === 0);
+        if (!core?.planet) return false;
+        if (board.some(h => h.cluster === cl && (h.pieces ?? []).some(pc => pc.type === "frigate" && pc.owner !== p.name))) return false;
+        return !(core.pieces ?? []).some(pc => pc.type === "empire_flag");
+      });
+      for (const cl of unclaimedFirst) {
+        sysLog(idx, `🌍 [conqueror] Claim unclaimed cluster ${cl}`);
+        send(idx, { type: "invasion_attack", cluster: cl });
         return;
       }
-    }
-
-    // 5. Farmer upgrade (reduce food upkeep if not yet upgraded and has 3+ tools)
-    if (myCluster != null && tools >= 3) {
-      const triHex = board.find(h =>
-        h.cluster === myCluster && h.tri && !h.tri_farmer_green
-      );
-      if (triHex) {
-        sysLog(idx, `🌿 Farmer upgrade (⚙${tools})`);
-        send(idx, { type: "build_piece", piece_type: "farmer_upgrade" });
+      if (tryInvadeInSystem()) return;
+      const { expand } = buildRoutes();
+      const unclaimedExpand = expand.filter(r => {
+        const core = board.find(h => h.cluster === r.dest_cluster && h.local === 0);
+        return !(core?.pieces ?? []).some(pc => pc.type === "empire_flag");
+      });
+      const routes = unclaimedExpand.length > 0 ? unclaimedExpand : expand;
+      if (routes.length > 0) {
+        const r = routes[Math.floor(Math.random() * routes.length)];
+        sysLog(idx, `✈ [conqueror] Expand to ${r.dest_cluster}`);
+        send(idx, { type: "flight_move", from_wormhole: r.from_wormhole, to_wormhole: r.to_wormhole });
         return;
       }
+      if (tryBuildFrigate()) return;
+      if (tryBuildBuilding()) return;
+      sysLog(idx, `[conqueror] No action — end_turn ($${money})`);
+      send(idx, { type: "end_turn" });
+      return;
     }
 
-    sysLog(idx, `No useful action — end_turn ($${money} ⚙${tools})`);
+    // ── AGGRESSOR: attack players 4-5 (last two in list), chase enemies ───────
+    if (strategy === "aggressor") {
+      const allPlayers = state.players ?? [];
+      const targetNames = new Set(allPlayers.slice(-2).map(pl => pl.name));
+      const { attack, expand } = buildRoutes();
+      // Prefer routes toward targeted players
+      const targetAttack = attack.filter(r =>
+        board.some(h => h.cluster === r.dest_cluster && (h.pieces ?? []).some(pc => pc.type === "frigate" && targetNames.has(pc.owner)))
+      );
+      const chosenAttack = targetAttack.length > 0 ? targetAttack : attack;
+      if (chosenAttack.length > 0) {
+        const r = chosenAttack[Math.floor(Math.random() * chosenAttack.length)];
+        sysLog(idx, `⚔ [aggressor] Attack cluster ${r.dest_cluster}`);
+        send(idx, { type: "flight_move", from_wormhole: r.from_wormhole, to_wormhole: r.to_wormhole });
+        return;
+      }
+      if (tryInvadeInSystem()) return;
+      // Expand toward enemy territory
+      const enemyFirst = expand.filter(r => enemyClusters.has(r.dest_cluster));
+      const routes = enemyFirst.length > 0 ? enemyFirst : expand;
+      if (routes.length > 0) {
+        const r = routes[Math.floor(Math.random() * routes.length)];
+        sysLog(idx, `✈ [aggressor] Move toward enemies ${r.dest_cluster}`);
+        send(idx, { type: "flight_move", from_wormhole: r.from_wormhole, to_wormhole: r.to_wormhole });
+        return;
+      }
+      if (tryBuildFrigate()) return;
+      if (tryBuildBuilding()) return;
+      sysLog(idx, `[aggressor] No action — end_turn ($${money})`);
+      send(idx, { type: "end_turn" });
+      return;
+    }
+
+    // ── DEFAULT fallback ──────────────────────────────────────────────────────
+    const { attack, expand } = buildRoutes();
+    if (tryInvadeInSystem()) return;
+    if (attack.length > 0) {
+      const r = attack[Math.floor(Math.random() * attack.length)];
+      sysLog(idx, `⚔ Move to cluster ${r.dest_cluster}`);
+      send(idx, { type: "flight_move", from_wormhole: r.from_wormhole, to_wormhole: r.to_wormhole });
+      return;
+    }
+    if (tryBuildFrigate()) return;
+    if (expand.length > 0) {
+      const r = expand[Math.floor(Math.random() * expand.length)];
+      sysLog(idx, `✈ Expand to ${r.dest_cluster}`);
+      send(idx, { type: "flight_move", from_wormhole: r.from_wormhole, to_wormhole: r.to_wormhole });
+      return;
+    }
+    if (tryBuildBuilding()) return;
+    if (tryFarmer()) return;
+    sysLog(idx, `No action — end_turn ($${money} ⚙${tools})`);
     send(idx, { type: "end_turn" });
   }
 
@@ -609,16 +847,18 @@
     const minY = Math.min(...ys), maxY = Math.max(...ys);
     const pad  = 28;
     const vw   = 800;
-    const scale = (vw - pad * 2) / (maxX - minX || 1);
-    const vh   = Math.round((maxY - minY) * scale + pad * 2);
-    const tx   = x => (x - minX) * scale + pad;
-    const ty   = y => (y - minY) * scale + pad;
+    const hexR = 25.2;
+    const scale = (vw - pad * 2) / (maxX - minX + 2 * hexR || 1);
+    const vh   = Math.round((maxY - minY + 2 * hexR) * scale + pad * 2);
+    const tx   = x => (x - minX + hexR) * scale + pad;
+    const ty   = y => (y - minY + hexR) * scale + pad;
 
-    // Flat-top hex polygon points — scale the original R=25.2 by the board scale
-    const rr = Math.max(6, Math.min(16, 25.2 * scale));
+    // rr proportional to scale — no cap so hexes always touch at any board size
+    // Use flat-top vertices (0°, 60°, ...) to match server's flat-top ring offsets (30°, 90°, ...)
+    const rr = Math.max(4, hexR * scale + 0.4);
     function hexPts(cx, cy) {
       return Array.from({length: 6}, (_, i) => {
-        const a = Math.PI / 6 + Math.PI / 3 * i;
+        const a = (Math.PI / 3) * i;
         return `${(cx + rr * Math.cos(a)).toFixed(1)},${(cy + rr * Math.sin(a)).toFixed(1)}`;
       }).join(" ");
     }
@@ -630,8 +870,10 @@
       if (pl.race) playerColor[pl.name] = RACE_COLORS[pl.race] ?? "#64748b";
     }
 
+    const zoomW = parseInt(document.getElementById("board-zoom").value, 10);
     svgEl.setAttribute("viewBox", `0 0 ${vw} ${vh}`);
-    svgEl.setAttribute("height", Math.min(vh, 340));
+    svgEl.setAttribute("width",  zoomW);
+    svgEl.setAttribute("height", Math.round(zoomW * vh / vw));
 
     // Ring hex type → subtle background tint
     const HEX_TINTS = {
@@ -691,11 +933,11 @@
         if (h.tri)    { stroke = h.tri_color || "#f59e0b"; sw = "1.8"; }
       }
       let sciClick = "";
-      if (!isCenter && h.type === "science" && ownColor) {
-        stroke = "#a855f7"; sw = "1.6";
+      if (!isCenter && h.type === "bs_slot" && ownColor) {
+        stroke = "#9ec8e0"; sw = "1.6";
         sciClick = ` onclick="miniSciClick(${h.id})" style="cursor:pointer"`;
       }
-      inner += `<polygon points="${hexPts(cx, cy)}" fill="${fill}" stroke="${stroke}" stroke-width="${sw}"${sciClick}/>`;
+      inner += `<polygon data-hid="${h.id}" points="${hexPts(cx, cy)}" fill="${fill}" stroke="${stroke}" stroke-width="${sw}"${sciClick}/>`;
 
       // Center hex: planet marker circle + system label
       if (isCenter) {
@@ -787,6 +1029,14 @@
     if (msg.board) lastBoard = msg.board;
     p.lastState = msg;
 
+    // Record board snapshot from panel 0 only (avoids duplicates per broadcast)
+    if (idx === 0 && lastBoard) {
+      stateHistory.push({ state: { ...msg, board: lastBoard } });
+      if (stateHistory.length > 80) stateHistory.shift();
+      historyIdx = stateHistory.length - 1;
+      updateStepButtons();
+    }
+
     document.getElementById("info-phase").textContent = phase;
     document.getElementById("info-round").textContent = msg.round ?? "—";
     renderResources(idx, msg);
@@ -800,6 +1050,19 @@
     if (msg.type === "combat_result") {
       const won = msg.winner === p.name;
       sysLog(idx, `${won ? "⚔ WON" : "🛡 LOST"} combat — ATK ${msg.atk_total} vs DEF ${msg.def_total} (winner: ${msg.winner})`);
+    }
+
+    // Invasion prompt — auto-roll dice immediately
+    if (msg.type === "invasion_prompt") {
+      sysLog(idx, `🎲 Invasion prompt — cluster ${msg.dest_cluster ?? "?"}, rolling...`);
+      if (!autoPaused) setTimeout(() => send(idx, { type: "start_invasion" }), 400 + idx * 80);
+    }
+
+    // Invasion result log
+    if (msg.type === "invasion_result") {
+      if (msg.attacker === p.name) {
+        sysLog(idx, `${msg.won ? "🏆 Invasion WON" : "💀 Invasion LOST"} — ATK ${msg.atk_total} vs PLT ${msg.planet_total}`);
+      }
     }
 
     // Lobby: auto-start when all players present
@@ -831,19 +1094,23 @@
 
     // Dice roll: auto-roll — one roll per player per round, guard via autoRolled
     if (phase === "dice_roll") {
-      const me       = (msg.players ?? []).find(pl => pl.name === p.name);
-      const drKey    = (msg.dice_round ?? []).join(",");
-      const inRound  = (msg.dice_round ?? []).includes(p.name);
+      const me      = (msg.players ?? []).find(pl => pl.name === p.name);
+      const drKey   = (msg.dice_round ?? []).join(",");
+      const inRound = (msg.dice_round ?? []).includes(p.name);
+      const myRoll  = me?.dice_roll ?? 0;
 
-      // Reset guard when server assigns a new dice_round (tie-break re-rolls)
-      if (drKey !== p.lastDiceRound) {
+      // Reset when dice_round changes, OR when server zeroed our roll for a re-roll
+      // (same pair can tie multiple times — key stays the same, but roll is cleared)
+      if (drKey !== p.lastDiceRound
+          || (p.autoRolled && inRound && myRoll === 0 && p.lastDiceRoll > 0)) {
         p.lastDiceRound = drKey;
         p.autoRolled    = false;
       }
+      p.lastDiceRoll = myRoll;
 
-      sysLog(idx, `dice_roll: inRound=${inRound} rolled=${me?.dice_roll} autoRolled=${p.autoRolled} round=[${drKey}]`);
+      sysLog(idx, `dice_roll: inRound=${inRound} rolled=${myRoll} autoRolled=${p.autoRolled} round=[${drKey}]`);
 
-      if (me && inRound && me.dice_roll === 0 && !p.autoRolled) {
+      if (me && inRound && myRoll === 0 && !p.autoRolled) {
         p.autoRolled = true;
         setAutoMsg("Rolling dice for turn order…");
         setTimeout(() => send(idx, { type: "roll_dice" }), 150 + idx * 150);
@@ -875,6 +1142,11 @@
       const seq         = msg.seq ?? 0;
       const actLeft     = msg.actions_remaining ?? 0;
       setAutoMsg(`Round ${round} — ${currentTurn ?? "?"}'s turn`);
+      if (round > _lastRoundLogged) {
+        _lastRoundLogged = round;
+        for (let ri = 0; ri < panels.length; ri++)
+          sysLog(ri, `━━━ Round ${round} ━━━`);
+      }
       if (currentTurn === p.name && seq !== p.lastEndTurnSeq) {
         p.lastEndTurnSeq = seq;
         if (actLeft > 0) {
@@ -921,25 +1193,47 @@
     }
 
     // All state-bearing message types share the same handler
-    if (["game_state","place_pieces_start","draft_start","board_ready","combat_result"].includes(msg.type)) {
+    if (["game_state","place_pieces_start","draft_start","board_ready","combat_result","invasion_result"].includes(msg.type)) {
       handleState(idx, msg);
     }
 
     // Combat: auto-roll as attacker
     if (msg.type === "combat_prompt") {
       sysLog(idx, `⚔ Attacker! vs ${msg.defender ?? "?"} at cluster ${msg.dest_cluster ?? "?"}`);
-      if (!autoPaused) setTimeout(() => send(idx, { type: "roll_combat_dice" }), 350);
+      if (!autoPaused) {
+        setTimeout(() => send(idx, { type: "roll_combat_dice" }), 350);
+      } else {
+        const p = panels[idx];
+        const btn = mkBtn("🎲 Roll Attack Dice", "btn-step", () => { btn.remove(); send(idx, { type: "roll_combat_dice" }); });
+        p.actEl.appendChild(btn);
+      }
     }
 
     // Combat: auto-roll as defender
     if (msg.type === "combat_defender_prompt") {
       sysLog(idx, `🛡 Defender! vs ${msg.attacker ?? "?"} at cluster ${msg.dest_cluster ?? "?"}`);
-      if (!autoPaused) setTimeout(() => send(idx, { type: "roll_combat_dice" }), 350 + idx * 80);
+      if (!autoPaused) {
+        setTimeout(() => send(idx, { type: "roll_combat_dice" }), 350 + idx * 80);
+      } else {
+        const p = panels[idx];
+        const btn = mkBtn("🎲 Roll Defense Dice", "btn-step", () => { btn.remove(); send(idx, { type: "roll_combat_dice" }); });
+        p.actEl.appendChild(btn);
+      }
+    }
+
+    if (msg.game_over) {
+      const winner = msg.game_over;
+      for (let i = 0; i < panels.length; i++)
+        sysLog(i, `🏆 GAME OVER — ${winner} wins with 7 VP!`);
+      autoPaused = true;
+      const btn = document.getElementById("btn-pause");
+      btn.classList.add("paused");
+      btn.innerHTML = "&#9654; Resume";
+      setAutoMsg(`🏆 ${winner} wins! Game over.`);
     }
 
     if (msg.type === "error") {
       log(idx, "err", msg.msg ?? JSON.stringify(msg));
-      // Retry placement if the server rejected our piece placement
       const state = panels[idx].lastState;
       if (state?.phase === "place_pieces") {
         const order = state.turn_order ?? [];
@@ -948,6 +1242,10 @@
           sysLog(idx, "Placement rejected — retrying…");
           setTimeout(() => autoPlacePiece(idx, state), 800);
         }
+      } else if (state?.phase === "board" && state.current_turn === panels[idx].name) {
+        // Board action rejected (e.g. can't afford) — retry with fresh state
+        sysLog(idx, "Action rejected — retrying turn…");
+        setTimeout(() => autoTurnAction(idx, state), 500 + idx * 80);
       }
     }
   }
@@ -1006,12 +1304,13 @@
     if (!me) return;
     const res    = me.resources ?? {};
     const income = me.income    ?? {};
+    const upkeep = me.upkeep   ?? {};
     RES_KEYS.forEach(k => {
       const valEl = document.getElementById(`res-${idx}-${k}`);
       const incEl = document.getElementById(`inc-${idx}-${k}`);
       if (valEl) valEl.textContent = res[k] ?? 0;
       if (incEl) {
-        const n = income[k] ?? 0;
+        const n = (income[k] ?? 0) - (upkeep[k] ?? 0);
         incEl.textContent = n !== 0 ? `${n>0?"+":""}${n}/turn` : "";
         incEl.className   = `res-inc ${n>0?"pos":n<0?"neg":""}`;
       }
@@ -1099,6 +1398,57 @@
     p.ws.onerror = () => { p.dotEl.className = "conn-dot err"; log(idx,"err","WS error"); };
   }
 
+  // ── Step back / forward ───────────────────────────────────────────────────
+  function updateStepButtons() {
+    const bk = document.getElementById("btn-step-back");
+    const fw = document.getElementById("btn-step-fwd");
+    if (!bk || !fw) return;
+    bk.disabled = historyIdx <= 0;
+    fw.disabled  = historyIdx < 0;
+  }
+
+  function stepBack() {
+    if (historyIdx <= 0) return;
+    // Auto-pause so the live game stops while browsing history
+    if (!autoPaused) {
+      autoPaused = true;
+      const btn = document.getElementById("btn-pause");
+      btn.classList.add("paused");
+      btn.innerHTML = "&#9654; Resume";
+      setAutoMsg("⏸ Paused — stepping through history");
+    }
+    historyIdx--;
+    const entry = stateHistory[historyIdx];
+    if (entry) renderMiniBoard(entry.state);
+    updateStepButtons();
+  }
+
+  function stepForward() {
+    // If not at the live end of history: advance one snapshot
+    if (historyIdx < stateHistory.length - 1) {
+      historyIdx++;
+      const entry = stateHistory[historyIdx];
+      if (entry) renderMiniBoard(entry.state);
+      updateStepButtons();
+      return;
+    }
+    // At live end while paused: execute exactly one auto-action
+    if (historyIdx < 0) return;
+    const liveState = panels.find(p => p.lastState)?.lastState;
+    if (!liveState || liveState.phase !== "board") return;
+    const currentTurn = liveState.current_turn;
+    const pidx = panels.findIndex(p => p.name === currentTurn);
+    if (pidx < 0) return;
+    const p = panels[pidx];
+    const actLeft = liveState.actions_remaining ?? 0;
+    if (actLeft > 0) {
+      autoTurnAction(pidx, p.lastState ?? liveState, true);
+    } else {
+      sysLog(pidx, "Step: end_turn");
+      send(pidx, { type: "end_turn" });
+    }
+  }
+
   // ── Controls ──────────────────────────────────────────────────────────────
   function resetAll() {
     panels.forEach(p => { try { p.ws?.close(); } catch(_){} });
@@ -1110,6 +1460,10 @@
     autoBeginAction   = false;
     lastBoard         = null;
     autoPaused        = false;
+    stateHistory      = [];
+    historyIdx        = -1;
+    document.getElementById("btn-step-back").disabled = true;
+    document.getElementById("btn-step-fwd").disabled  = true;
     const pauseBtn = document.getElementById("btn-pause");
     pauseBtn.disabled = true;
     pauseBtn.classList.remove("paused");
@@ -1130,6 +1484,8 @@
 
   document.getElementById("btn-3p").addEventListener("click", () => launch(3));
   document.getElementById("btn-4p").addEventListener("click", () => launch(4));
+  document.getElementById("btn-5p").addEventListener("click", () => launch(5));
+  document.getElementById("btn-6p").addEventListener("click", () => launch(6));
   document.getElementById("btn-reset").addEventListener("click", resetAll);
   document.getElementById("btn-pause").addEventListener("click", () => {
     autoPaused = !autoPaused;
@@ -1137,7 +1493,16 @@
     btn.classList.toggle("paused", autoPaused);
     btn.innerHTML = autoPaused ? "&#9654; Resume" : "&#9646;&#9646; Pause";
     setAutoMsg(autoPaused ? "⏸ Paused — click Resume to continue" : "");
+    if (!autoPaused) {
+      // Resuming: jump back to live state and re-render
+      historyIdx = stateHistory.length - 1;
+      const liveState = panels.find(p => p.lastState)?.lastState;
+      if (liveState) renderMiniBoard(liveState);
+      updateStepButtons();
+    }
   });
+  document.getElementById("btn-step-back").addEventListener("click", stepBack);
+  document.getElementById("btn-step-fwd").addEventListener("click", stepForward);
   </script>
 </body>
 </html>

@@ -74,7 +74,7 @@ function connectWs(code, onOpen, errId, btn) {
     if (onOpen) onOpen();
   };
 
-  ws.onclose = (ev) => {
+  ws.onclose = (_ev) => {
     setWsStatus(false);
     if (!myName && _connectingErrId) {
       showError(_connectingErrId, "Could not connect — make sure the server is running.");
@@ -162,6 +162,7 @@ function handleMsg(msg) {
       routeError(msg.msg);
       break;
   }
+  if (msg.game_over) showGameOver(msg.game_over);
 }
 
 function routeError(msg) {
@@ -191,6 +192,24 @@ function showBoardToast(msg) {
   toast.style.display = "block";
   clearTimeout(toast._t);
   toast._t = setTimeout(() => { toast.style.display = "none"; }, 4000);
+}
+
+function showGameOver(winner) {
+  let el = document.getElementById("game-over-overlay");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "game-over-overlay";
+    el.style.cssText = "position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#00000099;z-index:3000";
+    document.body.appendChild(el);
+  }
+  const isMe = winner === myName;
+  el.innerHTML = `<div style="background:#0f1623;border:2px solid #f59e0b;border-radius:16px;padding:2rem 2.5rem;text-align:center;max-width:340px">
+    <div style="font-size:2.5rem">${isMe ? "🏆" : "🌟"}</div>
+    <div style="font-size:1.35rem;font-weight:800;color:#f59e0b;margin:.5rem 0">${isMe ? "You Win!" : "Game Over"}</div>
+    <div style="color:#e2e8f0;margin-bottom:1rem">${winner} reached <strong>7 VP</strong> and conquered the galaxy.</div>
+    <button onclick="this.closest('#game-over-overlay').remove()" style="background:#f59e0b;color:#0a0800;border:none;border-radius:8px;padding:.5rem 1.5rem;font-weight:700;cursor:pointer;font-size:.9rem">Close</button>
+  </div>`;
+  el.style.display = "flex";
 }
 
 // ── State → UI ─────────────────────────────────────────────────────────────
@@ -429,7 +448,6 @@ function drawBoardPieces(pieceLayer, hexes, players) {
 
   for (const h of hexes) {
     if (!h.pieces || h.pieces.length === 0) continue;
-    const flags     = h.pieces.filter(p => p.type === "empire_flag");
     const frigates  = h.pieces.filter(p => p.type === "frigate");
     const buildings = h.pieces.filter(p => BUILDING_TYPES.has(p.type));
     const others    = h.pieces.filter(p => p.type !== "empire_flag" && p.type !== "frigate" && !BUILDING_TYPES.has(p.type));
@@ -458,15 +476,6 @@ function drawBoardPieces(pieceLayer, hexes, players) {
       });
     }
 
-    // Empire flag: small square pinned to top-left area of hex
-    flags.forEach((fp, fi) => {
-      const c = colorByOwner[fp.owner] ?? "#888";
-      pieceLayer.appendChild(mk("rect", {
-        x: h.x - 12 + fi * 10, y: h.y - 18,
-        width: "8", height: "8", fill: c,
-        opacity: "0.9", rx: "1",
-      }));
-    });
 
     const frigateSlotW = 16;  // 3 columns × ~5px spacing fits in 1/3 of hex
     const otherSlotW   = 11;
@@ -576,9 +585,11 @@ function renderBoard(state, placementMode) {
         actionHtml = `<div class="hud-hint">${currentTurn}'s turn</div>`;
       }
 
+      const vpNow = me.vp ?? 0;
       infoCard.innerHTML = `
         <div class="hud-race-row">
           <span class="hud-race-name" style="color:${me.color}">${me.race_name}</span>
+          <span style="font-size:.7rem;color:#f59e0b;font-weight:700;margin-right:.25rem">${vpNow}/7 VP</span>
           <button class="btn btn-ghost hud-toggle-btn" id="btn-toggle-view">Card ▶</button>
         </div>
         ${actionHtml}`;
@@ -643,6 +654,11 @@ function renderBoard(state, placementMode) {
   const claimedColor = {};
   for (const [pname, cluster] of Object.entries(state.player_system ?? {})) {
     if (playerColorMap[pname]) claimedColor[cluster] = playerColorMap[pname];
+  }
+  for (const h of hexes) {
+    if (h.local !== 0) continue;
+    const flag = (h.pieces ?? []).find(p => p.type === "empire_flag");
+    if (flag && playerColorMap[flag.owner]) claimedColor[h.cluster] = playerColorMap[flag.owner];
   }
 
   // Action-mode: pre-compute selectable sources and reachable targets
@@ -728,10 +744,12 @@ function renderBoard(state, placementMode) {
     let validTarget = false;
     if (isMyTurn) {
       if (nextPiece === "battle_station") {
-        validTarget = h.type === "bs_slot"
+        const is56p = (state.players ?? []).length >= 5;
+        validTarget = h.type === "orbital"
                       && triClusters.has(h.cluster)
                       && !claimedByOthers.has(h.cluster)
-                      && coreType[h.cluster] !== "black_hole";
+                      && coreType[h.cluster] !== "black_hole"
+                      && (!is56p || (h.cluster >= 13 && h.cluster <= 18));
       } else if (nextPiece === "frigate") {
         const frigatesHere = (h.pieces ?? []).filter(p => p.type === "frigate").length;
         validTarget = h.cluster === mySystem && h.type === "orbital" && frigatesHere < 3;
@@ -741,15 +759,15 @@ function renderBoard(state, placementMode) {
     // Construction placement: highlight valid hexes for the piece being built
     const isConstructionTurn = !placementMode && _constructionPiece
       && state.current_turn === myName && myRole !== "watcher";
+    const SPACECRAFT_TYPES = new Set(["cruise_ship","frigate","outpost","super_ship","battle_station","death_star"]);
     let validConstructTarget = false;
     if (isConstructionTurn && h.cluster === mySystem && h.local > 0) {
       if (BUILDING_TYPES.has(_constructionPiece.type)) {
         const existingBuildings = (h.pieces ?? []).filter(p => BUILDING_TYPES.has(p.type));
-        validConstructTarget = h.type === "science" && existingBuildings.length < 3;
-      } else if (_constructionPiece.type === "battle_station") {
-        validConstructTarget = h.type === "bs_slot";
+        validConstructTarget = h.type === "bs_slot" && existingBuildings.length < 3;
       } else {
-        validConstructTarget = h.type === "orbital";
+        const spacecraftCount = (h.pieces ?? []).filter(p => SPACECRAFT_TYPES.has(p.type)).length;
+        validConstructTarget = h.type === "orbital" && spacecraftCount < 3;
       }
     }
 
@@ -788,7 +806,7 @@ function renderBoard(state, placementMode) {
     // Science hex direct-click shortcut: when idle on your turn, click S tile to open building picker
     const isScienceDirect = !placementMode && !_constructionPiece && !_actionMode
       && state.phase === "board" && state.current_turn === myName && myRole !== "watcher"
-      && h.cluster === mySystem && h.type === "science" && h.local > 0;
+      && h.cluster === mySystem && h.type === "bs_slot" && h.local > 0;
     if (isScienceDirect) {
       cls += " hex-science-available";
       const capturedId = h.id;
@@ -1032,6 +1050,7 @@ const PICKER_ACTIONS = [
   { id: "build_buildings",  label: "Build Buildings",  icon: "icons/act_construction.svg", sub: true },
   { id: "attack",           label: "Attack",           icon: "icons/act_attack.svg"      },
   { id: "invasion",         label: "Invasion",         icon: "icons/act_invasion.svg"    },
+  { id: "draw_tech_card",   label: "Draw Tech Card",   icon: "icons/act_research.svg"    },
   { id: "biology_and_chem", label: "Biology and Chem", icon: "icons/act_growth.svg",       techKey: "biology"     },
   { id: "physics",          label: "Physics",          icon: "icons/act_research.svg",     techKey: "physics"     },
   { id: "engineering",      label: "Engineering",      icon: "icons/act_construction.svg", techKey: "engineering" },
@@ -1208,6 +1227,7 @@ const TECH_CARD_DATA = {
   biotechnology:          { name: "Biotechnology",          timing: "Before +1 Person",    effect: "Spend 1 money to gain 2 food." },
   death_spores:           { name: "Death Spores",           timing: "Invasion — Start",    effect: "Gain 1 die in the invasion roll and remove 1 person from the defending system." },
   molecular_manipulation: { name: "Molecular Manipulation", timing: "During +Person",      effect: "Create a new person in a system you own with a battle station. Costs 1 food less (minimum 1)." },
+  invasion_dice:          { name: "Orbital Bombardment",    timing: "Invasion — Start",    effect: "+1 attack die when invading a planet." },
 };
 
 const RESOURCE_ICONS = {
@@ -1226,8 +1246,6 @@ function renderFullPlayerCard(state) {
   const income    = me.income    ?? {};
   const tech      = me.tech      ?? {};
   const pieces    = me.pieces    ?? {};
-  const sys = (state.player_system ?? {})[myName];
-  const sysLabel = sys !== null && sys !== undefined ? `System ${sys}` : "No system";
 
   const RES_KEYS = ["food", "science", "tool", "money"];
 
@@ -1416,7 +1434,7 @@ function showInvasionPrompt(msg) {
   const board = msg.board ?? boardCache ?? [];
   const clusterLabel = board.find(h => h.cluster === msg.dest_cluster && h.local === 0)?.label ?? msg.dest_cluster;
   const planet = msg.planet ?? {};
-  const techCards = (msg.tech_cards ?? []).filter(id => ["nuclear_missile", "titanium_armor"].includes(id));
+  const techCards = (msg.tech_cards ?? []).filter(id => ["nuclear_missile", "death_spores", "invasion_dice", "titanium_armor"].includes(id));
   let selectedTech = null;
 
   const techHtml = techCards.length > 0 ? `
@@ -1566,6 +1584,8 @@ function showActionPicker() {
         showConstructionPicker("ships");
       } else if (action === "build_buildings") {
         showConstructionPicker("buildings");
+      } else if (action === "draw_tech_card") {
+        send({ type: "draw_tech_card" });
       } else if (action === "biology_and_chem" || action === "physics" || action === "engineering" || action === "government") {
         showBoardToast("Skill tree coming soon.");
       } else if (action === "construction") {
@@ -1586,7 +1606,7 @@ const CONSTRUCTION_ITEMS = [
   { type: "death_star",       label: "Death Star",                   cost: 100, toolCost: 20 },
   { type: "building_tool",    label: "Workshop (+1 Tool)",           cost: 4,   toolCost: 0  },
   { type: "building_science", label: "Lab (+1 Science)",             cost: 4,   toolCost: 0  },
-  { type: "building_money",   label: "Treasury (+2 ¤)",              cost: 6,   toolCost: 0  },
+  { type: "building_money",   label: "Treasury (+3 ¤)",              cost: 6,   toolCost: 0  },
   { type: "farmer_upgrade",   label: "Farmer Upgrade (−1 food upkeep)", cost: 0, toolCost: 3, upgrade: true },
 ];
 const BUILDING_TYPES = new Set(["building_tool", "building_science", "building_money"]);
@@ -1693,7 +1713,7 @@ function showCombatPrompt(msg, isAttacker) {
   let selectedTech = null;
 
   if (isAttacker) {
-    const techCards = (msg.tech_cards ?? []).filter(id => ["nuclear_missile", "titanium_armor"].includes(id));
+    const techCards = (msg.tech_cards ?? []).filter(id => ["nuclear_missile", "death_spores", "invasion_dice", "titanium_armor"].includes(id));
     const techHtml = techCards.length > 0 ? `
       <div class="combat-tech-label">Play a tech card (optional):</div>
       <div class="combat-tech-list" id="combat-tech-list">

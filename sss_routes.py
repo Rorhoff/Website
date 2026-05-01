@@ -83,6 +83,12 @@ TECH_CARDS = [
         "timing": "During +Person",
         "effect": "Create a new person in a system you own with a battle station. Costs 1 food less (minimum 1).",
     },
+    {
+        "id": "invasion_dice",
+        "name": "Orbital Bombardment",
+        "timing": "Invasion — Start",
+        "effect": "+1 attack die when invading a planet.",
+    },
 ]
 
 # ── Board geometry ────────────────────────────────────────────────────────────
@@ -131,8 +137,171 @@ CLUSTER_LABELS = ["018", "011", "015", "002", "001", "003", "009", "007", "013"]
 
 _TRI_TYPES = {"red", "blue", "yellow"}
 
+VP_TARGET = 7
+
+
+def _count_vp(game, player_name: str) -> int:
+    return sum(
+        1 for h in game.board
+        if h["local"] == 0
+        and any(p["type"] == "empire_flag" and p["owner"] == player_name for p in h["pieces"])
+    )
+
+
+def _check_vp_winner(game) -> str | None:
+    for n in game.players:
+        if _count_vp(game, n) >= VP_TARGET:
+            return n
+    return None
+
+
+def _assign_wormholes(hexes: list, positions: list, adj: list) -> None:
+    by_cluster: dict = {}
+    for h in hexes:
+        if h["local"] > 0:
+            by_cluster.setdefault(h["cluster"], []).append(h)
+
+    def _facing(ci_xy, hx, hy, cj_xy):
+        return (hx - ci_xy[0]) * (cj_xy[0] - ci_xy[0]) \
+             + (hy - ci_xy[1]) * (cj_xy[1] - ci_xy[1]) > 0
+
+    all_candidates: dict = {}
+    for ci, cj in adj:
+        ci_xy = positions[ci]; cj_xy = positions[cj]
+        pairs = []
+        for hi in by_cluster.get(ci, []):
+            if not _facing(ci_xy, hi["x"], hi["y"], cj_xy): continue
+            for hj in by_cluster.get(cj, []):
+                if not _facing(cj_xy, hj["x"], hj["y"], ci_xy): continue
+                d = math.sqrt((hi["x"]-hj["x"])**2 + (hi["y"]-hj["y"])**2)
+                pairs.append((d, hi["id"], hj["id"]))
+        all_candidates[(ci, cj)] = sorted(pairs)
+
+    def _aug_match(pairs, candidates):
+        match_l, match_r = {}, {}
+        def _augment(u, seen):
+            for v in candidates.get(u, []):
+                if v in seen: continue
+                seen.add(v)
+                if v not in match_r or _augment(match_r[v], seen):
+                    match_l[u] = v; match_r[v] = u; return True
+            return False
+        for u in pairs: _augment(u, set())
+        return match_l
+
+    cluster_facing: dict = {}
+    for ci, cj in adj:
+        ci_hexes = list(dict.fromkeys(ha for _d,ha,hb in all_candidates.get((ci,cj),[])))
+        cj_hexes = list(dict.fromkeys(hb for _d,ha,hb in all_candidates.get((ci,cj),[])))
+        cluster_facing.setdefault(ci, {})[(ci,cj)] = ci_hexes
+        cluster_facing.setdefault(cj, {})[(ci,cj)] = cj_hexes
+
+    assign: dict = {}
+    for cluster_idx, pair_cands in cluster_facing.items():
+        assign[cluster_idx] = _aug_match(list(pair_cands.keys()), pair_cands)
+
+    for ci, cj in adj:
+        ha = assign.get(ci, {}).get((ci, cj))
+        hb = assign.get(cj, {}).get((ci, cj))
+        if ha is not None and hb is not None:
+            hexes[ha]["wormhole"] = True; hexes[ha]["wormhole_partner"] = hb
+            hexes[hb]["wormhole"] = True; hexes[hb]["wormhole_partner"] = ha
+
+
+def _build_wheel_board() -> list[dict]:
+    """19-cluster wheel map for 5-6 player games."""
+    positions = [
+        (_CX,                      _CY),           # 0  center (black_hole)
+        (_CX + _DX,                _CY),           # 1  inner-E
+        (_CX + _DX//2,             _CY + _DY),     # 2  inner-SE
+        (_CX - _DX//2,             _CY + _DY),     # 3  inner-SW
+        (_CX - _DX,                _CY),           # 4  inner-W
+        (_CX - _DX//2,             _CY - _DY),     # 5  inner-NW
+        (_CX + _DX//2,             _CY - _DY),     # 6  inner-NE
+        (_CX + 2*_DX,              _CY),           # 7  home-E
+        (_CX + _DX,                _CY + 2*_DY),   # 8  home-SE
+        (_CX - _DX,                _CY + 2*_DY),   # 9  home-SW
+        (_CX - 2*_DX,              _CY),           # 10 home-W
+        (_CX - _DX,                _CY - 2*_DY),   # 11 home-NW
+        (_CX + _DX,                _CY - 2*_DY),   # 12 home-NE
+        (_CX + _DX + _DX//2,       _CY + _DY),     # 13 mid-E-SE
+        (_CX,                      _CY + 2*_DY),   # 14 mid-SE-SW
+        (_CX - _DX - _DX//2,       _CY + _DY),     # 15 mid-SW-W
+        (_CX - _DX - _DX//2,       _CY - _DY),     # 16 mid-W-NW
+        (_CX,                      _CY - 2*_DY),   # 17 mid-NW-NE
+        (_CX + _DX + _DX//2,       _CY - _DY),     # 18 mid-NE-E
+    ]
+    colors = [
+        "black_hole",
+        "red", "blue", "yellow", "red", "blue", "yellow",
+        "white", "white", "white", "white", "white", "white",
+        "blue", "red", "yellow", "blue", "red", "yellow",
+    ]
+    labels = [
+        "HUB",
+        "I-E", "I-SE", "I-SW", "I-W", "I-NW", "I-NE",
+        "H-E", "H-SE", "H-SW", "H-W", "H-NW", "H-NE",
+        "M-ES", "M-SS", "M-SW", "M-WN", "M-NN", "M-NE",
+    ]
+    adj = [
+        (0, 1), (0, 2), (0, 3), (0, 4), (0, 5), (0, 6),
+        (1, 2), (2, 3), (3, 4), (4, 5), (5, 6), (6, 1),
+        (1, 7), (2, 8), (3, 9), (4, 10), (5, 11), (6, 12),
+        (7, 13), (8, 13),
+        (8, 14), (9, 14),
+        (9, 15), (10, 15),
+        (10, 16), (11, 16),
+        (11, 17), (12, 17),
+        (12, 18), (7, 18),
+    ]
+
+    hexes = []
+    hex_id = 0
+    for cluster_idx, (cx, cy) in enumerate(positions):
+        center_color = colors[cluster_idx]
+        label = labels[cluster_idx]
+        fill = ["bs_slot", "science"]
+        random.shuffle(fill)
+        if center_color in _TRI_TYPES:
+            tri_local = random.randint(1, 6)
+            start = tri_local
+            roles = ["space", "orbital", fill[0], "orbital", fill[1], "orbital"]
+        else:
+            tri_local = -1
+            start = random.randint(1, 6)
+            roles = ["space", "orbital", fill[0], "orbital", fill[1], "orbital"]
+        for local_idx, (ox, oy) in enumerate(_hex_offsets):
+            if local_idx == 0:
+                hex_type = center_color
+            else:
+                rel = (local_idx - start) % 6
+                hex_type = roles[rel]
+            is_tri = local_idx == tri_local
+            hexes.append({
+                "id": hex_id,
+                "cluster": cluster_idx,
+                "local": local_idx,
+                "label": label if local_idx == 0 else "",
+                "tri": is_tri,
+                "tri_color": center_color if is_tri else "",
+                "tri_counts": [random.randint(1, 2), random.randint(2, 4), random.randint(1, 2)] if is_tri else [],
+                "tri_farmer_green": False,
+                "x": round(cx + ox, 1),
+                "y": round(cy + oy, 1),
+                "type": hex_type,
+                "pieces": [],
+                "wormhole": False,
+                "wormhole_partner": None,
+            })
+            hex_id += 1
+
+    _assign_wormholes(hexes, positions, adj)
+    return hexes
+
 
 def _build_board(player_count: int = 2) -> list[dict]:
+    if player_count >= 5:
+        return _build_wheel_board()
     # ── Cluster layout (extended per player count) ─────────────────────────────
     # Base 9 clusters: 0=N 1=NW 2=NE 3=W 4=CTR 5=E 6=SW 7=SE 8=S
     positions: list = list(_CLUSTER_POSITIONS)
@@ -149,19 +318,35 @@ def _build_board(player_count: int = 2) -> list[dict]:
     ]
 
     if player_count >= 3:
-        # 2 bottom-left (9,10) + 2 top-right (11,12) — all triangle hex
-        positions += [
-            (_CX - 2*_DX,           _CY),          # 9  BL1 — left of W
-            (_CX - _DX - _DX//2,    _CY + _DY),    # 10 BL2 — left of SW
-            (_CX + 2*_DX,           _CY),          # 11 TR1 — right of E
-            (_CX + _DX + _DX//2,    _CY - _DY),    # 12 TR2 — right of NE
-        ]
         colors += ["yellow", "blue", "red", "yellow"]
         labels += ["020", "021", "022", "023"]
-        adj += [
-            (3, 9), (9, 10), (3, 10), (6, 10),
-            (5, 11), (11, 12), (2, 12), (5, 12),
-        ]
+        if player_count == 3:
+            # "Weird diamond" — BL bottom-left, BL2 left-mid, UR top-right, TR2 right-upper
+            # Layout rows: [N,UR] [NW,NE,TR2] [W,CTR,E] [BL2,SW,SE] [BL,S]
+            positions += [
+                (_CX - _DX,             _CY + 2*_DY),  # 9  BL  — bottom-left (below S-left)
+                (_CX - _DX - _DX//2,    _CY + _DY),    # 10 BL2 — left of SW (unchanged)
+                (_CX + _DX,             _CY - 2*_DY),  # 11 UR  — top-right (above N-right)
+                (_CX + _DX + _DX//2,    _CY - _DY),    # 12 TR2 — right of NE (unchanged)
+            ]
+            adj += [
+                (6, 9), (8, 9), (9, 10),            # BL — SW, S, BL2
+                (3, 10), (6, 10),                    # BL2 — W, SW
+                (0, 11), (2, 11), (11, 12),          # UR — N, NE, TR2
+                (2, 12), (5, 12),                    # TR2 — NE, E
+            ]
+        else:
+            # Original 3P wing positions — kept intact for 4P build-on
+            positions += [
+                (_CX - 2*_DX,           _CY),          # 9  BL1 — left of W
+                (_CX - _DX - _DX//2,    _CY + _DY),    # 10 BL2 — left of SW
+                (_CX + 2*_DX,           _CY),          # 11 TR1 — right of E
+                (_CX + _DX + _DX//2,    _CY - _DY),    # 12 TR2 — right of NE
+            ]
+            adj += [
+                (3, 9), (9, 10), (3, 10), (6, 10),
+                (5, 11), (11, 12), (2, 12), (5, 12),
+            ]
 
     if player_count >= 4:
         # 2 top-left (13,14) + 2 bottom-right (15,16) — all triangle hex
@@ -171,16 +356,16 @@ def _build_board(player_count: int = 2) -> list[dict]:
             (_CX - _DX,             _CY - 2*_DY),  # 14 TL2 — left of N
             (_CX + _DX + _DX//2,    _CY + _DY),    # 15 BR1 — right of SE
             (_CX + _DX,             _CY + 2*_DY),  # 16 BR2 — right of S
-            (_CX + 2*_DX,           _CY - 2*_DY),  # 17 UR  — above TR2 (upper-right corner)
-            (_CX - 2*_DX,           _CY + 2*_DY),  # 18 LL  — below BL2 (lower-left corner)
+            (_CX + _DX,             _CY - 2*_DY),  # 17 UR  — right of N (top row)
+            (_CX - _DX,             _CY + 2*_DY),  # 18 LL  — left of S (bottom row)
         ]
         colors += ["blue", "yellow", "red", "blue", "red", "yellow"]
         labels += ["024", "025", "026", "027", "028", "029"]
         adj += [
             (1, 13), (3, 13), (13, 14), (0, 14), (1, 14),
             (7, 15), (5, 15), (15, 16), (8, 16), (7, 16),
-            (12, 17),   # TR2 — upper-right corner
-            (10, 18),   # BL2 — lower-left corner
+            (0, 17), (2, 17), (12, 17),   # UR — adjacent to N, NE, TR2
+            (8, 18), (6, 18), (10, 18),   # LL — adjacent to S, SW, BL2
         ]
 
     # ── Generate hexes ─────────────────────────────────────────────────────────
@@ -216,7 +401,7 @@ def _build_board(player_count: int = 2) -> list[dict]:
                 "label": label if local_idx == 0 else "",
                 "tri": is_tri,
                 "tri_color": center_color if is_tri else "",
-                "tri_counts": [random.randint(1, 2), random.randint(1, 2), random.randint(1, 2)] if is_tri else [],
+                "tri_counts": [random.randint(1, 2), random.randint(2, 4), random.randint(1, 2)] if is_tri else [],
                 "tri_farmer_green": False,
                 "x": round(cx + ox, 1),
                 "y": round(cy + oy, 1),
@@ -227,79 +412,7 @@ def _build_board(player_count: int = 2) -> list[dict]:
             })
             hex_id += 1
 
-    # ── Wormholes ──────────────────────────────────────────────────────────────
-    by_cluster: dict = {}
-    for h in hexes:
-        if h["local"] > 0:
-            by_cluster.setdefault(h["cluster"], []).append(h)
-
-    def _facing(ci_xy: tuple, hx: float, hy: float, cj_xy: tuple) -> bool:
-        return (hx - ci_xy[0]) * (cj_xy[0] - ci_xy[0]) \
-             + (hy - ci_xy[1]) * (cj_xy[1] - ci_xy[1]) > 0
-
-    all_candidates: dict = {}
-    for ci, cj in adj:
-        ci_xy = positions[ci]
-        cj_xy = positions[cj]
-        pairs = []
-        for hi in by_cluster.get(ci, []):
-            if not _facing(ci_xy, hi["x"], hi["y"], cj_xy):
-                continue
-            for hj in by_cluster.get(cj, []):
-                if not _facing(cj_xy, hj["x"], hj["y"], ci_xy):
-                    continue
-                d = math.sqrt((hi["x"] - hj["x"]) ** 2 + (hi["y"] - hj["y"]) ** 2)
-                pairs.append((d, hi["id"], hj["id"]))
-        all_candidates[(ci, cj)] = sorted(pairs)
-
-    def _aug_match(pairs: list, candidates: dict) -> dict:
-        """Augmenting-path bipartite matching (left=pairs, right=hex ids)."""
-        match_l: dict = {}
-        match_r: dict = {}
-
-        def _augment(u, seen: set) -> bool:
-            for v in candidates.get(u, []):
-                if v in seen:
-                    continue
-                seen.add(v)
-                if v not in match_r or _augment(match_r[v], seen):
-                    match_l[u] = v
-                    match_r[v] = u
-                    return True
-            return False
-
-        for u in pairs:
-            _augment(u, set())
-        return match_l
-
-    # Per-cluster bipartite matching: for each adjacency pair assign one ring hex
-    # from each cluster that faces the neighbour.  The greedy single-pass can
-    # fail for the high-degree centre cluster (degree 6, ring hexes each face two
-    # neighbours) because an unlucky processing order exhausts facing-hex slots
-    # before all pairs are covered.  Augmenting-path matching on each cluster
-    # independently guarantees a perfect assignment (Hall's condition is satisfied
-    # by the symmetric hex layout).
-    cluster_facing: dict = {}   # cluster_idx -> {pair -> [hex_ids facing neighbour]}
-    for ci, cj in adj:
-        # Preserve distance ordering so closer hexes are preferred.
-        ci_hexes = list(dict.fromkeys(ha for _d, ha, hb in all_candidates.get((ci, cj), [])))
-        cj_hexes = list(dict.fromkeys(hb for _d, ha, hb in all_candidates.get((ci, cj), [])))
-        cluster_facing.setdefault(ci, {})[(ci, cj)] = ci_hexes
-        cluster_facing.setdefault(cj, {})[(ci, cj)] = cj_hexes
-
-    assign: dict = {}   # cluster_idx -> {pair -> hex_id}
-    for cluster_idx, pair_cands in cluster_facing.items():
-        assign[cluster_idx] = _aug_match(list(pair_cands.keys()), pair_cands)
-
-    for ci, cj in adj:
-        ha = assign.get(ci, {}).get((ci, cj))
-        hb = assign.get(cj, {}).get((ci, cj))
-        if ha is not None and hb is not None:
-            hexes[ha]["wormhole"] = True
-            hexes[ha]["wormhole_partner"] = hb
-            hexes[hb]["wormhole"] = True
-            hexes[hb]["wormhole_partner"] = ha
-
+    _assign_wormholes(hexes, positions, adj)
     return hexes
 
 
@@ -326,7 +439,7 @@ def _deal_draft(game) -> None:
 _BUILDING_INCOME = {
     "building_tool":    {"tool": 1},
     "building_science": {"science": 1},
-    "building_money":   {"money": 2},
+    "building_money":   {"money": 3},
 }
 
 def _apply_turn_income(game, player) -> None:
@@ -356,6 +469,7 @@ def _apply_turn_income(game, player) -> None:
                 continue
             for key, amount in _BUILDING_INCOME.get(p["type"], {}).items():
                 building_bonus[key] = building_bonus.get(key, 0) + amount
+    player.upkeep = dict(upkeep)
     # Apply: resources += income − upkeep + building_bonus (floor 0)
     for key in ("food", "science", "tool", "money"):
         net = player.income.get(key, 0) - upkeep.get(key, 0) + building_bonus.get(key, 0)
@@ -370,7 +484,7 @@ def _advance_turn(game) -> None:
         if p:
             _apply_turn_income(game, p)
     game.turn_idx += 1
-    game.turn_actions_remaining = 3
+    game.turn_actions_remaining = 2 if len(game.turn_order) >= 5 else 3
 
 
 def _use_action(game) -> None:
@@ -391,7 +505,8 @@ class Player:
     pieces: dict = field(default_factory=dict)
     dice_roll: int = 0
     resources: dict = field(default_factory=dict)   # food, science, tool, money
-    income: dict = field(default_factory=dict)       # per-turn income per resource
+    income: dict = field(default_factory=dict)       # per-turn gross income per resource
+    upkeep: dict = field(default_factory=dict)       # per-turn upkeep (tri hexes)
     tech: dict = field(default_factory=dict)         # column → [bool×5]
     tech_cards: list = field(default_factory=list)   # list of card ids
     action_cards: list = field(default_factory=list) # list of action card ids
@@ -417,6 +532,7 @@ class Game:
     turn_idx: int = 0
     turn_actions_remaining: int = 3
     pending_combat: Any = None
+    deferred_groups: list = field(default_factory=list)
 
     def public_state(self) -> dict:
         in_board = self.phase in ("place_pieces", "draft", "board")
@@ -435,6 +551,8 @@ class Game:
                     "dice_roll": p.dice_roll,
                     "resources":  dict(p.resources)  if in_board else {},
                     "income":     dict(p.income)     if in_board else {},
+                    "upkeep":     dict(p.upkeep)     if in_board else {},
+                    "vp":         _count_vp(self, n) if in_board else 0,
                     "tech":       {k: list(v) for k, v in p.tech.items()} if in_board else {},
                     "tech_cards":   list(p.tech_cards)   if in_board else [],
                     "action_cards": list(p.action_cards) if in_board else [],
@@ -550,8 +668,8 @@ async def sss_ws(ws: WebSocket, game_code: str):
                         continue
                     await ws.send_json({"type": "error", "msg": "Game already started"})
                     continue
-                if len(g.players) >= 4:
-                    await ws.send_json({"type": "error", "msg": "Game is full (max 4)"})
+                if len(g.players) >= 6:
+                    await ws.send_json({"type": "error", "msg": "Game is full (max 6)"})
                     continue
                 if name in g.players:
                     await ws.send_json({"type": "error", "msg": "Name taken"})
@@ -692,17 +810,20 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 if len(winners) == 1:
                     # Unique high roll — place winner, then resolve losers by score
                     game.turn_order.append(winners[0])
-                    # Group losers by score for cascading tie-breaks
                     from itertools import groupby
                     loser_sorted = sorted(losers, key=lambda n: rolls[n], reverse=True)
                     loser_groups = [list(g) for _, g in groupby(loser_sorted, key=lambda n: rolls[n])]
                     next_tied: list[str] = []
+                    found_tie = False
                     for group in loser_groups:
-                        if len(group) == 1:
+                        if found_tie:
+                            # Groups after the first tie must wait for that tie to resolve
+                            game.deferred_groups.append(group)
+                        elif len(group) == 1:
                             game.turn_order.append(group[0])
                         else:
                             next_tied = group
-                            break
+                            found_tie = True
                     if next_tied:
                         # Show the rolled values first, then reset for re-roll
                         await game.broadcast({"type": "game_state", **game.public_state()})
@@ -713,25 +834,31 @@ async def sss_ws(ws: WebSocket, game_code: str):
                         await game.broadcast({"type": "game_state", **game.public_state()})
                         continue
                 else:
-                    # All winners tie — re-roll among winners; losers resolved cascading
-                    loser_sorted = sorted(losers, key=lambda n: rolls[n], reverse=True)
+                    # All tied for high roll — re-roll among winners; queue ALL losers for after
                     from itertools import groupby as _gb
+                    loser_sorted = sorted(losers, key=lambda n: rolls[n], reverse=True)
                     loser_groups = [list(g) for _, g in _gb(loser_sorted, key=lambda n: rolls[n])]
-                    remaining_losers: list[str] = []
-                    tie_groups: list[list[str]] = []
-                    for group in loser_groups:
-                        if len(group) == 1:
-                            remaining_losers.append(group[0])
-                        else:
-                            tie_groups.append(group)
-                    for n in remaining_losers:
-                        game.turn_order.append(n)
-                    # Show the tied rolls before resetting for re-roll
+                    # Prepend new loser groups (they rank above any previously deferred groups)
+                    game.deferred_groups = loser_groups + game.deferred_groups
                     await game.broadcast({"type": "game_state", **game.public_state()})
                     await asyncio.sleep(1.5)
                     for n in winners:
                         game.players[n].dice_roll = 0
                     game.dice_round = winners
+                    await game.broadcast({"type": "game_state", **game.public_state()})
+                    continue
+
+                # Drain deferred groups: singletons go straight to turn_order;
+                # any tied group becomes the next dice sub-round.
+                while game.deferred_groups and len(game.deferred_groups[0]) == 1:
+                    game.turn_order.append(game.deferred_groups.pop(0)[0])
+                if game.deferred_groups:
+                    next_group = game.deferred_groups.pop(0)
+                    await game.broadcast({"type": "game_state", **game.public_state()})
+                    await asyncio.sleep(1.5)
+                    for n in next_group:
+                        game.players[n].dice_roll = 0
+                    game.dice_round = next_group
                     await game.broadcast({"type": "game_state", **game.public_state()})
                     continue
 
@@ -749,17 +876,22 @@ async def sss_ws(ws: WebSocket, game_code: str):
                             "food":    food,
                             "science": sci,
                             "tool":    rem - sci,
-                            "money":   random.randint(0, 3),
+                            "money":   random.randint(5, 10),
                         }
-                        # Income 0-2 per resource per turn
-                        p.income = {r: random.randint(0, 2)
-                                    for r in ("food", "science", "tool", "money")}
+                        # Money guaranteed 1-3/turn; science/tool scarcer at 0-1/turn
+                        p.income = {
+                            "food":    random.randint(0, 2),
+                            "science": random.randint(0, 1),
+                            "tool":    random.randint(0, 1),
+                            "money":   random.randint(1, 3),
+                        }
                         p.tech = {col: [False] * 5
                                   for col in ["biology", "physics", "engineering", "government"]}
                         p.action_cards = []
                         p.tech_cards   = []
                     game.board = _build_board(len(game.players))
-                    game.board[29]["pieces"].append({"type": "pirate_base", "owner": "neutral"})
+                    bh_cluster = next((h["cluster"] for h in game.board if h["local"] == 0 and h["type"] == "black_hole"), 4)
+                    game.board[bh_cluster * 7 + 1]["pieces"].append({"type": "pirate_base", "owner": "neutral"})
                     for name in game.turn_order:
                         game.player_placement[name] = list(START_PIECES)
                     game.placement_idx = 0
@@ -790,13 +922,17 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 h = game.board[hex_id]
                 next_piece = remaining[0]
                 if next_piece == "battle_station":
-                    if h["type"] != "bs_slot":
-                        await ws.send_json({"type": "error", "msg": "Battle station must go on the designated slot (light yellow hex)"})
+                    if h["type"] != "orbital":
+                        await ws.send_json({"type": "error", "msg": "Battle station must be placed on an orbital hex"})
                         continue
                     # Must be a system that contains a triangle tile
                     has_tri = any(h2["tri"] for h2 in game.board if h2["cluster"] == h["cluster"])
                     if not has_tri:
                         await ws.send_json({"type": "error", "msg": "Battle station may only be placed in systems with a triangle tile"})
+                        continue
+                    # 5-6P wheel map: home cluster must be one of the 6 outer mid-clusters (13-18)
+                    if len(game.players) >= 5 and h["cluster"] not in range(13, 19):
+                        await ws.send_json({"type": "error", "msg": "In 5-6P games, your home system must be one of the 6 outer mid-clusters"})
                         continue
                     # Block black hole cluster and clusters already claimed by others
                     claimed = {v for k, v in game.player_system.items() if k != player.name}
@@ -815,14 +951,16 @@ async def sss_ws(ws: WebSocket, game_code: str):
                         "vp":      1,
                         "unrest":  random.randint(0, 2),
                         "food":    random.randint(1, 4),
-                        "science": random.randint(1, 3),
-                        "tool":    random.randint(1, 3),
+                        "science": random.randint(0, 1),
+                        "tool":    random.randint(0, 2),
+                        "money":   random.randint(1, 3),
                     }
                     game.board[core_id]["planet"] = planet
                     player.resources["unrest"] = player.resources.get("unrest", 0) + planet["unrest"]
                     player.income["food"]    = player.income.get("food",    0) + planet["food"]
                     player.income["science"] = player.income.get("science", 0) + planet["science"]
                     player.income["tool"]    = player.income.get("tool",    0) + planet["tool"]
+                    player.income["money"]   = player.income.get("money",   0) + planet["money"]
                     player.pieces["battle_station"] = player.pieces.get("battle_station", 1) - 1
                     player.pieces["empire_flag"] = player.pieces.get("empire_flag", 1) - 1
                 elif next_piece == "frigate":
@@ -990,21 +1128,22 @@ async def sss_ws(ws: WebSocket, game_code: str):
                     await ws.send_json({"type": "error", "msg": "Must build in your home system"})
                     continue
                 _building_types = set(_BUILDING_INCOME)
+                _spacecraft_types = {"cruise_ship", "frigate", "outpost", "super_ship", "battle_station", "death_star"}
                 if piece_type in _building_types:
-                    if target_hex["type"] != "science":
-                        await ws.send_json({"type": "error", "msg": "Buildings must be placed on science hexes (light purple)"})
+                    if target_hex["type"] != "bs_slot":
+                        await ws.send_json({"type": "error", "msg": "Buildings must be placed on the light blue hex"})
                         continue
                     existing = [p for p in target_hex["pieces"] if p["type"] in _building_types]
                     if len(existing) >= 3:
-                        await ws.send_json({"type": "error", "msg": "That hex already has 3 buildings (max)"})
-                        continue
-                elif piece_type == "battle_station":
-                    if target_hex["type"] != "bs_slot":
-                        await ws.send_json({"type": "error", "msg": "Battle stations must be placed on a battle station slot"})
+                        await ws.send_json({"type": "error", "msg": "That tile already has 3 buildings (max)"})
                         continue
                 else:
                     if target_hex["type"] != "orbital":
-                        await ws.send_json({"type": "error", "msg": "That piece must be placed on an orbital hex"})
+                        await ws.send_json({"type": "error", "msg": "Spacecraft must be placed on an orbital hex"})
+                        continue
+                    spacecraft_count = sum(1 for p in target_hex["pieces"] if p["type"] in _spacecraft_types)
+                    if spacecraft_count >= 3:
+                        await ws.send_json({"type": "error", "msg": "That orbital tile is full (max 3 spacecraft)"})
                         continue
                 player.resources["money"] = money - money_cost
                 if tool_cost:
@@ -1422,13 +1561,11 @@ async def sss_ws(ws: WebSocket, game_code: str):
                     if prev_owner and prev_owner != player.name:
                         prev_p = game.players.get(prev_owner)
                         if prev_p:
-                            prev_p.income["food"]    = max(0, prev_p.income.get("food",    0) - planet.get("food",    0))
-                            prev_p.income["science"] = max(0, prev_p.income.get("science", 0) - planet.get("science", 0))
-                            prev_p.income["tool"]    = max(0, prev_p.income.get("tool",    0) - planet.get("tool",    0))
+                            for _k in ("food", "science", "tool", "money"):
+                                prev_p.income[_k] = max(0, prev_p.income.get(_k, 0) - planet.get(_k, 0))
                     # Grant income to attacker
-                    player.income["food"]    = player.income.get("food",    0) + planet.get("food",    0)
-                    player.income["science"] = player.income.get("science", 0) + planet.get("science", 0)
-                    player.income["tool"]    = player.income.get("tool",    0) + planet.get("tool",    0)
+                    for _k in ("food", "science", "tool", "money"):
+                        player.income[_k] = player.income.get(_k, 0) + planet.get(_k, 0)
                 else:
                     # Remove ALL attacker frigates from the cluster
                     for h in game.board:
@@ -1439,6 +1576,9 @@ async def sss_ws(ws: WebSocket, game_code: str):
                             if not (p["type"] == "frigate" and p["owner"] == player.name)
                         ]
                 _use_action(game)
+                vp_winner = _check_vp_winner(game) if won else None
+                if vp_winner:
+                    game.phase = "ended"
                 state = game.public_state()
                 state["board"] = game.board
                 await game.broadcast({
@@ -1451,6 +1591,7 @@ async def sss_ws(ws: WebSocket, game_code: str):
                     "planet_total": planet_total,
                     "won": won,
                     "planet": planet,
+                    **({"game_over": vp_winner} if vp_winner else {}),
                     **state,
                 })
 
@@ -1468,9 +1609,9 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 combat = game.pending_combat
                 dest_cluster = combat["dest_cluster"]
                 planet = combat["planet"]
-                # Attacker dice
+                # Attacker dice (+1 for nuclear_missile / death_spores / invasion_dice)
                 atk_dice = [random.randint(1, 6), random.randint(1, 6)]
-                if tech_card == "nuclear_missile":
+                if tech_card in ("nuclear_missile", "death_spores", "invasion_dice"):
                     atk_dice.append(random.randint(1, 6))
                 atk_total = sum(atk_dice)
                 # Planet defense: 3 dice
@@ -1479,18 +1620,21 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 if atk_total > planet_total:
                     winner = "player"
                     # Grant planet income to attacker
-                    player.income["food"]    = player.income.get("food",    0) + planet.get("food",    0)
-                    player.income["science"] = player.income.get("science", 0) + planet.get("science", 0)
-                    player.income["tool"]    = player.income.get("tool",    0) + planet.get("tool",    0)
+                    for _k in ("food", "science", "tool", "money"):
+                        player.income[_k] = player.income.get(_k, 0) + planet.get(_k, 0)
                     # Remove previous owner's income if applicable
                     for pname, cluster in game.player_system.items():
                         if cluster == dest_cluster and pname != player.name:
                             other = game.players.get(pname)
                             if other:
-                                other.income["food"]    = max(0, other.income.get("food",    0) - planet.get("food",    0))
-                                other.income["science"] = max(0, other.income.get("science", 0) - planet.get("science", 0))
-                                other.income["tool"]    = max(0, other.income.get("tool",    0) - planet.get("tool",    0))
+                                for _k in ("food", "science", "tool", "money"):
+                                    other.income[_k] = max(0, other.income.get(_k, 0) - planet.get(_k, 0))
                             break
+                    # Plant empire flag
+                    inv_core = next((h for h in game.board if h["cluster"] == dest_cluster and h["local"] == 0), None)
+                    if inv_core:
+                        inv_core["pieces"] = [p for p in inv_core.get("pieces", []) if p["type"] != "empire_flag"]
+                        inv_core["pieces"].append({"type": "empire_flag", "owner": player.name})
                 else:
                     winner = "planet"
                     # Remove attacker's frigate from dest cluster
@@ -1503,6 +1647,9 @@ async def sss_ws(ws: WebSocket, game_code: str):
                                 break
                 game.pending_combat = None
                 _use_action(game)
+                vp_winner = _check_vp_winner(game) if winner == "player" else None
+                if vp_winner:
+                    game.phase = "ended"
                 state = game.public_state()
                 state["board"] = game.board
                 await game.broadcast({
@@ -1514,6 +1661,7 @@ async def sss_ws(ws: WebSocket, game_code: str):
                     "planet_total": planet_total,
                     "won": winner == "player",
                     "planet": planet,
+                    **({"game_over": vp_winner} if vp_winner else {}),
                     **state,
                 })
 
@@ -1521,10 +1669,15 @@ async def sss_ws(ws: WebSocket, game_code: str):
             elif kind == "draw_tech_card":
                 if not game or not player:
                     continue
-                if game.phase not in ("draft", "board"):
+                if game.phase != "board" or not game.turn_order:
+                    continue
+                current = game.turn_order[game.turn_idx % len(game.turn_order)]
+                if player.name != current:
+                    await ws.send_json({"type": "error", "msg": "Not your turn"})
                     continue
                 card = random.choice(TECH_CARDS)
                 player.tech_cards.append(card["id"])
+                _use_action(game)
                 state = game.public_state()
                 state["board"] = game.board
                 await game.broadcast({"type": "game_state", **state})
