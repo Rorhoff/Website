@@ -405,6 +405,16 @@ function renderDiceRoll(state) {
   const inRound = new Set(state.dice_round ?? []);
   const turnOrder = state.turn_order ?? [];
 
+  // Tiebreaker label — shown when some positions are already decided
+  const nextPos = turnOrder.length + 1;
+  const isTiebreaker = turnOrder.length > 0 && state.phase === "dice_roll";
+  const hint = document.querySelector("#screen-dice-roll .hint");
+  if (hint) {
+    hint.textContent = isTiebreaker
+      ? `Tiebreaker — rolling for position #${nextPos}`
+      : "Highest 2d6 roll goes first. Ties re-roll.";
+  }
+
   for (const p of (state.players ?? [])) {
     const placed = turnOrder.indexOf(p.name);
     const rolling = inRound.has(p.name);
@@ -412,12 +422,14 @@ function renderDiceRoll(state) {
     const dot = p.color ? `<span class="player-badge" style="background:${p.color};width:10px;height:10px;display:inline-block;border-radius:50%;margin-right:.5rem"></span>` : "";
     let status = "";
     if (placed >= 0 && rolled) {
-      // Show the actual roll value alongside the resolved position
       status = `<strong style="font-size:1.3rem">${p.dice_roll}</strong><span style="color:var(--gold);margin-left:.5rem">→ #${placed + 1}</span>`;
     } else if (placed >= 0) {
       status = `<span style="color:var(--gold)">→ Position ${placed + 1}</span>`;
     } else if (!rolling) {
-      status = `<span class="hint">waiting…</span>`;
+      // Deferred — show their original score so they know why they're waiting
+      status = rolled
+        ? `<strong style="font-size:1.3rem">${p.dice_roll}</strong><span class="hint" style="margin-left:.4rem">waiting…</span>`
+        : `<span class="hint">waiting…</span>`;
     } else if (rolled) {
       status = `<strong style="font-size:1.3rem">${p.dice_roll}</strong><span class="hint" style="margin-left:.4rem">(rolled)</span>`;
     } else {
@@ -2305,6 +2317,11 @@ function showScreen(id) {
   document.querySelectorAll(".screen").forEach(s => s.classList.remove("active"));
   const el = document.getElementById(id);
   if (el) el.classList.add("active");
+  const onLanding = id === "screen-landing";
+  const title   = document.getElementById("app-title");
+  const tagline = document.getElementById("app-tagline");
+  if (title)   title.style.display   = onLanding ? "" : "none";
+  if (tagline) tagline.style.display = onLanding ? "" : "none";
 }
 
 function $(id) { return document.getElementById(id); }
