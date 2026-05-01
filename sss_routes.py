@@ -1282,7 +1282,9 @@ async def _ai_loop(game: Game) -> None:
     while game.phase not in ("ended", "lobby"):
         try:
             if game.phase == "race_pick":
-                if _ai_pick_races(game):
+                # Wait for all human players to pick before AI selects
+                humans_done = all(p.race for p in game.players.values() if p.role != "ai")
+                if humans_done and _ai_pick_races(game):
                     await game.broadcast({"type": "game_state", **game.public_state()})
 
             elif game.phase == "dice_roll":
