@@ -1905,57 +1905,12 @@ async def sss_ws(ws: WebSocket, game_code: str):
                     await ws.send_json({"type": "error", "msg": "No frigate to move"})
                     continue
                 landing_hex["pieces"].append(moved_piece)
-                enemy_frigates = []
-                for h in game.board:
-                    if h["cluster"] != dest_cluster:
-                        continue
-                    for p in h["pieces"]:
-                        if p["type"] == "frigate" and p["owner"] != player.name:
-                            enemy_frigates.append({"owner": p["owner"], "hex_id": h["id"]})
+                game.pending_combat = None
+                _use_action(game)
+                await _flush_eliminations(game)
                 state = game.public_state()
                 state["board"] = game.board
-                if enemy_frigates:
-                    defender_name = enemy_frigates[0]["owner"]
-                    atk_frigate_count = sum(
-                        1 for h in game.board if h["cluster"] == dest_cluster
-                        for p in h["pieces"] if p["type"] == "frigate" and p["owner"] == player.name
-                    )
-                    def_frigate_count = sum(1 for ef in enemy_frigates if ef["owner"] == defender_name)
-                    target_hex_id = enemy_frigates[0]["hex_id"]
-                    game.pending_combat = {
-                        "type": "combat",
-                        "attacker": player.name,
-                        "defender": defender_name,
-                        "from_cluster": dest_cluster,
-                        "dest_cluster": dest_cluster,
-                        "target_hex_id": target_hex_id,
-                        "atk_frigate_count": atk_frigate_count,
-                        "def_frigate_count": def_frigate_count,
-                        "enemy_frigates": enemy_frigates,
-                        "atk_rolled": False,
-                        "def_rolled": False,
-                        "atk_dice": [],
-                        "def_dice": [],
-                    }
-                    await game.broadcast({"type": "game_state", **state}, exclude=ws)
-                    await ws.send_json({"type": "combat_prompt", "dest_cluster": dest_cluster,
-                                        "attacker": player.name, "tech_cards": player.tech_cards,
-                                        "atk_frigate_count": atk_frigate_count,
-                                        "def_frigate_count": def_frigate_count, **state})
-                    def_p = game.players.get(defender_name)
-                    if def_p and def_p.ws:
-                        await def_p.ws.send_json({"type": "combat_defender_prompt",
-                                                   "dest_cluster": dest_cluster,
-                                                   "attacker": player.name,
-                                                   "atk_frigate_count": atk_frigate_count,
-                                                   "def_frigate_count": def_frigate_count, **state})
-                else:
-                    game.pending_combat = None
-                    _use_action(game)
-                    await _flush_eliminations(game)
-                    state = game.public_state()
-                    state["board"] = game.board
-                    await game.broadcast({"type": "game_state", **state})
+                await game.broadcast({"type": "game_state", **state})
 
             # ── attack_move ───────────────────────────────────────────────────
             elif kind == "attack_move":
