@@ -172,6 +172,63 @@ def _check_vp_winner(game) -> str | None:
     return None
 
 
+_SHIP_TYPES     = {"frigate", "cruise_ship", "outpost", "super_ship", "battle_station", "death_star"}
+_BUILDING_TYPES = {"building_tool", "building_science", "building_money", "farmer_upgrade"}
+
+def _build_endgame_stats(game) -> dict:
+    """Return a dict with winner name + per-player summary for the end-game report."""
+    winner = _check_vp_winner(game) or next(
+        (n for n, p in game.players.items() if n in game.turn_order and p.connected), None
+    )
+
+    # Index board: cluster label map and per-player piece counts
+    cluster_label = {h["cluster"]: h["label"] for h in game.board if h["local"] == 0}
+
+    stats: dict[str, dict] = {}
+    for name, p in game.players.items():
+        if p.role == "watcher":
+            continue
+
+        # Planets currently owned
+        owned_clusters = [
+            h["cluster"] for h in game.board
+            if h["local"] == 0 and any(pc["type"] == "empire_flag" and pc["owner"] == name for pc in h["pieces"])
+        ]
+        planets = [cluster_label.get(c, str(c)) for c in owned_clusters]
+
+        # Ships and buildings currently on board
+        ships_on_board: dict[str, int] = {}
+        buildings_on_board: dict[str, int] = {}
+        for h in game.board:
+            for pc in h["pieces"]:
+                if pc.get("owner") != name:
+                    continue
+                t = pc["type"]
+                if t in _SHIP_TYPES:
+                    ships_on_board[t] = ships_on_board.get(t, 0) + 1
+                elif t in _BUILDING_TYPES:
+                    buildings_on_board[t] = buildings_on_board.get(t, 0) + 1
+
+        # Tech upgrades (count of True across all columns)
+        tech_total = sum(1 for levels in p.tech.values() for unlocked in levels if unlocked)
+        tech_by_col = {col: sum(1 for u in levels if u) for col, levels in p.tech.items() if any(levels)}
+
+        stats[name] = {
+            "vp":              len(planets),
+            "planets":         planets,
+            "ships_on_board":  ships_on_board,
+            "ships_built":     dict(p.ships_built),
+            "buildings":       buildings_on_board,
+            "tech_upgrades":   tech_total,
+            "tech_by_col":     tech_by_col,
+            "invasions_won":   p.invasions_won,
+            "color":           p.color,
+            "race":            p.race,
+        }
+
+    return {"winner": winner, "stats": stats}
+
+
 def _assign_wormholes(hexes: list, positions: list, adj: list) -> None:
     by_cluster: dict = {}
     for h in hexes:
@@ -642,6 +699,8 @@ class Player:
     tech_cards: list = field(default_factory=list)   # list of card ids
     action_cards: list = field(default_factory=list) # list of action card ids
     connected: bool = True                           # False when WS is closed but slot is held for rejoin
+    ships_built: dict = field(default_factory=dict)  # piece_type → lifetime count built
+    invasions_won: int = 0
 
 
 @dataclass
@@ -1058,8 +1117,12 @@ async def _ai_board_action(game: Game, ai_name: str) -> None:
             for dh in game.board:
                 if dh["cluster"] == cluster:
                     dh["pieces"] = [pc for pc in dh["pieces"] if not (pc["type"] == "frigate" and pc["owner"] == ai_name)]
+        if won:
+            ai_p.invasions_won += 1
         _use_action(game)
         await _flush_eliminations(game)
+        if won and _check_vp_winner(game):
+            game.phase = "ended"
         state = game.public_state()
         state["board"] = game.board
         await game.broadcast({
@@ -1072,6 +1135,7 @@ async def _ai_board_action(game: Game, ai_name: str) -> None:
             "planet_total": planet_total,
             "won": won,
             "planet": planet,
+            **({"game_over": _build_endgame_stats(game)} if game.phase == "ended" else {}),
             **state,
         })
         return
@@ -1741,6 +1805,7 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 if tool_cost:
                     player.resources["tool"] = tools - tool_cost
                 target_hex["pieces"].append({"type": piece_type, "owner": player.name})
+                player.ships_built[piece_type] = player.ships_built.get(piece_type, 0) + 1
                 # Buildings add to permanent income so the display is correct immediately
                 for _bkey, _bamt in _BUILDING_INCOME.get(piece_type, {}).items():
                     player.income[_bkey] = player.income.get(_bkey, 0) + _bamt
@@ -2214,10 +2279,11 @@ async def sss_ws(ws: WebSocket, game_code: str):
                             p for p in h["pieces"]
                             if not (p["type"] == "frigate" and p["owner"] == player.name)
                         ]
+                if won:
+                    player.invasions_won += 1
                 _use_action(game)
                 await _flush_eliminations(game)
-                vp_winner = _check_vp_winner(game) if won else None
-                if vp_winner:
+                if won and _check_vp_winner(game):
                     game.phase = "ended"
                 state = game.public_state()
                 state["board"] = game.board
@@ -2231,7 +2297,7 @@ async def sss_ws(ws: WebSocket, game_code: str):
                     "planet_total": planet_total,
                     "won": won,
                     "planet": planet,
-                    **({"game_over": vp_winner} if vp_winner else {}),
+                    **({"game_over": _build_endgame_stats(game)} if game.phase == "ended" else {}),
                     **state,
                 })
 
@@ -2304,10 +2370,11 @@ async def sss_ws(ws: WebSocket, game_code: str):
                                 h["pieces"].pop(i)
                                 break
                 game.pending_combat = None
+                if winner == "player":
+                    player.invasions_won += 1
                 _use_action(game)
                 await _flush_eliminations(game)
-                vp_winner = _check_vp_winner(game) if winner == "player" else None
-                if vp_winner:
+                if winner == "player" and _check_vp_winner(game):
                     game.phase = "ended"
                 state = game.public_state()
                 state["board"] = game.board
@@ -2320,7 +2387,7 @@ async def sss_ws(ws: WebSocket, game_code: str):
                     "planet_total": planet_total,
                     "won": winner == "player",
                     "planet": planet,
-                    **({"game_over": vp_winner} if vp_winner else {}),
+                    **({"game_over": _build_endgame_stats(game)} if game.phase == "ended" else {}),
                     **state,
                 })
 

@@ -214,21 +214,99 @@ function showEliminatedOverlay(message) {
   el.style.display = "flex";
 }
 
-function showGameOver(winner) {
+const _SHIP_LABELS = {
+  frigate: "Frigate", cruise_ship: "Cruise Ship", outpost: "Outpost",
+  super_ship: "Super Ship", battle_station: "Battle Station", death_star: "Death Star",
+};
+const _BLDG_LABELS = {
+  building_tool: "Tool Factory", building_science: "Lab", building_money: "Bank", farmer_upgrade: "Farmer Upgrade",
+};
+const _TECH_LABELS = {
+  military: "Military", engineering: "Engineering", biology: "Biology",
+  physics: "Physics", government: "Government",
+};
+
+function showGameOver(report) {
+  // Support legacy string (plain winner name) or full stats object
+  if (typeof report === "string") report = { winner: report, stats: {} };
+  const { winner, stats } = report;
+
   let el = document.getElementById("game-over-overlay");
   if (!el) {
     el = document.createElement("div");
     el.id = "game-over-overlay";
-    el.style.cssText = "position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#00000099;z-index:3000";
+    el.style.cssText = "position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#000000bb;z-index:3000;padding:1rem;overflow-y:auto";
     document.body.appendChild(el);
   }
-  const isMe = winner === myName;
-  el.innerHTML = `<div style="background:#0f1623;border:2px solid #f59e0b;border-radius:16px;padding:2rem 2.5rem;text-align:center;max-width:340px">
-    <div style="font-size:2.5rem">${isMe ? "🏆" : "🌟"}</div>
-    <div style="font-size:1.35rem;font-weight:800;color:#f59e0b;margin:.5rem 0">${isMe ? "You Win!" : "Game Over"}</div>
-    <div style="color:#e2e8f0;margin-bottom:1rem">${winner} reached <strong>7 VP</strong> and conquered the galaxy.</div>
-    <button onclick="this.closest('#game-over-overlay').remove()" style="background:#f59e0b;color:#0a0800;border:none;border-radius:8px;padding:.5rem 1.5rem;font-weight:700;cursor:pointer;font-size:.9rem">Close</button>
-  </div>`;
+
+  const playerNames = Object.keys(stats).sort((a, b) => {
+    if (a === winner) return -1;
+    if (b === winner) return 1;
+    return (stats[b].vp || 0) - (stats[a].vp || 0);
+  });
+
+  const playerCards = playerNames.map(name => {
+    const s = stats[name] || {};
+    const isWinner = name === winner;
+    const isMe = name === myName;
+    const color = s.color || "#888";
+
+    const planetsHtml = s.planets?.length
+      ? s.planets.map(p => `<span class="go-tag">${p}</span>`).join("")
+      : `<span style="color:var(--muted);font-size:.8rem">none</span>`;
+
+    const shipsBuiltEntries = Object.entries(s.ships_built || {}).filter(([,n]) => n > 0);
+    const shipsBuiltHtml = shipsBuiltEntries.length
+      ? shipsBuiltEntries.map(([t, n]) => `<span class="go-tag">${n}× ${_SHIP_LABELS[t] ?? t}</span>`).join("")
+      : `<span style="color:var(--muted);font-size:.8rem">none</span>`;
+
+    const shipsOnEntries = Object.entries(s.ships_on_board || {}).filter(([,n]) => n > 0);
+    const shipsOnHtml = shipsOnEntries.length
+      ? shipsOnEntries.map(([t, n]) => `<span class="go-tag">${n}× ${_SHIP_LABELS[t] ?? t}</span>`).join("")
+      : `<span style="color:var(--muted);font-size:.8rem">none</span>`;
+
+    const bldgEntries = Object.entries(s.buildings || {}).filter(([,n]) => n > 0);
+    const bldgHtml = bldgEntries.length
+      ? bldgEntries.map(([t, n]) => `<span class="go-tag">${n}× ${_BLDG_LABELS[t] ?? t}</span>`).join("")
+      : `<span style="color:var(--muted);font-size:.8rem">none</span>`;
+
+    const techColHtml = Object.entries(s.tech_by_col || {})
+      .filter(([,n]) => n > 0)
+      .map(([col, n]) => `<span class="go-tag">${_TECH_LABELS[col] ?? col} ${n}</span>`)
+      .join("") || `<span style="color:var(--muted);font-size:.8rem">none</span>`;
+
+    return `
+      <div class="go-player-card${isWinner ? " go-winner" : ""}">
+        <div class="go-player-header">
+          <span class="go-color-dot" style="background:${color}"></span>
+          <span class="go-player-name">${name}${isMe ? " (you)" : ""}${isWinner ? " 🏆" : ""}</span>
+          <span class="go-vp">${s.vp ?? 0} VP</span>
+        </div>
+        <div class="go-stat-grid">
+          <div class="go-stat-label">Planets held</div>
+          <div class="go-stat-val">${planetsHtml}</div>
+          <div class="go-stat-label">Ships built</div>
+          <div class="go-stat-val">${shipsBuiltHtml}</div>
+          <div class="go-stat-label">Fleet (alive)</div>
+          <div class="go-stat-val">${shipsOnHtml}</div>
+          <div class="go-stat-label">Buildings</div>
+          <div class="go-stat-val">${bldgHtml}</div>
+          <div class="go-stat-label">Tech upgrades</div>
+          <div class="go-stat-val">${techColHtml}</div>
+          <div class="go-stat-label">Invasions won</div>
+          <div class="go-stat-val">${s.invasions_won ?? 0}</div>
+        </div>
+      </div>`;
+  }).join("");
+
+  el.innerHTML = `
+    <div class="go-modal">
+      <div class="go-title">${winner === myName ? "Victory!" : "Game Over"}</div>
+      <div class="go-subtitle">${winner} conquered the galaxy.</div>
+      ${playerCards}
+      <button class="btn btn-primary" style="margin-top:1.25rem;width:100%"
+        onclick="document.getElementById('game-over-overlay').remove()">Close</button>
+    </div>`;
   el.style.display = "flex";
 }
 
