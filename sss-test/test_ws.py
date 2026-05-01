@@ -61,7 +61,7 @@ def test_join_rejects_unknown_code(client):
 
 
 def test_join_rejects_full_game(client):
-    """A 5th player should be rejected."""
+    """A 7th player should be rejected (max 6)."""
     code = None
     connections = []
     try:
@@ -71,7 +71,7 @@ def test_join_rejects_full_game(client):
         code = host_ws.receive_json()["code"]
         host_ws.receive_json()  # game_state
 
-        for i in range(1, 4):
+        for i in range(1, 6):
             ws = client.websocket_connect(f"/api/sss/ws/{code}").__enter__()
             connections.append(ws)
             ws.send_json({"type": "join", "name": f"P{i}", "code": code})
@@ -84,11 +84,11 @@ def test_join_rejects_full_game(client):
                 except Exception:
                     pass
 
-        # 5th connection attempt
-        ws5 = client.websocket_connect(f"/api/sss/ws/{code}").__enter__()
-        connections.append(ws5)
-        ws5.send_json({"type": "join", "name": "P4", "code": code})
-        msg = ws5.receive_json()
+        # 7th connection attempt (max is 6)
+        ws7 = client.websocket_connect(f"/api/sss/ws/{code}").__enter__()
+        connections.append(ws7)
+        ws7.send_json({"type": "join", "name": "P6", "code": code})
+        msg = ws7.receive_json()
         assert msg["type"] == "error"
     finally:
         for c in reversed(connections):

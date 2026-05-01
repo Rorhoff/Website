@@ -15,10 +15,13 @@ from sss_routes import (
 _ADJ_BASE = frozenset({
     (0,1),(0,2),(1,3),(1,4),(2,4),(2,5),(3,4),(3,6),(4,5),(4,6),(4,7),(5,7),(6,8),(7,8),
 })
+# 3P uses a "weird diamond" layout (clusters 9-12 in different positions than 4P)
 _ADJ_3P = _ADJ_BASE | frozenset({
-    (3,9),(9,10),(3,10),(6,10),(5,11),(11,12),(2,12),(5,12),
+    (6,9),(8,9),(9,10),(3,10),(6,10),(0,11),(2,11),(11,12),(2,12),(5,12),
 })
-_ADJ_4P = _ADJ_3P | frozenset({
+# 4P builds on the original wing positions (different from 3P weird diamond)
+_ADJ_4P_WINGS = frozenset({(3,9),(9,10),(3,10),(6,10),(5,11),(11,12),(2,12),(5,12)})
+_ADJ_4P = _ADJ_BASE | _ADJ_4P_WINGS | frozenset({
     (1,13),(3,13),(13,14),(0,14),(1,14),(7,15),(5,15),(15,16),(8,16),(7,16),(12,17),(10,18),
 })
 
