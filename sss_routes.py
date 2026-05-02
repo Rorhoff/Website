@@ -922,11 +922,9 @@ def _add_dwarf_planets(game: Game) -> None:
             continue
         t = h["type"]
         if t in _NO_TRI_TYPES:
-            res = random.choice(["food", "science", "tool", "money"])
             h["planet"] = {
                 "vp": 0, "unrest": 0,
                 "food": 0, "science": 0, "tool": 0, "money": 0,
-                res: random.randint(1, 2),
                 "dwarf": True,
             }
         elif t == "black_hole":
@@ -935,6 +933,16 @@ def _add_dwarf_planets(game: Game) -> None:
                 "food": 3, "science": 3, "tool": 3, "money": 3,
                 "ancient": True,
             }
+
+
+def _reveal_dwarf_planet(planet: dict) -> None:
+    """Assign a random resource to a dwarf planet on first capture; no-op if already revealed."""
+    if not planet.get("dwarf"):
+        return
+    if any(planet.get(r, 0) > 0 for r in ("food", "science", "tool", "money")):
+        return
+    res = random.choice(["food", "science", "tool", "money"])
+    planet[res] = random.randint(1, 2)
 
 
 async def _advance_placement(game: Game) -> None:
@@ -1143,6 +1151,7 @@ async def _ai_board_action(game: Game, ai_name: str) -> None:
                     lost = _strip_buildings_from_cluster(game, cluster, prev_owner)
                     for _k, _amt in lost.items():
                         prev_p.income[_k] = max(0, prev_p.income.get(_k, 0) - _amt)
+            _reveal_dwarf_planet(planet)
             for _k in ("food", "science", "tool", "money"):
                 ai_p.income[_k] = ai_p.income.get(_k, 0) + planet.get(_k, 0)
         else:
@@ -2280,6 +2289,7 @@ async def sss_ws(ws: WebSocket, game_code: str):
                             for _k, _amt in lost.items():
                                 prev_p.income[_k] = max(0, prev_p.income.get(_k, 0) - _amt)
                     # Grant income to attacker
+                    _reveal_dwarf_planet(planet)
                     for _k in ("food", "science", "tool", "money"):
                         player.income[_k] = player.income.get(_k, 0) + planet.get(_k, 0)
                 else:
@@ -2396,6 +2406,7 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 if atk_total > planet_total:
                     winner = "player"
                     # Grant planet income to attacker
+                    _reveal_dwarf_planet(planet)
                     for _k in ("food", "science", "tool", "money"):
                         player.income[_k] = player.income.get(_k, 0) + planet.get(_k, 0)
                     # Find and evict previous flag owner (empire_flag or home-system owner)

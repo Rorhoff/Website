@@ -1043,7 +1043,10 @@ function renderBoard(state, placementMode) {
     // Core hex: planet if claimed, otherwise cluster label
     if (h.local === 0) {
       const pColor = claimedColor[h.cluster];
-      const renderColor = pColor
+      const dwarfUnrevealed = h.planet?.dwarf
+        && !h.planet.food && !h.planet.science && !h.planet.tool && !h.planet.money;
+      const renderColor = dwarfUnrevealed ? null
+        : pColor
         ?? (h.planet?.ancient ? "#a855f7" : null)
         ?? (h.planet?.dwarf   ? "#6b7280" : null);
       if (h.planet && renderColor) {
@@ -1144,16 +1147,16 @@ function renderPlacementInfo(state, infoCard) {
 
 function setViewMode(mode) {
   viewMode = mode;
-  const cardEl    = $("board-card-view");
-  const boardWrap = $("board-wrap");
-  const btn       = document.getElementById("btn-toggle-view");
+  const cardEl = $("board-card-view");
+  const svg    = $("board-svg");
+  const btn    = document.getElementById("btn-toggle-view");
   if (mode === "map") {
     cardEl.classList.add("hidden");
-    if (boardWrap) boardWrap.classList.remove("hidden");
+    if (svg) svg.classList.remove("hidden");
     if (btn) btn.textContent = "Card ▶";
   } else {
     cardEl.classList.remove("hidden");
-    if (boardWrap) boardWrap.classList.add("hidden");
+    if (svg) svg.classList.add("hidden");
     if (btn) btn.textContent = "◀ Map";
     if (_lastState) renderFullPlayerCard(_lastState);
   }
