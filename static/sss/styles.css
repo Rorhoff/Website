@@ -138,7 +138,7 @@ h1 { font-size: 2rem; font-weight: 700; color: var(--accent); text-align: center
   background: rgba(8, 12, 20, 0.92);
   border: 1px solid var(--border); border-radius: var(--radius);
   padding: .5rem .75rem;
-  max-width: 280px;
+  width: 210px;
   backdrop-filter: blur(6px);
 }
 .hud-race-row {
@@ -155,7 +155,7 @@ h1 { font-size: 2rem; font-weight: 700; color: var(--accent); text-align: center
   margin-top: .35rem; font-size: .85rem; color: var(--danger);
 }
 .hud-unrest-icon { width: 16px; height: 16px; fill: var(--danger); flex-shrink: 0; }
-.hud-hint { font-size: .78rem; color: var(--muted); margin-top: .35rem; }
+.hud-hint { font-size: .78rem; color: var(--muted); margin-top: .35rem; word-break: break-word; }
 .hud-actions { display: flex; gap: .4rem; margin-top: .4rem; flex-wrap: wrap; }
 
 /* ── Planet on-board aura pulse ───────────────────────────────────────────── */
