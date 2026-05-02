@@ -15,12 +15,12 @@ router = APIRouter(prefix="/api/sss", tags=["sss"])
 # ── Race definitions ──────────────────────────────────────────────────────────
 
 RACES = {
-    "vorrkai":        {"name": "Vorrkai",        "color": "#e74c3c"},
-    "nexari":         {"name": "Nexari",          "color": "#1a5fa8"},
-    "luminae":        {"name": "Luminae",         "color": "#ff69b4"},
-    "thornveld":      {"name": "Thornveld",       "color": "#27ae60"},
-    "obsidian_pact":  {"name": "Obsidian Pact",   "color": "#9b59b6"},
-    "dust_runners":   {"name": "Dust Runners",    "color": "#8B4513"},
+    "vorrkai":        {"name": "Vorrkai",        "color": "#ff2020"},
+    "nexari":         {"name": "Nexari",          "color": "#00aaff"},
+    "luminae":        {"name": "Luminae",         "color": "#ff2aff"},
+    "thornveld":      {"name": "Thornveld",       "color": "#00ff66"},
+    "obsidian_pact":  {"name": "Obsidian Pact",   "color": "#bf00ff"},
+    "dust_runners":   {"name": "Dust Runners",    "color": "#ff8800"},
 }
 
 _AI_NAMES = ["Nova", "Orion", "Lyra", "Zeta", "Vega"]
