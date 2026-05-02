@@ -3,8 +3,10 @@
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
-// Ship types that can fly, attack, and invade (outpost and battle_station are static)
+// All ships that can fly (cruise_ship included — 2-jump repositioning)
 const MOBILE_SHIPS = new Set(["frigate", "cruise_ship", "super_ship", "death_star"]);
+// Ships that can initiate attacks and invasions (cruise_ship is defense-only)
+const ATTACK_SHIPS = new Set(["frigate", "super_ship", "death_star"]);
 
 const RACES = {
   vorrkai:       { name: "Vorrkai",       color: "#e74c3c" },
@@ -41,6 +43,8 @@ let _connectingErrId = null;
 let _lastStateSeq = -1;  // monotonic seq; reject any state with seq <= this
 let _boardPhaseOpened = false;
 let _prevBoardState  = null;  // last board snapshot for opponent move detection
+let _pendingShipMoves = [];   // [{fromX,fromY,toX,toY,color}] queued for animation
+let _animOldBoard    = null;  // board snapshot to display during ship animation
 let _actionMode      = null;  // { type: "flight"|"invasion"|"attack"|"construction" }
 let _selectedCluster = null;  // cluster index of selected source, or null
 let _selectedRoutes  = [];    // routes from _selectedCluster
@@ -371,7 +375,15 @@ function applyState(state) {
           _boardPhaseOpened = true;
           initBoardPan.resetView?.();
         }
-        renderBoard(state, false);
+        if (_pendingShipMoves.length > 0 && _animOldBoard) {
+          const moves = _pendingShipMoves.splice(0);
+          const oldBoard = _animOldBoard;
+          _animOldBoard = null;
+          renderBoard({ ...state, board: oldBoard }, false);
+          runShipAnimations(moves, () => renderBoard(state, false));
+        } else {
+          renderBoard(state, false);
+        }
       });
       break;
   }
@@ -746,11 +758,9 @@ function renderBoard(state, placementMode) {
         actionHtml = `<div class="hud-hint">${currentTurn}'s turn</div>`;
       }
 
-      const vpNow = me.vp ?? 0;
       infoCard.innerHTML = `
         <div class="hud-race-row">
-          <span class="hud-race-name" style="color:${me.color}">${me.race_name}</span>
-          <span style="font-size:.7rem;color:#f59e0b;font-weight:700;margin-right:.25rem">${vpNow}/7 VP</span>
+          <span class="hud-race-name" style="color:${me.color}">${me.name ?? myName}</span>
           <button class="btn btn-ghost hud-toggle-btn" id="btn-toggle-view">Card ▶</button>
         </div>
         ${actionHtml}`;
@@ -799,6 +809,13 @@ function renderBoard(state, placementMode) {
 
   // Placement validity helpers
   const mySystem    = (state.player_system ?? {})[myName] ?? null;
+  // All clusters the player owns: home system + any empire_flag clusters
+  const myOwnedClustersSet = new Set();
+  if (mySystem !== null) myOwnedClustersSet.add(mySystem);
+  for (const h of hexes) {
+    if ((h.pieces ?? []).some(p => p.type === "empire_flag" && p.owner === myName))
+      myOwnedClustersSet.add(h.cluster);
+  }
   const myRemaining = (state.player_placement ?? {})[myName] ?? [];
   const isMyTurn    = placementMode && state.current_placer === myName && myRole !== "watcher";
   const nextPiece   = myRemaining[0];
@@ -847,7 +864,7 @@ function renderBoard(state, placementMode) {
     // Always compute invasionSourceClusters (needed in both selection phases)
     const seenInv = new Set();
     for (const h of hexes) {
-      if (!(h.pieces ?? []).some(p => MOBILE_SHIPS.has(p.type) && p.owner === myName)) continue;
+      if (!(h.pieces ?? []).some(p => ATTACK_SHIPS.has(p.type) && p.owner === myName)) continue;
       if (seenInv.has(h.cluster)) continue;
       seenInv.add(h.cluster);
       const core = hexes.find(c => c.cluster === h.cluster && c.local === 0);
@@ -873,7 +890,8 @@ function renderBoard(state, placementMode) {
   } else if (isActionTurn) {
     if (_selectedCluster === null) {
       for (const h of hexes) {
-        if ((h.pieces ?? []).some(p => MOBILE_SHIPS.has(p.type) && p.owner === myName)) {
+        const shipSet = _actionMode.type === "attack" ? ATTACK_SHIPS : MOBILE_SHIPS;
+        if ((h.pieces ?? []).some(p => shipSet.has(p.type) && p.owner === myName)) {
           if (actionSourceClusters.has(h.cluster)) continue;
           const routes = _actionMode.type === "attack"
             ? computeAttackRoutes(hexes, h.cluster)
@@ -931,7 +949,7 @@ function renderBoard(state, placementMode) {
       && state.current_turn === myName && myRole !== "watcher";
     const SPACECRAFT_TYPES = new Set(["cruise_ship","frigate","outpost","super_ship","battle_station","death_star"]);
     let validConstructTarget = false;
-    if (isConstructionTurn && h.cluster === mySystem && h.local > 0) {
+    if (isConstructionTurn && myOwnedClustersSet.has(h.cluster) && h.local > 0) {
       if (BUILDING_TYPES.has(_constructionPiece.type)) {
         const existingBuildings = (h.pieces ?? []).filter(p => BUILDING_TYPES.has(p.type));
         validConstructTarget = h.type === "bs_slot" && existingBuildings.length < 3;
@@ -975,7 +993,7 @@ function renderBoard(state, placementMode) {
     // Science hex direct-click shortcut: when idle on your turn, click S tile to open building picker
     const isScienceDirect = !placementMode && !_constructionPiece && !_actionMode
       && state.phase === "board" && state.current_turn === myName && myRole !== "watcher"
-      && h.cluster === mySystem && h.type === "bs_slot" && h.local > 0;
+      && myOwnedClustersSet.has(h.cluster) && h.type === "bs_slot" && h.local > 0;
     if (isScienceDirect) {
       cls += " hex-science-available";
       const capturedId = h.id;
@@ -1127,7 +1145,7 @@ function renderPlacementInfo(state, infoCard) {
 
   if (isMyTurn) {
     const instructions = nextPiece === "battle_station"
-      ? "Click any hex to place your <strong>Battle Station</strong>. Your Empire Flag will be placed on the system core automatically."
+      ? "Click any hex to place your <strong>Battle Station</strong><br>Your Empire Flag will be placed on the system core automatically."
       : `Click a hex in your system to place: <strong>${PIECE_DISPLAY[nextPiece] ?? nextPiece}</strong>`;
 
     infoCard.innerHTML = `
@@ -1447,6 +1465,7 @@ const TECH_CARD_DATA = {
   molecular_manipulation: { name: "Molecular Manipulation", timing: "During +Person",      effect: "Create a new person in a system you own with a battle station. Costs 1 food less (minimum 1)." },
   invasion_dice:          { name: "Orbital Bombardment",    timing: "Invasion — Start",    effect: "+1 attack die when invading a planet." },
   command_surge:          { name: "Command Surge",          timing: "Any Time (Your Turn)", effect: "Discard to gain 1 extra action this turn." },
+  plasma_forge:           { name: "Plasma Forge",           timing: "Passive — Rare",       effect: "All your d6 attack dice are upgraded to d15." },
 };
 
 const RESOURCE_ICONS = {
@@ -1570,7 +1589,7 @@ function renderFullPlayerCard(state) {
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.75rem">
         <button class="btn btn-ghost btn-sm" id="btn-card-close">◀ Map</button>
         <div style="display:flex;gap:.6rem;align-items:center;font-size:.8rem;font-weight:700">
-          <span style="color:${me.color}">${me.race_name ?? me.name}</span>
+          <span style="color:#f59e0b">${me.vp ?? 0}/7 VP</span>
           <span style="color:#ef4444">${unrest}/20 Unrest</span>
         </div>
       </div>
@@ -1732,9 +1751,11 @@ function showInvasionResult(msg) {
        </div>`
     : "";
 
+  const atkPlayer = (_lastState?.players ?? []).find(p => p.name === msg.attacker);
+  const atkRace   = atkPlayer?.race_name ? ` — ${atkPlayer.race_name}` : "";
   document.getElementById("combat-title").textContent = won
-    ? (isMe ? "Invasion Successful!" : `${msg.attacker} Conquered a Planet!`)
-    : (isMe ? "Invasion Failed!" : `${msg.attacker}'s Invasion Failed`);
+    ? `${msg.attacker}${atkRace} — Invasion Successful!`
+    : `${msg.attacker}${atkRace} — Invasion Failed`;
 
   document.getElementById("combat-body").innerHTML = `
     <div class="combat-result-outcome ${won ? "win" : "lose"}">${won ? "The planet is conquered!" : "The planet repelled the attack."}</div>
@@ -1848,16 +1869,16 @@ function showActionPicker() {
 // ── Construction picker ────────────────────────────────────────────────────
 
 const CONSTRUCTION_ITEMS = [
-  { type: "cruise_ship",      label: "Cruise Ship",                  cost: 10,  toolCost: 0  },
-  { type: "frigate",          label: "Frigate",                      cost: 10,  toolCost: 2  },
-  { type: "outpost",          label: "Outpost",                      cost: 25,  toolCost: 4  },
-  { type: "super_ship",       label: "Super Ship",                   cost: 50,  toolCost: 8  },
-  { type: "battle_station",   label: "Battle Station",               cost: 60,  toolCost: 12 },
-  { type: "death_star",       label: "Death Star",                   cost: 100, toolCost: 20 },
-  { type: "building_tool",    label: "Workshop (+1 Tool)",           cost: 4,   toolCost: 0  },
-  { type: "building_science", label: "Lab (+1 Science)",             cost: 4,   toolCost: 0  },
-  { type: "building_money",   label: "Treasury (+3 ¤)",              cost: 6,   toolCost: 0  },
-  { type: "farmer_upgrade",   label: "Farmer Upgrade (−1 food upkeep)", cost: 0, toolCost: 3, upgrade: true },
+  { type: "cruise_ship",      label: "Cruise Ship",    stats: "1d12 · 2 jumps · defense only", cost: 10,  toolCost: 0  },
+  { type: "frigate",          label: "Frigate",        stats: "1d6 · 1 jump",           cost: 10,  toolCost: 2  },
+  { type: "outpost",          label: "Outpost",        stats: "1d15 · stationary",      cost: 25,  toolCost: 4  },
+  { type: "super_ship",       label: "Super Ship",     stats: "2d15 · 1 jump",          cost: 50,  toolCost: 8  },
+  { type: "battle_station",   label: "Battle Station", stats: "2d15+1d6 · 1 jump",      cost: 60,  toolCost: 12 },
+  { type: "death_star",       label: "Death Star",     stats: "3d15 · 2 jumps",         cost: 100, toolCost: 20 },
+  { type: "building_tool",    label: "Workshop (+1 Tool)",              cost: 4,   toolCost: 0  },
+  { type: "building_science", label: "Lab (+1 Science)",                cost: 4,   toolCost: 0  },
+  { type: "building_money",   label: "Treasury (+3 ¤)",                 cost: 6,   toolCost: 0  },
+  { type: "farmer_upgrade",   label: "Farmer Upgrade (−1 food upkeep)", cost: 0,   toolCost: 3, upgrade: true },
 ];
 const BUILDING_TYPES = new Set(["building_tool", "building_science", "building_money"]);
 
@@ -1909,7 +1930,10 @@ function showConstructionPicker(filter = "all") {
     return `
     <div class="action-pick-row construct-row ${canAfford ? "" : "disabled"}"
          data-type="${item.type}">
-      <span class="cv-action-label">${item.label}</span>
+      <div class="construct-label-wrap">
+        <span class="cv-action-label">${item.label}</span>
+        ${item.stats ? `<span class="construct-stats">${item.stats}</span>` : ""}
+      </div>
       <span class="construct-cost ${canAfford ? "" : "cant-afford"}">${costStr}</span>
     </div>`;
   }).join("");
@@ -2316,6 +2340,34 @@ function detectOpponentMoves(newBoard, state) {
   const playerColor = {};
   for (const p of (state.players ?? [])) if (p.color) playerColor[p.name] = p.color;
 
+  // ── Ship move animation detection (all players) ──────────────────────────
+  const prevById = Object.fromEntries(_prevBoardState.map(h => [h.id, h]));
+  const moves = [];
+  // hexes that gained ships
+  for (const h of newBoard) {
+    const prev = prevById[h.id];
+    for (const p of (h.pieces ?? [])) {
+      if (!MOBILE_SHIPS.has(p.type)) continue;
+      const prevCount = (prev?.pieces ?? []).filter(q => q.type === p.type && q.owner === p.owner).length;
+      const newCount  = (h.pieces ?? []).filter(q => q.type === p.type && q.owner === p.owner).length;
+      if (newCount > prevCount) {
+        // This hex gained a ship — find where it came from (hex in prevBoard that lost same type/owner)
+        const src = _prevBoardState.find(ph =>
+          ph.cluster !== h.cluster &&
+          (ph.pieces ?? []).filter(q => q.type === p.type && q.owner === p.owner).length >
+          ((newBoard.find(nh => nh.id === ph.id)?.pieces ?? []).filter(q => q.type === p.type && q.owner === p.owner).length)
+        );
+        if (src) {
+          moves.push({ fromX: src.x, fromY: src.y, toX: h.x, toY: h.y, color: playerColor[p.owner] ?? "#ffffff" });
+        }
+      }
+    }
+  }
+  if (moves.length > 0) {
+    _animOldBoard = _prevBoardState;
+    _pendingShipMoves.push(...moves);
+  }
+
   const clusterLabel = {};
   for (const h of newBoard) if (h.local === 0) clusterLabel[h.cluster] = h.label ?? h.cluster;
 
@@ -2362,6 +2414,62 @@ function detectOpponentMoves(newBoard, state) {
   }
 
   _prevBoardState = newBoard;
+}
+
+function runShipAnimations(moves, onComplete) {
+  const ns = "http://www.w3.org/2000/svg";
+  const layer = document.getElementById("drag-layer");
+  if (!layer || moves.length === 0) { onComplete?.(); return; }
+  const DURATION = 950;
+  let done = 0;
+  function ease(t) { return t < 0.5 ? 2*t*t : -1+(4-2*t)*t; }
+  for (const mv of moves) {
+    const ship = document.createElementNS(ns, "circle");
+    ship.setAttribute("r", "5");
+    ship.setAttribute("fill", mv.color);
+    ship.setAttribute("cx", mv.fromX);
+    ship.setAttribute("cy", mv.fromY);
+    ship.style.filter = `drop-shadow(0 0 9px ${mv.color})`;
+    layer.appendChild(ship);
+    const trail = [];
+    const start = performance.now();
+    let lastTrail = -1;
+    (function frame(now) {
+      const t = Math.min((now - start) / DURATION, 1);
+      const x = mv.fromX + (mv.toX - mv.fromX) * ease(t);
+      const y = mv.fromY + (mv.toY - mv.fromY) * ease(t);
+      ship.setAttribute("cx", x);
+      ship.setAttribute("cy", y);
+      // Drop a trail dot every ~30ms
+      if (now - lastTrail > 30) {
+        lastTrail = now;
+        const dot = document.createElementNS(ns, "circle");
+        dot.setAttribute("r", "3");
+        dot.setAttribute("fill", mv.color);
+        dot.setAttribute("cx", x);
+        dot.setAttribute("cy", y);
+        dot.setAttribute("opacity", "0.7");
+        layer.insertBefore(dot, ship);
+        trail.push({ el: dot, born: now });
+      }
+      // Fade trail
+      for (const d of trail) {
+        const age = (now - d.born) / 420;
+        d.el.setAttribute("opacity", Math.max(0, 0.7 - age).toFixed(2));
+      }
+      // Remove fully faded
+      for (let i = trail.length - 1; i >= 0; i--) {
+        if (now - trail[i].born > 600) { trail[i].el.remove(); trail.splice(i, 1); }
+      }
+      if (t < 1) {
+        requestAnimationFrame(frame);
+      } else {
+        ship.remove();
+        for (const d of trail) d.el.remove();
+        if (++done === moves.length) onComplete?.();
+      }
+    })(performance.now());
+  }
 }
 
 // ── Board pan / pinch-zoom ──────────────────────────────────────────────────

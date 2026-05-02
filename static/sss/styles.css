@@ -264,8 +264,10 @@ h1 { font-size: 2rem; font-weight: 700; color: var(--accent); text-align: center
 .construct-row { display: flex; align-items: center; justify-content: space-between; padding: .6rem .8rem; border-radius: 6px; cursor: pointer; transition: background .15s; }
 .construct-row:hover:not(.disabled) { background: var(--card-hover, rgba(255,255,255,0.06)); }
 .construct-row.disabled { opacity: 0.4; cursor: not-allowed; }
-.construct-cost { font-size: .85rem; color: var(--gold, #f0d060); font-weight: 600; margin-left: 1rem; }
+.construct-cost { font-size: .85rem; color: var(--gold, #f0d060); font-weight: 600; margin-left: 1rem; flex-shrink: 0; }
 .construct-cost.cant-afford { color: var(--danger, #e74c3c); }
+.construct-label-wrap { display: flex; flex-direction: column; gap: .1rem; }
+.construct-stats { font-size: .72rem; color: var(--muted, #8899aa); }
 .cp-purse { display: flex; gap: 1.2rem; align-items: center; justify-content: center; padding: .4rem 0 .6rem; border-bottom: 1px solid var(--border); margin-bottom: .4rem; }
 .cp-purse-item { display: flex; align-items: center; gap: .3rem; font-size: .95rem; font-weight: 700; color: var(--text); }
 

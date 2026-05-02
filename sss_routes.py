@@ -29,8 +29,10 @@ _AI_NAMES = ["Nova", "Orion", "Lyra", "Zeta", "Vega"]
 # Set to True for real games; False keeps fog disabled (all board visible) for testing.
 FOG_OF_WAR = False
 
-# Ship types that can fly, attack, and invade (vs static structures like outpost/battle_station)
+# Ship types that can fly (cruise_ship included — 2-jump repositioning)
 _MOBILE_SHIPS = frozenset({"frigate", "cruise_ship", "super_ship", "death_star"})
+# Ships that can initiate attacks and invasions (cruise_ship is defense-only)
+_ATTACK_SHIPS = frozenset({"frigate", "super_ship", "death_star"})
 
 _PLAYER_COLORS = [
     "#e74c3c",  # Red
@@ -112,6 +114,13 @@ TECH_CARDS = [
         "name": "Command Surge",
         "timing": "Any Time (Your Turn)",
         "effect": "Discard to gain 1 extra action this turn.",
+    },
+    {
+        "id": "plasma_forge",
+        "name": "Plasma Forge",
+        "timing": "Passive — Rare",
+        "effect": "All your d6 attack dice are upgraded to d15.",
+        "rare": True,
     },
 ]
 
@@ -975,7 +984,7 @@ async def _resolve_dice_round(game: Game) -> None:
 _NO_TRI_TYPES = {"white", "green"}  # cluster types without a tri hex → dwarf planets
 
 def _add_dwarf_planets(game: Game) -> None:
-    """Add dwarf planets to no-tri clusters and the ancient core to the black_hole cluster."""
+    """Assign planet data to all unclaimed non-home cluster cores."""
     claimed = set(game.player_system.values())
     for h in game.board:
         if h.get("local") != 0:
@@ -994,6 +1003,14 @@ def _add_dwarf_planets(game: Game) -> None:
                 "vp": 0, "unrest": 0,
                 "food": 3, "science": 3, "tool": 3, "money": 3,
                 "ancient": True,
+            }
+        elif t in _TRI_TYPES:
+            h["planet"] = {
+                "vp": 1, "unrest": random.randint(0, 2),
+                "food": random.randint(1, 4),
+                "science": random.randint(0, 1),
+                "tool": random.randint(0, 2),
+                "money": random.randint(1, 3),
             }
 
 
@@ -2079,12 +2096,12 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 atk_frigates = [
                     p for h in game.board if h["cluster"] == from_cluster
                     for p in h.get("pieces", [])
-                    if p["type"] in _MOBILE_SHIPS and p["owner"] == player.name
+                    if p["type"] in _ATTACK_SHIPS and p["owner"] == player.name
                 ]
                 if not atk_frigates:
-                    await ws.send_json({"type": "error", "msg": "No ships in that system."})
+                    await ws.send_json({"type": "error", "msg": "No attack-capable ships in that system."})
                     continue
-                atk_frigate_count = len(atk_frigates)
+                atk_frigate_count = 1  # frigates always attack with 1d6 regardless of count
                 connected = any(
                     game.board[h["wormhole_partner"]]["cluster"] == dest_cluster
                     for h in game.board
@@ -2101,7 +2118,8 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 if not def_frigates_on_hex:
                     await ws.send_json({"type": "error", "msg": "No enemy ships on that hex."})
                     continue
-                def_frigate_count = len(def_frigates_on_hex)
+                def_frigate_count = len([p for p in def_frigates_on_hex if p["type"] != "cruise_ship"])
+                def_cruise_count  = len([p for p in def_frigates_on_hex if p["type"] == "cruise_ship"])
                 defender_name = def_frigates_on_hex[0]["owner"]
                 game.pending_combat = {
                     "type": "attack",
@@ -2112,6 +2130,7 @@ async def sss_ws(ws: WebSocket, game_code: str):
                     "target_hex_id": target_hex_id,
                     "atk_frigate_count": atk_frigate_count,
                     "def_frigate_count": def_frigate_count,
+                    "def_cruise_count": def_cruise_count,
                     "atk_rolled": False,
                     "def_rolled": False,
                     "atk_dice": [],
@@ -2164,7 +2183,10 @@ async def sss_ws(ws: WebSocket, game_code: str):
                         def_dice_count = combat["def_frigate_count"]
                         if len(_def_phys) > 1 and _def_phys[1]: def_dice_count += 1
                         if len(_def_phys) > 3 and _def_phys[3]: def_dice_count += 1
-                        def_dice = [random.randint(1, 6) for _ in range(max(1, def_dice_count))]
+                        def_dice = (
+                            [random.randint(1, 6)  for _ in range(max(1, def_dice_count))] +
+                            [random.randint(1, 12) for _ in range(combat.get("def_cruise_count", 0))]
+                        )
                         combat["def_dice"]  = def_dice
                         combat["def_total"] = sum(def_dice)
                         combat["def_rolled"] = True
@@ -2182,7 +2204,10 @@ async def sss_ws(ws: WebSocket, game_code: str):
                     def_dice_count = combat["def_frigate_count"]
                     if len(_def_phys) > 1 and _def_phys[1]: def_dice_count += 1
                     if len(_def_phys) > 3 and _def_phys[3]: def_dice_count += 1
-                    def_dice = [random.randint(1, 6) for _ in range(def_dice_count)]
+                    def_dice = (
+                        [random.randint(1, 6)  for _ in range(max(0, def_dice_count))] +
+                        [random.randint(1, 12) for _ in range(combat.get("def_cruise_count", 0))]
+                    )
                     combat["def_dice"]  = def_dice
                     combat["def_total"] = sum(def_dice)
                     combat["def_rolled"] = True
@@ -2321,10 +2346,10 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 if not core_hex or not core_hex.get("planet"):
                     await ws.send_json({"type": "error", "msg": "No planet at that cluster"})
                     continue
-                # Verify player has ships there
+                # Verify player has attack-capable ships there (cruise_ship is defense-only)
                 player_frigates = [
                     p for h in game.board if h["cluster"] == cluster
-                    for p in h["pieces"] if p["type"] in _MOBILE_SHIPS and p["owner"] == player.name
+                    for p in h["pieces"] if p["type"] in _ATTACK_SHIPS and p["owner"] == player.name
                 ]
                 if not player_frigates:
                     await ws.send_json({"type": "error", "msg": "No ships in that cluster"})
@@ -2350,18 +2375,19 @@ async def sss_ws(ws: WebSocket, game_code: str):
                     if source_hex is None:
                         await ws.send_json({"type": "error", "msg": "Invalid source hex"})
                         continue
-                    attack_frigates = [p for p in source_hex["pieces"] if p["type"] in _MOBILE_SHIPS and p["owner"] == player.name]
+                    attack_frigates = [p for p in source_hex["pieces"] if p["type"] in _ATTACK_SHIPS and p["owner"] == player.name]
                     if not attack_frigates:
                         await ws.send_json({"type": "error", "msg": "No ships on that tile"})
                         continue
                 else:
                     attack_frigates = player_frigates
-                # Roll: 1d6 per ship (up to 3) vs planet 3d6; Physics Lv3/5 add extra dice
-                num_dice = min(len(attack_frigates), 3)
+                # Frigates always roll 1d6 regardless of count; Physics Lv3/5 add extra dice
+                num_dice = 1
                 _inv_phys = player.tech.get("physics", [])
                 if len(_inv_phys) > 2 and _inv_phys[2]: num_dice += 1  # Lv3 Plasma Cannons
                 if len(_inv_phys) > 4 and _inv_phys[4]: num_dice += 1  # Lv5 Antimatter Weapons
-                atk_dice = [random.randint(1, 6) for _ in range(num_dice)]
+                _die = 15 if "plasma_forge" in player.tech_cards else 6
+                atk_dice = [random.randint(1, _die) for _ in range(num_dice)]
                 atk_total = sum(atk_dice)
                 _inv_gov = player.tech.get("government", [])
                 if planet.get("ancient"):
@@ -2490,12 +2516,13 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 dest_cluster = combat["dest_cluster"]
                 planet = combat["planet"]
                 # Attacker dice (+1 for nuclear_missile / death_spores / invasion_dice; Physics Lv3/5)
-                atk_dice = [random.randint(1, 6), random.randint(1, 6)]
+                _si_die = 15 if "plasma_forge" in player.tech_cards else 6
+                atk_dice = [random.randint(1, _si_die), random.randint(1, _si_die)]
                 if tech_card in ("nuclear_missile", "death_spores", "invasion_dice"):
-                    atk_dice.append(random.randint(1, 6))
+                    atk_dice.append(random.randint(1, _si_die))
                 _si_phys = player.tech.get("physics", [])
-                if len(_si_phys) > 2 and _si_phys[2]: atk_dice.append(random.randint(1, 6))  # Lv3
-                if len(_si_phys) > 4 and _si_phys[4]: atk_dice.append(random.randint(1, 6))  # Lv5
+                if len(_si_phys) > 2 and _si_phys[2]: atk_dice.append(random.randint(1, _si_die))  # Lv3
+                if len(_si_phys) > 4 and _si_phys[4]: atk_dice.append(random.randint(1, _si_die))  # Lv5
                 atk_total = sum(atk_dice)
                 # Planet defense: 3 dice (2 if attacker has Government Lv3 Martial Command)
                 _si_gov = player.tech.get("government", [])
