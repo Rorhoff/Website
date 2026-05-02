@@ -1799,9 +1799,17 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 current = game.turn_order[game.turn_idx % len(game.turn_order)]
                 if player.name != current:
                     continue
+                # Spend unused actions drawing tech cards
+                drawn: list[dict] = []
+                for _ in range(game.turn_actions_remaining):
+                    card = random.choice(TECH_CARDS)
+                    player.tech_cards.append(card["id"])
+                    drawn.append({"id": card["id"], "name": card["name"]})
                 _advance_turn(game)
                 state = game.public_state()
                 state["board"] = game.board
+                if drawn:
+                    await game.send_to(player.name, {"type": "bonus_tech_drawn", "cards": drawn})
                 await game.broadcast({"type": "game_state", **state})
 
             # ── exploration ───────────────────────────────────────────────────

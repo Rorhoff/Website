@@ -165,6 +165,9 @@ function handleMsg(msg) {
       applyState(msg);
       showCombatResult(msg);
       break;
+    case "bonus_tech_drawn":
+      showBonusTechToast(msg.cards);
+      break;
     case "eliminated":
       showEliminatedOverlay(msg.msg);
       break;
@@ -192,6 +195,23 @@ function routeError(msg) {
   const errId = map[active.id];
   if (errId) { showError(errId, msg); return; }
   if (active.id === "screen-board") showBoardToast(msg);
+}
+
+function showBonusTechToast(cards) {
+  if (!cards || !cards.length) return;
+  const n = cards.length;
+  const names = cards.map(c => `<strong>${c.name}</strong>`).join(", ");
+  let el = document.getElementById("bonus-tech-toast");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "bonus-tech-toast";
+    el.style.cssText = "position:fixed;top:80px;left:50%;transform:translateX(-50%);background:#0f2a1a;border:1px solid #4ade80;color:#bbf7d0;padding:.65rem 1.25rem;border-radius:10px;font-size:.85rem;z-index:2001;max-width:340px;text-align:center;line-height:1.5";
+    document.body.appendChild(el);
+  }
+  el.innerHTML = `<div style="font-weight:700;margin-bottom:.2rem;color:#4ade80">+${n} Tech Card${n > 1 ? "s" : ""} (unused actions)</div>${names}`;
+  el.style.display = "block";
+  clearTimeout(el._t);
+  el._t = setTimeout(() => { el.style.display = "none"; }, 7000);
 }
 
 function showBoardToast(msg) {
@@ -1459,7 +1479,6 @@ function renderFullPlayerCard(state) {
   const resources = me.resources ?? {};
   const income    = me.income    ?? {};
   const tech      = me.tech      ?? {};
-  const pieces    = me.pieces    ?? {};
 
   const RES_KEYS = ["food", "science", "tool", "money"];
 
@@ -1559,20 +1578,14 @@ function renderFullPlayerCard(state) {
     }
   }
 
-  // Piece inventory
-  const pieceRows = Object.entries(pieces)
-    .filter(([, n]) => n > 0)
-    .map(([k, n]) => `<span><span class="pc">${n}</span> ${PIECE_NAMES[k] ?? k}</span>`)
-    .join("");
-
-  const unrest = pieces.unrest ?? 0;
+  const unrest = me.resources?.unrest ?? 0;
   cardEl.innerHTML = `
     <div class="player-race-card">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.75rem">
         <button class="btn btn-ghost btn-sm" id="btn-card-close">◀ Map</button>
-        <div style="display:flex;gap:.6rem;align-items:center;font-size:.8rem">
-          <span style="color:var(--muted)">${unrest}/20 Unrest</span>
-          <span style="color:#f59e0b;font-weight:700">${me.vp ?? 0}/7 VP</span>
+        <div style="display:flex;gap:.6rem;align-items:center;font-size:.8rem;font-weight:700">
+          <span style="color:${me.color}">${me.race_name ?? me.name}</span>
+          <span style="color:#ef4444">${unrest}/20 Unrest</span>
         </div>
       </div>
       <div class="resource-row">${resHtml}</div>
@@ -1581,7 +1594,6 @@ function renderFullPlayerCard(state) {
         ${incomeHtml}
       </div>
       <div class="tech-tree mt2">${costsColHtml}${techColsHtml}</div>
-      ${pieceRows ? `<div class="piece-grid mt2" style="gap:.4rem 1rem;font-size:.9rem">${pieceRows}</div>` : ""}
       <button class="btn btn-primary mt2" id="btn-view-actions" style="width:100%">View Cards</button>
     </div>`;
 
