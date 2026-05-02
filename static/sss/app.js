@@ -1639,8 +1639,9 @@ function computeInvasionRoutes(hexes, fromCluster) {
   return computeFlightRoutes(hexes, fromCluster).filter(r => {
     const core = hexes.find(h => h.cluster === r.dest_cluster && h.local === 0);
     const alreadyMine = (core?.pieces ?? []).some(p => p.type === "empire_flag" && p.owner === myName);
-    // Show the route even if enemies are present — server rejects with a toast explaining to attack first
-    return core && core.planet && hasFrigateSlot(hexes, r.dest_cluster) && !alreadyMine;
+    // Invasion doesn't need an open orbital slot — the wormhole itself is the entry point.
+    // Server rejects with a toast if enemies still block; hasFrigateSlot not required here.
+    return core && core.planet && !alreadyMine;
   });
 }
 

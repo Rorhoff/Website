@@ -2164,9 +2164,9 @@ async def sss_ws(ws: WebSocket, game_code: str):
                          if h["cluster"] == dest_cluster and h["type"] == "orbital"
                          and sum(1 for p in h["pieces"] if p["type"] in _MOBILE_SHIPS) < 3),
                         None)
+                # If all orbitals are full, land on the wormhole entry hex so invasion can still proceed
                 if landing_hex is None:
-                    await ws.send_json({"type": "error", "msg": "No available ship tiles in that system"})
-                    continue
+                    landing_hex = to_hex
                 moved_piece = None
                 for h in game.board:
                     if h["cluster"] != from_cluster:
