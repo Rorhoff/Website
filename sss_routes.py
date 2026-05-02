@@ -553,16 +553,15 @@ def _apply_turn_income(game, player) -> None:
             upkeep["food"]    += food
             upkeep["science"] += counts[2]
     player.upkeep = dict(upkeep)
-    # Apply: resources += income − upkeep  (building income is already in player.income)
-    # Any resource that would go negative adds +1 unrest instead of going below 0.
+    # Apply: resources += income − upkeep.
+    # Resources are allowed to go (and stay) negative — each negative resource adds 1 unrest/turn.
     unrest_gain = 0
     for key in ("food", "science", "tool", "money"):
         net = player.income.get(key, 0) - upkeep.get(key, 0)
         new_val = player.resources.get(key, 0) + net
+        player.resources[key] = new_val
         if new_val < 0:
             unrest_gain += 1
-            new_val = 0
-        player.resources[key] = new_val
     if unrest_gain:
         _gov = player.tech.get("government", [])
         _gov_reduction = (1 if len(_gov) > 0 and _gov[0] else 0) + (1 if len(_gov) > 3 and _gov[3] else 0)

@@ -125,8 +125,8 @@ def test_apply_turn_income_accumulates():
     assert p.resources["money"] == 13
 
 
-def test_apply_turn_income_no_negative_resources():
-    """Resources floored at 0 even if upkeep exceeds income.
+def test_apply_turn_income_negative_resources_add_unrest():
+    """When upkeep exceeds income a resource goes negative and unrest is gained.
 
     Build a fake tri hex with upkeep the player owes but has no income to cover.
     """
@@ -148,8 +148,11 @@ def test_apply_turn_income_no_negative_resources():
         },
     ]
     _apply_turn_income(game, p)
-    for key in ("food", "science", "tool", "money"):
-        assert p.resources.get(key, 0) >= 0, f"{key} went negative"
+    # With tri_counts [2,2,2]: tool upkeep=2, food upkeep=2, science upkeep=2, all income=0.
+    # food, science, tool go to -2 each → 3 unrest gained.
+    assert p.resources.get("unrest", 0) >= 3, "expected ≥3 unrest from 3 negative resources"
+    for key in ("food", "science", "tool"):
+        assert p.resources.get(key, 0) < 0, f"{key} should be negative when upkeep exceeds income"
 
 
 # ── _advance_turn ─────────────────────────────────────────────────────────────
