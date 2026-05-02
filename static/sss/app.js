@@ -869,20 +869,6 @@ function renderBoard(state, placementMode) {
         actionSourceClusters.add(cluster);
         actionRoutesMap[cluster] = [];  // in-system: clicking source fires invasion_attack immediately
       }
-      // Also allow wormhole-based invasion from player's own clusters
-      for (const h of hexes) {
-        if (!(h.pieces ?? []).some(p => MOBILE_SHIPS.has(p.type) && p.owner === myName)) continue;
-        if (actionSourceClusters.has(h.cluster)) continue;
-        const routes = computeInvasionRoutes(hexes, h.cluster);
-        if (routes.length > 0) {
-          actionSourceClusters.add(h.cluster);
-          actionRoutesMap[h.cluster] = routes;
-        }
-      }
-    } else {
-      // Phase 2: wormhole invasion only — show destination orbital targets
-      actionSourceClusters.add(_selectedCluster);
-      for (const r of _selectedRoutes) actionTargetClusters.add(r.dest_cluster);
     }
   } else if (isActionTurn) {
     if (_selectedCluster === null) {
