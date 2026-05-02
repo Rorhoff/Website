@@ -693,7 +693,7 @@ function renderBoard(state, placementMode) {
   } else {
     infoCard.classList.remove("hidden");
     const me = (state.players ?? []).find(p => p.name === myName);
-    if (me && me.race) {
+    if (me) {
       const currentTurn = state.current_turn ?? null;
       const isMyTurnNow = currentTurn === myName;
 
@@ -829,11 +829,8 @@ function renderBoard(state, placementMode) {
       if (seenInv.has(h.cluster)) continue;
       seenInv.add(h.cluster);
       const core = hexes.find(c => c.cluster === h.cluster && c.local === 0);
-      const hasEnemy = hexes.some(hh =>
-        hh.cluster === h.cluster &&
-        (hh.pieces ?? []).some(p => MOBILE_SHIPS.has(p.type) && p.owner !== myName)
-      );
-      if (core?.planet && !myOwnedClusters.has(h.cluster) && !hasEnemy) {
+      // Show in-system invasion even if enemies are present — server rejects with a toast to attack first
+      if (core?.planet && !myOwnedClusters.has(h.cluster)) {
         invasionSourceClusters.add(h.cluster);
       }
     }
@@ -1639,12 +1636,9 @@ function computeFlightOnlyRoutes(hexes, fromCluster) {
 function computeInvasionRoutes(hexes, fromCluster) {
   return computeFlightRoutes(hexes, fromCluster).filter(r => {
     const core = hexes.find(h => h.cluster === r.dest_cluster && h.local === 0);
-    const hasEnemy = hexes.some(h =>
-      h.cluster === r.dest_cluster &&
-      (h.pieces ?? []).some(p => MOBILE_SHIPS.has(p.type) && p.owner !== myName)
-    );
     const alreadyMine = (core?.pieces ?? []).some(p => p.type === "empire_flag" && p.owner === myName);
-    return core && core.planet && hasFrigateSlot(hexes, r.dest_cluster) && !hasEnemy && !alreadyMine;
+    // Show the route even if enemies are present — server rejects with a toast explaining to attack first
+    return core && core.planet && hasFrigateSlot(hexes, r.dest_cluster) && !alreadyMine;
   });
 }
 
