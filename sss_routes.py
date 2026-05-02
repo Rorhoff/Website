@@ -181,7 +181,7 @@ _BUILDING_TYPES = {"building_tool", "building_science", "building_money", "farme
 
 def _build_endgame_stats(game) -> dict:
     """Return a dict with winner name + per-player summary for the end-game report."""
-    winner = _check_vp_winner(game) or next(
+    winner = game.ancient_winner or _check_vp_winner(game) or next(
         (n for n, p in game.players.items() if n in game.turn_order and p.connected), None
     )
 
@@ -729,6 +729,7 @@ class Game:
     deferred_groups: list = field(default_factory=list)
     eliminated: list = field(default_factory=list)
     ever_owned_planet: set = field(default_factory=set)
+    ancient_winner: str | None = None
     ai_task: Any = None
 
     def public_state(self) -> dict:
@@ -909,26 +910,31 @@ async def _resolve_dice_round(game: Game) -> None:
 
 # ── Placement advance helper ──────────────────────────────────────────────────
 
-_COLORED_CLUSTER_TYPES = {"yellow", "blue", "red", "green"}
+_NO_TRI_TYPES = {"white", "green"}  # cluster types without a tri hex → dwarf planets
 
 def _add_dwarf_planets(game: Game) -> None:
-    """Stamp a dwarf planet on every unclaimed colored cluster after setup."""
+    """Add dwarf planets to no-tri clusters and the ancient core to the black_hole cluster."""
     claimed = set(game.player_system.values())
     for h in game.board:
         if h.get("local") != 0:
             continue
         if h["cluster"] in claimed:
             continue
-        if h["type"] not in _COLORED_CLUSTER_TYPES:
-            continue
-        res = random.choice(["food", "science", "tool", "money"])
-        h["planet"] = {
-            "vp": 0,
-            "unrest": 0,
-            "food": 0, "science": 0, "tool": 0, "money": 0,
-            res: random.randint(1, 2),
-            "dwarf": True,
-        }
+        t = h["type"]
+        if t in _NO_TRI_TYPES:
+            res = random.choice(["food", "science", "tool", "money"])
+            h["planet"] = {
+                "vp": 0, "unrest": 0,
+                "food": 0, "science": 0, "tool": 0, "money": 0,
+                res: random.randint(1, 2),
+                "dwarf": True,
+            }
+        elif t == "black_hole":
+            h["planet"] = {
+                "vp": 0, "unrest": 0,
+                "food": 3, "science": 3, "tool": 3, "money": 3,
+                "ancient": True,
+            }
 
 
 async def _advance_placement(game: Game) -> None:
@@ -2245,7 +2251,12 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 atk_dice = [random.randint(1, 6) for _ in range(num_dice)]
                 atk_total = sum(atk_dice)
                 _inv_gov = player.tech.get("government", [])
-                planet_def_dice = 2 if (len(_inv_gov) > 2 and _inv_gov[2]) else 3  # Lv3 Martial Command
+                if planet.get("ancient"):
+                    planet_def_dice = 10
+                elif len(_inv_gov) > 2 and _inv_gov[2]:
+                    planet_def_dice = 2
+                else:
+                    planet_def_dice = 3  # Lv3 Martial Command
                 planet_dice = [random.randint(1, 6) for _ in range(planet_def_dice)]
                 planet_total = sum(planet_dice)
                 won = atk_total > planet_total  # planet wins ties
@@ -2282,9 +2293,11 @@ async def sss_ws(ws: WebSocket, game_code: str):
                         ]
                 if won:
                     player.invasions_won += 1
+                    if planet.get("ancient"):
+                        game.ancient_winner = player.name
                 _use_action(game)
                 await _flush_eliminations(game)
-                if won and _check_vp_winner(game):
+                if won and (planet.get("ancient") or _check_vp_winner(game)):
                     game.phase = "ended"
                 state = game.public_state()
                 state["board"] = game.board
@@ -2372,7 +2385,12 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 atk_total = sum(atk_dice)
                 # Planet defense: 3 dice (2 if attacker has Government Lv3 Martial Command)
                 _si_gov = player.tech.get("government", [])
-                si_planet_def_dice = 2 if (len(_si_gov) > 2 and _si_gov[2]) else 3
+                if planet.get("ancient"):
+                    si_planet_def_dice = 10
+                elif len(_si_gov) > 2 and _si_gov[2]:
+                    si_planet_def_dice = 2
+                else:
+                    si_planet_def_dice = 3
                 planet_dice  = [random.randint(1, 6) for _ in range(si_planet_def_dice)]
                 planet_total = sum(planet_dice)
                 if atk_total > planet_total:
@@ -2419,9 +2437,11 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 game.pending_combat = None
                 if winner == "player":
                     player.invasions_won += 1
+                    if planet.get("ancient"):
+                        game.ancient_winner = player.name
                 _use_action(game)
                 await _flush_eliminations(game)
-                if winner == "player" and _check_vp_winner(game):
+                if winner == "player" and (planet.get("ancient") or _check_vp_winner(game)):
                     game.phase = "ended"
                 state = game.public_state()
                 state["board"] = game.board
