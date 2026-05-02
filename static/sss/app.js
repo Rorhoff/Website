@@ -1016,6 +1016,7 @@ function renderBoard(state, placementMode) {
         // In-system invasion: no wormhole routes → fire immediately
         if (_actionMode?.type === "invasion" && routes.length === 0) {
           send({ type: "invasion_attack", cluster: h.cluster });
+          showToast("Invading...", "#f59e0b");
           return;
         }
         _selectedCluster = h.cluster;
@@ -1433,7 +1434,8 @@ const RESOURCE_ICONS = {
 function renderFullPlayerCard(state) {
   const cardEl = $("board-card-view");
   const me = (state.players ?? []).find(p => p.name === myName);
-  if (!me || !me.race) { cardEl.innerHTML = `<strong>${myName}</strong>`; return; }
+  if (!me) { cardEl.innerHTML = `<strong>${myName}</strong>`; return; }
+  if (!me.race) { cardEl.innerHTML = `<strong>${me.name}</strong><p style="color:var(--muted);font-size:.8rem">No race assigned</p>`; return; }
 
   const resources = me.resources ?? {};
   const income    = me.income    ?? {};
@@ -1791,7 +1793,14 @@ function showActionPicker() {
       document.getElementById("action-picker").classList.add("hidden");
       if (action === "flight" || action === "invasion" || action === "attack") {
         _actionMode = { type: action };
-        if (_lastState) renderBoard(_lastState, false);
+        if (_lastState) {
+          renderBoard(_lastState, false);
+          if (action === "invasion") {
+            // Debug: count invasion sources after render
+            const src = document.querySelectorAll(".hex-selectable").length;
+            showToast(`Invasion: ${src} hex(es) available — tap a green cluster`, "#60a5fa");
+          }
+        }
       } else if (action === "build_ships") {
         showConstructionPicker("ships");
       } else if (action === "build_buildings") {
