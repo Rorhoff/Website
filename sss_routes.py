@@ -1933,8 +1933,13 @@ async def sss_ws(ws: WebSocket, game_code: str):
                     await ws.send_json({"type": "error", "msg": "Invalid hex"})
                     continue
                 target_hex = game.board[hex_id]
-                if target_hex["cluster"] != player_cluster or target_hex["local"] == 0:
-                    await ws.send_json({"type": "error", "msg": "Must build in your home system"})
+                player_owned_clusters = {player_cluster} | {
+                    h["cluster"] for h in game.board
+                    for p in h.get("pieces", [])
+                    if p["type"] == "empire_flag" and p["owner"] == player.name
+                }
+                if target_hex["cluster"] not in player_owned_clusters or target_hex["local"] == 0:
+                    await ws.send_json({"type": "error", "msg": "Must build in a system you own"})
                     continue
                 _building_types = set(_BUILDING_INCOME)
                 _spacecraft_types = {"cruise_ship", "frigate", "outpost", "super_ship", "battle_station", "death_star"}
@@ -2380,77 +2385,25 @@ async def sss_ws(ws: WebSocket, game_code: str):
                         continue
                 else:
                     attack_frigates = player_frigates
-                # Each attack ship contributes 1 die; Physics Lv3/5 add extra dice
-                num_dice = len(attack_frigates)
-                _inv_phys = player.tech.get("physics", [])
-                if len(_inv_phys) > 2 and _inv_phys[2]: num_dice += 1  # Lv3 Plasma Cannons
-                if len(_inv_phys) > 4 and _inv_phys[4]: num_dice += 1  # Lv5 Antimatter Weapons
-                _die = 15 if "plasma_forge" in player.tech_cards else 6
-                atk_dice = [random.randint(1, _die) for _ in range(num_dice)]
-                atk_total = sum(atk_dice)
-                _inv_gov = player.tech.get("government", [])
-                if planet.get("ancient"):
-                    planet_def_dice = 10
-                elif len(_inv_gov) > 2 and _inv_gov[2]:
-                    planet_def_dice = 2
-                else:
-                    planet_def_dice = 3  # Lv3 Martial Command
-                planet_dice = [random.randint(1, 6) for _ in range(planet_def_dice)]
-                planet_total = sum(planet_dice)
-                won = atk_total > planet_total  # planet wins ties
-                if won:
-                    # Note previous owner before modifying
-                    prev_owner = next(
-                        (p["owner"] for p in core_hex.get("pieces", []) if p["type"] == "empire_flag"),
-                        None,
-                    )
-                    # Plant flag
-                    core_hex["pieces"] = [p for p in core_hex.get("pieces", []) if p["type"] != "empire_flag"]
-                    core_hex["pieces"].append({"type": "empire_flag", "owner": player.name})
-                    game.ever_owned_planet.add(player.name)
-                    # Remove income from previous owner and strip their buildings
-                    if prev_owner and prev_owner != player.name:
-                        prev_p = game.players.get(prev_owner)
-                        if prev_p:
-                            for _k in ("food", "science", "tool", "money"):
-                                prev_p.income[_k] = max(0, prev_p.income.get(_k, 0) - planet.get(_k, 0))
-                            lost = _strip_buildings_from_cluster(game, cluster, prev_owner)
-                            for _k, _amt in lost.items():
-                                prev_p.income[_k] = max(0, prev_p.income.get(_k, 0) - _amt)
-                    # Grant income to attacker
-                    _reveal_dwarf_planet(planet)
-                    for _k in ("food", "science", "tool", "money"):
-                        player.income[_k] = player.income.get(_k, 0) + planet.get(_k, 0)
-                else:
-                    # Remove ALL attacker ships from the cluster
-                    for h in game.board:
-                        if h["cluster"] != cluster:
-                            continue
-                        h["pieces"] = [
-                            p for p in h["pieces"]
-                            if not (p["type"] in _MOBILE_SHIPS and p["owner"] == player.name)
-                        ]
-                if won:
-                    player.invasions_won += 1
-                    if planet.get("ancient"):
-                        game.ancient_winner = player.name
-                _use_action(game)
-                await _flush_eliminations(game)
-                if won and (planet.get("ancient") or _check_vp_winner(game)):
-                    game.phase = "ended"
+                # Store combat context and prompt player to pick a tech card before rolling
+                atk_count = len(attack_frigates)
+                game.pending_combat = {
+                    "type": "invasion",
+                    "attacker": player.name,
+                    "dest_cluster": cluster,
+                    "planet": planet,
+                    "atk_count": atk_count,
+                    "remove_all_on_loss": True,
+                }
                 state = game.public_state()
                 state["board"] = game.board
-                await game.broadcast({
-                    "type": "invasion_result",
-                    "attacker": player.name,
-                    "cluster": cluster,
-                    "atk_dice": atk_dice,
-                    "planet_dice": planet_dice,
-                    "atk_total": atk_total,
-                    "planet_total": planet_total,
-                    "won": won,
+                await game.broadcast({"type": "game_state", **state}, exclude=ws)
+                await ws.send_json({
+                    "type": "invasion_prompt",
+                    "dest_cluster": cluster,
                     "planet": planet,
-                    **({"game_over": _build_endgame_stats(game)} if game.phase == "ended" else {}),
+                    "atk_count": atk_count,
+                    "tech_cards": player.tech_cards,
                     **state,
                 })
 
@@ -2514,9 +2467,10 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 combat = game.pending_combat
                 dest_cluster = combat["dest_cluster"]
                 planet = combat["planet"]
-                # Attacker dice (+1 for nuclear_missile / death_spores / invasion_dice; Physics Lv3/5)
+                # Base dice = 1 per attacking ship; tech cards and Physics add extras
                 _si_die = 15 if "plasma_forge" in player.tech_cards else 6
-                atk_dice = [random.randint(1, _si_die), random.randint(1, _si_die)]
+                atk_count = combat.get("atk_count", 1)
+                atk_dice = [random.randint(1, _si_die) for _ in range(atk_count)]
                 if tech_card in ("nuclear_missile", "death_spores", "invasion_dice"):
                     atk_dice.append(random.randint(1, _si_die))
                 _si_phys = player.tech.get("physics", [])
@@ -2567,14 +2521,22 @@ async def sss_ws(ws: WebSocket, game_code: str):
                     game.ever_owned_planet.add(player.name)
                 else:
                     winner = "planet"
-                    # Remove attacker's ship from dest cluster
-                    for h in game.board:
-                        if h["cluster"] != dest_cluster:
-                            continue
-                        for i, p in enumerate(h["pieces"]):
-                            if p["type"] in _MOBILE_SHIPS and p["owner"] == player.name:
-                                h["pieces"].pop(i)
-                                break
+                    if combat.get("remove_all_on_loss"):
+                        # Direct invasion: remove all attacking ships from the cluster
+                        for h in game.board:
+                            if h["cluster"] != dest_cluster:
+                                continue
+                            h["pieces"] = [p for p in h["pieces"]
+                                           if not (p["type"] in _MOBILE_SHIPS and p["owner"] == player.name)]
+                    else:
+                        # Wormhole invasion: remove only the single ship that flew through
+                        for h in game.board:
+                            if h["cluster"] != dest_cluster:
+                                continue
+                            for i, p in enumerate(h["pieces"]):
+                                if p["type"] in _MOBILE_SHIPS and p["owner"] == player.name:
+                                    h["pieces"].pop(i)
+                                    break
                 game.pending_combat = None
                 if winner == "player":
                     player.invasions_won += 1
