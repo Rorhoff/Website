@@ -164,6 +164,7 @@ def _count_vp(game, player_name: str) -> int:
     return sum(
         1 for h in game.board
         if h["local"] == 0
+        and h.get("planet", {}).get("vp", 0) > 0
         and any(p["type"] == "empire_flag" and p["owner"] == player_name for p in h["pieces"])
     )
 
@@ -908,10 +909,33 @@ async def _resolve_dice_round(game: Game) -> None:
 
 # ── Placement advance helper ──────────────────────────────────────────────────
 
+_COLORED_CLUSTER_TYPES = {"yellow", "blue", "red", "green"}
+
+def _add_dwarf_planets(game: Game) -> None:
+    """Stamp a dwarf planet on every unclaimed colored cluster after setup."""
+    claimed = set(game.player_system.values())
+    for h in game.board:
+        if h.get("local") != 0:
+            continue
+        if h["cluster"] in claimed:
+            continue
+        if h["type"] not in _COLORED_CLUSTER_TYPES:
+            continue
+        res = random.choice(["food", "science", "tool", "money"])
+        h["planet"] = {
+            "vp": 0,
+            "unrest": 0,
+            "food": 0, "science": 0, "tool": 0, "money": 0,
+            res: random.randint(1, 2),
+            "dwarf": True,
+        }
+
+
 async def _advance_placement(game: Game) -> None:
     """Advance placement_idx; transition to draft if all players placed."""
     game.placement_idx += 1
     if game.placement_idx >= len(game.turn_order):
+        _add_dwarf_planets(game)
         _deal_draft(game)
         state = game.public_state()
         state["board"] = game.board

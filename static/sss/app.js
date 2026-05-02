@@ -1043,28 +1043,41 @@ function renderBoard(state, placementMode) {
     // Core hex: planet if claimed, otherwise cluster label
     if (h.local === 0) {
       const pColor = claimedColor[h.cluster];
-      if (h.planet && pColor) {
-        // Layered aura — outer → inner, increasing vibrance; pointer-events:none so
-        // clicks pass through to the hex tiles in the layer beneath
-        const a3 = mkEl("circle", { cx: h.x, cy: h.y, r: "42", fill: pColor, opacity: "0.08",
-          "pointer-events": "none" });
-        const a2 = mkEl("circle", { cx: h.x, cy: h.y, r: "34", fill: pColor, opacity: "0.20",
-          class: "planet-aura-pulse", "pointer-events": "none" });
-        const a1 = mkEl("circle", { cx: h.x, cy: h.y, r: "26", fill: pColor, opacity: "0.40",
-          "pointer-events": "none" });
-        [a3, a2, a1].forEach(a => pieceLayer.appendChild(a));
-        // Planet body — clickable to open detail modal
-        const pg = mkEl("circle", {
-          cx: h.x, cy: h.y, r: "16",
-          fill: pColor, opacity: "0.92",
-          stroke: "rgba(255,255,255,0.7)", "stroke-width": "1.5",
-          class: "planet-clickable",
-        });
+      const dwarfColor = h.planet?.dwarf ? (pColor ?? "#9ca3af") : null;
+      if (h.planet && (pColor || h.planet.dwarf)) {
+        const renderColor = pColor ?? dwarfColor;
         const _pd = h.planet, _pl = h.label;
-        const _openPlanet = (e) => { e.stopPropagation(); openPlanetModal(_pd, pColor, _pl); };
-        pg.addEventListener("click", _openPlanet);
-        pg.addEventListener("touchend", (e) => { e.preventDefault(); _openPlanet(e); });
-        pieceLayer.appendChild(pg);
+        const _openPlanet = (e) => { e.stopPropagation(); openPlanetModal(_pd, renderColor, _pl); };
+        if (h.planet.dwarf) {
+          // Dwarf planet — single dim ring + small dashed body
+          const ring = mkEl("circle", { cx: h.x, cy: h.y, r: "22", fill: "none",
+            stroke: renderColor, opacity: "0.35", "stroke-width": "1.5",
+            "stroke-dasharray": "4 3", "pointer-events": "none" });
+          pieceLayer.appendChild(ring);
+          const pg = mkEl("circle", { cx: h.x, cy: h.y, r: "9",
+            fill: renderColor, opacity: "0.70",
+            stroke: "rgba(255,255,255,0.45)", "stroke-width": "1",
+            "stroke-dasharray": "3 2", class: "planet-clickable" });
+          pg.addEventListener("click", _openPlanet);
+          pg.addEventListener("touchend", (e) => { e.preventDefault(); _openPlanet(e); });
+          pieceLayer.appendChild(pg);
+        } else {
+          // Full planet — layered aura + large body
+          const a3 = mkEl("circle", { cx: h.x, cy: h.y, r: "42", fill: renderColor, opacity: "0.08",
+            "pointer-events": "none" });
+          const a2 = mkEl("circle", { cx: h.x, cy: h.y, r: "34", fill: renderColor, opacity: "0.20",
+            class: "planet-aura-pulse", "pointer-events": "none" });
+          const a1 = mkEl("circle", { cx: h.x, cy: h.y, r: "26", fill: renderColor, opacity: "0.40",
+            "pointer-events": "none" });
+          [a3, a2, a1].forEach(a => pieceLayer.appendChild(a));
+          const pg = mkEl("circle", { cx: h.x, cy: h.y, r: "16",
+            fill: renderColor, opacity: "0.92",
+            stroke: "rgba(255,255,255,0.7)", "stroke-width": "1.5",
+            class: "planet-clickable" });
+          pg.addEventListener("click", _openPlanet);
+          pg.addEventListener("touchend", (e) => { e.preventDefault(); _openPlanet(e); });
+          pieceLayer.appendChild(pg);
+        }
       } else if (h.label) {
         const lbl = mkEl("text", {
           x: h.x, y: h.y + 4,
@@ -2181,23 +2194,23 @@ function _planetSvg(color) {
 }
 
 function openPlanetModal(planet, color, label) {
-  $("planet-modal-title").textContent = `System ${label}`;
+  $("planet-modal-title").textContent = planet.dwarf ? `Dwarf Planet — ${label}` : `System ${label}`;
 
   const display = $("planet-display");
   display.style.setProperty("--pc", color);
 
-  // Replace planet-body content with rich SVG
   const body = $("planet-body");
   body.innerHTML = _planetSvg(color);
   body.style.boxShadow = `0 0 28px ${color}, 0 0 8px rgba(0,0,0,0.6)`;
 
   const STAT_ROWS = [
-    { icon: "icons/vp.svg",       label: "Victory Point", value: "+1" },
-    { icon: "icons/unrest.svg",   label: "Unrest",        value: planet.unrest },
-    { icon: "icons/food.svg",     label: "Food",          value: `+${planet.food}` },
-    { icon: "icons/research.svg", label: "Science",       value: `+${planet.science}` },
-    { icon: "icons/tool.svg",     label: "Tool",          value: `+${planet.tool}` },
-  ];
+    !planet.dwarf && { icon: "icons/vp.svg",       label: "Victory Point", value: "+1" },
+    planet.unrest   && { icon: "icons/unrest.svg",   label: "Unrest",        value: planet.unrest },
+    planet.food     && { icon: "icons/food.svg",     label: "Food",          value: `+${planet.food}` },
+    planet.science  && { icon: "icons/research.svg", label: "Science",       value: `+${planet.science}` },
+    planet.tool     && { icon: "icons/tool.svg",     label: "Tool",          value: `+${planet.tool}` },
+    planet.money    && { icon: "icons/money.svg",    label: "Money",         value: `+${planet.money}` },
+  ].filter(Boolean);
   $("planet-stat-list").innerHTML = STAT_ROWS.map(r => `
     <div class="planet-stat-row">
       <img class="planet-stat-icon" src="${r.icon}" alt="${r.label}">
