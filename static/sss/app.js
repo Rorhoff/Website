@@ -1016,7 +1016,6 @@ function renderBoard(state, placementMode) {
         // In-system invasion: no wormhole routes → fire immediately
         if (_actionMode?.type === "invasion" && routes.length === 0) {
           send({ type: "invasion_attack", cluster: h.cluster });
-          showToast("Invading...", "#f59e0b");
           return;
         }
         _selectedCluster = h.cluster;
@@ -1796,9 +1795,12 @@ function showActionPicker() {
         if (_lastState) {
           renderBoard(_lastState, false);
           if (action === "invasion") {
-            // Debug: count invasion sources after render
             const src = document.querySelectorAll(".hex-selectable").length;
-            showToast(`Invasion: ${src} hex(es) available — tap a green cluster`, "#60a5fa");
+            if (src === 0) {
+              showToast("No valid invasion targets — fly your ships adjacent to an enemy planet first", "#f87171");
+            } else {
+              showToast(`${src / 7 | 0} system(s) ready to invade — tap a highlighted cluster`, "#4ade80");
+            }
           }
         }
       } else if (action === "build_ships") {
