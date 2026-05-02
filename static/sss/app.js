@@ -583,6 +583,7 @@ function drawBoardPieces(pieceLayer, hexes, players) {
   };
 
   for (const h of hexes) {
+    if (h.fog) continue;  // fogged hex — no pieces rendered
     if (!h.pieces || h.pieces.length === 0) continue;
     const frigates  = h.pieces.filter(p => p.type === "frigate");
     const buildings = h.pieces.filter(p => BUILDING_TYPES.has(p.type));
@@ -935,6 +936,11 @@ function renderBoard(state, placementMode) {
     }
 
     let cls = `hex-poly hex-${h.type}`;
+    if (h.fog) {
+      poly.setAttribute("class", cls + " hex-fog");
+      hexLayer.appendChild(poly);
+      continue;
+    }
     if (h.tri) cls += " hex-tri";
     if (validTarget) cls += " hex-placeable";
 
@@ -1039,6 +1045,9 @@ function renderBoard(state, placementMode) {
     }
 
     hexLayer.appendChild(poly);
+
+    // Fog overlay — hide everything except the hex shape itself
+    if (h.fog) continue;
 
     // Core hex: planet if claimed, otherwise cluster label
     if (h.local === 0) {
@@ -1831,6 +1840,8 @@ function showActionPicker() {
         send({ type: "research_skill", column: "engineering" });
       } else if (action === "construction") {
         showConstructionPicker();
+      } else if (action === "exploration") {
+        showExplorationPicker();
       }
     });
   });
@@ -1927,6 +1938,65 @@ function showConstructionPicker(filter = "all") {
       }
     });
   });
+}
+
+// ── Exploration picker ─────────────────────────────────────────────────────
+
+function showExplorationPicker() {
+  const board  = boardCache ?? [];
+  const hasFog = board.some(h => h.fog);
+  if (!hasFog) {
+    showBoardToast("Fog of war is disabled — exploration is not available.");
+    return;
+  }
+
+  // Find fogged clusters reachable via wormhole from a visible hex
+  const reachable = new Map(); // cluster → label
+  for (const h of board) {
+    if (h.fog || !h.wormhole) continue;
+    const pid = h.wormhole_partner;
+    if (pid == null) continue;
+    const partner = board[pid];
+    if (!partner || !partner.fog) continue;
+    const label = board.find(x => x.cluster === partner.cluster && x.local === 0)?.label ?? partner.cluster;
+    reachable.set(partner.cluster, `Core ${label}`);
+  }
+
+  if (reachable.size === 0) {
+    showBoardToast("No unexplored systems reachable from your position.");
+    return;
+  }
+
+  let el = document.getElementById("exploration-picker");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "exploration-picker";
+    el.className = "action-picker-overlay hidden";
+    el.innerHTML = `
+      <div class="action-picker-modal">
+        <button class="action-picker-close" id="btn-ep-close">✕</button>
+        <div class="action-picker-title">Explore a System</div>
+        <p class="hint" style="margin:.25rem 0 .6rem;font-size:.8rem">Reveals the system until your turn ends.</p>
+        <div class="action-pick-list" id="exploration-pick-list"></div>
+      </div>`;
+    document.body.appendChild(el);
+    el.addEventListener("click", e => { if (e.target === el) el.classList.add("hidden"); });
+    document.getElementById("btn-ep-close").addEventListener("click", () => el.classList.add("hidden"));
+  }
+
+  const list = document.getElementById("exploration-pick-list");
+  list.innerHTML = [...reachable.entries()].map(([cluster, label]) =>
+    `<div class="action-pick-row" data-cluster="${cluster}">${label}</div>`
+  ).join("");
+
+  list.querySelectorAll(".action-pick-row").forEach(row => {
+    row.addEventListener("click", () => {
+      el.classList.add("hidden");
+      send({ type: "exploration", cluster: parseInt(row.dataset.cluster) });
+    });
+  });
+
+  el.classList.remove("hidden");
 }
 
 // ── Combat modal ───────────────────────────────────────────────────────────

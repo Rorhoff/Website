@@ -132,7 +132,7 @@ h1 { font-size: 2rem; font-weight: 700; color: var(--accent); text-align: center
 /* ── Player HUD — fixed to viewport top-left (stays put while map pans) ── */
 .player-hud {
   position: fixed;
-  top: 56px;
+  top: 70px;
   left: 8px;
   z-index: 50;
   background: rgba(8, 12, 20, 0.92);
@@ -552,6 +552,10 @@ h1 { font-size: 2rem; font-weight: 700; color: var(--accent); text-align: center
 /* selectable source: green-ish pulse — player's frigate cluster */
 .hex-selectable { fill: rgba(74,222,128,0.22) !important; stroke: #4ade80 !important; stroke-width: 1.5 !important; cursor: pointer !important; }
 .hex-planet-target { fill: rgba(251,146,60,0.18) !important; stroke: #fb923c !important; stroke-width: 1.5 !important; }
+/* Fog of war */
+.hex-fog { fill: #050810 !important; stroke: #0e1828 !important; stroke-width: 0.5 !important; opacity: 0.88 !important; cursor: default !important; pointer-events: none !important; }
+.hex-fog-explore { fill: rgba(56,189,248,0.10) !important; stroke: #38bdf8 !important; stroke-width: 1.2 !important; cursor: pointer !important; opacity: 0.9 !important; }
+.hex-fog-explore:hover { fill: rgba(56,189,248,0.22) !important; }
 /* selected source */
 .hex-selected   { fill: rgba(74,222,128,0.45) !important; stroke: #4ade80 !important; stroke-width: 2   !important; cursor: pointer !important; }
 /* reachable destination */

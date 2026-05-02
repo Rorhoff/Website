@@ -25,6 +25,10 @@ RACES = {
 
 _AI_NAMES = ["Nova", "Orion", "Lyra", "Zeta", "Vega"]
 
+# ── Fog of war toggle ─────────────────────────────────────────────────────────
+# Set to True for real games; False keeps fog disabled (all board visible) for testing.
+FOG_OF_WAR = False
+
 # Ship types that can fly, attack, and invade (vs static structures like outpost/battle_station)
 _MOBILE_SHIPS = frozenset({"frigate", "cruise_ship", "super_ship", "death_star"})
 
@@ -619,6 +623,7 @@ def _advance_turn(game) -> None:
     """Apply income for the current player then advance the turn index."""
     if game.turn_order:
         name = game.turn_order[game.turn_idx % len(game.turn_order)]
+        game.explorations.pop(name, None)  # clear exploration reveals when turn ends
         p = game.players.get(name)
         if p:
             _apply_turn_income(game, p)
@@ -731,6 +736,7 @@ class Game:
     ever_owned_planet: set = field(default_factory=set)
     ancient_winner: str | None = None
     ai_task: Any = None
+    explorations: dict = field(default_factory=dict)  # player_name → set of cluster IDs revealed this turn
 
     def public_state(self) -> dict:
         in_board = self.phase in ("place_pieces", "draft", "board")
@@ -781,14 +787,70 @@ class Game:
             "actions_remaining": self.turn_actions_remaining,
         }
 
+    def _visible_clusters(self, player_name: str) -> set:
+        """Clusters fully visible to player: own systems + explorations + wormhole-adjacent."""
+        visible: set = set()
+        home = self.player_system.get(player_name)
+        if home is not None:
+            visible.add(home)
+        for h in self.board:
+            if h.get("local") == 0 and any(
+                p["type"] == "empire_flag" and p["owner"] == player_name
+                for p in h.get("pieces", [])
+            ):
+                visible.add(h["cluster"])
+        visible.update(self.explorations.get(player_name, set()))
+        # Wormhole-adjacent clusters are also revealed (terrain + ships)
+        adj: set = set()
+        for h in self.board:
+            if h.get("wormhole") and h["cluster"] in visible:
+                pid = h.get("wormhole_partner")
+                if pid is not None:
+                    adj.add(self.board[pid]["cluster"])
+        visible.update(adj)
+        return visible
+
+    def _fog_board(self, player_name: str) -> list:
+        """Return board filtered for this player; non-visible clusters are fogged."""
+        if not FOG_OF_WAR:
+            return self.board
+        visible = self._visible_clusters(player_name)
+        result = []
+        for h in self.board:
+            if h["cluster"] in visible:
+                result.append(h)
+            else:
+                result.append({
+                    "id": h["id"], "cluster": h["cluster"], "local": h["local"],
+                    "type": h["type"], "x": h["x"], "y": h["y"],
+                    "label": h.get("label"), "tri": h.get("tri", False),
+                    "wormhole": h.get("wormhole", False),
+                    "wormhole_partner": h.get("wormhole_partner"),
+                    "pieces": [], "fog": True,
+                })
+        return result
+
     async def broadcast(self, msg: dict, exclude: WebSocket | None = None) -> None:
         self._seq += 1
         msg = {**msg, "seq": self._seq}
-        targets = list(self.players.values()) + self.watchers
-        await asyncio.gather(
-            *(p.ws.send_json(msg) for p in targets if p.ws is not None and p.ws is not exclude),
-            return_exceptions=True,
-        )
+        if not FOG_OF_WAR or "board" not in msg:
+            targets = list(self.players.values()) + self.watchers
+            await asyncio.gather(
+                *(p.ws.send_json(msg) for p in targets if p.ws is not None and p.ws is not exclude),
+                return_exceptions=True,
+            )
+            return
+        # Personalized board per player; watchers see everything
+        tasks = []
+        for p in self.players.values():
+            if p.ws is None or p.ws is exclude:
+                continue
+            tasks.append(p.ws.send_json({**msg, "board": self._fog_board(p.name)}))
+        for w in self.watchers:
+            if w.ws is None or w.ws is exclude:
+                continue
+            tasks.append(w.ws.send_json(msg))
+        await asyncio.gather(*tasks, return_exceptions=True)
 
     async def send_to(self, name: str, msg: dict) -> None:
         p = self.players.get(name)
@@ -1738,6 +1800,40 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 if player.name != current:
                     continue
                 _advance_turn(game)
+                state = game.public_state()
+                state["board"] = game.board
+                await game.broadcast({"type": "game_state", **state})
+
+            # ── exploration ───────────────────────────────────────────────────
+            elif kind == "exploration":
+                if not game or not player:
+                    continue
+                if game.phase != "board" or not game.turn_order:
+                    continue
+                current = game.turn_order[game.turn_idx % len(game.turn_order)]
+                if player.name != current:
+                    continue
+                if not FOG_OF_WAR:
+                    await ws.send_json({"type": "error", "msg": "Fog of war is disabled"})
+                    continue
+                target_cluster = raw.get("cluster")
+                if target_cluster is None:
+                    continue
+                visible = game._visible_clusters(player.name)
+                # Must be wormhole-adjacent to a visible cluster but not already visible
+                reachable = set()
+                for h in game.board:
+                    if h.get("wormhole") and h["cluster"] in visible:
+                        pid = h.get("wormhole_partner")
+                        if pid is not None:
+                            adj = game.board[pid]["cluster"]
+                            if adj not in visible:
+                                reachable.add(adj)
+                if target_cluster not in reachable:
+                    await ws.send_json({"type": "error", "msg": "Cannot explore that system"})
+                    continue
+                game.explorations.setdefault(player.name, set()).add(target_cluster)
+                _use_action(game)
                 state = game.public_state()
                 state["board"] = game.board
                 await game.broadcast({"type": "game_state", **state})
