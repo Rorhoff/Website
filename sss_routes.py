@@ -2101,7 +2101,7 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 if not atk_frigates:
                     await ws.send_json({"type": "error", "msg": "No attack-capable ships in that system."})
                     continue
-                atk_frigate_count = 1  # frigates always attack with 1d6 regardless of count
+                atk_frigate_count = len(atk_frigates)
                 connected = any(
                     game.board[h["wormhole_partner"]]["cluster"] == dest_cluster
                     for h in game.board
@@ -2381,8 +2381,8 @@ async def sss_ws(ws: WebSocket, game_code: str):
                         continue
                 else:
                     attack_frigates = player_frigates
-                # Frigates always roll 1d6 regardless of count; Physics Lv3/5 add extra dice
-                num_dice = 1
+                # Each attack ship contributes 1 die; Physics Lv3/5 add extra dice
+                num_dice = len(attack_frigates)
                 _inv_phys = player.tech.get("physics", [])
                 if len(_inv_phys) > 2 and _inv_phys[2]: num_dice += 1  # Lv3 Plasma Cannons
                 if len(_inv_phys) > 4 and _inv_phys[4]: num_dice += 1  # Lv5 Antimatter Weapons
@@ -2635,6 +2635,7 @@ async def sss_ws(ws: WebSocket, game_code: str):
                     continue
                 card = random.choice(TECH_CARDS)
                 player.tech_cards.append(card["id"])
+                await game.send_to(player.name, {"type": "bonus_tech_drawn", "cards": [card]})
                 _use_action(game)
                 await _flush_eliminations(game)
                 state = game.public_state()

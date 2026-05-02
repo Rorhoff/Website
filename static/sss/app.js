@@ -43,8 +43,9 @@ let _connectingErrId = null;
 let _lastStateSeq = -1;  // monotonic seq; reject any state with seq <= this
 let _boardPhaseOpened = false;
 let _prevBoardState  = null;  // last board snapshot for opponent move detection
-let _pendingShipMoves = [];   // [{fromX,fromY,toX,toY,color}] queued for animation
-let _animOldBoard    = null;  // board snapshot to display during ship animation
+let _animRunning      = false;  // true while a ship animation batch is in progress
+let _animQueue        = [];     // {moves, oldBoard, state}[] — sequential animation batches
+let _animLatestState  = null;   // most recent state received while animation was running
 let _actionMode      = null;  // { type: "flight"|"invasion"|"attack"|"construction" }
 let _selectedCluster = null;  // cluster index of selected source, or null
 let _selectedRoutes  = [];    // routes from _selectedCluster
@@ -62,6 +63,7 @@ function resetToLanding() {
   boardCache = null; _lastState = null;
   _actionMode = null; _selectedCluster = null; _selectedRoutes = [];
   _constructionPiece = null; _boardPhaseOpened = false; _lastStateSeq = -1;
+  _animRunning = false; _animQueue = []; _animLatestState = null;
   showScreen("screen-landing");
   setWsStatus(false);
 }
@@ -375,12 +377,13 @@ function applyState(state) {
           _boardPhaseOpened = true;
           initBoardPan.resetView?.();
         }
-        if (_pendingShipMoves.length > 0 && _animOldBoard) {
-          const moves = _pendingShipMoves.splice(0);
-          const oldBoard = _animOldBoard;
-          _animOldBoard = null;
-          renderBoard({ ...state, board: oldBoard }, false);
-          runShipAnimations(moves, () => renderBoard(state, false));
+        // Fill state into any queued animation batch that just arrived
+        for (const q of _animQueue) { if (q.state === null) q.state = state; }
+
+        if (_animRunning) {
+          _animLatestState = state;  // animation in progress — remember latest state
+        } else if (_animQueue.length > 0) {
+          _drainAnimQueue();
         } else {
           renderBoard(state, false);
         }
@@ -2364,8 +2367,7 @@ function detectOpponentMoves(newBoard, state) {
     }
   }
   if (moves.length > 0) {
-    _animOldBoard = _prevBoardState;
-    _pendingShipMoves.push(...moves);
+    _animQueue.push({ moves, oldBoard: _prevBoardState, state: null });
   }
 
   const clusterLabel = {};
@@ -2414,6 +2416,27 @@ function detectOpponentMoves(newBoard, state) {
   }
 
   _prevBoardState = newBoard;
+}
+
+function _drainAnimQueue() {
+  if (_animQueue.length === 0) {
+    _animRunning = false;
+    return;
+  }
+  const item = _animQueue.shift();
+  if (!item.state) { _drainAnimQueue(); return; }
+  _animRunning = true;
+  renderBoard({ ...item.state, board: item.oldBoard }, false);
+  runShipAnimations(item.moves, () => {
+    if (_animQueue.length > 0) {
+      _drainAnimQueue();
+    } else {
+      _animRunning = false;
+      const finalState = _animLatestState ?? item.state;
+      _animLatestState = null;
+      renderBoard(finalState, false);
+    }
+  });
 }
 
 function runShipAnimations(moves, onComplete) {
