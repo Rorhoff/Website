@@ -839,7 +839,7 @@ function renderBoard(state, placementMode) {
       // Phase 1: highlight all valid source clusters
       for (const cluster of invasionSourceClusters) {
         actionSourceClusters.add(cluster);
-        actionRoutesMap[cluster] = [];  // in-system: no wormhole routes
+        actionRoutesMap[cluster] = [];  // in-system: clicking source fires invasion_attack immediately
       }
       // Also allow wormhole-based invasion from player's own clusters
       for (const h of hexes) {
@@ -852,14 +852,9 @@ function renderBoard(state, placementMode) {
         }
       }
     } else {
-      // Phase 2: source cluster selected — show the target
+      // Phase 2: wormhole invasion only — show destination orbital targets
       actionSourceClusters.add(_selectedCluster);
-      if (invasionSourceClusters.has(_selectedCluster)) {
-        // In-system: planet core hex becomes the clickable target (handled by isInvasionPlanetTarget below)
-      } else {
-        // Wormhole invasion: destination orbital hexes
-        for (const r of _selectedRoutes) actionTargetClusters.add(r.dest_cluster);
-      }
+      for (const r of _selectedRoutes) actionTargetClusters.add(r.dest_cluster);
     }
   } else if (isActionTurn) {
     if (_selectedCluster === null) {
@@ -939,10 +934,6 @@ function renderBoard(state, placementMode) {
     const isSource  = isActionTurn && actionSourceClusters.has(h.cluster);
     const isTarget  = isActionTurn && actionTargetClusters.has(h.cluster) && h.type === "orbital";
     const isSelected = isActionTurn && _selectedCluster !== null && h.cluster === _selectedCluster;
-    // In-system invasion step 2: the planet core hex in the selected cluster
-    const isInvasionPlanetTarget = isActionTurn && _actionMode?.type === "invasion"
-      && _selectedCluster !== null && invasionSourceClusters.has(_selectedCluster)
-      && h.cluster === _selectedCluster && h.local === 0;
     // Intra-cluster reposition: orbital in the selected cluster with room for a ship
     const isIntraTarget = isActionTurn && _actionMode?.type === "flight"
       && _selectedCluster !== null && h.cluster === _selectedCluster
@@ -954,7 +945,7 @@ function renderBoard(state, placementMode) {
       && (h.pieces ?? []).some(p => MOBILE_SHIPS.has(p.type) && p.owner !== myName);
     if (isSelected) cls += " hex-selected";
     else if (isSource) cls += " hex-selectable";
-    if (isTarget || isInvasionPlanetTarget || isIntraTarget) cls += " hex-flight-target";
+    if (isTarget || isIntraTarget) cls += " hex-flight-target";
     if (isAttackHexTarget) cls += " hex-attack-target";
     if (validConstructTarget) cls += " hex-construct-target";
 
@@ -1018,18 +1009,17 @@ function renderBoard(state, placementMode) {
         _selectedCluster = null; _selectedRoutes = [];
         send({ type: "intra_move", cluster, target_hex_id: h.id });
       });
-    } else if (isInvasionPlanetTarget) {
-      poly.style.cursor = "pointer";
-      _hexHandlers.set(h.id, () => {
-        const cluster = _selectedCluster;
-        _selectedCluster = null; _selectedRoutes = [];
-        send({ type: "invasion_attack", cluster });
-      });
     } else if (isSource && _selectedCluster === null) {
       poly.style.cursor = "pointer";
       _hexHandlers.set(h.id, () => {
+        const routes = actionRoutesMap[h.cluster] ?? [];
+        // In-system invasion: no wormhole routes → fire immediately
+        if (_actionMode?.type === "invasion" && routes.length === 0) {
+          send({ type: "invasion_attack", cluster: h.cluster });
+          return;
+        }
         _selectedCluster = h.cluster;
-        _selectedRoutes  = actionRoutesMap[h.cluster] ?? [];
+        _selectedRoutes  = routes;
         if (_lastState) renderBoard(_lastState, false);
       });
     } else if (isSelected) {

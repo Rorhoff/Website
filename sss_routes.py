@@ -2110,15 +2110,6 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 if not core_hex or not core_hex.get("planet"):
                     await ws.send_json({"type": "error", "msg": "No planet to invade there"})
                     continue
-                # Require no enemy ships in destination — defeat them first
-                enemy_present = any(
-                    p["type"] in _MOBILE_SHIPS and p["owner"] != player.name
-                    for h in game.board if h["cluster"] == dest_cluster
-                    for p in h["pieces"]
-                )
-                if enemy_present:
-                    await ws.send_json({"type": "error", "msg": "Enemy ships present — defeat them before invading"})
-                    continue
                 # Find and move a ship from from_hex's cluster
                 from_cluster = from_hex["cluster"]
                 req_id = raw.get("target_hex_id")
@@ -2194,15 +2185,6 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 ]
                 if not player_frigates:
                     await ws.send_json({"type": "error", "msg": "No ships in that cluster"})
-                    continue
-                # Require no enemy ships — defeat them first
-                enemy_present = any(
-                    p["type"] in _MOBILE_SHIPS and p["owner"] != player.name
-                    for h in game.board if h["cluster"] == cluster
-                    for p in h["pieces"]
-                )
-                if enemy_present:
-                    await ws.send_json({"type": "error", "msg": "Enemy ships present — defeat them before invading"})
                     continue
                 # Verify player doesn't own it
                 already_owns = (
