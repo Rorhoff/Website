@@ -25,6 +25,9 @@ RACES = {
 
 _AI_NAMES = ["Nova", "Orion", "Lyra", "Zeta", "Vega"]
 
+# Ship types that can fly, attack, and invade (vs static structures like outpost/battle_station)
+_MOBILE_SHIPS = frozenset({"frigate", "cruise_ship", "super_ship", "death_star"})
+
 _PLAYER_COLORS = [
     "#e74c3c",  # Red
     "#3b82f6",  # Blue
@@ -1629,8 +1632,8 @@ async def sss_ws(ws: WebSocket, game_code: str):
                     if h["type"] != "orbital":
                         await ws.send_json({"type": "error", "msg": "Frigates must be placed on frigate tiles (orbital hexes)"})
                         continue
-                    if sum(1 for p in h["pieces"] if p["type"] == "frigate") >= 3:
-                        await ws.send_json({"type": "error", "msg": "That frigate tile is full (max 3)"})
+                    if sum(1 for p in h["pieces"] if p["type"] in _MOBILE_SHIPS) >= 3:
+                        await ws.send_json({"type": "error", "msg": "That tile is full (max 3 ships)"})
                         continue
                     h["pieces"].append({"type": "frigate", "owner": player.name})
                     player.pieces["frigate"] = player.pieces.get("frigate", 1) - 1
@@ -1823,7 +1826,7 @@ async def sss_ws(ws: WebSocket, game_code: str):
                     player_clusters: set = set()
                     for h in game.board:
                         for p in h["pieces"]:
-                            if p["type"] == "frigate" and p["owner"] == player.name:
+                            if p["type"] in _MOBILE_SHIPS and p["owner"] == player.name:
                                 player_clusters.add(h["cluster"])
                     reachable: set = set()
                     routes: dict = {}
@@ -1880,29 +1883,29 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 if req_id is not None and 0 <= req_id < len(game.board):
                     rh = game.board[req_id]
                     if (rh["cluster"] == dest_cluster and rh["type"] == "orbital"
-                            and sum(1 for p in rh["pieces"] if p["type"] == "frigate") < 3):
+                            and sum(1 for p in rh["pieces"] if p["type"] in _MOBILE_SHIPS) < 3):
                         landing_hex = rh
                 if landing_hex is None:
                     landing_hex = next(
                         (h for h in game.board
                          if h["cluster"] == dest_cluster and h["type"] == "orbital"
-                         and sum(1 for p in h["pieces"] if p["type"] == "frigate") < 3),
+                         and sum(1 for p in h["pieces"] if p["type"] in _MOBILE_SHIPS) < 3),
                         None)
                 if landing_hex is None:
-                    await ws.send_json({"type": "error", "msg": "No available frigate tiles in that system"})
+                    await ws.send_json({"type": "error", "msg": "No available ship tiles in that system"})
                     continue
                 moved_piece = None
                 for h in game.board:
                     if h["cluster"] != from_cluster:
                         continue
                     for i, p in enumerate(h["pieces"]):
-                        if p["type"] == "frigate" and p["owner"] == player.name:
+                        if p["type"] in _MOBILE_SHIPS and p["owner"] == player.name:
                             moved_piece = h["pieces"].pop(i)
                             break
                     if moved_piece:
                         break
                 if not moved_piece:
-                    await ws.send_json({"type": "error", "msg": "No frigate to move"})
+                    await ws.send_json({"type": "error", "msg": "No ship to move"})
                     continue
                 landing_hex["pieces"].append(moved_piece)
                 game.pending_combat = None
@@ -1933,10 +1936,10 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 atk_frigates = [
                     p for h in game.board if h["cluster"] == from_cluster
                     for p in h.get("pieces", [])
-                    if p["type"] == "frigate" and p["owner"] == player.name
+                    if p["type"] in _MOBILE_SHIPS and p["owner"] == player.name
                 ]
                 if not atk_frigates:
-                    await ws.send_json({"type": "error", "msg": "No frigates in that system."})
+                    await ws.send_json({"type": "error", "msg": "No ships in that system."})
                     continue
                 atk_frigate_count = len(atk_frigates)
                 connected = any(
@@ -1950,10 +1953,10 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 target_hex = game.board[target_hex_id]
                 def_frigates_on_hex = [
                     p for p in target_hex.get("pieces", [])
-                    if p["type"] == "frigate" and p["owner"] != player.name
+                    if p["type"] in _MOBILE_SHIPS and p["owner"] != player.name
                 ]
                 if not def_frigates_on_hex:
-                    await ws.send_json({"type": "error", "msg": "No enemy frigates on that hex."})
+                    await ws.send_json({"type": "error", "msg": "No enemy ships on that hex."})
                     continue
                 def_frigate_count = len(def_frigates_on_hex)
                 defender_name = def_frigates_on_hex[0]["owner"]
@@ -2049,7 +2052,7 @@ async def sss_ws(ws: WebSocket, game_code: str):
                     if attacker_won:
                         t_hex = game.board[combat["target_hex_id"]]
                         for i, p in enumerate(t_hex["pieces"]):
-                            if p["type"] == "frigate" and p["owner"] == defender_name:
+                            if p["type"] in _MOBILE_SHIPS and p["owner"] == defender_name:
                                 t_hex["pieces"].pop(i)
                                 break
                     else:
@@ -2057,7 +2060,7 @@ async def sss_ws(ws: WebSocket, game_code: str):
                             if h["cluster"] != from_cluster:
                                 continue
                             for i, p in enumerate(h["pieces"]):
-                                if p["type"] == "frigate" and p["owner"] == attacker_name:
+                                if p["type"] in _MOBILE_SHIPS and p["owner"] == attacker_name:
                                     h["pieces"].pop(i)
                                     break
                             else:
@@ -2109,43 +2112,43 @@ async def sss_ws(ws: WebSocket, game_code: str):
                     continue
                 # Require no enemy ships in destination — defeat them first
                 enemy_present = any(
-                    p["type"] == "frigate" and p["owner"] != player.name
+                    p["type"] in _MOBILE_SHIPS and p["owner"] != player.name
                     for h in game.board if h["cluster"] == dest_cluster
                     for p in h["pieces"]
                 )
                 if enemy_present:
                     await ws.send_json({"type": "error", "msg": "Enemy ships present — defeat them before invading"})
                     continue
-                # Find and move a frigate from from_hex's cluster
+                # Find and move a ship from from_hex's cluster
                 from_cluster = from_hex["cluster"]
                 req_id = raw.get("target_hex_id")
                 landing_hex = None
                 if req_id is not None and 0 <= req_id < len(game.board):
                     rh = game.board[req_id]
                     if (rh["cluster"] == dest_cluster and rh["type"] == "orbital"
-                            and sum(1 for p in rh["pieces"] if p["type"] == "frigate") < 3):
+                            and sum(1 for p in rh["pieces"] if p["type"] in _MOBILE_SHIPS) < 3):
                         landing_hex = rh
                 if landing_hex is None:
                     landing_hex = next(
                         (h for h in game.board
                          if h["cluster"] == dest_cluster and h["type"] == "orbital"
-                         and sum(1 for p in h["pieces"] if p["type"] == "frigate") < 3),
+                         and sum(1 for p in h["pieces"] if p["type"] in _MOBILE_SHIPS) < 3),
                         None)
                 if landing_hex is None:
-                    await ws.send_json({"type": "error", "msg": "No available frigate tiles in that system"})
+                    await ws.send_json({"type": "error", "msg": "No available ship tiles in that system"})
                     continue
                 moved_piece = None
                 for h in game.board:
                     if h["cluster"] != from_cluster:
                         continue
                     for i, p in enumerate(h["pieces"]):
-                        if p["type"] == "frigate" and p["owner"] == player.name:
+                        if p["type"] in _MOBILE_SHIPS and p["owner"] == player.name:
                             moved_piece = h["pieces"].pop(i)
                             break
                     if moved_piece:
                         break
                 if not moved_piece:
-                    await ws.send_json({"type": "error", "msg": "No frigate to move"})
+                    await ws.send_json({"type": "error", "msg": "No ship to move"})
                     continue
                 landing_hex["pieces"].append(moved_piece)
                 game.pending_combat = {
@@ -2184,17 +2187,17 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 if not core_hex or not core_hex.get("planet"):
                     await ws.send_json({"type": "error", "msg": "No planet at that cluster"})
                     continue
-                # Verify player has frigates there
+                # Verify player has ships there
                 player_frigates = [
                     p for h in game.board if h["cluster"] == cluster
-                    for p in h["pieces"] if p["type"] == "frigate" and p["owner"] == player.name
+                    for p in h["pieces"] if p["type"] in _MOBILE_SHIPS and p["owner"] == player.name
                 ]
                 if not player_frigates:
-                    await ws.send_json({"type": "error", "msg": "No frigates in that cluster"})
+                    await ws.send_json({"type": "error", "msg": "No ships in that cluster"})
                     continue
                 # Require no enemy ships — defeat them first
                 enemy_present = any(
-                    p["type"] == "frigate" and p["owner"] != player.name
+                    p["type"] in _MOBILE_SHIPS and p["owner"] != player.name
                     for h in game.board if h["cluster"] == cluster
                     for p in h["pieces"]
                 )
@@ -2211,7 +2214,7 @@ async def sss_ws(ws: WebSocket, game_code: str):
                     await ws.send_json({"type": "error", "msg": "You already own this cluster"})
                     continue
                 planet = core_hex["planet"]
-                # Count attacking frigates: if source_hex_id provided, use only frigates on that hex
+                # Count attacking ships: if source_hex_id provided, use only ships on that hex
                 source_hex_id = raw.get("source_hex_id")
                 if source_hex_id is not None:
                     source_hex = next(
@@ -2222,13 +2225,13 @@ async def sss_ws(ws: WebSocket, game_code: str):
                     if source_hex is None:
                         await ws.send_json({"type": "error", "msg": "Invalid source hex"})
                         continue
-                    attack_frigates = [p for p in source_hex["pieces"] if p["type"] == "frigate" and p["owner"] == player.name]
+                    attack_frigates = [p for p in source_hex["pieces"] if p["type"] in _MOBILE_SHIPS and p["owner"] == player.name]
                     if not attack_frigates:
-                        await ws.send_json({"type": "error", "msg": "No frigates on that tile"})
+                        await ws.send_json({"type": "error", "msg": "No ships on that tile"})
                         continue
                 else:
                     attack_frigates = player_frigates
-                # Roll: 1d6 per frigate (up to 3) vs planet 3d6; Physics Lv3/5 add extra dice
+                # Roll: 1d6 per ship (up to 3) vs planet 3d6; Physics Lv3/5 add extra dice
                 num_dice = min(len(attack_frigates), 3)
                 _inv_phys = player.tech.get("physics", [])
                 if len(_inv_phys) > 2 and _inv_phys[2]: num_dice += 1  # Lv3 Plasma Cannons
@@ -2263,13 +2266,13 @@ async def sss_ws(ws: WebSocket, game_code: str):
                     for _k in ("food", "science", "tool", "money"):
                         player.income[_k] = player.income.get(_k, 0) + planet.get(_k, 0)
                 else:
-                    # Remove ALL attacker frigates from the cluster
+                    # Remove ALL attacker ships from the cluster
                     for h in game.board:
                         if h["cluster"] != cluster:
                             continue
                         h["pieces"] = [
                             p for p in h["pieces"]
-                            if not (p["type"] == "frigate" and p["owner"] == player.name)
+                            if not (p["type"] in _MOBILE_SHIPS and p["owner"] == player.name)
                         ]
                 if won:
                     player.invasions_won += 1
@@ -2292,6 +2295,52 @@ async def sss_ws(ws: WebSocket, game_code: str):
                     **({"game_over": _build_endgame_stats(game)} if game.phase == "ended" else {}),
                     **state,
                 })
+
+            # ── intra_move ────────────────────────────────────────────────────
+            elif kind == "intra_move":
+                if not game or not player:
+                    continue
+                if game.phase != "board" or not game.turn_order:
+                    continue
+                current = game.turn_order[game.turn_idx % len(game.turn_order)]
+                if player.name != current:
+                    await ws.send_json({"type": "error", "msg": "Not your turn"})
+                    continue
+                cluster = raw.get("cluster")
+                target_hex_id = raw.get("target_hex_id")
+                if cluster is None or target_hex_id is None:
+                    continue
+                target_hex = next(
+                    (h for h in game.board if h["id"] == target_hex_id
+                     and h["cluster"] == cluster and h["type"] == "orbital"),
+                    None,
+                )
+                if target_hex is None:
+                    await ws.send_json({"type": "error", "msg": "Invalid target tile"})
+                    continue
+                target_ships = sum(1 for p in target_hex["pieces"] if p["type"] in _MOBILE_SHIPS)
+                if target_ships >= 3:
+                    await ws.send_json({"type": "error", "msg": "That tile is full"})
+                    continue
+                # Find a ship on a DIFFERENT orbital in the same cluster
+                moved_piece = None
+                for h in game.board:
+                    if h["cluster"] != cluster or h["id"] == target_hex_id or h["type"] != "orbital":
+                        continue
+                    for i, p in enumerate(h["pieces"]):
+                        if p["type"] in _MOBILE_SHIPS and p["owner"] == player.name:
+                            moved_piece = h["pieces"].pop(i)
+                            break
+                    if moved_piece:
+                        break
+                if not moved_piece:
+                    await ws.send_json({"type": "error", "msg": "No ship to reposition"})
+                    continue
+                target_hex["pieces"].append(moved_piece)
+                _use_action(game)
+                state = game.public_state()
+                state["board"] = game.board
+                await game.broadcast({"type": "game_state", **state})
 
             # ── start_invasion ────────────────────────────────────────────────
             elif kind == "start_invasion":
@@ -2353,12 +2402,12 @@ async def sss_ws(ws: WebSocket, game_code: str):
                     game.ever_owned_planet.add(player.name)
                 else:
                     winner = "planet"
-                    # Remove attacker's frigate from dest cluster
+                    # Remove attacker's ship from dest cluster
                     for h in game.board:
                         if h["cluster"] != dest_cluster:
                             continue
                         for i, p in enumerate(h["pieces"]):
-                            if p["type"] == "frigate" and p["owner"] == player.name:
+                            if p["type"] in _MOBILE_SHIPS and p["owner"] == player.name:
                                 h["pieces"].pop(i)
                                 break
                 game.pending_combat = None

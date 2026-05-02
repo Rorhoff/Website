@@ -3,6 +3,9 @@
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
+// Ship types that can fly, attack, and invade (outpost and battle_station are static)
+const MOBILE_SHIPS = new Set(["frigate", "cruise_ship", "super_ship", "death_star"]);
+
 const RACES = {
   vorrkai:       { name: "Vorrkai",       color: "#e74c3c" },
   nexari:        { name: "Nexari",        color: "#1a5fa8" },
@@ -702,14 +705,14 @@ function renderBoard(state, placementMode) {
           <div class="hud-actions"><button class="btn btn-ghost btn-sm" id="btn-cancel-construct">Cancel</button></div>`;
       } else if (_actionMode) {
         const hint = _actionMode?.phase === "pick_hex"
-          ? "Click an enemy frigate tile to target it."
-          : _actionMode?.phase === "in_system"
-            ? "Click your frigate tile to invade!"
+          ? "Click an enemy ship tile to target it."
+          : _selectedCluster !== null && _actionMode?.type === "invasion"
+            ? "Click the planet to invade."
             : _selectedCluster !== null
               ? (_actionMode.type === "attack" ? "Click enemy system to attack." : "Click highlighted system to move.")
-              : _actionMode.type === "invasion" ? "Click your frigate cluster to invade."
-              : _actionMode.type === "attack"   ? "Click your frigate cluster, then enemy system."
-              : "Click your frigates, then a connected system.";
+              : _actionMode.type === "invasion" ? "Click your forces, then the planet."
+              : _actionMode.type === "attack"   ? "Click your ships, then the enemy system."
+              : "Click your ships, then a connected system.";
         actionHtml = `<div class="hud-hint">${hint}</div>
           <div class="hud-actions"><button class="btn btn-ghost btn-sm" id="btn-cancel-action">Cancel</button></div>`;
       } else if (isMyTurnNow) {
@@ -819,25 +822,32 @@ function renderBoard(state, placementMode) {
         myOwnedClusters.add(h.cluster);
     }
 
+    // Always compute invasionSourceClusters (needed in both selection phases)
+    const seenInv = new Set();
+    for (const h of hexes) {
+      if (!(h.pieces ?? []).some(p => MOBILE_SHIPS.has(p.type) && p.owner === myName)) continue;
+      if (seenInv.has(h.cluster)) continue;
+      seenInv.add(h.cluster);
+      const core = hexes.find(c => c.cluster === h.cluster && c.local === 0);
+      const hasEnemy = hexes.some(hh =>
+        hh.cluster === h.cluster &&
+        (hh.pieces ?? []).some(p => MOBILE_SHIPS.has(p.type) && p.owner !== myName)
+      );
+      if (core?.planet && !myOwnedClusters.has(h.cluster) && !hasEnemy) {
+        invasionSourceClusters.add(h.cluster);
+      }
+    }
+
     if (_selectedCluster === null) {
-      const seen = new Set();
+      // Phase 1: highlight all valid source clusters
+      for (const cluster of invasionSourceClusters) {
+        actionSourceClusters.add(cluster);
+        actionRoutesMap[cluster] = [];  // in-system: no wormhole routes
+      }
+      // Also allow wormhole-based invasion from player's own clusters
       for (const h of hexes) {
-        if (!(h.pieces ?? []).some(p => p.type === "frigate" && p.owner === myName)) continue;
-        if (seen.has(h.cluster)) continue;
-        seen.add(h.cluster);
-
-        // In-system: frigates already in a non-owned planet cluster → direct invasion_attack
-        // Enemy ships must be cleared first before invading
-        const core = hexes.find(c => c.cluster === h.cluster && c.local === 0);
-        const hasEnemyHere = hexes.some(hh =>
-          hh.cluster === h.cluster &&
-          (hh.pieces ?? []).some(p => p.type === "frigate" && p.owner !== myName)
-        );
-        if (core?.planet && !myOwnedClusters.has(h.cluster) && !hasEnemyHere) {
-          invasionSourceClusters.add(h.cluster);
-        }
-
-        // Wormhole: compute invasion routes from this cluster to adjacent planet clusters
+        if (!(h.pieces ?? []).some(p => MOBILE_SHIPS.has(p.type) && p.owner === myName)) continue;
+        if (actionSourceClusters.has(h.cluster)) continue;
         const routes = computeInvasionRoutes(hexes, h.cluster);
         if (routes.length > 0) {
           actionSourceClusters.add(h.cluster);
@@ -845,14 +855,19 @@ function renderBoard(state, placementMode) {
         }
       }
     } else {
-      // Source already selected — expose target planet clusters
+      // Phase 2: source cluster selected — show the target
       actionSourceClusters.add(_selectedCluster);
-      for (const r of _selectedRoutes) actionTargetClusters.add(r.dest_cluster);
+      if (invasionSourceClusters.has(_selectedCluster)) {
+        // In-system: planet core hex becomes the clickable target (handled by isInvasionPlanetTarget below)
+      } else {
+        // Wormhole invasion: destination orbital hexes
+        for (const r of _selectedRoutes) actionTargetClusters.add(r.dest_cluster);
+      }
     }
   } else if (isActionTurn) {
     if (_selectedCluster === null) {
       for (const h of hexes) {
-        if ((h.pieces ?? []).some(p => p.type === "frigate" && p.owner === myName)) {
+        if ((h.pieces ?? []).some(p => MOBILE_SHIPS.has(p.type) && p.owner === myName)) {
           if (actionSourceClusters.has(h.cluster)) continue;
           const routes = _actionMode.type === "attack"
             ? computeAttackRoutes(hexes, h.cluster)
@@ -860,6 +875,16 @@ function renderBoard(state, placementMode) {
           if (routes.length > 0) {
             actionSourceClusters.add(h.cluster);
             actionRoutesMap[h.cluster] = routes;
+          } else if (_actionMode.type === "flight") {
+            // No wormhole routes — allow intra-cluster repositioning if there's room
+            const hasRoom = hexes.some(oh =>
+              oh.cluster === h.cluster && oh.type === "orbital"
+              && (oh.pieces ?? []).filter(p => MOBILE_SHIPS.has(p.type)).length < 3
+            );
+            if (hasRoom) {
+              actionSourceClusters.add(h.cluster);
+              actionRoutesMap[h.cluster] = [];
+            }
           }
         }
       }
@@ -890,8 +915,8 @@ function renderBoard(state, placementMode) {
                       && coreType[h.cluster] !== "black_hole"
                       && (!is56p || (h.cluster >= 13 && h.cluster <= 18));
       } else if (nextPiece === "frigate") {
-        const frigatesHere = (h.pieces ?? []).filter(p => p.type === "frigate").length;
-        validTarget = h.cluster === mySystem && h.type === "orbital" && frigatesHere < 3;
+        const shipsHere = (h.pieces ?? []).filter(p => MOBILE_SHIPS.has(p.type)).length;
+        validTarget = h.cluster === mySystem && h.type === "orbital" && shipsHere < 3;
       }
     }
 
@@ -917,22 +942,22 @@ function renderBoard(state, placementMode) {
     const isSource  = isActionTurn && actionSourceClusters.has(h.cluster);
     const isTarget  = isActionTurn && actionTargetClusters.has(h.cluster) && h.type === "orbital";
     const isSelected = isActionTurn && _selectedCluster !== null && h.cluster === _selectedCluster;
-    const isInvasionSource = isActionTurn && _actionMode?.type === "invasion"
-      && _actionMode?.phase !== "in_system"
-      && invasionSourceClusters.has(h.cluster);
-    const isInvasionSelected = isActionTurn && _actionMode?.type === "invasion"
-      && _actionMode?.phase === "in_system" && h.cluster === _actionMode?.cluster;
-    // Orbital hexes with the player's own frigates in the selected in-system cluster — these are the attack source
-    const isInvasionOrbitSource = isInvasionSelected && h.type === "orbital"
-      && (h.pieces ?? []).some(p => p.type === "frigate" && p.owner === myName);
+    // In-system invasion step 2: the planet core hex in the selected cluster
+    const isInvasionPlanetTarget = isActionTurn && _actionMode?.type === "invasion"
+      && _selectedCluster !== null && invasionSourceClusters.has(_selectedCluster)
+      && h.cluster === _selectedCluster && h.local === 0;
+    // Intra-cluster reposition: orbital in the selected cluster with room for a ship
+    const isIntraTarget = isActionTurn && _actionMode?.type === "flight"
+      && _selectedCluster !== null && h.cluster === _selectedCluster
+      && h.type === "orbital"
+      && (h.pieces ?? []).filter(p => MOBILE_SHIPS.has(p.type)).length < 3;
     const isAttackHexTarget = isActionTurn
       && _actionMode?.phase === "pick_hex"
       && h.cluster === _actionMode.dest_cluster
-      && (h.pieces ?? []).some(p => p.type === "frigate" && p.owner !== myName);
-    if (isSelected || (isInvasionSelected && !isInvasionOrbitSource)) cls += " hex-selected";
+      && (h.pieces ?? []).some(p => MOBILE_SHIPS.has(p.type) && p.owner !== myName);
+    if (isSelected) cls += " hex-selected";
     else if (isSource) cls += " hex-selectable";
-    else if (isInvasionSource) cls += " hex-selectable";
-    if (isTarget || isInvasionOrbitSource) cls += " hex-flight-target";
+    if (isTarget || isInvasionPlanetTarget || isIntraTarget) cls += " hex-flight-target";
     if (isAttackHexTarget) cls += " hex-attack-target";
     if (validConstructTarget) cls += " hex-construct-target";
 
@@ -983,29 +1008,25 @@ function renderBoard(state, placementMode) {
           _actionMode = null; _selectedCluster = null; _selectedRoutes = [];
           msgToSend = { type: "invasion_move", from_wormhole: route.from_wormhole, to_wormhole: route.to_wormhole, target_hex_id: h.id };
         } else {
-          _actionMode = null; _selectedCluster = null; _selectedRoutes = [];
+          // Stay in flight mode — player can chain moves (-1 action each)
+          _selectedCluster = null; _selectedRoutes = [];
           msgToSend = { type: "flight_move", from_wormhole: route.from_wormhole, to_wormhole: route.to_wormhole, target_hex_id: h.id };
         }
         send(msgToSend);
       });
-    } else if (isInvasionOrbitSource) {
+    } else if (isIntraTarget) {
       poly.style.cursor = "pointer";
       _hexHandlers.set(h.id, () => {
-        const cluster = _actionMode.cluster;
-        _actionMode = null;
-        send({ type: "invasion_attack", cluster, source_hex_id: h.id });
+        const cluster = _selectedCluster;
+        _selectedCluster = null; _selectedRoutes = [];
+        send({ type: "intra_move", cluster, target_hex_id: h.id });
       });
-    } else if (isInvasionSelected) {
+    } else if (isInvasionPlanetTarget) {
       poly.style.cursor = "pointer";
       _hexHandlers.set(h.id, () => {
-        _actionMode = { type: "invasion" };
-        if (_lastState) renderBoard(_lastState, false);
-      });
-    } else if (isInvasionSource) {
-      poly.style.cursor = "pointer";
-      _hexHandlers.set(h.id, () => {
-        _actionMode = { type: "invasion", phase: "in_system", cluster: h.cluster };
-        if (_lastState) renderBoard(_lastState, false);
+        const cluster = _selectedCluster;
+        _selectedCluster = null; _selectedRoutes = [];
+        send({ type: "invasion_attack", cluster });
       });
     } else if (isSource && _selectedCluster === null) {
       poly.style.cursor = "pointer";
@@ -1601,10 +1622,10 @@ function computeFlightRoutes(hexes, fromCluster) {
   return routes;
 }
 
-// True if dest cluster has an orbital hex with fewer than 3 frigates
+// True if dest cluster has an orbital hex with fewer than 3 mobile ships
 function hasFrigateSlot(hexes, cluster) {
   return hexes.some(h => h.cluster === cluster && h.type === "orbital"
-    && (h.pieces ?? []).filter(p => p.type === "frigate").length < 3);
+    && (h.pieces ?? []).filter(p => MOBILE_SHIPS.has(p.type)).length < 3);
 }
 
 // Flight: any adjacent cluster with at least one open orbital slot.
@@ -1620,7 +1641,7 @@ function computeInvasionRoutes(hexes, fromCluster) {
     const core = hexes.find(h => h.cluster === r.dest_cluster && h.local === 0);
     const hasEnemy = hexes.some(h =>
       h.cluster === r.dest_cluster &&
-      (h.pieces ?? []).some(p => p.type === "frigate" && p.owner !== myName)
+      (h.pieces ?? []).some(p => MOBILE_SHIPS.has(p.type) && p.owner !== myName)
     );
     const alreadyMine = (core?.pieces ?? []).some(p => p.type === "empire_flag" && p.owner === myName);
     return core && core.planet && hasFrigateSlot(hexes, r.dest_cluster) && !hasEnemy && !alreadyMine;
@@ -1630,7 +1651,7 @@ function computeInvasionRoutes(hexes, fromCluster) {
 function computeAttackRoutes(hexes, fromCluster) {
   return computeFlightRoutes(hexes, fromCluster).filter(r =>
     hexes.some(h => h.cluster === r.dest_cluster
-      && (h.pieces ?? []).some(p => p.type === "frigate" && p.owner !== myName))
+      && (h.pieces ?? []).some(p => MOBILE_SHIPS.has(p.type) && p.owner !== myName))
   );
 }
 
@@ -2210,11 +2231,11 @@ function detectOpponentMoves(newBoard, state) {
   const clusterLabel = {};
   for (const h of newBoard) if (h.local === 0) clusterLabel[h.cluster] = h.label ?? h.cluster;
 
-  // Track opponent frigate clusters before and after
+  // Track opponent ship clusters before and after
   const prevClusters = {};
   for (const h of _prevBoardState) {
     for (const p of (h.pieces ?? [])) {
-      if (p.type === "frigate" && p.owner !== myName) {
+      if (MOBILE_SHIPS.has(p.type) && p.owner !== myName) {
         (prevClusters[p.owner] ??= new Set()).add(h.cluster);
       }
     }
@@ -2222,7 +2243,7 @@ function detectOpponentMoves(newBoard, state) {
   const newClusters = {};
   for (const h of newBoard) {
     for (const p of (h.pieces ?? [])) {
-      if (p.type === "frigate" && p.owner !== myName) {
+      if (MOBILE_SHIPS.has(p.type) && p.owner !== myName) {
         (newClusters[p.owner] ??= new Set()).add(h.cluster);
       }
     }
