@@ -1859,6 +1859,7 @@ function initConstructionPicker() {
     <div class="action-picker-modal">
       <button class="action-picker-close" id="btn-cp-close">✕</button>
       <div class="action-picker-title" id="construction-picker-title">Build Ships</div>
+      <div class="cp-purse" id="cp-purse"></div>
       <div class="action-pick-list" id="construction-pick-list"></div>
     </div>`;
   document.body.appendChild(el);
@@ -1875,6 +1876,13 @@ function showConstructionPicker(filter = "all") {
   const money = me?.resources?.money ?? 0;
   const tools = me?.resources?.tool ?? 0;
 
+  const purseEl = document.getElementById("cp-purse");
+  if (purseEl) {
+    purseEl.innerHTML = `
+      <span class="cp-purse-item">${RESOURCE_ICONS.money}<strong>${money}</strong></span>
+      <span class="cp-purse-item">${RESOURCE_ICONS.tool}<strong>${tools}</strong></span>`;
+  }
+
   const items = filter === "ships"
     ? CONSTRUCTION_ITEMS.filter(i => !BUILDING_TYPES.has(i.type) && !i.upgrade)
     : filter === "buildings"
@@ -1885,8 +1893,8 @@ function showConstructionPicker(filter = "all") {
   list.innerHTML = items.map(item => {
     const canAfford = money >= item.cost && tools >= item.toolCost;
     const parts = [];
-    if (item.cost > 0)     parts.push(`${item.cost} ¤`);
-    if (item.toolCost > 0) parts.push(`${item.toolCost} ⚙`);
+    if (item.cost > 0)     parts.push(`${item.cost} ${RESOURCE_ICONS.money}`);
+    if (item.toolCost > 0) parts.push(`${item.toolCost} ${RESOURCE_ICONS.tool}`);
     const costStr = parts.join(" + ") || "Free";
     return `
     <div class="action-pick-row construct-row ${canAfford ? "" : "disabled"}"
