@@ -808,6 +808,7 @@ function renderBoard(state, placementMode) {
   const actionTargetClusters = new Set();
   const actionRoutesMap = {};  // cluster → routes[]
   const invasionSourceClusters = new Set(); // clusters where invasion can be launched
+  const invasionPlanetClusters = new Set(); // enemy planet clusters (orange hint when no ships)
 
   const isActionTurn = !placementMode && _actionMode
     && state.current_turn === myName && myRole !== "watcher";
@@ -833,6 +834,12 @@ function renderBoard(state, placementMode) {
       if (core?.planet && !myOwnedClusters.has(h.cluster)) {
         invasionSourceClusters.add(h.cluster);
       }
+    }
+
+    // Mark all enemy planet clusters for the orange hint overlay
+    for (const h of hexes) {
+      if (h.local !== 0 || !h.planet || myOwnedClusters.has(h.cluster)) continue;
+      invasionPlanetClusters.add(h.cluster);
     }
 
     if (_selectedCluster === null) {
@@ -945,6 +952,7 @@ function renderBoard(state, placementMode) {
       && (h.pieces ?? []).some(p => MOBILE_SHIPS.has(p.type) && p.owner !== myName);
     if (isSelected) cls += " hex-selected";
     else if (isSource) cls += " hex-selectable";
+    else if (isActionTurn && _actionMode?.type === "invasion" && h.local === 0 && invasionPlanetClusters.has(h.cluster) && !actionSourceClusters.has(h.cluster)) cls += " hex-planet-target";
     if (isTarget || isIntraTarget) cls += " hex-flight-target";
     if (isAttackHexTarget) cls += " hex-attack-target";
     if (validConstructTarget) cls += " hex-construct-target";
@@ -1148,6 +1156,7 @@ function setViewMode(mode) {
     cardEl.classList.remove("hidden");
     if (boardWrap) boardWrap.classList.add("hidden");
     if (btn) btn.textContent = "◀ Map";
+    if (_lastState) renderFullPlayerCard(_lastState);
   }
 }
 
@@ -1797,7 +1806,7 @@ function showActionPicker() {
           if (action === "invasion") {
             const src = document.querySelectorAll(".hex-selectable").length;
             if (src === 0) {
-              showToast("No valid invasion targets — fly your ships adjacent to an enemy planet first", "#f87171");
+              showToast("No ships at an enemy planet — orange systems show planets. Fly your ships there first.", "#fb923c");
             } else {
               showToast(`${src / 7 | 0} system(s) ready to invade — tap a highlighted cluster`, "#4ade80");
             }

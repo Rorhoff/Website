@@ -132,7 +132,7 @@ h1 { font-size: 2rem; font-weight: 700; color: var(--accent); text-align: center
 /* ── Player HUD — fixed to viewport top-left (stays put while map pans) ── */
 .player-hud {
   position: fixed;
-  top: 32px;
+  top: 56px;
   left: 8px;
   z-index: 50;
   background: rgba(8, 12, 20, 0.92);
@@ -549,6 +549,7 @@ h1 { font-size: 2rem; font-weight: 700; color: var(--accent); text-align: center
 /* ── Hex action highlights ───────────────────────────────────── */
 /* selectable source: green-ish pulse — player's frigate cluster */
 .hex-selectable { fill: rgba(74,222,128,0.22) !important; stroke: #4ade80 !important; stroke-width: 1.5 !important; cursor: pointer !important; }
+.hex-planet-target { fill: rgba(251,146,60,0.18) !important; stroke: #fb923c !important; stroke-width: 1.5 !important; }
 /* selected source */
 .hex-selected   { fill: rgba(74,222,128,0.45) !important; stroke: #4ade80 !important; stroke-width: 2   !important; cursor: pointer !important; }
 /* reachable destination */
