@@ -1888,6 +1888,14 @@ const CONSTRUCTION_ITEMS = [
 ];
 const BUILDING_TYPES = new Set(["building_tool", "building_science", "building_money"]);
 
+function buildingScaledCost(baseType) {
+  const base = baseType === "building_money" ? 6 : 4;
+  const board = _lastState?.board ?? [];
+  const planets = board.filter(h => h.local === 0 && h.planet &&
+    (h.pieces ?? []).some(pc => pc.type === "empire_flag" && pc.owner === myName)).length;
+  return base * Math.max(1, planets);
+}
+
 function initConstructionPicker() {
   const el = document.createElement("div");
   el.id = "construction-picker";
@@ -1928,9 +1936,10 @@ function showConstructionPicker(filter = "all") {
 
   const list = document.getElementById("construction-pick-list");
   list.innerHTML = items.map(item => {
-    const canAfford = money >= item.cost && tools >= item.toolCost;
+    const effectiveCost = BUILDING_TYPES.has(item.type) ? buildingScaledCost(item.type) : item.cost;
+    const canAfford = money >= effectiveCost && tools >= item.toolCost;
     const parts = [];
-    if (item.cost > 0)     parts.push(`${item.cost} ${RESOURCE_ICONS.money}`);
+    if (effectiveCost > 0) parts.push(`${effectiveCost} ${RESOURCE_ICONS.money}`);
     if (item.toolCost > 0) parts.push(`${item.toolCost} ${RESOURCE_ICONS.tool}`);
     const costStr = parts.join(" + ") || "Free";
     return `

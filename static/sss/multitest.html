@@ -688,6 +688,14 @@
       return false;
     }
 
+    function buildingCost(btype) {
+      const base = btype === "building_money" ? 6 : 4;
+      const b = lastBoard ?? [];
+      const planets = b.filter(h => h.local === 0 && h.planet &&
+        (h.pieces ?? []).some(pc => pc.type === "empire_flag" && pc.owner === p.name)).length;
+      return base * Math.max(1, planets);
+    }
+
     function tryBuildFrigate() {
       if (money < 10 || tools < 2) return false;
       for (const cl of myClusters) {
@@ -703,15 +711,16 @@
     }
 
     function tryBuildBuilding() {
-      const btype = money >= 6 ? "building_money" : money >= 4 ? "building_tool" : null;
+      const mCost = buildingCost("building_money");
+      const tCost = buildingCost("building_tool");
+      const btype = money >= mCost ? "building_money" : money >= tCost ? "building_tool" : null;
       if (!btype) return false;
-      const minCost = btype === "building_money" ? 6 : 4;
-      if (money < minCost) return false;
+      const minCost = btype === "building_money" ? mCost : tCost;
       for (const cl of myClusters) {
         const h = board.find(o => o.cluster === cl && o.type === "bs_slot" && o.local !== 0
           && (o.pieces ?? []).filter(pc => BUILD_TYPES.includes(pc.type)).length < 3);
         if (h) {
-          sysLog(idx, `🏗 Build ${btype} hex ${h.id} ($${money})`);
+          sysLog(idx, `🏗 Build ${btype} hex ${h.id} ($${minCost})`);
           send(idx, { type: "build_piece", piece_type: btype, hex_id: h.id });
           return true;
         }
@@ -734,7 +743,11 @@
     // ── Emergency: fix negative resources before anything else ────────────────
     function tryFixNegativeResource() {
       const res = me?.resources ?? {};
-      const BUILD_COSTS = { building_science: 4, building_tool: 4, building_money: 6 };
+      const BUILD_COSTS = {
+        building_science: buildingCost("building_science"),
+        building_tool:    buildingCost("building_tool"),
+        building_money:   buildingCost("building_money"),
+      };
       // Priority order: whichever resource is most negative first
       const fixes = [
         ["science", "building_science"],

@@ -1920,6 +1920,8 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 _spacecraft_types_set = {"cruise_ship", "frigate", "outpost", "super_ship", "battle_station", "death_star"}
                 if piece_type in _building_types_set:
                     if len(_eng) > 0 and _eng[0]: money_cost = max(1, money_cost - 1)  # Lv1
+                    # Scale cost by empire size: base × max(1, planets_owned)
+                    money_cost *= max(1, _player_planet_count(game, player.name))
                 elif piece_type in _spacecraft_types_set:
                     if len(_eng) > 1 and _eng[1]: money_cost = max(1, money_cost - 2)  # Lv2
                     if len(_eng) > 2 and _eng[2]: tool_cost  = max(0, tool_cost  - 1)  # Lv3
