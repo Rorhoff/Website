@@ -343,6 +343,11 @@
   let _hexCoords        = {};   // hex id -> {cx, cy} in SVG space
   let _activeTrails     = [];   // {from, to, startedAt} — persist across renders
   const TRAIL_MS        = 4000; // trail linger duration in ms
+  // ── Pace-estimation counters ──────────────────────────────────────────────
+  let _statTurns      = 0;  // total end_turn messages sent across all players
+  let _statInvasions  = 0;  // total invasions resolved
+  let _statCombats    = 0;  // total ship combats resolved
+  let _statFinalRound = 0;  // last round reached
   // (per-panel lastEndTurnSeq tracks last seq at which we sent end_turn)
 
   // ── Mini-board zoom slider ────────────────────────────────────────────────
@@ -580,6 +585,7 @@
     const p = panels[idx];
     if (!p.ws || p.ws.readyState !== WebSocket.OPEN) { log(idx,"err","Not connected"); return; }
     log(idx, "out", obj);
+    if (obj.type === "end_turn") _statTurns++;
     p.ws.send(JSON.stringify(obj));
   }
 
@@ -1216,6 +1222,19 @@
     }
   }
 
+  // ── Real-pace time estimation ─────────────────────────────────────────────
+  // Assumptions: 2 min/turn deliberation, +1.5 min/invasion, +1 min/combat
+  function estimateRealMinutes() {
+    return Math.round(_statTurns * 2 + _statInvasions * 1.5 + _statCombats * 1);
+  }
+
+  function formatMinutes(total) {
+    if (total < 60) return `${total} min`;
+    const h = Math.floor(total / 60);
+    const m = total % 60;
+    return m > 0 ? `${h}h ${m}min` : `${h}h`;
+  }
+
   // ── Shared state handler (game_state / place_pieces_start / draft_start) ──
   function handleState(idx, msg) {
     const p     = panels[idx];
@@ -1242,6 +1261,7 @@
 
     // Combat result banner
     if (msg.type === "combat_result") {
+      if (idx === 0) _statCombats++;
       if (p.name === msg.attacker || p.name === msg.defender) {
         const won = msg.winner === p.name;
         sysLog(idx, `${won ? "⚔ WON" : "🛡 LOST"} combat — ATK ${msg.atk_total} vs DEF ${msg.def_total} (winner: ${msg.winner})`);
@@ -1250,6 +1270,7 @@
 
     // Invasion result log
     if (msg.type === "invasion_result") {
+      if (idx === 0) _statInvasions++;  // count once per event (panel 0 always receives broadcasts)
       if (msg.attacker === p.name) {
         sysLog(idx, `${msg.won ? "🏆 Invasion WON" : "💀 Invasion LOST"} — ATK ${msg.atk_total} vs PLT ${msg.planet_total}`);
       }
@@ -1331,6 +1352,7 @@
       const round       = msg.round ?? 1;
       const seq         = msg.seq ?? 0;
       const actLeft     = msg.actions_remaining ?? 0;
+      if (round > _statFinalRound) _statFinalRound = round;
       setAutoMsg(`Round ${round} — ${currentTurn ?? "?"}'s turn`);
       if (round > _lastRoundLogged) {
         _lastRoundLogged = round;
@@ -1437,13 +1459,17 @@
 
     if (msg.game_over) {
       const winner = msg.game_over;
-      for (let i = 0; i < panels.length; i++)
+      const mins = estimateRealMinutes();
+      const timeStr = formatMinutes(mins);
+      for (let i = 0; i < panels.length; i++) {
         sysLog(i, `🏆 GAME OVER — ${winner} wins!`);
+        sysLog(i, `⏱ Real-pace estimate: ~${timeStr}  (${_statFinalRound} rounds · ${_statTurns} turns · ${_statInvasions} invasions · ${_statCombats} combats)`);
+      }
       autoPaused = true;
       const btn = document.getElementById("btn-pause");
       btn.classList.add("paused");
       btn.innerHTML = "&#9654; Resume";
-      setAutoMsg(`🏆 ${winner} wins! Game over.`);
+      setAutoMsg(`🏆 ${winner} wins! Estimated real-pace duration: ~${timeStr}`);
     }
 
     if (msg.type === "eliminated") {
@@ -1696,6 +1722,10 @@
     _prevBoard        = null;
     _hexCoords        = {};
     _activeTrails     = [];
+    _statTurns        = 0;
+    _statInvasions    = 0;
+    _statCombats      = 0;
+    _statFinalRound   = 0;
     document.getElementById("btn-step-back").disabled = true;
     document.getElementById("btn-step-fwd").disabled  = true;
     const pauseBtn = document.getElementById("btn-pause");
