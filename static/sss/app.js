@@ -292,7 +292,7 @@ function showGameOver(report) {
       ? s.planets.map(p => `<span class="go-tag">${p}</span>`).join("")
       : `<span style="color:var(--muted);font-size:.8rem">none</span>`;
 
-    const shipsBuiltEntries = Object.entries(s.ships_built || {}).filter(([,n]) => n > 0);
+    const shipsBuiltEntries = Object.entries(s.ships_built || {}).filter(([t, n]) => n > 0 && t in _SHIP_LABELS);
     const shipsBuiltHtml = shipsBuiltEntries.length
       ? shipsBuiltEntries.map(([t, n]) => `<span class="go-tag">${n}× ${_SHIP_LABELS[t] ?? t}</span>`).join("")
       : `<span style="color:var(--muted);font-size:.8rem">none</span>`;
@@ -772,9 +772,9 @@ function renderBoard(state, placementMode) {
       infoCard.querySelector("#btn-toggle-view")
         ?.addEventListener("click", () => setViewMode(viewMode === "map" ? "card" : "map"));
       infoCard.querySelector("#btn-cancel-construct")
-        ?.addEventListener("click", () => { _constructionPiece = null; _actionMode = null; if (_lastState) renderBoard(_lastState, false); });
+        ?.addEventListener("click", () => { cancelAnimations(); _constructionPiece = null; _actionMode = null; if (_lastState) renderBoard(_lastState, false); });
       infoCard.querySelector("#btn-cancel-action")
-        ?.addEventListener("click", () => { _actionMode = null; _selectedCluster = null; _selectedRoutes = []; if (_lastState) renderBoard(_lastState, false); });
+        ?.addEventListener("click", () => { cancelAnimations(); _actionMode = null; _selectedCluster = null; _selectedRoutes = []; if (_lastState) renderBoard(_lastState, false); });
       infoCard.querySelector("#btn-end-turn")
         ?.addEventListener("click", () => send({ type: "end_turn" }));
       infoCard.querySelector("#btn-play-card")
@@ -2357,7 +2357,7 @@ function detectOpponentMoves(newBoard, state) {
       if (newCount > prevCount) {
         // This hex gained a ship — find where it came from (hex in prevBoard that lost same type/owner)
         const src = _prevBoardState.find(ph =>
-          ph.cluster !== h.cluster &&
+          ph.id !== h.id &&
           (ph.pieces ?? []).filter(q => q.type === p.type && q.owner === p.owner).length >
           ((newBoard.find(nh => nh.id === ph.id)?.pieces ?? []).filter(q => q.type === p.type && q.owner === p.owner).length)
         );
@@ -2417,6 +2417,14 @@ function detectOpponentMoves(newBoard, state) {
   }
 
   _prevBoardState = newBoard;
+}
+
+function cancelAnimations() {
+  _animRunning = false;
+  _animQueue = [];
+  _animLatestState = null;
+  const layer = document.getElementById("drag-layer");
+  if (layer) layer.innerHTML = "";
 }
 
 function _drainAnimQueue() {

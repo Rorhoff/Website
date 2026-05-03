@@ -1211,7 +1211,8 @@ async def _ai_board_action(game: Game, ai_name: str) -> None:
         num_dice = min(len(my_frigates), 3)
         atk_dice = [random.randint(1, 6) for _ in range(num_dice)]
         atk_total = sum(atk_dice)
-        planet_dice = [random.randint(1, 6) for _ in range(3)]
+        planet_dice = ([random.randint(1, 50) for _ in range(3)]
+                       if planet.get("ancient") else [random.randint(1, 6) for _ in range(3)])
         planet_total = sum(planet_dice)
         won = atk_total > planet_total
         if won:
@@ -2480,12 +2481,11 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 # Planet defense: 3 dice (2 if attacker has Government Lv3 Martial Command)
                 _si_gov = player.tech.get("government", [])
                 if planet.get("ancient"):
-                    si_planet_def_dice = 10
+                    planet_dice = [random.randint(1, 50) for _ in range(3)]
                 elif len(_si_gov) > 2 and _si_gov[2]:
-                    si_planet_def_dice = 2
+                    planet_dice = [random.randint(1, 6) for _ in range(2)]
                 else:
-                    si_planet_def_dice = 3
-                planet_dice  = [random.randint(1, 6) for _ in range(si_planet_def_dice)]
+                    planet_dice = [random.randint(1, 6) for _ in range(3)]
                 planet_total = sum(planet_dice)
                 if atk_total > planet_total:
                     winner = "player"
