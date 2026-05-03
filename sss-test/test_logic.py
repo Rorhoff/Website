@@ -164,7 +164,7 @@ def test_apply_turn_income_negative_resources_add_unrest():
         },
     ]
     _apply_turn_income(game, p)
-    assert p.resources.get("unrest", 0) >= 3, "expected ≥3 unrest from 3 negative resources"
+    assert p.resources.get("unrest", 0) == 1, "expected exactly 1 unrest regardless of how many resources are negative"
     for key in ("food", "science", "tool"):
         assert p.resources.get(key, 0) < 0, f"{key} should be negative when upkeep exceeds income"
 
