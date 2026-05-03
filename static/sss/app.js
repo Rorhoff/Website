@@ -1704,9 +1704,11 @@ function showInvasionPrompt(msg) {
     </div>` : `<div class="hint" style="margin-bottom:.5rem">No combat tech cards in hand.</div>`;
 
   const atkCount = msg.atk_count ?? 1;
+  const defCount = msg.def_dice_count ?? (msg.planet?.ancient ? 5 : 3);
+  const defLabel = msg.planet?.ancient ? `${defCount}d50` : `${defCount}d6`;
   document.getElementById("combat-title").textContent = `Invade System ${clusterLabel}!`;
   document.getElementById("combat-body").innerHTML = `
-    <div class="hint" style="margin-bottom:.75rem">The planet defends with <strong>3 dice</strong>. You attack with <strong>${atkCount} ${atkCount === 1 ? "die" : "dice"}</strong> (${atkCount} frigate${atkCount !== 1 ? "s" : ""})${techCards.length ? " — tech adds more" : ""}.</div>
+    <div class="hint" style="margin-bottom:.75rem">Planet defends with <strong>${defLabel}</strong>. You attack with <strong>${atkCount} ${atkCount === 1 ? "die" : "dice"}</strong> (${atkCount} frigate${atkCount !== 1 ? "s" : ""})${techCards.length ? " — tech adds more" : ""}.</div>
     <div class="combat-planet-stats">
       <span>Food +${planet.food ?? 0}</span>
       <span>Science +${planet.science ?? 0}</span>

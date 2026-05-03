@@ -170,7 +170,7 @@ CLUSTER_LABELS = ["018", "011", "015", "002", "001", "003", "009", "007", "013"]
 
 _TRI_TYPES = {"red", "blue", "yellow"}
 
-VP_TARGET = 7
+VP_TARGET = 9
 
 
 def _count_vp(game, player_name: str) -> int:
@@ -660,6 +660,28 @@ def _player_planet_count(game, name: str) -> int:
         and any(p.get("type") == "empire_flag" and p.get("owner") == name
                 for p in h.get("pieces", []))
     )
+
+
+def _planet_def_dice(game, attacker_name: str, planet: dict, gov_tech=None) -> list:
+    """Return planet defense dice based on attacker empire size."""
+    if planet.get("ancient"):
+        return [random.randint(1, 50) for _ in range(5)]
+    owned = _player_planet_count(game, attacker_name)
+    if gov_tech and len(gov_tech) > 2 and gov_tech[2]:
+        # Government Lv3 Martial Command reduces defense by 1 die (min 1)
+        reduction = 1
+    else:
+        reduction = 0
+    if owned <= 1:
+        n_dice = 2
+    elif owned <= 3:
+        n_dice = 3
+    elif owned <= 5:
+        n_dice = 5
+    else:
+        n_dice = 7
+    n_dice = max(1, n_dice - reduction)
+    return [random.randint(1, 6) for _ in range(n_dice)]
 
 
 async def _flush_eliminations(game) -> None:
@@ -1211,8 +1233,7 @@ async def _ai_board_action(game: Game, ai_name: str) -> None:
         num_dice = min(len(my_frigates), 3)
         atk_dice = [random.randint(1, 6) for _ in range(num_dice)]
         atk_total = sum(atk_dice)
-        planet_dice = ([random.randint(1, 50) for _ in range(3)]
-                       if planet.get("ancient") else [random.randint(1, 6) for _ in range(3)])
+        planet_dice = _planet_def_dice(game, ai_name, planet)
         planet_total = sum(planet_dice)
         won = atk_total > planet_total
         if won:
@@ -2324,11 +2345,13 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 state = game.public_state()
                 state["board"] = game.board
                 await game.broadcast({"type": "game_state", **state}, exclude=ws)
+                _prompt_gov = player.tech.get("government", [])
                 await ws.send_json({
                     "type": "invasion_prompt",
                     "dest_cluster": dest_cluster,
                     "planet": core_hex["planet"],
                     "tech_cards": player.tech_cards,
+                    "def_dice_count": len(_planet_def_dice(game, player.name, core_hex["planet"], _prompt_gov)),
                     **state,
                 })
 
@@ -2399,12 +2422,14 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 state = game.public_state()
                 state["board"] = game.board
                 await game.broadcast({"type": "game_state", **state}, exclude=ws)
+                _ia_gov = player.tech.get("government", [])
                 await ws.send_json({
                     "type": "invasion_prompt",
                     "dest_cluster": cluster,
                     "planet": planet,
                     "atk_count": atk_count,
                     "tech_cards": player.tech_cards,
+                    "def_dice_count": len(_planet_def_dice(game, player.name, planet, _ia_gov)),
                     **state,
                 })
 
@@ -2478,14 +2503,9 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 if len(_si_phys) > 2 and _si_phys[2]: atk_dice.append(random.randint(1, _si_die))  # Lv3
                 if len(_si_phys) > 4 and _si_phys[4]: atk_dice.append(random.randint(1, _si_die))  # Lv5
                 atk_total = sum(atk_dice)
-                # Planet defense: 3 dice (2 if attacker has Government Lv3 Martial Command)
+                # Planet defense: scales with attacker empire size
                 _si_gov = player.tech.get("government", [])
-                if planet.get("ancient"):
-                    planet_dice = [random.randint(1, 50) for _ in range(3)]
-                elif len(_si_gov) > 2 and _si_gov[2]:
-                    planet_dice = [random.randint(1, 6) for _ in range(2)]
-                else:
-                    planet_dice = [random.randint(1, 6) for _ in range(3)]
+                planet_dice = _planet_def_dice(game, player.name, planet, _si_gov)
                 planet_total = sum(planet_dice)
                 if atk_total > planet_total:
                     winner = "player"
