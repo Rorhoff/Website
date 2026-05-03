@@ -39,7 +39,7 @@ _PLAYER_COLORS = [
     "#3b82f6",  # Blue
     "#22c55e",  # Green
     "#f59e0b",  # Amber
-    "#a855f7",  # Purple
+    "#e8ff00",  # Neon Yellow
     "#f97316",  # Orange
 ]
 
@@ -177,7 +177,7 @@ def _count_vp(game, player_name: str) -> int:
     return sum(
         1 for h in game.board
         if h["local"] == 0
-        and h.get("planet", {}).get("vp", 0) > 0
+        and h.get("planet") is not None
         and any(p["type"] == "empire_flag" and p["owner"] == player_name for p in h["pieces"])
     )
 
@@ -554,20 +554,16 @@ def _apply_turn_income(game, player) -> None:
             upkeep["science"] += counts[2]
     player.upkeep = dict(upkeep)
     # Apply: resources += income − upkeep.
-    # Resources are allowed to go (and stay) negative — each negative resource adds 1 unrest/turn.
-    unrest_gain = 0
+    # Any negative resource at end of turn adds exactly 1 unrest (regardless of how many are negative).
+    any_negative = False
     for key in ("food", "science", "tool", "money"):
         net = player.income.get(key, 0) - upkeep.get(key, 0)
         new_val = player.resources.get(key, 0) + net
         player.resources[key] = new_val
         if new_val < 0:
-            unrest_gain += 1
-    if unrest_gain:
-        _gov = player.tech.get("government", [])
-        _gov_reduction = (1 if len(_gov) > 0 and _gov[0] else 0) + (1 if len(_gov) > 3 and _gov[3] else 0)
-        unrest_gain = max(0, unrest_gain - _gov_reduction)
-    if unrest_gain:
-        player.resources["unrest"] = player.resources.get("unrest", 0) + unrest_gain
+            any_negative = True
+    if any_negative:
+        player.resources["unrest"] = player.resources.get("unrest", 0) + 1
 
 
 def _strip_buildings_from_cluster(game, cluster: int, owner: str) -> dict:

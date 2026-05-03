@@ -132,8 +132,9 @@ h1 { font-size: 2rem; font-weight: 700; color: var(--accent); text-align: center
 /* ── Player HUD — fixed to viewport top-left (stays put while map pans) ── */
 .player-hud {
   position: fixed;
-  top: 80px;
-  left: 16px;
+  bottom: 48px;
+  left: 50%;
+  transform: translateX(-50%);
   z-index: 50;
   background: rgba(8, 12, 20, 0.92);
   border: 1px solid var(--border); border-radius: var(--radius);

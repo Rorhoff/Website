@@ -167,6 +167,7 @@
     .race-label  { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .race-status { font-size: .6rem; color: var(--muted); white-space: nowrap; }
     .race-vp     { color: var(--gold); font-size: .65rem; white-space: nowrap; }
+    .race-unrest { color: #f87171; font-size: .65rem; white-space: nowrap; }
 
     /* ── Resources ── */
     .res-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .2rem; }
@@ -459,6 +460,7 @@
           <span class="race-label" style="color:${color}99" id="race-lbl-${i}">${RACE_LABELS[race]}</span>
           <span class="race-status" id="race-status-${i}">assigned</span>
           <span class="race-vp" id="race-vp-${i}"></span>
+          <span class="race-unrest" id="race-unrest-${i}"></span>
         </div>
         <div class="res-grid" id="res-${i}">
           ${RES_KEYS.map(k => `
@@ -1536,6 +1538,8 @@
 
     const vp = me?.vp ?? me?.victory_points;
     document.getElementById(`race-vp-${idx}`).textContent = vp != null ? `${vp} VP` : "";
+    const unrest = me?.unrest ?? 0;
+    document.getElementById(`race-unrest-${idx}`).textContent = unrest > 0 ? `⚠ ${unrest}` : "";
 
     // Tint panel top border to race color
     panels[idx].el.style.borderTopColor = color + (locked ? "cc" : "44");

@@ -211,7 +211,7 @@ function showBonusTechToast(cards) {
   if (!el) {
     el = document.createElement("div");
     el.id = "bonus-tech-toast";
-    el.style.cssText = "position:fixed;top:80px;left:50%;transform:translateX(-50%);background:#0f2a1a;border:1px solid #4ade80;color:#bbf7d0;padding:.65rem 1.25rem;border-radius:10px;font-size:.85rem;z-index:2001;max-width:340px;text-align:center;line-height:1.5";
+    el.style.cssText = "position:fixed;top:80px;right:12px;background:#0f2a1a;border:1px solid #4ade80;color:#bbf7d0;padding:.65rem 1.25rem;border-radius:10px;font-size:.85rem;z-index:2001;max-width:340px;text-align:left;line-height:1.5";
     document.body.appendChild(el);
   }
   el.innerHTML = `<div style="font-weight:700;margin-bottom:.2rem;color:#4ade80">+${n} Tech Card${n > 1 ? "s" : ""} (unused actions)</div>${names}`;
@@ -1267,7 +1267,7 @@ const ACTION_CARDS = [
   {
     id: "base2", name: "Base Actions II", rate: "66%", rateClass: "act-tier2",
     actions: [
-      { name: "Flight",      icon: "icons/act_flight.svg",      desc: "Move any of your ships to an adjacent system." },
+      { name: "Travel",      icon: "icons/act_flight.svg",      desc: "Move any of your ships to an adjacent system." },
       { name: "Attack",      icon: "icons/act_attack.svg",      desc: "Initiate combat with enemy pieces in a system." },
       { name: "Invasion",    icon: "icons/act_invasion.svg",    desc: "Launch an assault to capture an enemy system." },
       { name: "Exploration", icon: "icons/act_exploration.svg", desc: "Scout an unoccupied system and reveal its contents." },
@@ -1278,7 +1278,7 @@ const ACTION_CARDS = [
 // Ordered action list for the picker — independent of card hand composition.
 // techKey links to TECH_COLS key so showActionPicker can read the player's current level.
 const PICKER_ACTIONS = [
-  { id: "flight",           label: "Flight",           icon: "icons/act_flight.svg"      },
+  { id: "flight",           label: "Travel",           icon: "icons/act_flight.svg"      },
   { id: "exploration",      label: "Exploration",      icon: "icons/act_exploration.svg" },
   { id: "build_ships",      label: "Build Ships",      icon: "icons/act_flight.svg",       sub: true },
   { id: "build_buildings",  label: "Build Buildings",  icon: "icons/act_construction.svg", sub: true },
