@@ -226,6 +226,9 @@
     #hex-tooltip .tt-piece { color: #86efac; }
     #hex-tooltip .tt-worm  { color: #a78bfa; }
     #hex-tooltip .tt-tri   { color: #fb923c; }
+
+    /* ── Ship trail animation ── */
+    @keyframes trailFade { from { opacity: 0.85 } to { opacity: 0 } }
   </style>
 </head>
 <body>
@@ -336,6 +339,8 @@
   let stateHistory      = [];   // board snapshots for step-back/forward
   let historyIdx        = -1;   // current position in stateHistory (-1 = none)
   let _lastRoundLogged  = 0;    // track round changes for log banner
+  let _prevBoard        = null; // board snapshot before last render (for trail animation)
+  let _hexCoords        = {};   // hex id -> {cx, cy} in SVG space
   // (per-panel lastEndTurnSeq tracks last seq at which we sent end_turn)
 
   // ── Mini-board zoom slider ────────────────────────────────────────────────
@@ -473,7 +478,7 @@
       const STRATEGIES = ["builder", "ships", "conqueror", "aggressor", "aggressor", "aggressor"];
       panels.push({
         ws: null, name: NAMES[i], role: null, lastState: null,
-        autoRolled: false, lastDiceRound: null, lastDiceRoll: 0, lastEndTurnSeq: -1,
+        autoRolled: false, lastDiceRound: null, lastDiceRoll: 0, lastEndTurnSeq: -1, lastActionsRemaining: -1,
         strategy: STRATEGIES[i] ?? "aggressor",
         el,
         dotEl:   document.getElementById(`dot-${i}`),
@@ -509,15 +514,53 @@
   }
 
   // ── Log ───────────────────────────────────────────────────────────────────
+  function summarizeMsg(msg, dir) {
+    if (typeof msg !== "object" || !msg) return String(msg);
+    const t = msg.type ?? "?";
+    if (dir === "out") {
+      if (t === "end_turn")          return `→ end_turn`;
+      if (t === "roll_dice")         return `→ roll_dice`;
+      if (t === "start_invasion")    return `→ start_invasion${msg.tech_card ? ` (+${msg.tech_card})` : ""}`;
+      if (t === "roll_combat_dice")  return `→ roll_combat_dice`;
+      if (t === "flight_move")       return `→ flight_move`;
+      if (t === "invasion_attack")   return `→ invasion_attack cl:${msg.cluster}`;
+      if (t === "build_piece")       return `→ build ${msg.piece_type} h:${msg.hex_id}`;
+      if (t === "research_skill")    return `→ research ${msg.column}`;
+      if (t === "draw_tech_card")    return `→ draw_tech_card`;
+      if (t === "host")              return `→ host name:${msg.name}`;
+      if (t === "join")              return `→ join ${msg.code}`;
+      if (t === "pick_race")         return `→ pick_race ${msg.race}`;
+      return `→ ${t}`;
+    }
+    // incoming
+    const R = msg.round ?? "?";
+    if (t === "game_state")       return `[state] R${R} ${msg.current_turn ?? "?"}'s turn, ${msg.actions_remaining ?? "?"}act`;
+    if (t === "invasion_prompt")  return `[invasion_prompt] cl:${msg.dest_cluster} atk:${msg.atk_count ?? 1}d def:${msg.def_dice_count ?? "?"}d`;
+    if (t === "invasion_result")  return `[invasion_result] ATK ${msg.atk_total} vs PLT ${msg.planet_total} — ${msg.won ? "WON 🏆" : "LOST 💀"}`;
+    if (t === "combat_prompt")    return `[combat_prompt] you atk ${msg.defender} cl:${msg.dest_cluster}`;
+    if (t === "combat_defender_prompt") return `[combat_def] ${msg.attacker} attacks you cl:${msg.dest_cluster}`;
+    if (t === "combat_result")    return `[combat] ATK ${msg.atk_total} vs DEF ${msg.def_total} → ${msg.winner} wins`;
+    if (t === "joined")           return `[joined] as ${msg.role}${msg.code ? ` code:${msg.code}` : ""}`;
+    if (t === "error")            return `[error] ${msg.msg ?? "?"}`;
+    if (t === "eliminated")       return `[eliminated] ${msg.msg ?? ""}`;
+    if (t === "bonus_tech_drawn") return `[tech] ${(msg.cards ?? []).map(c => c.name ?? c.id ?? c).join(", ")}`;
+    if (t === "place_pieces_start") return `[place_pieces] your turn`;
+    if (t === "draft_start")      return `[draft_start]`;
+    if (t === "board_ready")      return `[board_ready] R${R}`;
+    if (t === "dice_result")      return `[dice_result] ${JSON.stringify(msg.rolls ?? {})}`;
+    return `[${t}]`;
+  }
+
   function log(idx, dir, payload) {
     const el   = panels[idx].logEl;
     const line = document.createElement("div");
     line.className = `log-line ${dir}`;
-    const text = typeof payload === "object" ? JSON.stringify(payload) : String(payload);
     const ts   = new Date().toLocaleTimeString("en-US",{hour12:false,hour:"2-digit",minute:"2-digit",second:"2-digit"});
-    line.textContent = `${ts} ${text}`;
+    const summary = summarizeMsg(payload, dir);
+    line.textContent = `${ts} ${summary}`;
+    if (typeof payload === "object") line.title = JSON.stringify(payload);
     el.appendChild(line);
-    while (el.children.length > 80) el.removeChild(el.firstChild);
+    while (el.children.length > 120) el.removeChild(el.firstChild);
     el.scrollTop = el.scrollHeight;
   }
 
@@ -858,10 +901,51 @@
     send(idx, { type: "end_turn" });
   }
 
+  // ── Ship move detection for trail animation ───────────────────────────────
+  function detectMiniMoves(newBoard) {
+    if (!_prevBoard || !newBoard) return [];
+    const MOVE_TYPES = ["frigate","cruise_ship","super_ship","death_star","battle_station"];
+    const pos = (board) => {
+      const m = {};
+      for (const h of board) {
+        for (const pc of (h.pieces ?? [])) {
+          if (!MOVE_TYPES.includes(pc.type)) continue;
+          const k = `${pc.owner ?? ""}:${pc.type}`;
+          (m[k] = m[k] ?? []).push(h.id);
+        }
+      }
+      return m;
+    };
+    const oldPos = pos(_prevBoard);
+    const newPos = pos(newBoard);
+    const moves = [];
+    const allKeys = new Set([...Object.keys(oldPos), ...Object.keys(newPos)]);
+    for (const k of allKeys) {
+      const o = new Map();
+      for (const id of (oldPos[k] ?? [])) o.set(id, (o.get(id) ?? 0) + 1);
+      const n = new Map();
+      for (const id of (newPos[k] ?? [])) n.set(id, (n.get(id) ?? 0) + 1);
+      // Compute removals and additions
+      const removed = [], added = [];
+      for (const [id, cnt] of o) {
+        const diff = cnt - (n.get(id) ?? 0);
+        for (let i = 0; i < diff; i++) removed.push(id);
+      }
+      for (const [id, cnt] of n) {
+        const diff = cnt - (o.get(id) ?? 0);
+        for (let i = 0; i < diff; i++) added.push(id);
+      }
+      const count = Math.min(removed.length, added.length);
+      for (let i = 0; i < count; i++) moves.push({ from: removed[i], to: added[i] });
+    }
+    return moves;
+  }
+
   // ── Mini board renderer ───────────────────────────────────────────────────
   function renderMiniBoard(state) {
     const board = state.board ?? lastBoard;
     if (!board?.length) return;
+    const moves = detectMiniMoves(board);
     const svgEl = document.getElementById("board-mini-svg");
     document.getElementById("board-view").classList.remove("hidden");
 
@@ -932,6 +1016,7 @@
 
     for (const h of board) {
       const cx = tx(h.x), cy = ty(h.y);
+      _hexCoords[h.id] = { cx, cy };
       const owner    = clusterOwner[h.cluster];
       const ownColor = owner ? (playerColor[owner] ?? "#64748b") : null;
       const isCenter = h.local === 0;
@@ -1018,6 +1103,29 @@
     }
 
     svgEl.innerHTML = inner;
+
+    // Draw ship movement trails
+    const ns = "http://www.w3.org/2000/svg";
+    for (const mv of moves) {
+      const from = _hexCoords[mv.from], to = _hexCoords[mv.to];
+      if (!from || !to) continue;
+      const line = document.createElementNS(ns, "line");
+      line.setAttribute("x1", from.cx.toFixed(1)); line.setAttribute("y1", from.cy.toFixed(1));
+      line.setAttribute("x2", to.cx.toFixed(1));   line.setAttribute("y2", to.cy.toFixed(1));
+      line.setAttribute("stroke", "#38bdf8");
+      line.setAttribute("stroke-width", "1.8");
+      line.setAttribute("stroke-dasharray", "4,3");
+      line.style.animation = "trailFade 2s ease-out forwards";
+      svgEl.appendChild(line);
+      const dot = document.createElementNS(ns, "circle");
+      dot.setAttribute("cx", from.cx.toFixed(1)); dot.setAttribute("cy", from.cy.toFixed(1));
+      dot.setAttribute("r", "3.5");
+      dot.setAttribute("fill", "#38bdf8");
+      dot.style.animation = "trailFade 2s ease-out forwards";
+      svgEl.appendChild(dot);
+    }
+
+    _prevBoard = JSON.parse(JSON.stringify(board));
   }
 
   // Click handler for science hexes in the mini-board
@@ -1075,12 +1183,6 @@
         const won = msg.winner === p.name;
         sysLog(idx, `${won ? "⚔ WON" : "🛡 LOST"} combat — ATK ${msg.atk_total} vs DEF ${msg.def_total} (winner: ${msg.winner})`);
       }
-    }
-
-    // Invasion prompt — auto-roll dice immediately
-    if (msg.type === "invasion_prompt") {
-      sysLog(idx, `🎲 Invasion prompt — cluster ${msg.dest_cluster ?? "?"}, rolling...`);
-      if (!autoPaused) setTimeout(() => send(idx, { type: "start_invasion" }), 400 + idx * 80);
     }
 
     // Invasion result log
@@ -1172,16 +1274,27 @@
         for (let ri = 0; ri < panels.length; ri++)
           sysLog(ri, `━━━ Round ${round} ━━━`);
       }
-      if (currentTurn === p.name && seq !== p.lastEndTurnSeq) {
-        p.lastEndTurnSeq = seq;
-        if (actLeft > 0) {
-          setTimeout(() => autoTurnAction(idx, msg), 450 + idx * 80);
-        } else {
-          setTimeout(() => {
-            sysLog(idx, `No actions left — end_turn (round ${round})`);
-            send(idx, { type: "end_turn" });
-          }, 450 + idx * 150);
+      if (currentTurn === p.name && !autoPaused) {
+        const seqChanged     = seq !== p.lastEndTurnSeq;
+        const actionsChanged = actLeft !== p.lastActionsRemaining && actLeft >= 0;
+        // Skip invasion_prompt messages — start_invasion is sent by the invasion handler below
+        const isInvasionPrompt = msg.type === "invasion_prompt";
+        if (!isInvasionPrompt && (seqChanged || actionsChanged)) {
+          if (seqChanged) p.lastEndTurnSeq = seq;
+          p.lastActionsRemaining = actLeft;
+          if (actLeft > 0) {
+            setTimeout(() => autoTurnAction(idx, msg), 500 + idx * 80);
+          } else {
+            setTimeout(() => {
+              sysLog(idx, `No actions left — end_turn (round ${round})`);
+              send(idx, { type: "end_turn" });
+            }, 500 + idx * 150);
+          }
         }
+      }
+      if (autoPaused && msg.current_turn === p.name) {
+        p.lastEndTurnSeq = seq;
+        p.lastActionsRemaining = actLeft;
       }
     }
 
@@ -1218,7 +1331,7 @@
     }
 
     // All state-bearing message types share the same handler
-    if (["game_state","place_pieces_start","draft_start","board_ready","combat_result","invasion_result"].includes(msg.type)) {
+    if (["game_state","place_pieces_start","draft_start","board_ready","combat_result","invasion_result","invasion_prompt"].includes(msg.type)) {
       handleState(idx, msg);
     }
 
@@ -1231,6 +1344,19 @@
         const p = panels[idx];
         const btn = mkBtn("🎲 Roll Attack Dice", "btn-step", () => { btn.remove(); send(idx, { type: "roll_combat_dice" }); });
         p.actEl.appendChild(btn);
+      }
+    }
+
+    // Invasion: auto-roll or show manual button when paused
+    if (msg.type === "invasion_prompt") {
+      const defD = msg.def_dice_count ?? "?";
+      const atkD = msg.atk_count ?? 1;
+      sysLog(idx, `🎲 Invasion cl:${msg.dest_cluster} — atk:${atkD}d def:${defD}d${msg.planet?.ancient ? " (ANCIENT)" : ""}`);
+      if (!autoPaused) {
+        setTimeout(() => send(idx, { type: "start_invasion" }), 400 + idx * 80);
+      } else {
+        const btn = mkBtn("🎲 Roll Invasion Dice", "btn-step", () => { btn.remove(); send(idx, { type: "start_invasion" }); });
+        panels[idx].actEl.appendChild(btn);
       }
     }
 
@@ -1249,7 +1375,7 @@
     if (msg.game_over) {
       const winner = msg.game_over;
       for (let i = 0; i < panels.length; i++)
-        sysLog(i, `🏆 GAME OVER — ${winner} wins with 7 VP!`);
+        sysLog(i, `🏆 GAME OVER — ${winner} wins!`);
       autoPaused = true;
       const btn = document.getElementById("btn-pause");
       btn.classList.add("paused");
@@ -1504,6 +1630,8 @@
     autoPaused        = false;
     stateHistory      = [];
     historyIdx        = -1;
+    _prevBoard        = null;
+    _hexCoords        = {};
     document.getElementById("btn-step-back").disabled = true;
     document.getElementById("btn-step-fwd").disabled  = true;
     const pauseBtn = document.getElementById("btn-pause");
