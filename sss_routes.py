@@ -1135,6 +1135,17 @@ async def _ai_place_pieces_turn(game: Game) -> None:
             p.income["science"] = p.income.get("science", 0) + planet["science"]
             p.income["tool"] = p.income.get("tool", 0) + planet["tool"]
             p.income["money"] = p.income.get("money", 0) + planet["money"]
+            # Guarantee first turn isn't negative: bump income to cover tri upkeep
+            _tri_h = next((th for th in game.board if th["cluster"] == h["cluster"] and th.get("tri")), None)
+            if _tri_h:
+                tc = _tri_h.get("tri_counts", [])
+                if len(tc) >= 3:
+                    for _key, _upkeep in [("tool", tc[0]), ("food", tc[1]), ("science", tc[2])]:
+                        if p.income.get(_key, 0) < _upkeep:
+                            _delta = _upkeep - p.income.get(_key, 0)
+                            p.income[_key] = _upkeep
+                            planet[_key] = planet.get(_key, 0) + _delta
+                            game.board[core_id]["planet"][_key] = planet[_key]
             p.pieces["battle_station"] = p.pieces.get("battle_station", 1) - 1
             p.pieces["empire_flag"] = p.pieces.get("empire_flag", 1) - 1
             remaining.pop(0)
