@@ -138,7 +138,7 @@ function handleMsg(msg) {
     case "invasion_result":
       if (msg.seq !== undefined && msg.seq <= _lastStateSeq) break;
       if (msg.seq !== undefined) _lastStateSeq = msg.seq;
-      if (msg.board) { _prevBoardState = msg.board; boardCache = msg.board; }
+      if (msg.board) { detectOpponentMoves(msg.board, msg); boardCache = msg.board; }
       _lastState = msg;
       applyState(msg);
       showInvasionResult(msg);
@@ -149,13 +149,13 @@ function handleMsg(msg) {
       }
       break;
     case "combat_prompt":
-      if (msg.board) boardCache = msg.board;
+      if (msg.board) { detectOpponentMoves(msg.board, msg); boardCache = msg.board; }
       _lastState = msg;
       applyState(msg);
       showCombatPrompt(msg, true);
       break;
     case "combat_defender_prompt":
-      if (msg.board) boardCache = msg.board;
+      if (msg.board) { detectOpponentMoves(msg.board, msg); boardCache = msg.board; }
       _lastState = msg;
       applyState(msg);
       showCombatPrompt(msg, false);
@@ -166,7 +166,7 @@ function handleMsg(msg) {
     case "combat_result":
       if (msg.seq !== undefined && msg.seq <= _lastStateSeq) break;
       if (msg.seq !== undefined) _lastStateSeq = msg.seq;
-      if (msg.board) boardCache = msg.board;
+      if (msg.board) { detectOpponentMoves(msg.board, msg); boardCache = msg.board; }
       _lastState = msg;
       applyState(msg);
       showCombatResult(msg);
