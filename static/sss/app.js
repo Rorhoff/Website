@@ -1704,7 +1704,7 @@ function showInvasionPrompt(msg) {
     </div>` : `<div class="hint" style="margin-bottom:.5rem">No combat tech cards in hand.</div>`;
 
   const atkCount = msg.atk_count ?? 1;
-  const defCount = msg.def_dice_count ?? (msg.planet?.ancient ? 5 : 3);
+  const defCount = msg.def_dice_count ?? (msg.planet?.ancient ? 3 : 3);
   const defLabel = msg.planet?.ancient ? `${defCount}d50` : `${defCount}d6`;
   document.getElementById("combat-title").textContent = `Invade System ${clusterLabel}!`;
   document.getElementById("combat-body").innerHTML = `

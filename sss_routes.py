@@ -665,7 +665,7 @@ def _player_planet_count(game, name: str) -> int:
 def _planet_def_dice(game, attacker_name: str, planet: dict, gov_tech=None) -> list:
     """Return planet defense dice based on attacker empire size."""
     if planet.get("ancient"):
-        return [random.randint(1, 50) for _ in range(5)]
+        return [random.randint(1, 50) for _ in range(3)]
     owned = _player_planet_count(game, attacker_name)
     if gov_tech and len(gov_tech) > 2 and gov_tech[2]:
         # Government Lv3 Martial Command reduces defense by 1 die (min 1)
