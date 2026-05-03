@@ -731,6 +731,42 @@
       return false;
     }
 
+    // ── Emergency: fix negative resources before anything else ────────────────
+    function tryFixNegativeResource() {
+      const res = me?.resources ?? {};
+      const BUILD_COSTS = { building_science: 4, building_tool: 4, building_money: 6 };
+      // Priority order: whichever resource is most negative first
+      const fixes = [
+        ["science", "building_science"],
+        ["tool",    "building_tool"],
+        ["money",   "building_money"],
+      ].filter(([key]) => (res[key] ?? 0) < 0);
+
+      for (const [, btype] of fixes) {
+        if (money < BUILD_COSTS[btype]) continue;
+        for (const cl of myClusters) {
+          const h = board.find(o => o.cluster === cl && o.type === "bs_slot" && o.local !== 0
+            && (o.pieces ?? []).filter(pc => BUILD_TYPES.includes(pc.type)).length < 3);
+          if (h) {
+            sysLog(idx, `🚨 Fix negative ${btype.replace("building_","")} — build ${btype} h:${h.id}`);
+            send(idx, { type: "build_piece", piece_type: btype, hex_id: h.id });
+            return true;
+          }
+        }
+      }
+      // Fix negative food via farmer_upgrade (reduces tri food upkeep)
+      if ((res.food ?? 0) < 0 && tools >= 3) {
+        for (const cl of myClusters) {
+          if (board.find(h => h.cluster === cl && h.tri && !h.tri_farmer_green)) {
+            sysLog(idx, `🚨 Fix negative food — farmer_upgrade (⚙${tools})`);
+            send(idx, { type: "build_piece", piece_type: "farmer_upgrade" });
+            return true;
+          }
+        }
+      }
+      return false;
+    }
+
     function buildRoutes() {
       const attack = [], expand = [];
       const seen = new Set();
@@ -766,6 +802,7 @@
 
     // ── BUILDER: buildings → draw tech → invade → expand ─────────────────────
     if (strategy === "builder") {
+      if (tryFixNegativeResource()) return;
       if (tryBuildBuilding()) return;
       const techCount = (me?.tech_cards ?? []).length;
       if (techCount < 2) {
@@ -791,6 +828,7 @@
 
     // ── SHIPS: build frigates → invade → expand ───────────────────────────────
     if (strategy === "ships") {
+      if (tryFixNegativeResource()) return;
       if (tryBuildFrigate()) return;
       if (tryInvadeInSystem()) return;
       const { expand } = buildRoutes();
@@ -811,6 +849,7 @@
 
     // ── CONQUEROR: unclaimed planets first → expand to new systems ────────────
     if (strategy === "conqueror") {
+      if (tryFixNegativeResource()) return;
       // Prefer unclaimed (no empire_flag) over enemy-owned
       const unclaimedFirst = [...myFrigClusters].filter(cl => {
         if (myClusters.has(cl)) return false;
@@ -848,6 +887,7 @@
 
     // ── AGGRESSOR: attack players 4-5 (last two in list), chase enemies ───────
     if (strategy === "aggressor") {
+      if (tryFixNegativeResource()) return;
       const allPlayers = state.players ?? [];
       const targetNames = new Set(allPlayers.slice(-2).map(pl => pl.name));
       const { attack, expand } = buildRoutes();
@@ -882,6 +922,7 @@
     }
 
     // ── DEFAULT fallback ──────────────────────────────────────────────────────
+    if (tryFixNegativeResource()) return;
     const { attack, expand } = buildRoutes();
     if (tryInvadeInSystem()) return;
     if (attack.length > 0) {
