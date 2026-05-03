@@ -341,6 +341,8 @@
   let _lastRoundLogged  = 0;    // track round changes for log banner
   let _prevBoard        = null; // board snapshot before last render (for trail animation)
   let _hexCoords        = {};   // hex id -> {cx, cy} in SVG space
+  let _activeTrails     = [];   // {from, to, startedAt} — persist across renders
+  const TRAIL_MS        = 4000; // trail linger duration in ms
   // (per-panel lastEndTurnSeq tracks last seq at which we sent end_turn)
 
   // ── Mini-board zoom slider ────────────────────────────────────────────────
@@ -1102,26 +1104,33 @@
       }
     }
 
+    // Register new moves into the persistent trail list
+    const now = Date.now();
+    for (const mv of moves) _activeTrails.push({ from: mv.from, to: mv.to, startedAt: now });
+    // Expire old trails
+    _activeTrails = _activeTrails.filter(t => now - t.startedAt < TRAIL_MS);
+
     svgEl.innerHTML = inner;
 
-    // Draw ship movement trails
+    // Re-draw all active trails after every render (innerHTML wipes them)
     const ns = "http://www.w3.org/2000/svg";
-    for (const mv of moves) {
-      const from = _hexCoords[mv.from], to = _hexCoords[mv.to];
+    for (const trail of _activeTrails) {
+      const from = _hexCoords[trail.from], to = _hexCoords[trail.to];
       if (!from || !to) continue;
+      const opacity = ((TRAIL_MS - (now - trail.startedAt)) / TRAIL_MS * 0.9).toFixed(2);
       const line = document.createElementNS(ns, "line");
       line.setAttribute("x1", from.cx.toFixed(1)); line.setAttribute("y1", from.cy.toFixed(1));
       line.setAttribute("x2", to.cx.toFixed(1));   line.setAttribute("y2", to.cy.toFixed(1));
       line.setAttribute("stroke", "#38bdf8");
-      line.setAttribute("stroke-width", "1.8");
-      line.setAttribute("stroke-dasharray", "4,3");
-      line.style.animation = "trailFade 2s ease-out forwards";
+      line.setAttribute("stroke-width", "2");
+      line.setAttribute("stroke-dasharray", "5,3");
+      line.setAttribute("opacity", opacity);
       svgEl.appendChild(line);
       const dot = document.createElementNS(ns, "circle");
       dot.setAttribute("cx", from.cx.toFixed(1)); dot.setAttribute("cy", from.cy.toFixed(1));
-      dot.setAttribute("r", "3.5");
+      dot.setAttribute("r", "4");
       dot.setAttribute("fill", "#38bdf8");
-      dot.style.animation = "trailFade 2s ease-out forwards";
+      dot.setAttribute("opacity", opacity);
       svgEl.appendChild(dot);
     }
 
@@ -1632,6 +1641,7 @@
     historyIdx        = -1;
     _prevBoard        = null;
     _hexCoords        = {};
+    _activeTrails     = [];
     document.getElementById("btn-step-back").disabled = true;
     document.getElementById("btn-step-fwd").disabled  = true;
     const pauseBtn = document.getElementById("btn-pause");
