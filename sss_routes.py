@@ -1769,6 +1769,17 @@ async def sss_ws(ws: WebSocket, game_code: str):
                     player.income["science"] = player.income.get("science", 0) + planet["science"]
                     player.income["tool"]    = player.income.get("tool",    0) + planet["tool"]
                     player.income["money"]   = player.income.get("money",   0) + planet["money"]
+                    # Guarantee first turn isn't negative: bump income to cover tri upkeep
+                    _tri_h = next((th for th in game.board if th["cluster"] == h["cluster"] and th.get("tri")), None)
+                    if _tri_h:
+                        tc = _tri_h.get("tri_counts", [])
+                        if len(tc) >= 3:
+                            for _key, _upkeep in [("tool", tc[0]), ("food", tc[1]), ("science", tc[2])]:
+                                if player.income.get(_key, 0) < _upkeep:
+                                    _delta = _upkeep - player.income.get(_key, 0)
+                                    player.income[_key] = _upkeep
+                                    planet[_key] = planet.get(_key, 0) + _delta
+                                    game.board[core_id]["planet"][_key] = planet[_key]
                     player.pieces["battle_station"] = player.pieces.get("battle_station", 1) - 1
                     player.pieces["empire_flag"] = player.pieces.get("empire_flag", 1) - 1
                 elif next_piece == "frigate":
