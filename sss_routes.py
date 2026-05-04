@@ -1121,20 +1121,12 @@ async def _ai_place_pieces_turn(game: Game) -> None:
             game.player_system[current_name] = h["cluster"]
             core_id = h["cluster"] * 7
             game.board[core_id]["pieces"].append({"type": "empire_flag", "owner": current_name})
-            planet = {
-                "vp": 1,
-                "unrest": random.randint(0, 2),
-                "food": random.randint(1, 4),
-                "science": random.randint(0, 1),
-                "tool": random.randint(0, 2),
-                "money": random.randint(1, 3),
-            }
+            planet = {"vp": 1, "unrest": 0, "food": 2, "science": 1, "tool": 1, "money": 2}
             game.board[core_id]["planet"] = planet
-            p.resources["unrest"] = p.resources.get("unrest", 0) + planet["unrest"]
-            p.income["food"] = p.income.get("food", 0) + planet["food"]
+            p.income["food"]    = p.income.get("food",    0) + planet["food"]
             p.income["science"] = p.income.get("science", 0) + planet["science"]
-            p.income["tool"] = p.income.get("tool", 0) + planet["tool"]
-            p.income["money"] = p.income.get("money", 0) + planet["money"]
+            p.income["tool"]    = p.income.get("tool",    0) + planet["tool"]
+            p.income["money"]   = p.income.get("money",   0) + planet["money"]
             # Guarantee first turn isn't negative: bump income to cover tri upkeep
             _tri_h = next((th for th in game.board if th["cluster"] == h["cluster"] and th.get("tri")), None)
             if _tri_h:
@@ -1757,16 +1749,8 @@ async def sss_ws(ws: WebSocket, game_code: str):
                     game.player_system[player.name] = h["cluster"]
                     core_id = h["cluster"] * 7
                     game.board[core_id]["pieces"].append({"type": "empire_flag", "owner": player.name})
-                    planet = {
-                        "vp":      1,
-                        "unrest":  random.randint(0, 2),
-                        "food":    random.randint(1, 4),
-                        "science": random.randint(0, 1),
-                        "tool":    random.randint(0, 2),
-                        "money":   random.randint(1, 3),
-                    }
+                    planet = {"vp": 1, "unrest": 0, "food": 2, "science": 1, "tool": 1, "money": 2}
                     game.board[core_id]["planet"] = planet
-                    player.resources["unrest"] = player.resources.get("unrest", 0) + planet["unrest"]
                     player.income["food"]    = player.income.get("food",    0) + planet["food"]
                     player.income["science"] = player.income.get("science", 0) + planet["science"]
                     player.income["tool"]    = player.income.get("tool",    0) + planet["tool"]
