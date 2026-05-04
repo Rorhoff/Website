@@ -756,18 +756,26 @@
     }
 
     function tryBuildBuilding() {
-      const mCost = buildingCost("building_money");
-      const tCost = buildingCost("building_tool");
-      const btype = money >= mCost ? "building_money" : money >= tCost ? "building_tool" : null;
-      if (!btype) return false;
-      const minCost = btype === "building_money" ? mCost : tCost;
-      for (const cl of myClusters) {
-        const h = board.find(o => o.cluster === cl && o.type === "bs_slot" && o.local !== 0
-          && (o.pieces ?? []).filter(pc => BUILD_TYPES.includes(pc.type)).length < 3);
-        if (h) {
-          sysLog(idx, `🏗 Build ${btype} hex ${h.id} ($${minCost})`);
-          send(idx, { type: "build_piece", piece_type: btype, hex_id: h.id });
-          return true;
+      const toolIncome = me?.income?.tool    ?? 0;
+      const sciIncome  = me?.income?.science ?? 0;
+      // Priority: fix missing tool income first (needed for frigates), then science, then money
+      const priority = [];
+      if (toolIncome === 0) priority.push("building_tool");
+      if (sciIncome  === 0) priority.push("building_science");
+      priority.push("building_money", "building_tool", "building_science");
+      const tried = new Set();
+      for (const btype of priority) {
+        if (tried.has(btype)) continue;
+        tried.add(btype);
+        if (money < buildingCost(btype)) continue;
+        for (const cl of myClusters) {
+          const h = board.find(o => o.cluster === cl && o.type === "bs_slot" && o.local !== 0
+            && (o.pieces ?? []).filter(pc => BUILD_TYPES.includes(pc.type)).length < 3);
+          if (h) {
+            sysLog(idx, `🏗 Build ${btype} cl:${cl} hex ${h.id} ($${money})`);
+            send(idx, { type: "build_piece", piece_type: btype, hex_id: h.id });
+            return true;
+          }
         }
       }
       return false;
@@ -899,6 +907,7 @@
       if (tryFixNegativeResource()) return;
       if (tryAttack()) return;
       if (tryBuildBuilding()) return;
+      if (tryBuildFrigate()) return;
       const techCount = (me?.tech_cards ?? []).length;
       if (techCount < 2) {
         sysLog(idx, `📜 Draw tech card (have ${techCount})`);
@@ -926,6 +935,7 @@
     if (strategy === "ships") {
       if (tryFixNegativeResource()) return;
       if (tryAttack()) return;
+      if (tools < 2) { if (tryBuildBuilding()) return; } // need tools before frigates
       if (tryBuildFrigate()) return;
       if (tryStageForInvasion()) return;
       if (tryInvadeInSystem()) return;
