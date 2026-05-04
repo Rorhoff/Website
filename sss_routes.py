@@ -19,7 +19,7 @@ RACES = {
     "nexari":         {"name": "Nexari",          "color": "#00aaff"},
     "luminae":        {"name": "Luminae",         "color": "#ff2aff"},
     "thornveld":      {"name": "Thornveld",       "color": "#00ff66"},
-    "obsidian_pact":  {"name": "Obsidian Pact",   "color": "#bf00ff"},
+    "obsidian_pact":  {"name": "Obsidian Pact",   "color": "#e8ff00"},
     "dust_runners":   {"name": "Dust Runners",    "color": "#ff8800"},
 }
 
@@ -580,6 +580,9 @@ def _strip_buildings_from_cluster(game, cluster: int, owner: str) -> dict:
             else:
                 kept.append(p)
         h["pieces"] = kept
+        # Reset farmer upgrade on tri hexes — belongs to the departed owner
+        if h.get("tri") and h.get("tri_farmer_green"):
+            h["tri_farmer_green"] = False
     return lost
 
 
@@ -760,6 +763,7 @@ class Game:
     deferred_groups: list = field(default_factory=list)
     eliminated: list = field(default_factory=list)
     ever_owned_planet: set = field(default_factory=set)
+    last_chance: set = field(default_factory=set)  # players who lost their last planet; eliminated at end of next turn if still 0
     ancient_winner: str | None = None
     ai_task: Any = None
     explorations: dict = field(default_factory=dict)  # player_name → set of cluster IDs revealed this turn
@@ -1258,6 +1262,8 @@ async def _ai_board_action(game: Game, ai_name: str) -> None:
                     lost = _strip_buildings_from_cluster(game, cluster, prev_owner)
                     for _k, _amt in lost.items():
                         prev_p.income[_k] = max(0, prev_p.income.get(_k, 0) - _amt)
+                    if _count_vp(game, prev_owner) == 0:
+                        game.last_chance.add(prev_owner)
             _reveal_dwarf_planet(planet)
             for _k in ("food", "science", "tool", "money"):
                 ai_p.income[_k] = ai_p.income.get(_k, 0) + planet.get(_k, 0)
@@ -1855,6 +1861,17 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 current = game.turn_order[game.turn_idx % len(game.turn_order)]
                 if player.name != current:
                     continue
+                # Last-chance check: player had their last planet taken — if still at 0, eliminate
+                if player.name in game.last_chance:
+                    game.last_chance.discard(player.name)
+                    if _count_vp(game, player.name) == 0:
+                        game.eliminated.append(player.name)
+                        _do_elimination(game, player.name)
+                        game.turn_actions_remaining = 2 if len(game.turn_order) >= 5 else 3
+                        state = game.public_state()
+                        state["board"] = game.board
+                        await game.broadcast({"type": "game_state", **state})
+                        continue
                 # Spend unused actions drawing tech cards
                 drawn: list[dict] = []
                 for _ in range(game.turn_actions_remaining):
@@ -2559,6 +2576,10 @@ async def sss_ws(ws: WebSocket, game_code: str):
                         inv_core["pieces"] = [p for p in inv_core.get("pieces", []) if p["type"] != "empire_flag"]
                         inv_core["pieces"].append({"type": "empire_flag", "owner": player.name})
                     game.ever_owned_planet.add(player.name)
+                    # Last-chance: if the evicted owner now has 0 planets, give them one turn to recapture
+                    if prev_planet_owner and prev_planet_owner != player.name:
+                        if _count_vp(game, prev_planet_owner) == 0:
+                            game.last_chance.add(prev_planet_owner)
                 else:
                     winner = "planet"
                     if combat.get("remove_all_on_loss"):

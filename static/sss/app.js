@@ -13,7 +13,7 @@ const RACES = {
   nexari:        { name: "Nexari",        color: "#1a5fa8" },
   luminae:       { name: "Luminae",       color: "#ff69b4" },
   thornveld:     { name: "Thornveld",     color: "#27ae60" },
-  obsidian_pact: { name: "Obsidian Pact", color: "#9b59b6" },
+  obsidian_pact: { name: "Obsidian Pact", color: "#e8ff00" },
   dust_runners:  { name: "Dust Runners",  color: "#8B4513" },
 };
 
