@@ -809,6 +809,42 @@
       return { attack, expand };
     }
 
+    function tryAttack() {
+      // Priority 1: enemy frigates inside our own cluster — counter-attack them
+      for (const cl of myClusters) {
+        const enemyHex = board.find(h =>
+          h.cluster === cl &&
+          (h.pieces ?? []).some(pc => (pc.type === "frigate" || pc.type === "super_ship") && pc.owner !== p.name)
+        );
+        if (!enemyHex) continue;
+        const hasAttacker = board.some(h =>
+          h.cluster === cl &&
+          (h.pieces ?? []).some(pc => (pc.type === "frigate" || pc.type === "super_ship") && pc.owner === p.name)
+        );
+        if (!hasAttacker) continue;
+        sysLog(idx, `⚔ Counter-attack intruder in own cluster ${cl} hex ${enemyHex.id}`);
+        send(idx, { type: "attack_move", from_cluster: cl, target_hex_id: enemyHex.id });
+        return true;
+      }
+      // Priority 2: enemy frigates in adjacent wormhole-connected clusters
+      for (const h of board) {
+        if (!h.wormhole || h.wormhole_partner == null) continue;
+        if (!(h.pieces ?? []).some(pc => pc.type === "frigate" && pc.owner === p.name)) continue;
+        const partner = board[h.wormhole_partner];
+        if (!partner) continue;
+        const destCluster = partner.cluster;
+        const enemyHex = board.find(dh =>
+          dh.cluster === destCluster &&
+          (dh.pieces ?? []).some(pc => (pc.type === "frigate" || pc.type === "super_ship") && pc.owner !== p.name)
+        );
+        if (!enemyHex) continue;
+        sysLog(idx, `⚔ Attack enemy cluster ${destCluster} hex ${enemyHex.id}`);
+        send(idx, { type: "attack_move", from_cluster: h.cluster, target_hex_id: enemyHex.id });
+        return true;
+      }
+      return false;
+    }
+
     function tryResearchSkill(column) {
       const science = (me?.resources ?? {}).science ?? 0;
       const levels  = ((me?.tech ?? {})[column]) ?? [false,false,false,false,false];
@@ -824,6 +860,7 @@
     // ── BUILDER: buildings → draw tech → invade → expand ─────────────────────
     if (strategy === "builder") {
       if (tryFixNegativeResource()) return;
+      if (tryAttack()) return;
       if (tryBuildBuilding()) return;
       const techCount = (me?.tech_cards ?? []).length;
       if (techCount < 2) {
@@ -850,6 +887,7 @@
     // ── SHIPS: build frigates → invade → expand ───────────────────────────────
     if (strategy === "ships") {
       if (tryFixNegativeResource()) return;
+      if (tryAttack()) return;
       if (tryBuildFrigate()) return;
       if (tryInvadeInSystem()) return;
       const { expand } = buildRoutes();
@@ -871,6 +909,7 @@
     // ── CONQUEROR: unclaimed planets first → expand to new systems ────────────
     if (strategy === "conqueror") {
       if (tryFixNegativeResource()) return;
+      if (tryAttack()) return;
       // Prefer unclaimed (no empire_flag) over enemy-owned
       const unclaimedFirst = [...myFrigClusters].filter(cl => {
         if (myClusters.has(cl)) return false;
@@ -909,6 +948,7 @@
     // ── AGGRESSOR: attack players 4-5 (last two in list), chase enemies ───────
     if (strategy === "aggressor") {
       if (tryFixNegativeResource()) return;
+      if (tryAttack()) return;
       const allPlayers = state.players ?? [];
       const targetNames = new Set(allPlayers.slice(-2).map(pl => pl.name));
       const { attack, expand } = buildRoutes();
@@ -919,7 +959,7 @@
       const chosenAttack = targetAttack.length > 0 ? targetAttack : attack;
       if (chosenAttack.length > 0) {
         const r = chosenAttack[Math.floor(Math.random() * chosenAttack.length)];
-        sysLog(idx, `⚔ [aggressor] Attack cluster ${r.dest_cluster}`);
+        sysLog(idx, `⚔ [aggressor] Move to attack cluster ${r.dest_cluster}`);
         send(idx, { type: "flight_move", from_wormhole: r.from_wormhole, to_wormhole: r.to_wormhole });
         return;
       }
@@ -944,6 +984,7 @@
 
     // ── DEFAULT fallback ──────────────────────────────────────────────────────
     if (tryFixNegativeResource()) return;
+    if (tryAttack()) return;
     const { attack, expand } = buildRoutes();
     if (tryInvadeInSystem()) return;
     if (attack.length > 0) {

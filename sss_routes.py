@@ -2148,7 +2148,7 @@ async def sss_ws(ws: WebSocket, game_code: str):
                     await ws.send_json({"type": "error", "msg": "No attack-capable ships in that system."})
                     continue
                 atk_frigate_count = len(atk_frigates)
-                connected = any(
+                connected = from_cluster == dest_cluster or any(
                     game.board[h["wormhole_partner"]]["cluster"] == dest_cluster
                     for h in game.board
                     if h["cluster"] == from_cluster and h.get("wormhole") and h.get("wormhole_partner") is not None
