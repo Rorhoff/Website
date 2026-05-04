@@ -683,15 +683,51 @@
     }
 
     // ── Common helpers ────────────────────────────────────────────────────────
+    function countFrigs(cluster) {
+      return board.reduce((n, h) => n + (h.cluster === cluster
+        ? (h.pieces ?? []).filter(pc => pc.type === "frigate" && pc.owner === p.name).length : 0), 0);
+    }
+    const totalFrigs = board.reduce((n, h) => n +
+      (h.pieces ?? []).filter(pc => pc.type === "frigate" && pc.owner === p.name).length, 0);
+
     function tryInvadeInSystem() {
       for (const cl of myFrigClusters) {
         if (myClusters.has(cl)) continue;
         const core = board.find(h => h.cluster === cl && h.local === 0);
         if (!core?.planet) continue;
         if (board.some(h => h.cluster === cl && (h.pieces ?? []).some(pc => pc.type === "frigate" && pc.owner !== p.name))) continue;
-        sysLog(idx, `🌍 Invade cluster ${cl}`);
+        const frigsHere = countFrigs(cl);
+        // Wait for 2+ frigates unless we only have 1 total
+        if (frigsHere < 2 && totalFrigs > 1) continue;
+        sysLog(idx, `🌍 Invade cluster ${cl} with ${frigsHere} frigate(s)`);
         send(idx, { type: "invasion_attack", cluster: cl });
         return true;
+      }
+      return false;
+    }
+
+    function tryStageForInvasion() {
+      // Find a staging cluster with 1 frigate that needs a second one
+      for (const cl of myFrigClusters) {
+        if (myClusters.has(cl)) continue;
+        const core = board.find(h => h.cluster === cl && h.local === 0);
+        if (!core?.planet) continue;
+        if (board.some(h => h.cluster === cl && (h.pieces ?? []).some(pc => pc.type === "frigate" && pc.owner !== p.name))) continue;
+        if (countFrigs(cl) >= 2) continue; // already enough
+        if (totalFrigs <= 1) continue;      // nothing to spare
+        // Find a home-cluster wormhole that connects to this staging cluster
+        for (const homeCl of myClusters) {
+          const wh = board.find(h =>
+            h.cluster === homeCl && h.wormhole && h.wormhole_partner != null &&
+            board[h.wormhole_partner]?.cluster === cl &&
+            (h.pieces ?? []).some(pc => pc.type === "frigate" && pc.owner === p.name)
+          );
+          if (wh) {
+            sysLog(idx, `🚀 Stage 2nd frigate to invasion cluster ${cl}`);
+            send(idx, { type: "flight_move", from_wormhole: wh.id, to_wormhole: wh.wormhole_partner });
+            return true;
+          }
+        }
       }
       return false;
     }
@@ -868,6 +904,7 @@
         send(idx, { type: "draw_tech_card" });
         return;
       }
+      if (tryStageForInvasion()) return;
       if (tryInvadeInSystem()) return;
       const { expand } = buildRoutes();
       if (expand.length > 0) {
@@ -889,6 +926,7 @@
       if (tryFixNegativeResource()) return;
       if (tryAttack()) return;
       if (tryBuildFrigate()) return;
+      if (tryStageForInvasion()) return;
       if (tryInvadeInSystem()) return;
       const { expand } = buildRoutes();
       if (expand.length > 0) {
@@ -923,6 +961,7 @@
         send(idx, { type: "invasion_attack", cluster: cl });
         return;
       }
+      if (tryStageForInvasion()) return;
       if (tryInvadeInSystem()) return;
       const { expand } = buildRoutes();
       const unclaimedExpand = expand.filter(r => {
@@ -963,6 +1002,7 @@
         send(idx, { type: "flight_move", from_wormhole: r.from_wormhole, to_wormhole: r.to_wormhole });
         return;
       }
+      if (tryStageForInvasion()) return;
       if (tryInvadeInSystem()) return;
       // Expand toward enemy territory
       const enemyFirst = expand.filter(r => enemyClusters.has(r.dest_cluster));
@@ -986,6 +1026,7 @@
     if (tryFixNegativeResource()) return;
     if (tryAttack()) return;
     const { attack, expand } = buildRoutes();
+    if (tryStageForInvasion()) return;
     if (tryInvadeInSystem()) return;
     if (attack.length > 0) {
       const r = attack[Math.floor(Math.random() * attack.length)];
