@@ -697,9 +697,10 @@
         if (!core?.planet) continue;
         if (board.some(h => h.cluster === cl && (h.pieces ?? []).some(pc => pc.type === "frigate" && pc.owner !== p.name))) continue;
         const frigsHere = countFrigs(cl);
-        // Wait for 2+ frigates unless we only have 1 total
-        if (frigsHere < 2 && totalFrigs > 1) continue;
-        sysLog(idx, `🌍 Invade cluster ${cl} with ${frigsHere} frigate(s)`);
+        const isAncient = !!core.planet?.ancient;
+        const required = isAncient ? 3 : 2;
+        if (frigsHere < required && totalFrigs > frigsHere) continue;
+        sysLog(idx, `🌍 Invade cluster ${cl} with ${frigsHere} frigate(s)${isAncient ? " ☠ ANCIENT" : ""}`);
         send(idx, { type: "invasion_attack", cluster: cl });
         return true;
       }
@@ -707,15 +708,15 @@
     }
 
     function tryStageForInvasion() {
-      // Find a staging cluster with 1 frigate that needs a second one
       for (const cl of myFrigClusters) {
         if (myClusters.has(cl)) continue;
         const core = board.find(h => h.cluster === cl && h.local === 0);
         if (!core?.planet) continue;
         if (board.some(h => h.cluster === cl && (h.pieces ?? []).some(pc => pc.type === "frigate" && pc.owner !== p.name))) continue;
-        if (countFrigs(cl) >= 2) continue; // already enough
-        if (totalFrigs <= 1) continue;      // nothing to spare
-        // Find a home-cluster wormhole that connects to this staging cluster
+        const isAncient = !!core.planet?.ancient;
+        const required = isAncient ? 3 : 2;
+        if (countFrigs(cl) >= required) continue;
+        if (totalFrigs <= countFrigs(cl)) continue; // nothing to spare
         for (const homeCl of myClusters) {
           const wh = board.find(h =>
             h.cluster === homeCl && h.wormhole && h.wormhole_partner != null &&
@@ -723,7 +724,7 @@
             (h.pieces ?? []).some(pc => pc.type === "frigate" && pc.owner === p.name)
           );
           if (wh) {
-            sysLog(idx, `🚀 Stage 2nd frigate to invasion cluster ${cl}`);
+            sysLog(idx, `🚀 Stage frigate to ${isAncient ? "ANCIENT " : ""}invasion cluster ${cl} (have ${countFrigs(cl)}/${required})`);
             send(idx, { type: "flight_move", from_wormhole: wh.id, to_wormhole: wh.wormhole_partner });
             return true;
           }
