@@ -2380,7 +2380,7 @@ function detectOpponentMoves(newBoard, state) {
     }
   }
   if (moves.length > 0) {
-    _animQueue.push({ moves, oldBoard: _prevBoardState, state: null });
+    _animQueue.push({ moves, oldBoard: _prevBoardState, state });
   }
 
   const clusterLabel = {};
