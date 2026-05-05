@@ -1039,6 +1039,7 @@ function renderBoard(state, placementMode) {
         } else {
           // Stay in flight mode — player can chain moves (-1 action each)
           _selectedCluster = null; _selectedRoutes = [];
+          if (_lastState) renderBoard(_lastState, false);
           msgToSend = { type: "flight_move", from_wormhole: route.from_wormhole, to_wormhole: route.to_wormhole, target_hex_id: h.id };
         }
         send(msgToSend);
