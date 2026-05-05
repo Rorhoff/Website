@@ -27,9 +27,9 @@ body {
   padding: .75rem 1.5rem; border-bottom: 1px solid var(--border);
   background: #0a0f18; align-items: center;
 }
-.site-nav a { color: var(--muted); text-decoration: none; font-size: .9rem; font-weight: 500; }
+.site-nav a { color: var(--muted); text-decoration: none; font-size: .9rem; font-weight: 500; border-bottom: 2px solid transparent; padding-bottom: .1rem; }
 .site-nav a:hover { color: var(--accent); }
-.site-nav a.active { color: var(--text); border-bottom: 2px solid var(--accent); padding-bottom: .1rem; }
+.site-nav a.active { color: var(--text); border-bottom-color: var(--accent); }
 
 /* ── Layout ───────────────────────────────────────────────── */
 #app { max-width: 900px; margin: 0 auto; padding: 2rem 1rem 4rem; }
