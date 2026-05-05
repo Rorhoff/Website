@@ -15,10 +15,18 @@ html {
 body {
   margin: 0;
   font-family: Arial, sans-serif;
-  background: #f4f6fb;
+  background: #e9eef6;
   color: #222;
   overflow-x: hidden;
   padding-bottom: env(safe-area-inset-bottom, 0);
+}
+
+.page-shell {
+  max-width: 1100px;
+  margin: 0 auto;
+  background: #eef1f7;
+  min-height: 100vh;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.12), 0 0 32px rgba(0, 0, 0, 0.18);
 }
 
 .topbar {

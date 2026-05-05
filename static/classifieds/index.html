@@ -25,6 +25,9 @@
       border-bottom: 1px solid #d1dae6;
       background: #ffffff;
       align-items: center;
+      position: sticky;
+      top: 0;
+      z-index: 100;
     }
     .site-nav a {
       color: #64748b;
@@ -50,6 +53,7 @@
   <link rel="stylesheet" href="/assets/nav-mobile.css" />
 </head>
 <body>
+  <div class="page-shell">
   <nav class="site-nav" aria-label="Primary">
     <button class="nav-hamburger" id="navHamburger" aria-label="Toggle navigation" aria-expanded="false">☰</button>
     <div class="nav-links" id="navLinks">
@@ -264,6 +268,7 @@
       <div id="adminSpamQueue" class="admin-spam-queue"></div>
     </section>
   </main>
+  </div><!-- /.page-shell -->
 
   <div id="adDetailModal" class="modal-backdrop" hidden>
     <div id="detailModalCard" class="modal-card modal-ad-card">
