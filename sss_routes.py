@@ -174,12 +174,15 @@ VP_TARGET = 9
 
 
 def _count_vp(game, player_name: str) -> int:
-    return sum(
+    planet_vp = sum(
         1 for h in game.board
         if h["local"] == 0
         and h.get("planet") is not None
         and any(p["type"] == "empire_flag" and p["owner"] == player_name for p in h["pieces"])
     )
+    p = game.players.get(player_name)
+    tech_vp = p.pieces.get("vp", 0) if p else 0
+    return planet_vp + tech_vp
 
 
 def _check_vp_winner(game) -> str | None:
@@ -2253,6 +2256,8 @@ async def sss_ws(ws: WebSocket, game_code: str):
                     _atk_phys = game.players.get(attacker_name)
                     _atk_phys = (_atk_phys.tech.get("physics", []) if _atk_phys else [])
                     if len(_atk_phys) > 0 and _atk_phys[0]: atk_dice_count += 1  # Lv1 Ballistics
+                    if len(_atk_phys) > 2 and _atk_phys[2]: atk_dice_count += 1  # Lv3 Plasma Cannons
+                    if len(_atk_phys) > 4 and _atk_phys[4]: atk_dice_count += 1  # Lv5 Antimatter Weapons
                     atk_dice = [random.randint(1, 6) for _ in range(atk_dice_count)]
                     combat["atk_dice"]  = atk_dice
                     combat["atk_total"] = sum(atk_dice)
