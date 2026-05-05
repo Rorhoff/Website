@@ -1742,6 +1742,10 @@ function showInvasionPrompt(msg) {
 
   overlay.classList.remove("hidden");
 
+  const closeBtn = document.getElementById("combat-close-btn");
+  closeBtn.classList.remove("hidden");
+  closeBtn.onclick = () => overlay.classList.add("hidden");
+
   document.querySelectorAll(".combat-tech-item").forEach(item => {
     item.addEventListener("click", () => {
       if (selectedTech === item.dataset.id) {
@@ -1761,6 +1765,7 @@ function showInvasionPrompt(msg) {
 
 function showInvasionResult(msg) {
   const overlay = document.getElementById("combat-modal");
+  document.getElementById("combat-close-btn")?.classList.add("hidden");
   const won = !!msg.won;
   const isMe = msg.attacker === myName;
   const planet = msg.planet ?? {};
@@ -2061,7 +2066,10 @@ function initCombatModal() {
   el.className = "combat-overlay hidden";
   el.innerHTML = `
     <div class="combat-modal">
-      <div class="combat-modal-title" id="combat-title"></div>
+      <div class="combat-modal-header">
+        <div class="combat-modal-title" id="combat-title"></div>
+        <button class="combat-close-btn hidden" id="combat-close-btn" aria-label="Cancel">✕</button>
+      </div>
       <div class="combat-modal-body" id="combat-body"></div>
       <div class="combat-modal-footer" id="combat-footer"></div>
     </div>`;
@@ -2081,6 +2089,7 @@ function throwDice(container, dice, fromRight = false) {
 
 function showCombatPrompt(msg, isAttacker) {
   const overlay = document.getElementById("combat-modal");
+  document.getElementById("combat-close-btn")?.classList.add("hidden");
   const board = msg.board ?? boardCache ?? [];
   const clusterLabel = board.find(h => h.cluster === msg.dest_cluster && h.local === 0)?.label ?? msg.dest_cluster;
   let selectedTech = null;
@@ -2183,6 +2192,7 @@ function showCombatAttackerRolled(msg) {
 
 function showCombatResult(msg) {
   const overlay = document.getElementById("combat-modal");
+  document.getElementById("combat-close-btn")?.classList.add("hidden");
   const isAttacker = msg.attacker === myName;
   const attackerWon = !!msg.attacker_won;
 
