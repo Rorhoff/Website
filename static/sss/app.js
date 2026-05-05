@@ -54,6 +54,7 @@ let _pendingScienceHex = null; // hex_id of science tile clicked directly (skips
 let _lastState       = null;  // most recent full state for re-renders
 let _hexHandlers     = new Map();  // hex_id → click handler; populated each renderBoard
 let _hexPositions    = [];         // [{id,x,y}] for SVG-coordinate hit dispatch
+let _myOwnedClusters = new Set();  // clusters owned by myName; updated each renderBoard
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -721,6 +722,7 @@ function drawBoardPieces(pieceLayer, hexes, players) {
 }
 
 function renderBoard(state, placementMode) {
+  closeHexInfoPanel();
   const banner = $("watcher-banner");
   if (myRole === "watcher") {
     banner.classList.remove("hidden");
@@ -833,6 +835,7 @@ function renderBoard(state, placementMode) {
     if ((h.pieces ?? []).some(p => p.type === "empire_flag" && p.owner === myName))
       myOwnedClustersSet.add(h.cluster);
   }
+  _myOwnedClusters = myOwnedClustersSet;
   const myRemaining = (state.player_placement ?? {})[myName] ?? [];
   const isMyTurn    = placementMode && state.current_placer === myName && myRole !== "watcher";
   const nextPiece   = myRemaining[0];
@@ -1009,16 +1012,6 @@ function renderBoard(state, placementMode) {
     poly.setAttribute("class", cls);
     poly.setAttribute("data-id", h.id);
 
-    // Science hex direct-click shortcut: when idle on your turn, click S tile to open building picker
-    const isScienceDirect = !placementMode && !_constructionPiece && !_actionMode
-      && state.phase === "board" && state.current_turn === myName && myRole !== "watcher"
-      && myOwnedClustersSet.has(h.cluster) && h.type === "bs_slot" && h.local > 0;
-    if (isScienceDirect) {
-      cls += " hex-science-available";
-      const capturedId = h.id;
-      _hexHandlers.set(h.id, () => { _pendingScienceHex = capturedId; showConstructionPicker("buildings"); });
-    }
-
     if (validConstructTarget) {
       poly.style.cursor = "pointer";
       _hexHandlers.set(h.id, () => {
@@ -1086,6 +1079,11 @@ function renderBoard(state, placementMode) {
         _selectedCluster = null; _selectedRoutes = [];
         if (_lastState) renderBoard(_lastState, false);
       });
+    } else if (!placementMode && !h.fog) {
+      // Idle tap — show hex info panel
+      poly.style.cursor = "pointer";
+      const _capturedH = h;
+      _hexHandlers.set(h.id, () => showHexInfoPanel(_capturedH));
     }
 
     hexLayer.appendChild(poly);
@@ -2058,6 +2056,136 @@ function showExplorationPicker() {
   el.classList.remove("hidden");
 }
 
+// ── Hex info panel ─────────────────────────────────────────────────────────
+
+function initHexInfoPanel() {
+  const el = document.createElement("div");
+  el.id = "hex-info-panel";
+  el.className = "hex-info-panel hidden";
+  el.innerHTML = `
+    <div class="hex-info-header">
+      <span class="hex-info-title" id="hex-info-title"></span>
+      <button class="hex-info-close" id="hex-info-close" aria-label="Close">✕</button>
+    </div>
+    <div class="hex-info-body" id="hex-info-body"></div>
+    <div class="hex-info-actions" id="hex-info-actions"></div>`;
+  document.body.appendChild(el);
+  document.getElementById("hex-info-close").addEventListener("click", closeHexInfoPanel);
+}
+
+function closeHexInfoPanel() {
+  document.getElementById("hex-info-panel")?.classList.add("hidden");
+}
+
+const _PIECE_DISPLAY = {
+  scout: "Scout", cruise_ship: "Cruise Ship", outpost: "Outpost",
+  super_ship: "Super Ship", battle_station: "Battle Station", death_star: "Death Star",
+  empire_flag: "Empire Flag", unrest: "Unrest",
+  building_tool: "Workshop (+1 Tool)", building_science: "Lab (+1 Science)",
+  building_money: "Treasury (+3 ¤)", farmer_upgrade: "Farmer Upgrade",
+};
+
+function showHexInfoPanel(h) {
+  const state = _lastState;
+  if (!state) return;
+
+  closeHexInfoPanel();
+
+  const isMyBoardTurn = state.phase === "board" && state.current_turn === myName && myRole !== "watcher";
+  const owned = _myOwnedClusters.has(h.cluster);
+
+  // ── Title ──
+  let titleText;
+  if (h.local === 0) {
+    const label = h.label || `Cluster ${h.cluster}`;
+    const owner = (state.players ?? []).find(p =>
+      (state.board ?? []).some(bh => bh.cluster === h.cluster &&
+        (bh.pieces ?? []).some(pc => pc.type === "empire_flag" && pc.owner === p.name)));
+    titleText = label + (owner ? ` — ${owner.name}` : "");
+  } else if (h.tri) {
+    titleText = "Farm Triangle";
+  } else {
+    const labels = { orbital: "Orbital", bs_slot: "Building Slot", space: "Space Hex", science: "Science Hex" };
+    titleText = labels[h.type] ?? h.type;
+    if (h.wormhole) titleText += " ↔ Wormhole";
+  }
+
+  // ── Body rows ──
+  const rows = [];
+
+  // Pieces grouped by type+owner
+  const pieces = (h.pieces ?? []).filter(pc => pc.type !== "empire_flag" || h.local !== 0);
+  const grouped = {};
+  for (const pc of pieces) {
+    const key = `${pc.type}||${pc.owner ?? ""}`;
+    grouped[key] = (grouped[key] ?? 0) + 1;
+  }
+  for (const [key, count] of Object.entries(grouped)) {
+    const [type, owner] = key.split("||");
+    const label = _PIECE_DISPLAY[type] ?? type;
+    const ownerPart = owner && owner !== myName ? ` <span class="hip-owner">(${owner})</span>` : "";
+    rows.push(`<div class="hip-row">${label} × ${count}${ownerPart}</div>`);
+  }
+
+  // Planet resources (center hex)
+  if (h.local === 0 && h.planet) {
+    const p = h.planet;
+    const dwarfHidden = p.dwarf && !p.food && !p.science && !p.tool && !p.money;
+    if (dwarfHidden) {
+      rows.push(`<div class="hip-row hip-muted">Dwarf planet — unrevealed</div>`);
+    } else {
+      if (p.food)    rows.push(`<div class="hip-row">${RESOURCE_ICONS.food} +${p.food} Food</div>`);
+      if (p.science) rows.push(`<div class="hip-row">${RESOURCE_ICONS.science} +${p.science} Science</div>`);
+      if (p.tool)    rows.push(`<div class="hip-row">${RESOURCE_ICONS.tool} +${p.tool} Tool</div>`);
+      if (p.money)   rows.push(`<div class="hip-row">${RESOURCE_ICONS.money} +${p.money} Money</div>`);
+      if (p.vp)      rows.push(`<div class="hip-row">★ +${p.vp} VP</div>`);
+      if (p.ancient) rows.push(`<div class="hip-row hip-muted">Ancient planet</div>`);
+    }
+  }
+
+  // Tri hex upkeep
+  if (h.tri && (h.tri_counts ?? []).length >= 3) {
+    const c = h.tri_counts;
+    const foodCost = h.tri_farmer_green ? Math.max(1, c[1] - 1) : c[1];
+    rows.push(`<div class="hip-row">${RESOURCE_ICONS.tool} −${c[0]} Upkeep</div>`);
+    rows.push(`<div class="hip-row">${RESOURCE_ICONS.food} −${foodCost} Upkeep${h.tri_farmer_green ? " ★" : ""}</div>`);
+    rows.push(`<div class="hip-row">${RESOURCE_ICONS.science} −${c[2]} Upkeep</div>`);
+  }
+
+  if (rows.length === 0) rows.push(`<div class="hip-row hip-muted">Empty</div>`);
+
+  // ── Actions ──
+  const actions = [];
+  if (isMyBoardTurn && owned && h.local > 0) {
+    if (h.type === "orbital") {
+      actions.push({ label: "Build Ship?", fn: () => showConstructionPicker("ships") });
+    }
+    if (h.type === "bs_slot") {
+      const capturedId = h.id;
+      actions.push({ label: "Build Building?", fn: () => { _pendingScienceHex = capturedId; showConstructionPicker("buildings"); } });
+    }
+    if (h.tri && !h.tri_farmer_green) {
+      actions.push({ label: "Farmer Upgrade?", fn: () => { _constructionPiece = { type: "farmer_upgrade", label: "Farmer Upgrade" }; _actionMode = { type: "construction" }; if (_lastState) renderBoard(_lastState, false); } });
+    }
+  }
+
+  // Render
+  document.getElementById("hex-info-title").textContent = titleText;
+  document.getElementById("hex-info-body").innerHTML = rows.join("");
+  const actionsEl = document.getElementById("hex-info-actions");
+  actionsEl.innerHTML = actions.map((a, i) =>
+    `<button class="btn btn-ghost btn-sm hip-action-btn" data-idx="${i}">${a.label}</button>`
+  ).join("");
+  actionsEl.querySelectorAll(".hip-action-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      closeHexInfoPanel();
+      actions[+btn.dataset.idx].fn();
+    });
+  });
+
+  document.getElementById("hex-info-panel").classList.remove("hidden");
+}
+
 // ── Combat modal ───────────────────────────────────────────────────────────
 
 function initCombatModal() {
@@ -2810,4 +2938,5 @@ initDraftOverlay();
 initActionPicker();
 initConstructionPicker();
 initCombatModal();
+initHexInfoPanel();
 initPlanetModal();

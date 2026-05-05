@@ -129,6 +129,32 @@ h1 { font-size: 2rem; font-weight: 700; color: var(--accent); text-align: center
   padding: .75rem;
 }
 
+/* ── Hex info panel ──────────────────────────────────────────────────────── */
+.hex-info-panel {
+  position: fixed; bottom: 0; left: 0;
+  width: 220px; max-height: 60vh; overflow-y: auto;
+  background: rgba(8, 12, 20, 0.95);
+  border: 1px solid var(--border); border-radius: var(--radius) var(--radius) 0 0;
+  padding: .6rem .75rem .75rem; z-index: 200;
+  backdrop-filter: blur(8px);
+  display: flex; flex-direction: column; gap: .4rem;
+}
+.hex-info-panel.hidden { display: none !important; }
+.hex-info-header { display: flex; align-items: center; justify-content: space-between; gap: .4rem; margin-bottom: .2rem; }
+.hex-info-title { font-size: .8rem; font-weight: 700; color: var(--accent); flex: 1; }
+.hex-info-close {
+  background: none; border: 1px solid var(--border); border-radius: 50%;
+  color: var(--muted); font-size: .7rem; width: 1.3rem; height: 1.3rem;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; flex-shrink: 0; line-height: 1;
+}
+.hex-info-close:hover { color: var(--text); border-color: var(--text); }
+.hip-row { font-size: .75rem; color: var(--text); display: flex; align-items: center; gap: .3rem; }
+.hip-muted { color: var(--muted); }
+.hip-owner { color: var(--muted); font-size: .7rem; }
+.hex-info-actions { display: flex; flex-direction: column; gap: .35rem; margin-top: .2rem; }
+.hip-action-btn { width: 100%; text-align: left; font-size: .75rem; padding: .3rem .5rem; }
+
 /* ── Player HUD — fixed to viewport top-left (stays put while map pans) ── */
 .player-hud {
   position: fixed;
