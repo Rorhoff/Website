@@ -526,6 +526,19 @@ function drawTriangles(layer, h) {
     tri.setAttribute("stroke", "rgba(0,0,0,0.3)");
     tri.setAttribute("stroke-width", "0.8");
     layer.appendChild(tri);
+    // Farmer upgrade star on the BL triangle
+    if (i === 1 && h.tri_farmer_green) {
+      const { dx, dy } = TRI_CONFIGS[i];
+      const tx = h.x + dx * r, ty = h.y + dy * r;
+      const star = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      star.setAttribute("x", tx);
+      star.setAttribute("y", ty + 2.5);
+      star.setAttribute("text-anchor", "middle");
+      star.setAttribute("font-size", "6");
+      star.setAttribute("fill", "rgba(255,255,255,0.9)");
+      star.textContent = "★";
+      layer.appendChild(star);
+    }
   }
 }
 
@@ -1509,7 +1522,11 @@ function renderFullPlayerCard(state) {
   for (const h of board) {
     if (!h.tri || !flagClusters.has(h.cluster)) continue;
     const c = h.tri_counts ?? [];
-    if (c.length >= 3) { upkeep.tool += c[0]; upkeep.food += c[1]; upkeep.science += c[2]; }
+    if (c.length >= 3) {
+      upkeep.tool    += c[0];
+      upkeep.food    += h.tri_farmer_green ? Math.max(1, c[1] - 1) : c[1];
+      upkeep.science += c[2];
+    }
   }
 
   const incomeHtml = `
@@ -1938,7 +1955,7 @@ function showConstructionPicker(filter = "all") {
   const list = document.getElementById("construction-pick-list");
   list.innerHTML = items.map(item => {
     const effectiveCost = BUILDING_TYPES.has(item.type) ? buildingScaledCost(item.type) : item.cost;
-    const canAfford = money >= effectiveCost && tools >= item.toolCost;
+    const canAfford = money >= effectiveCost && (item.toolCost === 0 || tools >= item.toolCost);
     const parts = [];
     if (effectiveCost > 0) parts.push(`${effectiveCost} ${RESOURCE_ICONS.money}`);
     if (item.toolCost > 0) parts.push(`${item.toolCost} ${RESOURCE_ICONS.tool}`);
