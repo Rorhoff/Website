@@ -4,9 +4,9 @@
 // ── Constants ──────────────────────────────────────────────────────────────
 
 // All ships that can fly (cruise_ship included — 2-jump repositioning)
-const MOBILE_SHIPS = new Set(["frigate", "cruise_ship", "super_ship", "death_star"]);
+const MOBILE_SHIPS = new Set(["scout", "cruise_ship", "super_ship", "death_star"]);
 // Ships that can initiate attacks and invasions (cruise_ship is defense-only)
-const ATTACK_SHIPS = new Set(["frigate", "super_ship", "death_star"]);
+const ATTACK_SHIPS = new Set(["scout", "super_ship", "death_star"]);
 
 const RACES = {
   vorrkai:       { name: "Vorrkai",       color: "#e74c3c" },
@@ -252,7 +252,7 @@ function showEliminatedOverlay(message) {
 }
 
 const _SHIP_LABELS = {
-  frigate: "Frigate", cruise_ship: "Cruise Ship", outpost: "Outpost",
+  frigate: "Scout", cruise_ship: "Cruise Ship", outpost: "Outpost",
   super_ship: "Super Ship", battle_station: "Battle Station", death_star: "Death Star",
 };
 const _BLDG_LABELS = {
@@ -553,7 +553,7 @@ const PIECE_NAMES = {
   death:          "Death Star",
   super_ship:     "Super Ship",
   cruise_ship:    "Cruise Ship",
-  frigate:        "Frigate",
+  frigate:        "Scout",
   outpost:        "Outpost",
   battle_station: "Battle Station",
   empire_flag:    "Empire Flag",
@@ -620,9 +620,9 @@ function drawBoardPieces(pieceLayer, hexes, players) {
   for (const h of hexes) {
     if (h.fog) continue;  // fogged hex — no pieces rendered
     if (!h.pieces || h.pieces.length === 0) continue;
-    const frigates  = h.pieces.filter(p => p.type === "frigate");
+    const frigates  = h.pieces.filter(p => p.type === "scout");
     const buildings = h.pieces.filter(p => BUILDING_TYPES.has(p.type));
-    const others    = h.pieces.filter(p => p.type !== "empire_flag" && p.type !== "frigate" && !BUILDING_TYPES.has(p.type));
+    const others    = h.pieces.filter(p => p.type !== "empire_flag" && p.type !== "scout" && !BUILDING_TYPES.has(p.type));
 
     // Buildings: pyramid of squares + smoke, centered in the hex, up to 3
     if (buildings.length > 0) {
@@ -941,7 +941,7 @@ function renderBoard(state, placementMode) {
                       && !claimedByOthers.has(h.cluster)
                       && coreType[h.cluster] !== "black_hole"
                       && (!is56p || (h.cluster >= 13 && h.cluster <= 18));
-      } else if (nextPiece === "frigate") {
+      } else if (nextPiece === "scout") {
         const shipsHere = (h.pieces ?? []).filter(p => MOBILE_SHIPS.has(p.type)).length;
         validTarget = h.cluster === mySystem && h.type === "orbital" && shipsHere < 3;
       }
@@ -950,7 +950,7 @@ function renderBoard(state, placementMode) {
     // Construction placement: highlight valid hexes for the piece being built
     const isConstructionTurn = !placementMode && _constructionPiece
       && state.current_turn === myName && myRole !== "watcher";
-    const SPACECRAFT_TYPES = new Set(["cruise_ship","frigate","outpost","super_ship","battle_station","death_star"]);
+    const SPACECRAFT_TYPES = new Set(["cruise_ship","scout","outpost","super_ship","battle_station","death_star"]);
     let validConstructTarget = false;
     if (isConstructionTurn && myOwnedClustersSet.has(h.cluster) && h.local > 0) {
       if (BUILDING_TYPES.has(_constructionPiece.type)) {
@@ -1133,7 +1133,7 @@ function renderPlacementInfo(state, infoCard) {
 
   const PIECE_DISPLAY = {
     battle_station: "Battle Station",
-    frigate:        "Frigate",
+    frigate:        "Scout",
   };
 
   if (myRole === "watcher") {
@@ -1708,7 +1708,7 @@ function showInvasionPrompt(msg) {
   const defLabel = msg.planet?.ancient ? `${defCount}d50` : `${defCount}d6`;
   document.getElementById("combat-title").textContent = `Invade System ${clusterLabel}!`;
   document.getElementById("combat-body").innerHTML = `
-    <div class="hint" style="margin-bottom:.75rem">Planet defends with <strong>${defLabel}</strong>. You attack with <strong>${atkCount} ${atkCount === 1 ? "die" : "dice"}</strong> (${atkCount} frigate${atkCount !== 1 ? "s" : ""})${techCards.length ? " — tech adds more" : ""}.</div>
+    <div class="hint" style="margin-bottom:.75rem">Planet defends with <strong>${defLabel}</strong>. You attack with <strong>${atkCount} ${atkCount === 1 ? "die" : "dice"}</strong> (${atkCount} scout${atkCount !== 1 ? "s" : ""})${techCards.length ? " — tech adds more" : ""}.</div>
     <div class="combat-planet-stats">
       <span>Food +${planet.food ?? 0}</span>
       <span>Science +${planet.science ?? 0}</span>
@@ -1876,7 +1876,7 @@ function showActionPicker() {
 
 const CONSTRUCTION_ITEMS = [
   { type: "cruise_ship",      label: "Cruise Ship",    stats: "1d12 · 2 jumps · defense only", cost: 10,  toolCost: 0  },
-  { type: "frigate",          label: "Frigate",        stats: "1d6 · 1 jump",           cost: 10,  toolCost: 2  },
+  { type: "scout",          label: "Scout",        stats: "1d6 · 1 jump",           cost: 10,  toolCost: 2  },
   { type: "outpost",          label: "Outpost",        stats: "1d15 · stationary",      cost: 25,  toolCost: 4  },
   { type: "super_ship",       label: "Super Ship",     stats: "2d15 · 1 jump",          cost: 50,  toolCost: 8  },
   { type: "battle_station",   label: "Battle Station", stats: "2d15+1d6 · 1 jump",      cost: 60,  toolCost: 12 },
@@ -2086,7 +2086,7 @@ function showCombatPrompt(msg, isAttacker) {
     const defCount = msg.def_frigate_count ?? 1;
     document.getElementById("combat-title").textContent = `Attack — System ${clusterLabel}`;
     document.getElementById("combat-body").innerHTML =
-      `<div class="hint" style="margin-bottom:.6rem">You attack with <strong>${atkCount} dice</strong> (${atkCount} frigate${atkCount !== 1 ? "s" : ""}). Defender rolls <strong>${defCount} dice</strong>.</div>${techHtml}`;
+      `<div class="hint" style="margin-bottom:.6rem">You attack with <strong>${atkCount} dice</strong> (${atkCount} scout${atkCount !== 1 ? "s" : ""}). Defender rolls <strong>${defCount} dice</strong>.</div>${techHtml}`;
     document.getElementById("combat-footer").innerHTML =
       `<button class="btn btn-danger" id="btn-roll-my-dice" style="width:100%">🎲 Roll My Dice</button>`;
 
@@ -2113,7 +2113,7 @@ function showCombatPrompt(msg, isAttacker) {
     const defCount = msg.def_frigate_count ?? 1;
     document.getElementById("combat-title").textContent = `Incoming Attack — System ${clusterLabel}`;
     document.getElementById("combat-body").innerHTML =
-      `<div class="hint" style="margin-bottom:.6rem">${msg.attacker} attacks with <strong>${atkCount} dice</strong>. You defend with <strong>${defCount} dice</strong> (${defCount} frigate${defCount !== 1 ? "s" : ""} on that tile).</div>`;
+      `<div class="hint" style="margin-bottom:.6rem">${msg.attacker} attacks with <strong>${atkCount} dice</strong>. You defend with <strong>${defCount} dice</strong> (${defCount} scout${defCount !== 1 ? "s" : ""} on that tile).</div>`;
     document.getElementById("combat-footer").innerHTML =
       `<button class="btn btn-primary" id="btn-roll-my-dice" style="width:100%">🎲 Roll My Dice</button>`;
 
@@ -2172,11 +2172,11 @@ function showCombatResult(msg) {
   let outcomeText;
   if (attackerWon) {
     outcomeText = isAttacker
-      ? "Victory! One enemy frigate destroyed."
-      : `One of your frigates was destroyed.`;
+      ? "Victory! One enemy scout destroyed."
+      : `One of your scouts was destroyed.`;
   } else {
     outcomeText = isAttacker
-      ? "Attack failed — one of your frigates was destroyed."
+      ? "Attack failed — one of your scouts was destroyed."
       : "You repelled the attack! One attacker frigate destroyed.";
   }
 

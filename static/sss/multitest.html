@@ -628,11 +628,11 @@
         if (is56p && (h.cluster < 13 || h.cluster > 18)) continue;
         targetHex = h; break;
       }
-    } else if (nextPiece === "frigate") {
+    } else if (nextPiece === "scout") {
       if (myCluster != null) {
         for (const h of board) {
           if (h.cluster !== myCluster || h.type !== "orbital" || h.local === 0) continue;
-          const cnt = (h.pieces ?? []).filter(pc => pc.type === "frigate").length;
+          const cnt = (h.pieces ?? []).filter(pc => pc.type === "scout").length;
           if (cnt < 3) { targetHex = h; break; }
         }
       }
@@ -659,7 +659,7 @@
     const strategy = p.strategy ?? "default";
     const BUILD_TYPES    = ["building_tool","building_science","building_money"];
     const SPACECRAFT_MAX = 3;
-    const SHIP_TYPES     = ["frigate","cruise_ship","outpost","super_ship","battle_station","death_star"];
+    const SHIP_TYPES     = ["scout","cruise_ship","outpost","super_ship","battle_station","death_star"];
 
     // ── Common derived sets ───────────────────────────────────────────────────
     const myClusters = new Set();
@@ -678,29 +678,29 @@
 
     const myFrigClusters = new Set();
     for (const h of board) {
-      if ((h.pieces ?? []).some(pc => pc.type === "frigate" && pc.owner === p.name))
+      if ((h.pieces ?? []).some(pc => pc.type === "scout" && pc.owner === p.name))
         myFrigClusters.add(h.cluster);
     }
 
     // ── Common helpers ────────────────────────────────────────────────────────
     function countFrigs(cluster) {
       return board.reduce((n, h) => n + (h.cluster === cluster
-        ? (h.pieces ?? []).filter(pc => pc.type === "frigate" && pc.owner === p.name).length : 0), 0);
+        ? (h.pieces ?? []).filter(pc => pc.type === "scout" && pc.owner === p.name).length : 0), 0);
     }
     const totalFrigs = board.reduce((n, h) => n +
-      (h.pieces ?? []).filter(pc => pc.type === "frigate" && pc.owner === p.name).length, 0);
+      (h.pieces ?? []).filter(pc => pc.type === "scout" && pc.owner === p.name).length, 0);
 
     function tryInvadeInSystem() {
       for (const cl of myFrigClusters) {
         if (myClusters.has(cl)) continue;
         const core = board.find(h => h.cluster === cl && h.local === 0);
         if (!core?.planet) continue;
-        if (board.some(h => h.cluster === cl && (h.pieces ?? []).some(pc => pc.type === "frigate" && pc.owner !== p.name))) continue;
+        if (board.some(h => h.cluster === cl && (h.pieces ?? []).some(pc => pc.type === "scout" && pc.owner !== p.name))) continue;
         const frigsHere = countFrigs(cl);
         const isAncient = !!core.planet?.ancient;
         const required = isAncient ? 3 : 2;
         if (frigsHere < required && totalFrigs > frigsHere) continue;
-        sysLog(idx, `🌍 Invade cluster ${cl} with ${frigsHere} frigate(s)${isAncient ? " ☠ ANCIENT" : ""}`);
+        sysLog(idx, `🌍 Invade cluster ${cl} with ${frigsHere} scout(s)${isAncient ? " ☠ ANCIENT" : ""}`);
         send(idx, { type: "invasion_attack", cluster: cl });
         return true;
       }
@@ -712,7 +712,7 @@
         if (myClusters.has(cl)) continue;
         const core = board.find(h => h.cluster === cl && h.local === 0);
         if (!core?.planet) continue;
-        if (board.some(h => h.cluster === cl && (h.pieces ?? []).some(pc => pc.type === "frigate" && pc.owner !== p.name))) continue;
+        if (board.some(h => h.cluster === cl && (h.pieces ?? []).some(pc => pc.type === "scout" && pc.owner !== p.name))) continue;
         const isAncient = !!core.planet?.ancient;
         const required = isAncient ? 3 : 2;
         if (countFrigs(cl) >= required) continue;
@@ -721,7 +721,7 @@
           const wh = board.find(h =>
             h.cluster === homeCl && h.wormhole && h.wormhole_partner != null &&
             board[h.wormhole_partner]?.cluster === cl &&
-            (h.pieces ?? []).some(pc => pc.type === "frigate" && pc.owner === p.name)
+            (h.pieces ?? []).some(pc => pc.type === "scout" && pc.owner === p.name)
           );
           if (wh) {
             sysLog(idx, `🚀 Stage frigate to ${isAncient ? "ANCIENT " : ""}invasion cluster ${cl} (have ${countFrigs(cl)}/${required})`);
@@ -748,7 +748,7 @@
           && (o.pieces ?? []).filter(pc => SHIP_TYPES.includes(pc.type)).length < SPACECRAFT_MAX);
         if (h) {
           sysLog(idx, `🚀 Build frigate cluster ${cl} hex ${h.id} ($${money} ⚙${tools})`);
-          send(idx, { type: "build_piece", piece_type: "frigate", hex_id: h.id });
+          send(idx, { type: "build_piece", piece_type: "scout", hex_id: h.id });
           return true;
         }
       }
@@ -839,7 +839,7 @@
       for (const h of board) {
         if (!h.wormhole || h.wormhole_partner == null || !myFrigClusters.has(h.cluster)) continue;
         // Require a frigate actually sitting on this wormhole hex (not just anywhere in cluster)
-        if (!(h.pieces ?? []).some(pc => pc.type === "frigate" && pc.owner === p.name)) continue;
+        if (!(h.pieces ?? []).some(pc => pc.type === "scout" && pc.owner === p.name)) continue;
         const partner = board[h.wormhole_partner];
         if (!partner) continue;
         const dest = partner.cluster;
@@ -847,7 +847,7 @@
         if (seen.has(key)) continue;
         seen.add(key);
         const r = { from_wormhole: h.id, to_wormhole: h.wormhole_partner, from_cluster: h.cluster, dest_cluster: dest };
-        const hasEnemy = board.some(dh => dh.cluster === dest && (dh.pieces ?? []).some(pc => pc.type === "frigate" && pc.owner !== p.name));
+        const hasEnemy = board.some(dh => dh.cluster === dest && (dh.pieces ?? []).some(pc => pc.type === "scout" && pc.owner !== p.name));
         if (hasEnemy) attack.push(r);
         else if (!myClusters.has(dest)) expand.push(r);
       }
@@ -859,12 +859,12 @@
       for (const cl of myClusters) {
         const enemyHex = board.find(h =>
           h.cluster === cl &&
-          (h.pieces ?? []).some(pc => (pc.type === "frigate" || pc.type === "super_ship") && pc.owner !== p.name)
+          (h.pieces ?? []).some(pc => (pc.type === "scout" || pc.type === "super_ship") && pc.owner !== p.name)
         );
         if (!enemyHex) continue;
         const hasAttacker = board.some(h =>
           h.cluster === cl &&
-          (h.pieces ?? []).some(pc => (pc.type === "frigate" || pc.type === "super_ship") && pc.owner === p.name)
+          (h.pieces ?? []).some(pc => (pc.type === "scout" || pc.type === "super_ship") && pc.owner === p.name)
         );
         if (!hasAttacker) continue;
         sysLog(idx, `⚔ Counter-attack intruder in own cluster ${cl} hex ${enemyHex.id}`);
@@ -874,13 +874,13 @@
       // Priority 2: enemy frigates in adjacent wormhole-connected clusters
       for (const h of board) {
         if (!h.wormhole || h.wormhole_partner == null) continue;
-        if (!(h.pieces ?? []).some(pc => pc.type === "frigate" && pc.owner === p.name)) continue;
+        if (!(h.pieces ?? []).some(pc => pc.type === "scout" && pc.owner === p.name)) continue;
         const partner = board[h.wormhole_partner];
         if (!partner) continue;
         const destCluster = partner.cluster;
         const enemyHex = board.find(dh =>
           dh.cluster === destCluster &&
-          (dh.pieces ?? []).some(pc => (pc.type === "frigate" || pc.type === "super_ship") && pc.owner !== p.name)
+          (dh.pieces ?? []).some(pc => (pc.type === "scout" || pc.type === "super_ship") && pc.owner !== p.name)
         );
         if (!enemyHex) continue;
         sysLog(idx, `⚔ Attack enemy cluster ${destCluster} hex ${enemyHex.id}`);
@@ -964,7 +964,7 @@
         if (myClusters.has(cl)) return false;
         const core = board.find(h => h.cluster === cl && h.local === 0);
         if (!core?.planet) return false;
-        if (board.some(h => h.cluster === cl && (h.pieces ?? []).some(pc => pc.type === "frigate" && pc.owner !== p.name))) return false;
+        if (board.some(h => h.cluster === cl && (h.pieces ?? []).some(pc => pc.type === "scout" && pc.owner !== p.name))) return false;
         return !(core.pieces ?? []).some(pc => pc.type === "empire_flag");
       });
       for (const cl of unclaimedFirst) {
@@ -1004,7 +1004,7 @@
       const { attack, expand } = buildRoutes();
       // Prefer routes toward targeted players
       const targetAttack = attack.filter(r =>
-        board.some(h => h.cluster === r.dest_cluster && (h.pieces ?? []).some(pc => pc.type === "frigate" && targetNames.has(pc.owner)))
+        board.some(h => h.cluster === r.dest_cluster && (h.pieces ?? []).some(pc => pc.type === "scout" && targetNames.has(pc.owner)))
       );
       const chosenAttack = targetAttack.length > 0 ? targetAttack : attack;
       if (chosenAttack.length > 0) {
@@ -1061,7 +1061,7 @@
   // ── Ship move detection for trail animation ───────────────────────────────
   function detectMiniMoves(newBoard) {
     if (!_prevBoard || !newBoard) return [];
-    const MOVE_TYPES = ["frigate","cruise_ship","super_ship","death_star","battle_station"];
+    const MOVE_TYPES = ["scout","cruise_ship","super_ship","death_star","battle_station"];
     const pos = (board) => {
       const m = {};
       for (const h of board) {
@@ -1228,7 +1228,7 @@
       const pieceOwner = pieces[0]?.owner;
       const col = (pieceOwner ? playerColor[pieceOwner] : null) ?? ownColor ?? "#64748b";
       // Count by type
-      const frigates   = pieces.filter(pc => pc.type === "frigate").length;
+      const frigates   = pieces.filter(pc => pc.type === "scout").length;
       const bs         = pieces.filter(pc => pc.type === "battle_station").length;
       const buildings  = pieces.filter(pc => ["building_tool","building_science","building_money"].includes(pc.type)).length;
 

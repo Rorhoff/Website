@@ -30,9 +30,9 @@ _AI_NAMES = ["Nova", "Orion", "Lyra", "Zeta", "Vega"]
 FOG_OF_WAR = False
 
 # Ship types that can fly (cruise_ship included — 2-jump repositioning)
-_MOBILE_SHIPS = frozenset({"frigate", "cruise_ship", "super_ship", "death_star"})
+_MOBILE_SHIPS = frozenset({"scout", "cruise_ship", "super_ship", "death_star"})
 # Ships that can initiate attacks and invasions (cruise_ship is defense-only)
-_ATTACK_SHIPS = frozenset({"frigate", "super_ship", "death_star"})
+_ATTACK_SHIPS = frozenset({"scout", "super_ship", "death_star"})
 
 _PLAYER_COLORS = [
     "#e74c3c",  # Red
@@ -45,12 +45,12 @@ _PLAYER_COLORS = [
 
 PIECE_SET = {
     "death": 1, "super_ship": 3, "cruise_ship": 6,
-    "frigate": 9, "outpost": 3, "battle_station": 4,
+    "scout": 9, "outpost": 3, "battle_station": 4,
     "empire_flag": 6, "unrest": 1,
 }
 
 # Pieces each player places at game start (empire_flag is auto-placed on core)
-START_PIECES = ["battle_station", "frigate", "frigate"]
+START_PIECES = ["battle_station", "scout", "scout"]
 
 NEUTRAL_PIECES = {
     "guardian": 1, "moon_shark": 2, "pirate": 7, "pirate_base": 1,
@@ -189,7 +189,7 @@ def _check_vp_winner(game) -> str | None:
     return None
 
 
-_SHIP_TYPES     = {"frigate", "cruise_ship", "outpost", "super_ship", "battle_station", "death_star"}
+_SHIP_TYPES     = {"scout", "cruise_ship", "outpost", "super_ship", "battle_station", "death_star"}
 _BUILDING_TYPES = {"building_tool", "building_science", "building_money", "farmer_upgrade"}
 
 def _build_endgame_stats(game) -> dict:
@@ -1141,20 +1141,20 @@ async def _ai_place_pieces_turn(game: Game) -> None:
             p.pieces["battle_station"] = p.pieces.get("battle_station", 1) - 1
             p.pieces["empire_flag"] = p.pieces.get("empire_flag", 1) - 1
             remaining.pop(0)
-        elif next_piece == "frigate":
+        elif next_piece == "scout":
             sys_cluster = game.player_system.get(current_name)
             if sys_cluster is None:
                 break
             orbitals = [
                 h for h in game.board
                 if h["cluster"] == sys_cluster and h["type"] == "orbital"
-                and sum(1 for pc in h["pieces"] if pc["type"] == "frigate") < 3
+                and sum(1 for pc in h["pieces"] if pc["type"] == "scout") < 3
             ]
             if not orbitals:
                 break
             chosen = random.choice(orbitals)
-            chosen["pieces"].append({"type": "frigate", "owner": current_name})
-            p.pieces["frigate"] = p.pieces.get("frigate", 1) - 1
+            chosen["pieces"].append({"type": "scout", "owner": current_name})
+            p.pieces["scout"] = p.pieces.get("scout", 1) - 1
             remaining.pop(0)
         else:
             break
@@ -1178,7 +1178,7 @@ async def _ai_board_action(game: Game, ai_name: str) -> None:
     my_clusters: set[int] = set()
     for h in game.board:
         for pc in h["pieces"]:
-            if pc.get("owner") == ai_name and pc["type"] in ("empire_flag", "battle_station", "frigate"):
+            if pc.get("owner") == ai_name and pc["type"] in ("empire_flag", "battle_station", "scout"):
                 my_clusters.add(h["cluster"])
 
     # Find wormhole routes from AI clusters where AI has a frigate
@@ -1188,14 +1188,14 @@ async def _ai_board_action(game: Game, ai_name: str) -> None:
             continue
         if h["cluster"] not in my_clusters:
             continue
-        if not any(pc["type"] == "frigate" and pc["owner"] == ai_name for pc in h["pieces"]):
+        if not any(pc["type"] == "scout" and pc["owner"] == ai_name for pc in h["pieces"]):
             continue
         dest_h = game.board[h["wormhole_partner"]]
         dest_cluster = dest_h["cluster"]
         landing = next(
             (dh for dh in game.board
              if dh["cluster"] == dest_cluster and dh["type"] == "orbital"
-             and sum(1 for pc in dh["pieces"] if pc["type"] == "frigate") < 3),
+             and sum(1 for pc in dh["pieces"] if pc["type"] == "scout") < 3),
             None
         )
         if landing:
@@ -1204,7 +1204,7 @@ async def _ai_board_action(game: Game, ai_name: str) -> None:
     # Split into attack vs unclaimed expand
     def has_enemy_frigates(cluster: int) -> bool:
         return any(
-            pc["type"] == "frigate" and pc["owner"] != ai_name
+            pc["type"] == "scout" and pc["owner"] != ai_name
             for dh in game.board if dh["cluster"] == cluster
             for pc in dh["pieces"]
         )
@@ -1227,7 +1227,7 @@ async def _ai_board_action(game: Game, ai_name: str) -> None:
             continue
         my_frigates = [
             pc for dh in game.board if dh["cluster"] == h["cluster"]
-            for pc in dh["pieces"] if pc["type"] == "frigate" and pc["owner"] == ai_name
+            for pc in dh["pieces"] if pc["type"] == "scout" and pc["owner"] == ai_name
         ]
         if not my_frigates:
             continue
@@ -1262,7 +1262,7 @@ async def _ai_board_action(game: Game, ai_name: str) -> None:
         else:
             for dh in game.board:
                 if dh["cluster"] == cluster:
-                    dh["pieces"] = [pc for pc in dh["pieces"] if not (pc["type"] == "frigate" and pc["owner"] == ai_name)]
+                    dh["pieces"] = [pc for pc in dh["pieces"] if not (pc["type"] == "scout" and pc["owner"] == ai_name)]
         if won:
             ai_p.invasions_won += 1
         _use_action(game)
@@ -1306,13 +1306,13 @@ async def _ai_board_action(game: Game, ai_name: str) -> None:
             enemy_frigates = [
                 {"owner": pc["owner"], "hex_id": dh["id"]}
                 for dh in game.board if dh["cluster"] == dest_cluster
-                for pc in dh["pieces"] if pc["type"] == "frigate" and pc["owner"] != ai_name
+                for pc in dh["pieces"] if pc["type"] == "scout" and pc["owner"] != ai_name
             ]
             if enemy_frigates:
                 defender_name = enemy_frigates[0]["owner"]
                 atk_count = sum(
                     1 for dh in game.board if dh["cluster"] == dest_cluster
-                    for pc in dh["pieces"] if pc["type"] == "frigate" and pc["owner"] == ai_name
+                    for pc in dh["pieces"] if pc["type"] == "scout" and pc["owner"] == ai_name
                 )
                 def_count = sum(1 for ef in enemy_frigates if ef["owner"] == defender_name)
                 atk_dice = [random.randint(1, 6) for _ in range(max(1, atk_count))]
@@ -1324,7 +1324,7 @@ async def _ai_board_action(game: Game, ai_name: str) -> None:
                 if attacker_won:
                     t_hex = game.board[target_hex_id]
                     for i, pc in enumerate(t_hex["pieces"]):
-                        if pc["type"] == "frigate" and pc["owner"] == defender_name:
+                        if pc["type"] == "scout" and pc["owner"] == defender_name:
                             t_hex["pieces"].pop(i)
                             break
                 else:
@@ -1332,7 +1332,7 @@ async def _ai_board_action(game: Game, ai_name: str) -> None:
                         if dh["cluster"] != dest_cluster:
                             continue
                         for i, pc in enumerate(dh["pieces"]):
-                            if pc["type"] == "frigate" and pc["owner"] == ai_name:
+                            if pc["type"] == "scout" and pc["owner"] == ai_name:
                                 dh["pieces"].pop(i)
                                 break
                         else:
@@ -1370,12 +1370,12 @@ async def _ai_board_action(game: Game, ai_name: str) -> None:
         avail_orbs = [
             h for h in game.board
             if h["cluster"] == sys_cluster and h["type"] == "orbital"
-            and sum(1 for pc in h["pieces"] if pc["type"] == "frigate") < 3
+            and sum(1 for pc in h["pieces"] if pc["type"] == "scout") < 3
         ]
-        if can_afford and avail_orbs and ai_p.pieces.get("frigate", 0) > 0:
+        if can_afford and avail_orbs and ai_p.pieces.get("scout", 0) > 0:
             chosen = random.choice(avail_orbs)
-            chosen["pieces"].append({"type": "frigate", "owner": ai_name})
-            ai_p.pieces["frigate"] = ai_p.pieces.get("frigate", 1) - 1
+            chosen["pieces"].append({"type": "scout", "owner": ai_name})
+            ai_p.pieces["scout"] = ai_p.pieces.get("scout", 1) - 1
             for r, v in cost.items():
                 ai_p.resources[r] = ai_p.resources.get(r, 0) - v
             _use_action(game)
@@ -1402,7 +1402,7 @@ def _ai_do_flight(game: Game, ai_name: str, from_wh: int, to_wh: int) -> bool:
     landing = next(
         (h for h in game.board
          if h["cluster"] == dest_cluster and h["type"] == "orbital"
-         and sum(1 for pc in h["pieces"] if pc["type"] == "frigate") < 3),
+         and sum(1 for pc in h["pieces"] if pc["type"] == "scout") < 3),
         None
     )
     if not landing:
@@ -1412,7 +1412,7 @@ def _ai_do_flight(game: Game, ai_name: str, from_wh: int, to_wh: int) -> bool:
         if h["cluster"] != from_cluster:
             continue
         for i, pc in enumerate(h["pieces"]):
-            if pc["type"] == "frigate" and pc["owner"] == ai_name:
+            if pc["type"] == "scout" and pc["owner"] == ai_name:
                 moved_piece = h["pieces"].pop(i)
                 break
         if moved_piece:
@@ -1768,7 +1768,7 @@ async def sss_ws(ws: WebSocket, game_code: str):
                                     game.board[core_id]["planet"][_key] = planet[_key]
                     player.pieces["battle_station"] = player.pieces.get("battle_station", 1) - 1
                     player.pieces["empire_flag"] = player.pieces.get("empire_flag", 1) - 1
-                elif next_piece == "frigate":
+                elif next_piece == "scout":
                     sys_cluster = game.player_system.get(player.name)
                     if sys_cluster is None:
                         await ws.send_json({"type": "error", "msg": "Place battle station first"})
@@ -1777,13 +1777,13 @@ async def sss_ws(ws: WebSocket, game_code: str):
                         await ws.send_json({"type": "error", "msg": "Must place within your system"})
                         continue
                     if h["type"] != "orbital":
-                        await ws.send_json({"type": "error", "msg": "Frigates must be placed on frigate tiles (orbital hexes)"})
+                        await ws.send_json({"type": "error", "msg": "Scouts must be placed on scout tiles (orbital hexes)"})
                         continue
                     if sum(1 for p in h["pieces"] if p["type"] in _MOBILE_SHIPS) >= 3:
                         await ws.send_json({"type": "error", "msg": "That tile is full (max 3 ships)"})
                         continue
-                    h["pieces"].append({"type": "frigate", "owner": player.name})
-                    player.pieces["frigate"] = player.pieces.get("frigate", 1) - 1
+                    h["pieces"].append({"type": "scout", "owner": player.name})
+                    player.pieces["scout"] = player.pieces.get("scout", 1) - 1
                 else:
                     await ws.send_json({"type": "error", "msg": "Unknown piece type"})
                     continue
@@ -1917,7 +1917,7 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 hex_id     = raw.get("hex_id")
                 COSTS = {
                     "cruise_ship":      {"money": 10},
-                    "frigate":          {"money": 10, "tool": 2},
+                    "scout":          {"money": 10, "tool": 2},
                     "outpost":          {"money": 25, "tool": 4},
                     "super_ship":       {"money": 50, "tool": 8},
                     "battle_station":   {"money": 60, "tool": 12},
@@ -1936,7 +1936,7 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 # Engineering discounts
                 _eng = player.tech.get("engineering", [])
                 _building_types_set = set(_BUILDING_INCOME)
-                _spacecraft_types_set = {"cruise_ship", "frigate", "outpost", "super_ship", "battle_station", "death_star"}
+                _spacecraft_types_set = {"cruise_ship", "scout", "outpost", "super_ship", "battle_station", "death_star"}
                 if piece_type in _building_types_set:
                     if len(_eng) > 0 and _eng[0]: money_cost = max(1, money_cost - 1)  # Lv1
                     # Scale cost by empire size: base × max(1, planets_owned)
@@ -1985,7 +1985,7 @@ async def sss_ws(ws: WebSocket, game_code: str):
                     await ws.send_json({"type": "error", "msg": "Must build in a system you own"})
                     continue
                 _building_types = set(_BUILDING_INCOME)
-                _spacecraft_types = {"cruise_ship", "frigate", "outpost", "super_ship", "battle_station", "death_star"}
+                _spacecraft_types = {"cruise_ship", "scout", "outpost", "super_ship", "battle_station", "death_star"}
                 if piece_type in _building_types:
                     if target_hex["type"] != "bs_slot":
                         await ws.send_json({"type": "error", "msg": "Buildings must be placed on the light blue hex"})

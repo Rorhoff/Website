@@ -385,13 +385,13 @@ def _pick_landing(board, dest_cluster, req_id):
     if req_id is not None and 0 <= req_id < len(board):
         rh = board[req_id]
         if (rh["cluster"] == dest_cluster and rh["type"] == "orbital"
-                and sum(1 for p in rh["pieces"] if p["type"] == "frigate") < 3):
+                and sum(1 for p in rh["pieces"] if p["type"] == "scout") < 3):
             landing = rh
     if landing is None:
         landing = next(
             (h for h in board
              if h["cluster"] == dest_cluster and h["type"] == "orbital"
-             and sum(1 for p in h["pieces"] if p["type"] == "frigate") < 3),
+             and sum(1 for p in h["pieces"] if p["type"] == "scout") < 3),
             None,
         )
     return landing
