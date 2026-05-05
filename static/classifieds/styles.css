@@ -31,13 +31,15 @@ body {
   padding-left: max(16px, env(safe-area-inset-left));
   padding-right: max(16px, env(safe-area-inset-right));
   padding-top: max(12px, env(safe-area-inset-top));
-  background: #1f3a8a;
-  color: #fff;
+  background: #f0f4f9;
+  border-bottom: 1px solid #d1dae6;
+  color: #0f172a;
 }
 
 .topbar h1 {
   font-size: clamp(1.1rem, 4vw, 1.5rem);
   margin: 0;
+  color: #0f172a;
 }
 
 .topbar-actions {
@@ -57,7 +59,9 @@ body {
 
 .hamburger-btn {
   margin-top: 0;
-  background: #1e40af;
+  background: #e2e8f0;
+  color: #1e293b;
+  border: 1px solid #d1dae6;
   padding: 10px 12px;
   min-width: 44px;
   min-height: 44px;
