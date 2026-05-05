@@ -749,7 +749,8 @@ function renderBoard(state, placementMode) {
       const actionsLeft = state.actions_remaining ?? 3;
       let actionHtml = "";
       if (_constructionPiece) {
-        const _placeTarget = BUILDING_TYPES.has(_constructionPiece.type) ? "a science hex" : "an orbital hex";
+        const _placeTarget = _constructionPiece.type === "farmer_upgrade" ? "a farm triangle hex"
+                           : BUILDING_TYPES.has(_constructionPiece.type) ? "a science hex" : "an orbital hex";
         actionHtml = `<div class="hud-hint">Place <strong>${_constructionPiece.label}</strong> on ${_placeTarget}.</div>
           <div class="hud-actions"><button class="btn btn-ghost btn-sm" id="btn-cancel-construct">Cancel</button></div>`;
       } else if (_actionMode) {
@@ -966,7 +967,9 @@ function renderBoard(state, placementMode) {
     const SPACECRAFT_TYPES = new Set(["cruise_ship","scout","outpost","super_ship","battle_station","death_star"]);
     let validConstructTarget = false;
     if (isConstructionTurn && myOwnedClustersSet.has(h.cluster) && h.local > 0) {
-      if (BUILDING_TYPES.has(_constructionPiece.type)) {
+      if (_constructionPiece.type === "farmer_upgrade") {
+        validConstructTarget = h.tri === true && !h.tri_farmer_green;
+      } else if (BUILDING_TYPES.has(_constructionPiece.type)) {
         const existingBuildings = (h.pieces ?? []).filter(p => BUILDING_TYPES.has(p.type));
         validConstructTarget = h.type === "bs_slot" && existingBuildings.length < 3;
       } else {
@@ -1978,11 +1981,7 @@ function showConstructionPicker(filter = "all") {
       const type = row.dataset.type;
       const item = CONSTRUCTION_ITEMS.find(i => i.type === type);
       document.getElementById("construction-picker").classList.add("hidden");
-      if (type === "farmer_upgrade") {
-        send({ type: "build_piece", piece_type: "farmer_upgrade" });
-        return;
-      }
-      if (_pendingScienceHex !== null) {
+      if (_pendingScienceHex !== null && type !== "farmer_upgrade") {
         const hexId = _pendingScienceHex;
         _pendingScienceHex = null;
         send({ type: "build_piece", piece_type: type, hex_id: hexId });

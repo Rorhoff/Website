@@ -1960,10 +1960,24 @@ async def sss_ws(ws: WebSocket, game_code: str):
                     continue
                 player_cluster = game.player_system.get(player.name)
                 if piece_type == "farmer_upgrade":
-                    tri_hex = next(
-                        (h for h in game.board if h.get("tri") and h["cluster"] == player_cluster),
-                        None
-                    )
+                    player_owned_clusters_fu = {player_cluster} | {
+                        h["cluster"] for h in game.board
+                        for p in h.get("pieces", [])
+                        if p["type"] == "empire_flag" and p["owner"] == player.name
+                    }
+                    if hex_id is not None and 0 <= hex_id < len(game.board):
+                        tri_hex = game.board[hex_id]
+                        if not tri_hex.get("tri"):
+                            await ws.send_json({"type": "error", "msg": "Must place Farmer Upgrade on a farm triangle hex"})
+                            continue
+                        if tri_hex["cluster"] not in player_owned_clusters_fu:
+                            await ws.send_json({"type": "error", "msg": "Must build in a system you own"})
+                            continue
+                    else:
+                        tri_hex = next(
+                            (h for h in game.board if h.get("tri") and h["cluster"] == player_cluster),
+                            None
+                        )
                     if tri_hex is None:
                         await ws.send_json({"type": "error", "msg": "No triangle hex in your system"})
                         continue
