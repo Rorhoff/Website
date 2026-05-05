@@ -1182,17 +1182,28 @@ async def _ai_board_action(game: Game, ai_name: str) -> None:
             if pc.get("owner") == ai_name and pc["type"] in ("empire_flag", "battle_station", "scout"):
                 my_clusters.add(h["cluster"])
 
-    # Find wormhole routes from AI clusters where AI has a frigate
+    # Clusters the AI has at least one scout in
+    clusters_with_scouts: set[int] = {
+        h["cluster"]
+        for h in game.board
+        for pc in h["pieces"]
+        if pc["type"] == "scout" and pc["owner"] == ai_name
+    }
+
+    # Find wormhole routes from AI clusters where AI has a scout anywhere in the cluster
     expand_routes = []
+    seen_dest: set[int] = set()
     for h in game.board:
         if h.get("wormhole_partner") is None:
             continue
         if h["cluster"] not in my_clusters:
             continue
-        if not any(pc["type"] == "scout" and pc["owner"] == ai_name for pc in h["pieces"]):
+        if h["cluster"] not in clusters_with_scouts:
             continue
         dest_h = game.board[h["wormhole_partner"]]
         dest_cluster = dest_h["cluster"]
+        if dest_cluster in seen_dest:
+            continue
         landing = next(
             (dh for dh in game.board
              if dh["cluster"] == dest_cluster and dh["type"] == "orbital"
@@ -1201,6 +1212,7 @@ async def _ai_board_action(game: Game, ai_name: str) -> None:
         )
         if landing:
             expand_routes.append({"from_wh": h["id"], "to_wh": h["wormhole_partner"], "dest_cluster": dest_cluster})
+            seen_dest.add(dest_cluster)
 
     # Split into attack vs unclaimed expand
     def has_enemy_frigates(cluster: int) -> bool:
@@ -1391,7 +1403,9 @@ async def _ai_board_action(game: Game, ai_name: str) -> None:
             await game.broadcast({"type": "game_state", **state})
             return
 
-    # 5. Skip
+    # 5. No action found — reset invasion failure memory so the AI can retry next turn
+    if game.ai_invasion_failures.get(ai_name):
+        game.ai_invasion_failures[ai_name] = set()
     _use_action(game)
     await _flush_eliminations(game)
     state = game.public_state()
