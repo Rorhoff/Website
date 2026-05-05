@@ -35,8 +35,8 @@
     flex-direction: column;
     width: 100%;
     gap: 0;
-    background: #0a0f18;
-    border-top: 1px solid var(--border, #1e2d45);
+    background: var(--surface, #ffffff);
+    border-top: 1px solid var(--border, #d1dae6);
     padding: .5rem 0;
   }
 
@@ -46,7 +46,7 @@
 
   .nav-links a {
     padding: .6rem 1rem;
-    border-bottom: 1px solid var(--border, #1e2d45);
+    border-bottom: 1px solid var(--border, #d1dae6);
     font-size: .95rem;
   }
 

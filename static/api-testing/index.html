@@ -10,12 +10,12 @@
   <title>API Testing — Dashboard</title>
   <style>
     :root {
-      --bg: #0f1419;
-      --surface: #1a2332;
-      --border: #2d3a4d;
-      --text: #e7ecf3;
-      --muted: #8b9cb3;
-      --accent: #3d9cf0;
+      --bg: #f4f7fb;
+      --surface: #ffffff;
+      --border: #d1dae6;
+      --text: #1e293b;
+      --muted: #64748b;
+      --accent: #0284c7;
       --ok: #3ecf8e;
       --warn: #f0b429;
       --err: #f06b6b;
@@ -36,7 +36,7 @@
       gap: 0.65rem 1.25rem;
       padding: 0.75rem 1.5rem;
       border-bottom: 1px solid var(--border);
-      background: #121922;
+      background: #ffffff;
       align-items: center;
     }
     .site-nav a {
@@ -54,7 +54,7 @@
     header {
       padding: 1.25rem 1.5rem;
       border-bottom: 1px solid var(--border);
-      background: linear-gradient(180deg, #151c28 0%, var(--bg) 100%);
+      background: var(--bg);
     }
     header h1 {
       margin: 0;
@@ -108,7 +108,7 @@
       border-radius: 6px;
       font-size: 0.75rem;
       font-family: var(--mono);
-      background: #243044;
+      background: #dbeafe;
       color: var(--accent);
     }
     .endpoints { font-size: 0.85rem; }
@@ -139,7 +139,7 @@
       text-transform: uppercase;
       letter-spacing: 0.03em;
     }
-    tr:hover td { background: rgba(255,255,255,0.02); }
+    tr:hover td { background: rgba(0,0,0,0.03); }
     .method { font-family: var(--mono); font-weight: 600; }
     .m-GET { color: var(--ok); }
     .m-POST { color: var(--accent); }
@@ -167,7 +167,7 @@
     .bar {
       flex: 1;
       height: 8px;
-      background: #243044;
+      background: #e2e8f0;
       border-radius: 4px;
       overflow: hidden;
     }
@@ -181,10 +181,10 @@
       display: none;
       margin-bottom: 1rem;
       padding: 0.65rem 0.9rem;
-      background: #3a2020;
-      border: 1px solid #6b3030;
+      background: #fee2e2;
+      border: 1px solid #fca5a5;
       border-radius: 8px;
-      color: #ffb4b4;
+      color: #991b1b;
       font-size: 0.9rem;
     }
     .error-banner.visible { display: block; }
@@ -202,7 +202,7 @@
       padding: 0.4rem 0.5rem;
       border-radius: 6px;
       border: 1px solid var(--border);
-      background: #0f1419;
+      background: #ffffff;
       color: var(--text);
       font-family: var(--mono);
       font-size: 0.85rem;
@@ -211,22 +211,22 @@
       padding: 0.4rem 0.75rem;
       border-radius: 6px;
       border: 1px solid var(--border);
-      background: #243044;
+      background: #e2e8f0;
       color: var(--text);
       font-size: 0.85rem;
       cursor: pointer;
     }
-    .btn:hover { background: #2d3f5c; }
+    .btn:hover { background: #d1dae6; }
     .hint { font-size: 0.75rem; color: var(--muted); margin-top: 0.35rem; }
     .auth-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.5rem; align-items: center; }
     .success-banner {
       display: none;
       margin-bottom: 1rem;
       padding: 0.65rem 0.9rem;
-      background: #1a2e24;
-      border: 1px solid #2d6b4a;
+      background: #d1fae5;
+      border: 1px solid #34d399;
       border-radius: 8px;
-      color: #9ee2c0;
+      color: #047857;
       font-size: 0.9rem;
     }
     .success-banner.visible { display: block; }
