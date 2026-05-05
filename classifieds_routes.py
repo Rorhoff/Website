@@ -149,6 +149,15 @@ class LoginBody(BaseModel):
     password: str = Field(min_length=1, max_length=256)
 
 
+class ResetRequestBody(BaseModel):
+    email: str = Field(min_length=3, max_length=255)
+
+
+class ResetConfirmBody(BaseModel):
+    token: str = Field(min_length=1, max_length=200)
+    password: str = Field(min_length=4, max_length=256)
+
+
 class ProfilePatchBody(BaseModel):
     state: str | None = Field(default=None, min_length=1, max_length=64)
     email: str | None = Field(default=None, min_length=3, max_length=255)
@@ -163,6 +172,11 @@ class CreateAdBody(BaseModel):
     price: str = Field(min_length=1, max_length=100)
     description: str = Field(min_length=1, max_length=50_000)
     images: list[str] = Field(min_length=1, max_length=10)
+
+
+# --- In-memory reset tokens: token -> (user_id, expires_at) ---
+_reset_tokens: dict[str, tuple[int, datetime]] = {}
+_RESET_TOKEN_TTL = timedelta(hours=1)
 
 
 # --- Auth: register, login, logout, profile ---
@@ -218,6 +232,38 @@ def classifieds_logout(
         if token:
             db.execute(delete(ClassifiedSession).where(ClassifiedSession.token == token))
             db.commit()
+    return {"ok": True}
+
+
+@router.post("/reset-request")
+def classifieds_reset_request(body: ResetRequestBody, db: Session = Depends(classifieds_db)):
+    user = db.scalars(
+        select(ClassifiedUser).where(
+            func.lower(ClassifiedUser.email) == body.email.strip().lower()
+        )
+    ).first()
+    if user is None:
+        return {"ok": True}  # don't reveal whether the email exists
+    token = secrets.token_urlsafe(32)
+    _reset_tokens[token] = (user.id, datetime.utcnow() + _RESET_TOKEN_TTL)
+    reset_url = f"/classifieds/reset.html?token={token}"
+    return {"ok": True, "reset_url": reset_url}
+
+
+@router.post("/reset-confirm")
+def classifieds_reset_confirm(body: ResetConfirmBody, db: Session = Depends(classifieds_db)):
+    entry = _reset_tokens.get(body.token)
+    if entry is None or datetime.utcnow() > entry[1]:
+        _reset_tokens.pop(body.token, None)
+        raise HTTPException(status_code=400, detail="Invalid or expired reset token.")
+    user_id, _ = entry
+    user = db.get(ClassifiedUser, user_id)
+    if user is None:
+        raise HTTPException(status_code=400, detail="User not found.")
+    user.password_hash = _hash_password(body.password)
+    db.add(user)
+    db.commit()
+    del _reset_tokens[body.token]
     return {"ok": True}
 
 

@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Reset Password — Classifieds</title>
+  <link rel="stylesheet" href="styles.css" />
+  <style>
+    .site-nav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.65rem 1.25rem;
+      padding: 0.75rem 1.5rem;
+      border-bottom: 1px solid #2a3548;
+      background: #0f141c;
+      align-items: center;
+    }
+    .site-nav a {
+      color: #94a3b8;
+      text-decoration: none;
+      font-size: 0.9rem;
+      font-weight: 500;
+    }
+    .site-nav a:hover { color: #38bdf8; }
+    .site-nav a.active {
+      color: #f1f5f9;
+      border-bottom: 2px solid #38bdf8;
+      padding-bottom: 0.1rem;
+    }
+    .reset-wrap {
+      max-width: 420px;
+      margin: 3rem auto;
+      padding: 0 1rem 3rem;
+    }
+    .back-link {
+      display: inline-block;
+      margin-top: 1rem;
+      font-size: 0.85rem;
+      color: #2563eb;
+      text-decoration: none;
+    }
+    .back-link:hover { text-decoration: underline; }
+    .dev-notice {
+      margin-top: 1rem;
+      padding: 0.65rem 0.85rem;
+      background: #fef3c7;
+      border: 1px solid #fcd34d;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      color: #92400e;
+    }
+    .dev-notice a { color: #92400e; word-break: break-all; }
+    .success-msg {
+      margin-top: 0.75rem;
+      padding: 0.65rem 0.85rem;
+      background: #d1fae5;
+      border: 1px solid #34d399;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      color: #047857;
+    }
+    .error-msg {
+      margin-top: 0.75rem;
+      padding: 0.65rem 0.85rem;
+      background: #fee2e2;
+      border: 1px solid #fca5a5;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      color: #991b1b;
+    }
+  </style>
+  <link rel="stylesheet" href="/assets/nav-mobile.css" />
+</head>
+<body>
+  <nav class="site-nav" aria-label="Primary">
+    <button class="nav-hamburger" id="navHamburger" aria-label="Toggle navigation" aria-expanded="false">☰</button>
+    <div class="nav-links" id="navLinks">
+      <a href="../index.html">About</a>
+      <a href="https://www.linkedin.com/in/rorhoff" target="_blank" rel="noopener noreferrer">LinkedIn</a>
+      <a href="../api-testing/">API Testing</a>
+      <a href="index.html">Classifieds</a>
+      <a href="../airevolution/">AI Revolution</a>
+      <a href="../sss/">SSS</a>
+    </div>
+  </nav>
+
+  <main class="reset-wrap">
+
+    <!-- Step 1: Request reset link -->
+    <div id="requestSection" class="card">
+      <h2>Forgot Password</h2>
+      <p class="hint">Enter the email address on your account and we'll generate a reset link.</p>
+      <form id="requestForm">
+        <label for="resetEmail">Email address</label>
+        <input id="resetEmail" type="email" required placeholder="you@example.com" />
+        <button type="submit">Send Reset Link</button>
+      </form>
+      <div id="requestResult" hidden></div>
+      <a href="index.html" class="back-link">← Back to login</a>
+    </div>
+
+    <!-- Step 2: Set new password (shown when ?token= is in the URL) -->
+    <div id="confirmSection" class="card" hidden>
+      <h2>Set New Password</h2>
+      <form id="confirmForm">
+        <label for="newPassword">New password</label>
+        <input id="newPassword" type="password" required minlength="4" placeholder="At least 4 characters" />
+        <button type="submit">Update Password</button>
+      </form>
+      <div id="confirmResult" hidden></div>
+    </div>
+
+  </main>
+
+  <script>
+    const params = new URLSearchParams(location.search);
+    const token = params.get('token');
+
+    if (token) {
+      document.getElementById('requestSection').hidden = true;
+      document.getElementById('confirmSection').hidden = false;
+    }
+
+    document.getElementById('requestForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = e.target.querySelector('button');
+      btn.disabled = true;
+      btn.textContent = 'Sending…';
+
+      const email = document.getElementById('resetEmail').value.trim();
+      const resultEl = document.getElementById('requestResult');
+      resultEl.hidden = true;
+      resultEl.className = '';
+      resultEl.innerHTML = '';
+
+      try {
+        const res = await fetch('/api/classifieds/reset-request', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email }),
+        });
+        const data = await res.json();
+
+        if (data.reset_url) {
+          const fullUrl = location.origin + data.reset_url;
+          resultEl.className = 'dev-notice';
+          resultEl.innerHTML = `<strong>Demo mode</strong> — no email is sent. Use this link to reset:<br/><a href="${data.reset_url}">${fullUrl}</a>`;
+        } else {
+          resultEl.className = 'success-msg';
+          resultEl.textContent = 'If that email is on file, a reset link has been sent.';
+        }
+        resultEl.hidden = false;
+      } catch {
+        resultEl.className = 'error-msg';
+        resultEl.textContent = 'Something went wrong. Please try again.';
+        resultEl.hidden = false;
+        btn.disabled = false;
+        btn.textContent = 'Send Reset Link';
+      }
+    });
+
+    document.getElementById('confirmForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = e.target.querySelector('button');
+      btn.disabled = true;
+      btn.textContent = 'Updating…';
+
+      const password = document.getElementById('newPassword').value;
+      const resultEl = document.getElementById('confirmResult');
+      resultEl.hidden = true;
+
+      try {
+        const res = await fetch('/api/classifieds/reset-confirm', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token, password }),
+        });
+        if (res.ok) {
+          resultEl.className = 'success-msg';
+          resultEl.textContent = 'Password updated! Redirecting to login…';
+          resultEl.hidden = false;
+          document.getElementById('confirmForm').hidden = true;
+          setTimeout(() => location.href = 'index.html', 2000);
+        } else {
+          const data = await res.json();
+          resultEl.className = 'error-msg';
+          resultEl.textContent = data.detail || 'Invalid or expired reset link.';
+          resultEl.hidden = false;
+          btn.disabled = false;
+          btn.textContent = 'Update Password';
+        }
+      } catch {
+        resultEl.className = 'error-msg';
+        resultEl.textContent = 'Something went wrong. Please try again.';
+        resultEl.hidden = false;
+        btn.disabled = false;
+        btn.textContent = 'Update Password';
+      }
+    });
+  </script>
+  <script src="/assets/nav-mobile.js"></script>
+</body>
+</html>

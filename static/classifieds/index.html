@@ -31,6 +31,14 @@
       border-bottom: 2px solid #38bdf8;
       padding-bottom: 0.1rem;
     }
+    .forgot-link {
+      display: inline-block;
+      margin-top: 0.6rem;
+      font-size: 0.82rem;
+      color: #2563eb;
+      text-decoration: none;
+    }
+    .forgot-link:hover { text-decoration: underline; }
   </style>
   <link rel="stylesheet" href="/assets/nav-mobile.css" />
 </head>
@@ -64,6 +72,21 @@
 
   <main class="container">
     <section id="authSection" class="auth-grid">
+      <section class="card">
+        <h2>Login</h2>
+        <form id="loginForm">
+          <label for="loginUsername">Username</label>
+          <input id="loginUsername" name="username" required />
+
+          <label for="loginPassword">Password</label>
+          <input id="loginPassword" name="password" type="password" required />
+
+          <button type="submit">Login</button>
+        </form>
+        <p id="profileHint" class="hint">Log in, then use the top-right menu to enter your profile.</p>
+        <a href="reset.html" class="forgot-link">Forgot username or password?</a>
+      </section>
+
       <section class="card">
         <h2>Register</h2>
         <form id="registerForm">
@@ -103,32 +126,6 @@
 
           <button type="submit">Create Account</button>
         </form>
-      </section>
-
-      <section class="card">
-        <h2>Login</h2>
-        <form id="loginForm">
-          <label for="loginUsername">Username</label>
-          <input id="loginUsername" name="username" required />
-
-          <label for="loginPassword">Password</label>
-          <input id="loginPassword" name="password" type="password" required />
-
-          <button type="submit">Login</button>
-        </form>
-        <p id="profileHint" class="hint">Log in, then use the top-right menu to enter your profile.</p>
-      </section>
-
-      <section class="card">
-        <h2>Account Recovery</h2>
-        <form id="recoveryForm">
-          <label for="recoveryEmail">Email on file</label>
-          <input id="recoveryEmail" name="email" type="email" required />
-          <button type="submit">Email Username + Reset Link</button>
-        </form>
-        <p class="hint">
-          This demo opens your email app with a pre-filled message. A real site needs a backend to send email automatically.
-        </p>
       </section>
     </section>
 
