@@ -767,6 +767,7 @@ class Game:
     ancient_winner: str | None = None
     ai_task: Any = None
     explorations: dict = field(default_factory=dict)  # player_name → set of cluster IDs revealed this turn
+    ai_invasion_failures: dict = field(default_factory=dict)  # ai_name → set of clusters that repelled invasion
 
     def public_state(self) -> dict:
         in_board = self.phase in ("place_pieces", "draft", "board")
@@ -1212,6 +1213,8 @@ async def _ai_board_action(game: Game, ai_name: str) -> None:
     attack_routes = [r for r in expand_routes if has_enemy_frigates(r["dest_cluster"])]
     plain_expand = [r for r in expand_routes if not has_enemy_frigates(r["dest_cluster"]) and r["dest_cluster"] not in my_clusters]
 
+    failed_clusters = game.ai_invasion_failures.get(ai_name, set())
+
     # 1. Try invasion_attack in a cluster AI already has frigates and planet is not owned
     for h in game.board:
         if h.get("local") != 0 or h["cluster"] not in my_clusters:
@@ -1221,6 +1224,8 @@ async def _ai_board_action(game: Game, ai_name: str) -> None:
             continue
         already_mine = any(pc["type"] == "empire_flag" and pc["owner"] == ai_name for pc in h["pieces"])
         if already_mine:
+            continue
+        if h["cluster"] in failed_clusters:
             continue
         enemy_ships = has_enemy_frigates(h["cluster"])
         if enemy_ships:
@@ -1263,6 +1268,7 @@ async def _ai_board_action(game: Game, ai_name: str) -> None:
             for dh in game.board:
                 if dh["cluster"] == cluster:
                     dh["pieces"] = [pc for pc in dh["pieces"] if not (pc["type"] == "scout" and pc["owner"] == ai_name)]
+            game.ai_invasion_failures.setdefault(ai_name, set()).add(cluster)
         if won:
             ai_p.invasions_won += 1
         _use_action(game)
@@ -1425,7 +1431,7 @@ def _ai_do_flight(game: Game, ai_name: str, from_wh: int, to_wh: int) -> bool:
 
 async def _ai_loop(game: Game) -> None:
     """Background coroutine that drives all AI players through the full game lifecycle."""
-    await asyncio.sleep(0.8)
+    await asyncio.sleep(1.5)
     while game.phase not in ("ended", "lobby"):
         try:
             if game.phase == "race_pick":
@@ -1460,7 +1466,7 @@ async def _ai_loop(game: Game) -> None:
 
         except Exception:
             pass
-        await asyncio.sleep(0.7)
+        await asyncio.sleep(2.0)
 
 
 # ── WebSocket endpoint ────────────────────────────────────────────────────────
