@@ -13,10 +13,41 @@
   <meta property="og:title" content="AIRevolution — T1 AI Support Agent" />
   <meta property="og:description" content="Level up from Tier 1 to AI Tier 2: knowledge-backed answers, Claude-powered drafts, and a clear audit path." />
   <meta property="og:url" content="https://t1airevolution.com/airevolution/" />
+  <meta property="og:image" content="https://t1airevolution.com/airevolution/favicon.png" />
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:title" content="AIRevolution — t1airevolution.com" />
+  <meta name="twitter:description" content="Level up from Tier 1 to AI Tier 2: knowledge-backed answers, Claude-powered drafts, and a clear audit path." />
+  <meta name="twitter:image" content="https://t1airevolution.com/airevolution/favicon.png" />
   <link rel="icon" type="image/png" href="favicon.png" />
   <title>AIRevolution — T1 AI Support | t1airevolution.com</title>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "AIRevolution",
+    "url": "https://t1airevolution.com/airevolution/",
+    "description": "AI-powered Tier 1 support agent with knowledge base, Claude-powered drafts, and a full ticket audit trail.",
+    "applicationCategory": "BusinessApplication",
+    "operatingSystem": "Web",
+    "offers": {
+      "@type": "Offer",
+      "price": "500",
+      "priceCurrency": "USD",
+      "priceSpecification": {
+        "@type": "UnitPriceSpecification",
+        "price": "500",
+        "priceCurrency": "USD",
+        "unitText": "MONTH"
+      }
+    },
+    "provider": {
+      "@type": "Person",
+      "name": "Rory Hoffman",
+      "email": "Rorhoff@gmail.com",
+      "url": "https://t1airevolution.com/"
+    }
+  }
+  </script>
   <style>
     :root {
       --bg: #e9eef6;
@@ -142,7 +173,7 @@
     [hidden] { display: none !important; }
     @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
     h1, h2, h3, h4 { line-height: 1.3; }
-    main > [data-panel] h1 { font-size: 1.85rem; margin: 0 0 0.5rem; color: var(--heading); letter-spacing: -0.02em; }
+    main > [data-panel] > h2 { font-size: 1.85rem; margin: 0 0 0.5rem; color: var(--heading); letter-spacing: -0.02em; text-transform: none; }
     h2 {
       font-size: 0.8rem;
       text-transform: uppercase;
@@ -478,7 +509,7 @@
     </div>
 
     <div data-panel="knowledge" hidden>
-      <h1>Knowledge base</h1>
+      <h2>Knowledge base</h2>
       <p class="lead muted">Add Software materials so retrieval-augmented answers stay on your approved content.</p>
       <div id="kbBanner" class="banner info" hidden></div>
 
@@ -539,7 +570,7 @@
     <div data-panel="agent" hidden>
       <header class="airev-brand" style="border-bottom:none;padding-bottom:0.5rem">
         <p class="airev-sub" style="letter-spacing:0.2em;margin-bottom:0.35rem">T1 AI Support Agent</p>
-        <h1 class="airev-title" style="font-size:1.35rem;letter-spacing:0.06em">Knowledge-backed resolutions</h1>
+        <h2 class="airev-title" style="font-size:1.35rem;letter-spacing:0.06em">Knowledge-backed resolutions</h2>
       </header>
       <div class="hero-row agent-status-row" style="margin-bottom:1rem">
         <span class="pill ok" id="apiPill">Loading status…</span>
@@ -585,7 +616,7 @@
     </div>
 
     <div data-panel="tickets" hidden>
-      <h1>Ticket portal</h1>
+      <h2>Ticket portal</h2>
       <p class="lead muted">Prototype dashboard: in-memory for this app (reset when the server restarts). Hook to your database when you go live.</p>
       <div id="ticketBanner" class="banner info" hidden></div>
 
@@ -613,7 +644,7 @@
     </div>
 
     <div data-panel="contact" hidden>
-      <h1>Contact &amp; onboarding</h1>
+      <h2>Contact &amp; onboarding</h2>
       <p class="lead">
         Reach out to talk about your team, your Software stack, and how you want Tier 1 staff to level up with
         <strong>AI Tier 2</strong> style workflows. We will align on scope, then schedule onboarding and technical setup.
@@ -653,7 +684,7 @@
     </div>
 
     <div data-panel="roadmap" hidden>
-      <h1>Roadmap</h1>
+      <h2>Roadmap</h2>
       <p class="lead">
         Phases for AIRevolution are marketing site, brain, client portal, diagnostics, and go to market, so you and
         your stakeholders can share the same picture.
