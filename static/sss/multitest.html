@@ -20,7 +20,7 @@
     body {
       background: var(--bg); color: var(--text);
       font-family: 'Segoe UI', system-ui, sans-serif;
-      padding: 0 .6rem 1.5rem; min-height: 100vh;
+      padding: 0 0 1.5rem; min-height: 100vh;
       line-height: 1.6;
     }
 
@@ -37,6 +37,7 @@
     .site-nav a.active { color: var(--text); border-bottom-color: #ff2aff; }
     h1 { color: var(--accent); font-size: 1.05rem; font-weight: 700;
          letter-spacing: .04em; margin-bottom: .65rem; }
+    .page-content { padding: 0 .6rem; }
 
     /* ── Top bar ── */
     .top-bar { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; margin-bottom: .65rem; }
@@ -255,6 +256,7 @@
     </div>
   </nav>
 
+  <div class="page-content">
   <h1>SSS — Multi-Player Test Harness</h1>
 
   <div class="top-bar">
@@ -1887,5 +1889,6 @@
   });
   </script>
   <script src="/assets/nav-mobile.js"></script>
+  </div><!-- /.page-content -->
 </body>
 </html>
