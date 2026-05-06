@@ -18,9 +18,10 @@ function el(id) {
 }
 
 async function fetchJSON(path, opts = {}) {
+  const { headers: optHeaders, ...restOpts } = opts;
   const r = await fetch(API + path, {
-    headers: { Accept: "application/json", "X-T1-Pin": _pin, ...(opts.headers || {}) },
-    ...opts,
+    headers: { Accept: "application/json", "X-T1-Pin": _pin, ...(optHeaders || {}) },
+    ...restOpts,
   });
   const text = await r.text();
   let data;
