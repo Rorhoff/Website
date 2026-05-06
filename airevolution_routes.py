@@ -151,41 +151,51 @@ def _call_claude(system: str, user_text: str) -> str:
     if not key:
         return ""
     model = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
-    try:
-        r = httpx.post(
-            "https://api.anthropic.com/v1/messages",
-            headers={
-                "x-api-key": key,
-                "anthropic-version": "2023-06-01",
-                "content-type": "application/json",
-            },
-            json={
-                "model": model,
-                "max_tokens": 4096,
-                "system": system,
-                "messages": [{"role": "user", "content": user_text}],
-            },
-            timeout=120.0,
-        )
-        r.raise_for_status()
-        data = r.json()
-        out: list[str] = []
-        for block in data.get("content", []):
-            if block.get("type") == "text":
-                out.append(block.get("text", ""))
-        return "\n".join(out).strip()
-    except httpx.HTTPStatusError as e:
-        body = ""
+    payload = {
+        "model": model,
+        "max_tokens": 4096,
+        "system": system,
+        "messages": [{"role": "user", "content": user_text}],
+    }
+    headers = {
+        "x-api-key": key,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+    }
+    last_err = ""
+    for attempt in range(3):
         try:
-            detail = e.response.json()
-            body = detail.get("error", {}).get("message", "") or str(detail)
-        except Exception:
-            body = e.response.text[:300]
-        return f"(Claude request failed {e.response.status_code}: {body or str(e)})"
-    except httpx.HTTPError as e:
-        return f"(Claude request failed: {e})"
-    except Exception as e:  # noqa: BLE001
-        return f"(Claude error: {e})"
+            r = httpx.post(
+                "https://api.anthropic.com/v1/messages",
+                headers=headers,
+                json=payload,
+                timeout=120.0,
+            )
+            if r.status_code == 529:
+                wait = 4 * (attempt + 1)
+                time.sleep(wait)
+                last_err = f"API overloaded (529), retried {attempt + 1}x"
+                continue
+            r.raise_for_status()
+            data = r.json()
+            out: list[str] = []
+            for block in data.get("content", []):
+                if block.get("type") == "text":
+                    out.append(block.get("text", ""))
+            return "\n".join(out).strip()
+        except httpx.HTTPStatusError as e:
+            body = ""
+            try:
+                detail = e.response.json()
+                body = detail.get("error", {}).get("message", "") or str(detail)
+            except Exception:
+                body = e.response.text[:300]
+            return f"(Claude request failed {e.response.status_code}: {body or str(e)})"
+        except httpx.HTTPError as e:
+            return f"(Claude request failed: {e})"
+        except Exception as e:  # noqa: BLE001
+            return f"(Claude error: {e})"
+    return f"(Claude unavailable — {last_err}. Please try again in a moment.)"
 
 
 class ChatIn(BaseModel):
