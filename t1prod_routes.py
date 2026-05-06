@@ -14,6 +14,7 @@ import json
 import os
 import time
 import uuid
+import httpx
 from collections import Counter
 from pathlib import Path
 from threading import Lock
@@ -140,6 +141,90 @@ def _build_context(user_message: str) -> tuple[str, list[dict[str, Any]]]:
     return ctx, hits
 
 
+def _call_claude_vision(system: str, user_text: str, image_data_urls: list[str]) -> str:
+    key = os.getenv("ANTHROPIC_API_KEY", "").strip()
+    if not key:
+        return ""
+    model = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
+    content: list[dict] = [{"type": "text", "text": user_text}]
+    for data_url in image_data_urls:
+        try:
+            header, _, b64data = data_url.partition(",")
+            media_type = header.split(":")[1].split(";")[0] if ":" in header else "image/jpeg"
+            if media_type not in ("image/jpeg", "image/png", "image/gif", "image/webp"):
+                media_type = "image/jpeg"
+            content.append({
+                "type": "image",
+                "source": {"type": "base64", "media_type": media_type, "data": b64data},
+            })
+        except Exception:
+            continue
+    payload = {
+        "model": model,
+        "max_tokens": 4096,
+        "system": system,
+        "messages": [{"role": "user", "content": content}],
+    }
+    headers = {
+        "x-api-key": key,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+    }
+    last_err = ""
+    for attempt in range(3):
+        try:
+            r = httpx.post(
+                "https://api.anthropic.com/v1/messages",
+                headers=headers,
+                json=payload,
+                timeout=120.0,
+            )
+            if r.status_code == 529:
+                wait = 4 * (attempt + 1)
+                time.sleep(wait)
+                last_err = f"API overloaded (529), retried {attempt + 1}x"
+                continue
+            r.raise_for_status()
+            data = r.json()
+            out: list[str] = []
+            for block in data.get("content", []):
+                if block.get("type") == "text":
+                    out.append(block.get("text", ""))
+            return "\n".join(out).strip()
+        except httpx.HTTPStatusError as e:
+            body = ""
+            try:
+                detail = e.response.json()
+                body = detail.get("error", {}).get("message", "") or str(detail)
+            except Exception:
+                body = e.response.text[:300]
+            return f"(Claude request failed {e.response.status_code}: {body or str(e)})"
+        except httpx.HTTPError as e:
+            return f"(Claude request failed: {e})"
+        except Exception as e:  # noqa: BLE001
+            return f"(Claude error: {e})"
+    return f"(Claude unavailable — {last_err}. Please try again in a moment.)"
+
+
+def _match_kb_images(query: str, top_k: int = 4) -> list[dict[str, Any]]:
+    q_toks = set(_tokenize(query))
+    if not q_toks:
+        return []
+    scored: list[tuple[int, dict[str, Any]]] = []
+    with _lock:
+        imgs = list(_images)
+    for im in imgs:
+        cap = (im.get("caption") or "").strip()
+        if not cap:
+            continue
+        cap_toks = set(_tokenize(cap))
+        overlap = len(q_toks & cap_toks)
+        if overlap > 0:
+            scored.append((overlap, im))
+    scored.sort(key=lambda x: -x[0])
+    return [im for _, im in scored[:top_k]]
+
+
 def _pin_check(request: Request) -> None:
     pin = os.getenv("T1_PROD_PIN", "").strip()
     if pin and request.headers.get("X-T1-Pin", "") != pin:
@@ -148,6 +233,7 @@ def _pin_check(request: Request) -> None:
 
 class ChatIn(BaseModel):
     message: str = Field(min_length=1, max_length=32_000)
+    images: list[str] = Field(default_factory=list)
     ticket_id: int | None = None
     create_ticket: bool = False
 
@@ -344,7 +430,11 @@ def chat(body: ChatIn) -> dict[str, Any]:
         f"{ctx or '(no documents matched; inform user and use STATUS: NEEDS_REVIEW unless trivial).'}"
     )
 
-    reply = _call_claude(system, user_block) if os.getenv("ANTHROPIC_API_KEY", "").strip() else ""
+    _api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
+    if _api_key:
+        reply = _call_claude_vision(system, user_block, body.images) if body.images else _call_claude(system, user_block)
+    else:
+        reply = ""
     if not reply:
         reply = (
             f"*(ANTHROPIC_API_KEY is not set. Showing retrieved context only.)*\n\n**Matched knowledge:**\n{ctx}\n\n"
@@ -391,9 +481,11 @@ def chat(body: ChatIn) -> dict[str, Any]:
         snapshot = list(_tickets)
     _save(TICKETS_FILE, snapshot)
 
+    kb_imgs = _match_kb_images(body.message)
     return {
         "reply": reply,
         "retrieval": [{"title": h["title"], "part": h.get("part"), "preview": h["text"][:220]} for h in hits],
+        "kb_images": [{"url_path": im["url_path"], "caption": im.get("caption", "")} for im in kb_imgs],
         "status": status_line,
         "anthropic_configured": bool(os.getenv("ANTHROPIC_API_KEY", "").strip()),
         "ticket_id": body.ticket_id or new_ticket_id,

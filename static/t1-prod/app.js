@@ -5,6 +5,7 @@
 
 const API = "/api/t1prod";
 let _pin = sessionStorage.getItem("t1prod_pin") || "";
+let _attachedImages = [];
 
 const QUICK_PROMPTS = [
   { label: "Cannot log in", text: "The user says they cannot log in. They tried resetting password but did not get an email. What should we check first?" },
@@ -202,10 +203,64 @@ function buildQuickPrompts() {
   });
 }
 
+function renderImgPreviews() {
+  const area = el("imgPreviewArea");
+  if (!area) return;
+  area.innerHTML = _attachedImages.map((src, i) =>
+    `<div class="img-preview"><img src="${src}" alt="" /><button type="button" class="img-preview-remove" data-idx="${i}">×</button></div>`
+  ).join("");
+  area.querySelectorAll("[data-idx]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      _attachedImages.splice(+btn.getAttribute("data-idx"), 1);
+      renderImgPreviews();
+    });
+  });
+}
+
+function addFileAsImage(file) {
+  if (!file || !file.type.startsWith("image/")) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    _attachedImages.push(e.target.result);
+    renderImgPreviews();
+  };
+  reader.readAsDataURL(file);
+}
+
 function initChat() {
   const form = el("chatForm");
   if (!form) return;
   buildQuickPrompts();
+
+  const chatTextarea = el("chatInput");
+  if (chatTextarea) {
+    chatTextarea.addEventListener("paste", (ev) => {
+      const cd = ev.clipboardData;
+      if (!cd) return;
+      const items = Array.from(cd.items || []);
+      for (const item of items) {
+        if (item.kind === "file" && item.type.startsWith("image/")) {
+          const file = item.getAsFile();
+          if (file) { ev.preventDefault(); addFileAsImage(file); return; }
+        }
+      }
+      const files = Array.from(cd.files || []);
+      for (const file of files) {
+        if (file.type.startsWith("image/")) {
+          ev.preventDefault(); addFileAsImage(file); return;
+        }
+      }
+    });
+  }
+
+  const imgAttach = el("imgAttach");
+  if (imgAttach) {
+    imgAttach.addEventListener("change", () => {
+      Array.from(imgAttach.files || []).forEach(addFileAsImage);
+      imgAttach.value = "";
+    });
+  }
+
   const copyBtn = el("copyReply");
   if (copyBtn) {
     copyBtn.addEventListener("click", async () => {
@@ -228,13 +283,15 @@ function initChat() {
     if (!input?.value.trim()) return;
     out.textContent = "Working on your request…";
     if (retrieval) retrieval.innerHTML = "";
+    const kbImages = el("kbImages");
+    if (kbImages) { kbImages.hidden = true; kbImages.innerHTML = ""; }
     if (copyBtn) { copyBtn.hidden = true; copyBtn.textContent = "Copy reply"; }
     if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = "Working…"; }
     try {
       const res = await fetchJSON("/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: input.value, create_ticket: !!(logTicket && logTicket.checked) }),
+        body: JSON.stringify({ message: input.value, create_ticket: !!(logTicket && logTicket.checked), images: _attachedImages }),
       });
       out.textContent = res.reply;
       if (copyBtn) copyBtn.hidden = !res.reply?.trim();
@@ -250,6 +307,15 @@ function initChat() {
       } else if (retrieval) {
         retrieval.innerHTML = '<p class="muted">No strong KB matches.</p>';
       }
+      if (kbImages && res.kb_images && res.kb_images.length) {
+        kbImages.hidden = false;
+        kbImages.innerHTML = '<p class="sm muted" style="margin:0 0 0.3rem">Related KB screenshots</p><div class="kb-images">' +
+          res.kb_images.map((img) =>
+            `<div class="kb-image-card"><a href="${escapeAttr(img.url_path)}" target="_blank" rel="noopener"><img src="${escapeAttr(img.url_path)}" alt="${escapeAttr(img.caption || "")}" /></a><div class="kb-image-cap">${escapeHtml(img.caption || "")}</div></div>`
+          ).join("") + "</div>";
+      }
+      _attachedImages = [];
+      renderImgPreviews();
       loadTickets().catch(() => {});
       refreshStatus().catch(() => {});
     } catch (e) {

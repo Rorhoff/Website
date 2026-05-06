@@ -134,6 +134,20 @@
     .quick-prompts button { font-size: 0.8rem; padding: 0.35rem 0.65rem; border-radius: 999px; border: 1px solid var(--border); background: #fff; color: var(--heading); cursor: pointer; font: inherit; }
     .quick-prompts button:hover { border-color: var(--accent2); color: var(--accent2); }
 
+    /* Inquiry image attachments */
+    .img-attach-area { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.4rem; }
+    .img-preview { position: relative; }
+    .img-preview img { width: 80px; height: 56px; object-fit: cover; border-radius: 6px; border: 1px solid var(--border); display: block; }
+    .img-preview-remove { position: absolute; top: -5px; right: -5px; background: #ef4444; color: #fff; border: none; border-radius: 50%; width: 17px; height: 17px; font-size: 11px; cursor: pointer; line-height: 1; padding: 0; }
+    .attach-label { display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.55rem 0.8rem; border-radius: 8px; border: 1px solid var(--border); background: var(--elevated); font-weight: 600; font-size: 0.9rem; cursor: pointer; color: var(--text); }
+    .attach-label:hover { background: #e0e5ef; }
+
+    /* KB screenshot results */
+    .kb-images { display: flex; flex-wrap: wrap; gap: 0.6rem; margin-top: 0.75rem; }
+    .kb-image-card { display: flex; flex-direction: column; align-items: center; gap: 0.25rem; max-width: 110px; }
+    .kb-image-card img { width: 110px; height: 72px; object-fit: cover; border-radius: 6px; border: 1px solid var(--border); cursor: pointer; }
+    .kb-image-cap { font-size: 0.7rem; color: var(--muted); text-align: center; word-break: break-word; line-height: 1.3; }
+
     /* PIN gate */
     #pinGate {
       position: fixed; inset: 0; background: #0c1220;
@@ -329,12 +343,15 @@
               <label for="chatInput">Customer message or issue</label>
               <textarea id="chatInput" rows="8" required placeholder="Paste the customer's message here…"></textarea>
             </div>
+            <div id="imgPreviewArea" class="img-attach-area"></div>
             <label class="sm" style="display:flex; gap:0.4rem; align-items:center; cursor:pointer; color:var(--text)">
               <input type="checkbox" id="logTicket" />
               Log as ticket (audit trail in portal)
             </label>
             <div style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center">
               <button type="submit" class="btn primary" id="chatSubmit">Get resolution</button>
+              <label class="attach-label" for="imgAttach">+ Screenshot</label>
+              <input type="file" id="imgAttach" accept="image/*" multiple style="display:none" />
             </div>
           </form>
         </div>
@@ -345,6 +362,7 @@
           </div>
           <div id="aiOutput" class="ai-box muted">No response yet.</div>
           <div id="retrieval" class="retrieval"></div>
+          <div id="kbImages" hidden></div>
         </div>
       </div>
     </div>
