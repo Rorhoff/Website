@@ -39,6 +39,7 @@ import credential_service
 from airevolution_routes import router as airevolution_router
 from classifieds_routes import router as classifieds_router
 from sss_routes import router as sss_router
+from t1prod_routes import router as t1prod_router
 from credential_service import COOKIE_NAME
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -168,6 +169,7 @@ app.add_middleware(
 app.include_router(classifieds_router)
 app.include_router(airevolution_router)
 app.include_router(sss_router)
+app.include_router(t1prod_router)
 
 # --- Cross-origin and per-request analytics middleware ---
 
@@ -379,6 +381,11 @@ app.mount(
     "/airevolution",
     StaticFiles(directory=str(STATIC_DIR / "airevolution"), html=True),
     name="airevolution",
+)
+app.mount(
+    "/t1-prod",
+    StaticFiles(directory=str(STATIC_DIR / "t1-prod"), html=True),
+    name="t1_prod",
 )
 
 

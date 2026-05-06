@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex, nofollow" />
+  <link rel="icon" type="image/png" href="/airevolution/favicon.png" />
+  <title>T1 Production — AI Revolution</title>
+  <style>
+    :root {
+      --bg: #e9eef6;
+      --surface: #ffffff;
+      --elevated: #f4f6fb;
+      --border: #c5cedd;
+      --text: #1e293b;
+      --muted: #5c6b82;
+      --accent: #6d28d9;
+      --accent2: #0d9488;
+      --heading: #0f172a;
+      --warn: #b45309;
+      --err: #b91c1c;
+      --radius: 12px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+    }
+    .page-shell {
+      max-width: 1100px;
+      margin: 0 auto;
+      background: #eef1f7;
+      min-height: calc(100vh - 0px);
+      box-shadow: 0 0 0 1px rgba(0,0,0,0.12), 0 0 32px rgba(0,0,0,0.18);
+    }
+    .site-nav {
+      display: flex; flex-wrap: wrap; gap: 0.65rem 1.25rem;
+      padding: 0.75rem 1.5rem; border-bottom: 1px solid var(--border);
+      background: #ffffff; align-items: center; position: sticky; top: 0; z-index: 50;
+    }
+    .site-nav a { color: var(--muted); text-decoration: none; font-size: 0.9rem; font-weight: 500; border-bottom: 2px solid transparent; padding-bottom: 0.1rem; }
+    .site-nav a:hover { color: var(--accent); }
+    .site-nav a.active { color: var(--heading); border-bottom-color: var(--accent); }
+    .env-badge { font-size: 0.72rem; font-weight: 700; background: #7c3aed; color: #fff; padding: 0.15rem 0.5rem; border-radius: 999px; margin-left: 0.25rem; }
+    .app-tabs {
+      display: flex; flex-wrap: wrap; gap: 0.35rem;
+      padding: 0.75rem 1.5rem 0; border-bottom: 1px solid var(--border); background: #eef2f8;
+    }
+    .app-tabs button {
+      background: transparent; border: 1px solid transparent; color: var(--muted);
+      padding: 0.5rem 0.9rem; font-size: 0.9rem; font-weight: 600;
+      border-radius: 8px 8px 0 0; cursor: pointer;
+    }
+    .app-tabs button:hover { color: var(--text); }
+    .app-tabs button.active { background: #ffffff; border-color: var(--border); border-bottom-color: #ffffff; color: var(--heading); }
+    main { max-width: 1040px; margin: 0 auto; padding: 1.25rem 1.5rem 3rem; }
+    h2.h-estimated { margin-top: 2.75rem; }
+    h2.h-services { margin-top: 2.5rem; }
+    .airev-brand { text-align: center; margin: 0 0 1.5rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border); }
+    .airev-brand .airev-title { margin: 0; font-size: 1.6rem; font-weight: 800; letter-spacing: 0.14em; color: var(--heading); line-height: 1.2; }
+    .airev-brand .airev-sub { margin: 0.35rem 0 0; font-size: 0.72rem; font-weight: 800; letter-spacing: 0.35em; color: var(--muted); text-transform: uppercase; }
+    h2.hero-headline { font-size: 1.85rem; font-weight: 700; text-transform: none; letter-spacing: -0.02em; color: var(--heading); margin: 0 0 0.5rem; line-height: 1.25; }
+    [data-panel] { animation: fade 0.2s ease; }
+    [hidden] { display: none !important; }
+    @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+    h1, h2, h3, h4 { line-height: 1.3; }
+    main > [data-panel] > h2 { font-size: 1.85rem; margin: 0 0 0.5rem; color: var(--heading); letter-spacing: -0.02em; text-transform: none; }
+    h2 { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--accent); margin: 0 0 0.75rem; }
+    h3 { font-size: 1.1rem; margin: 1.5rem 0 0.6rem; color: var(--heading); }
+    p.lead { font-size: 1.12rem; color: #3d4a5c; max-width: 38rem; }
+    .grid2 { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+    .grid2.grid-services { gap: 1.5rem; margin-bottom: 2.75rem; }
+    h2.how-works { margin-top: 0.25rem; }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.1rem 1.2rem; }
+    .card p { margin: 0.35rem 0; color: #3d4a5c; font-size: 0.95rem; }
+    .price { font-size: 1.75rem; font-weight: 800; color: var(--heading); }
+    .price small { display: block; font-size: 0.75rem; color: var(--muted); font-weight: 500; }
+    .steps { margin: 0; padding: 0; list-style: none; counter-reset: s; }
+    .steps li { position: relative; padding: 0.65rem 0 0.65rem 2.2rem; border-bottom: 1px solid var(--border); color: #3d4a5c; }
+    .steps li::before { counter-increment: s; content: counter(s); position: absolute; left: 0; top: 0.55rem; width: 1.5rem; height: 1.5rem; border-radius: 50%; background: #f1f5f9; border: 1px solid var(--border); color: var(--accent); font-size: 0.75rem; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+    .roadmap { margin: 0; padding: 0; }
+    .roadmap li { margin-bottom: 1rem; color: #3d4a5c; }
+    .roadmap strong { color: var(--heading); }
+    .pill { display: inline-block; padding: 0.2rem 0.5rem; border-radius: 6px; font-size: 0.8rem; font-weight: 600; }
+    .pill.ok { background: #d1fae5; color: #047857; border: 1px solid #6ee7b7; }
+    .pill.warn { background: #fef3c7; color: #b45309; border: 1px solid #fcd34d; }
+    .hero-badge { display: inline-block; font-size: 0.8rem; font-weight: 600; letter-spacing: 0.02em; text-transform: none; color: #0d9488; margin-bottom: 0.5rem; }
+    .hero-row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 0.75rem 1.5rem; margin-top: 1rem; }
+    label { display: block; font-size: 0.8rem; color: var(--muted); margin-bottom: 0.25rem; }
+    input[type="text"], input[type="email"], input[type="file"], textarea, select { width: 100%; max-width: 100%; padding: 0.5rem 0.6rem; border-radius: 8px; border: 1px solid var(--border); background: #ffffff; color: var(--text); font: inherit; }
+    textarea { min-height: 100px; resize: vertical; }
+    .btn { display: inline-block; padding: 0.55rem 1rem; border-radius: 8px; border: 1px solid var(--border); background: var(--elevated); color: var(--text); font-weight: 600; font-size: 0.9rem; cursor: pointer; }
+    .btn:hover { background: #e0e5ef; }
+    .btn.primary { background: linear-gradient(135deg, #7c3aed, #a78bfa); border-color: #6d28d9; }
+    .btn.primary:hover { filter: brightness(1.05); }
+    .btn.sm { padding: 0.3rem 0.55rem; font-size: 0.8rem; }
+    .btn.danger { border-color: #7f1d1d; color: #fecaca; }
+    .form-grid { display: grid; gap: 0.75rem; }
+    .banner { padding: 0.65rem 0.9rem; border-radius: 8px; font-size: 0.9rem; margin-bottom: 0.75rem; }
+    .banner.info { background: #e8f0ff; border: 1px solid #93c5fd; color: #1e3a5f; }
+    .banner.ok { background: #d1fae5; border: 1px solid #34d399; color: #14532d; }
+    .banner.err { background: #fee2e2; border: 1px solid #f87171; color: #7f1d1d; }
+    .split { display: grid; gap: 1rem; grid-template-columns: 1fr; }
+    .split-agent { display: grid; gap: 1rem; }
+    @media (min-width: 880px) { .split-agent { grid-template-columns: 1.1fr 0.9fr; } }
+    .ai-box { background: #f8fafc; border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem; min-height: 200px; font-size: 0.92rem; line-height: 1.55; white-space: pre-wrap; word-break: break-word; color: var(--text); }
+    .retrieval { font-size: 0.88rem; margin-top: 0.75rem; }
+    .retrieval ul { margin: 0.25rem 0 0; padding-left: 1.1rem; color: var(--muted); }
+    .muted { color: var(--muted); }
+    .sm { font-size: 0.82rem; }
+    .kb-item { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; padding: 0.5rem 0; border-bottom: 1px solid var(--border); }
+    .kb-item .grow { flex: 1; min-width: 0; }
+    .thumb { width: 72px; height: 48px; object-fit: cover; border-radius: 6px; border: 1px solid var(--border); }
+    .img-row { align-items: flex-start; }
+    .caption-in { font-size: 0.9rem; margin-top: 0.25rem; }
+    .ticket-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem; margin-bottom: 0.75rem; }
+    .ticket-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem; }
+    .ticket-card h4 { margin: 0; font-size: 1rem; }
+    .desc { color: #5c6b82; font-size: 0.9rem; margin: 0.4rem 0; }
+    .st-open { color: #93c5fd; }
+    .st-ai_resolved { color: #34d399; }
+    .st-in_review { color: #fbbf24; }
+    .st-escalated { color: #f87171; }
+    details.ai-out, details.audit { margin-top: 0.5rem; font-size: 0.85rem; }
+    pre.ai-pre, pre.audit-pre { margin: 0.5rem 0 0; padding: 0.5rem; background: #f1f5f9; border: 1px solid var(--border); color: #334155; border-radius: 6px; overflow: auto; max-height: 200px; font-size: 0.8rem; }
+    a { color: var(--accent2); }
+    button[data-goto] { background: none; border: none; color: var(--accent2); font: inherit; font-weight: 600; cursor: pointer; text-decoration: underline; padding: 0; }
+    button[data-goto]:hover { color: #0f766e; }
+    .quick-prompts { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.25rem; }
+    .quick-prompts button { font-size: 0.8rem; padding: 0.35rem 0.65rem; border-radius: 999px; border: 1px solid var(--border); background: #fff; color: var(--heading); cursor: pointer; font: inherit; }
+    .quick-prompts button:hover { border-color: var(--accent2); color: var(--accent2); }
+
+    /* PIN gate */
+    #pinGate {
+      position: fixed; inset: 0; background: #0c1220;
+      display: flex; align-items: center; justify-content: center; z-index: 9999;
+    }
+    .pin-card {
+      background: #1e293b; border: 1px solid #334155; border-radius: 14px;
+      padding: 2rem 2rem 1.75rem; max-width: 340px; width: 100%; text-align: center;
+    }
+    .pin-card h2 { color: #e2e8f0; margin: 0 0 0.35rem; font-size: 1.2rem; }
+    .pin-card p { color: #94a3b8; font-size: 0.85rem; margin: 0 0 1.25rem; }
+    #pinInput {
+      width: 100%; padding: 0.65rem; border-radius: 8px; border: 1px solid #475569;
+      background: #0f172a; color: #e2e8f0; font-size: 1.15rem; text-align: center;
+      letter-spacing: 0.25em; font-family: monospace;
+    }
+    #pinSubmit {
+      margin-top: 0.75rem; width: 100%; padding: 0.65rem;
+      background: #6d28d9; border: none; border-radius: 8px;
+      color: #fff; font-weight: 700; font-size: 1rem; cursor: pointer;
+    }
+    #pinSubmit:hover { background: #7c3aed; }
+    #pinError { color: #f87171; font-size: 0.82rem; margin: 0.5rem 0 0; }
+  </style>
+  <link rel="stylesheet" href="/assets/nav-mobile.css" />
+</head>
+<body>
+
+  <!-- PIN gate — hidden once authenticated -->
+  <div id="pinGate">
+    <div class="pin-card">
+      <h2>T1 Production</h2>
+      <p>Enter your access PIN to continue.</p>
+      <input type="password" id="pinInput" placeholder="••••" autocomplete="off" />
+      <button id="pinSubmit">Unlock</button>
+      <p id="pinError" hidden>Incorrect PIN. Try again.</p>
+    </div>
+  </div>
+
+  <nav class="site-nav" aria-label="Primary">
+    <button class="nav-hamburger" id="navHamburger" aria-label="Toggle navigation" aria-expanded="false">☰</button>
+    <div class="nav-links" id="navLinks">
+      <a href="../index.html">About</a>
+      <a href="https://www.linkedin.com/in/rorhoff" target="_blank" rel="noopener noreferrer">LinkedIn</a>
+      <a href="../api-testing/">API Testing</a>
+      <a href="../classifieds/index.html">Classifieds</a>
+      <a href="../airevolution/">AI Revolution</a>
+      <a href="../sss/">SSS</a>
+      <a href="./" class="active">T1 Prod <span class="env-badge">PROD</span></a>
+    </div>
+  </nav>
+
+  <div class="page-shell">
+  <div class="app-tabs" role="tablist" aria-label="T1 Production sections">
+    <button type="button" data-tab="home" class="active" role="tab">Product</button>
+    <button type="button" data-tab="knowledge" role="tab">Knowledge base</button>
+    <button type="button" data-tab="agent" role="tab">T1 AI agent</button>
+    <button type="button" data-tab="tickets" role="tab">Ticket portal</button>
+    <button type="button" data-tab="roadmap" role="tab">Roadmap</button>
+    <button type="button" data-tab="contact" role="tab">Contact &amp; onboarding</button>
+  </div>
+
+  <main>
+    <div data-panel="home">
+      <header class="airev-brand" aria-label="Product title">
+        <h1 class="airev-title">AI REVOLUTION</h1>
+        <p class="airev-sub">PRODUCTION ENVIRONMENT</p>
+      </header>
+      <p class="hero-badge">Software Tier 1 Support, Reimagined</p>
+      <h2 class="hero-headline">We level up your Tier 1 Support!</h2>
+      <p class="lead">
+        <strong>AIRevolution</strong> is an AI-powered first-line support service. You load your own documentation and
+        screenshots, then paste a customer&rsquo;s email into the agent. It searches what you&rsquo;ve provided and drafts a
+        resolution. The flow escalates when the answer is not in the knowledge base. The product is designed to
+        <strong>level up traditional Tier 1 agents into AI Tier 2 agents</strong>.
+      </p>
+
+      <h3>What you can add</h3>
+      <ul class="muted">
+        <li>PDFs and admin guides (text is extracted and chunked for search)</li>
+        <li>Pasted procedures and step-by-step notes</li>
+        <li>Screenshots of major Software pages, with captions so the AI can reference them</li>
+      </ul>
+
+      <h2 class="h-services">Services &amp; positioning</h2>
+      <div class="grid2 grid-services" style="margin-top:0.5rem">
+        <div class="card">
+          <h3>AI first response</h3>
+          <p>A ticket or a pasted email is matched to your knowledge. Claude then drafts a reply with clear status lines for auto-resolved, review, or escalation.</p>
+        </div>
+        <div class="card">
+          <h3>Your expertise, scaled</h3>
+          <p>The assistant is built to reflect <em>your</em> runbooks, not generic web answers, so every answer stays aligned with how you support Software.</p>
+        </div>
+        <div class="card">
+          <h3>Audit trail</h3>
+          <p>Tickets in the portal store what the model tried, retrieval hit counts, and final disposition for compliance and coaching.</p>
+        </div>
+      </div>
+
+      <h2 class="how-works">How it works</h2>
+      <ol class="steps" style="max-width: 36rem; margin-top:0.5rem">
+        <li>Upload Software documentation, manuals, and labeled screenshots in <strong>Knowledge base</strong>.</li>
+        <li>Open <strong>T1 AI agent</strong> and paste customer messages to get AI-drafted resolutions.</li>
+        <li>Review the draft, send it to the customer, or use the <strong>Ticket portal</strong> for a full audit trail.</li>
+      </ol>
+
+      <h2 class="h-estimated">Estimated pricing</h2>
+      <div class="grid2" style="margin-top:0.5rem">
+        <div class="card">
+          <div class="price">Starting at $500<small>USD / month</small></div>
+          <p>Mid-size Software shops in legal, insurance, and financial services pay less than a full support bench and move faster than a blind ticket queue.</p>
+        </div>
+        <div class="card">
+          <h3>Contact &amp; onboarding</h3>
+          <p>We walk through your volume, knowledge sources, and how you want to roll out. Open the <button type="button" data-goto="contact">Contact &amp; onboarding</button> page for details.</p>
+        </div>
+      </div>
+    </div>
+
+    <div data-panel="knowledge" hidden>
+      <h2>Knowledge base</h2>
+      <p class="lead muted">Add Software materials so retrieval-augmented answers stay on your approved content. All documents persist across server restarts.</p>
+      <div id="kbBanner" class="banner info" hidden></div>
+
+      <div class="split" style="margin-top:1rem">
+        <div class="card">
+          <h2>Document upload</h2>
+          <form id="docUploadForm" class="form-grid" enctype="multipart/form-data">
+            <div>
+              <label for="docTitle">Title (optional)</label>
+              <input type="text" name="title" id="docTitle" placeholder="e.g. Software admin, queues" />
+            </div>
+            <div>
+              <label for="docFile">PDF or text files</label>
+              <input type="file" name="file" id="docFile" accept=".pdf,.txt,.md,.text" multiple />
+            </div>
+            <div>
+              <label for="docImg">Screenshot (optional)</label>
+              <input type="file" name="docImg" id="docImg" accept="image/*" />
+            </div>
+            <button type="submit" class="btn primary">Ingest files</button>
+          </form>
+        </div>
+        <div class="card">
+          <h2>Paste text</h2>
+          <p class="sm muted" style="margin:0 0 0.75rem">Add runbooks by pasting text.</p>
+          <form id="pasteDocForm" class="form-grid">
+            <div>
+              <label for="pasteTitle">Title (optional)</label>
+              <input type="text" name="title" id="pasteTitle" placeholder="e.g. Stuck job in queue" />
+            </div>
+            <div>
+              <label for="pasteBody">Content</label>
+              <textarea name="text" id="pasteBody" placeholder="Paste procedures, error explanations, or release notes here…" rows="6" required></textarea>
+            </div>
+            <div>
+              <label for="pasteImg">Screenshot (optional)</label>
+              <input type="file" name="pasteImg" id="pasteImg" accept="image/*" />
+            </div>
+            <button type="submit" class="btn">Add Runbook / KB Article</button>
+          </form>
+        </div>
+      </div>
+
+      <h3>Indexed knowledge</h3>
+      <ul id="docList" class="muted" style="list-style:none;padding:0"></ul>
+    </div>
+
+    <div data-panel="agent" hidden>
+      <header class="airev-brand" style="border-bottom:none;padding-bottom:0.5rem">
+        <p class="airev-sub" style="letter-spacing:0.2em;margin-bottom:0.35rem">T1 AI Support Agent</p>
+        <h2 class="airev-title" style="font-size:1.35rem;letter-spacing:0.06em">Knowledge-backed resolutions</h2>
+      </header>
+      <div class="hero-row agent-status-row" style="margin-bottom:1rem">
+        <span class="pill ok" id="apiPill">Loading status…</span>
+        <span class="muted sm" id="statusSub"></span>
+      </div>
+      <p class="lead muted">
+        Paste a customer email or paraphrase their issue. The T1 AI Support Agent retrieves matching chunks from your
+        knowledge base, then uses Claude to draft a reply with a clear status: resolved, needs review, or escalate.
+      </p>
+      <div id="agentBanner" class="banner info" hidden></div>
+
+      <p class="sm muted" style="margin:0.75rem 0 0.25rem">Try a sample prompt</p>
+      <div class="quick-prompts" id="quickPrompts" aria-label="Sample prompts"></div>
+
+      <div class="split split-agent" style="margin-top:1rem">
+        <div class="card">
+          <h2>Inquiry</h2>
+          <form id="chatForm" class="form-grid">
+            <div>
+              <label for="chatInput">Customer message or issue</label>
+              <textarea id="chatInput" rows="8" required placeholder="Paste the customer's message here…"></textarea>
+            </div>
+            <label class="sm" style="display:flex; gap:0.4rem; align-items:center; cursor:pointer; color:var(--text)">
+              <input type="checkbox" id="logTicket" />
+              Log as ticket (audit trail in portal)
+            </label>
+            <div style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center">
+              <button type="submit" class="btn primary" id="chatSubmit">Get resolution</button>
+            </div>
+          </form>
+        </div>
+        <div class="card">
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.5rem">
+            <h2 style="margin:0">Response</h2>
+            <button type="button" class="btn sm" id="copyReply" hidden>Copy reply</button>
+          </div>
+          <div id="aiOutput" class="ai-box muted">No response yet.</div>
+          <div id="retrieval" class="retrieval"></div>
+        </div>
+      </div>
+    </div>
+
+    <div data-panel="tickets" hidden>
+      <h2>Ticket portal</h2>
+      <p class="lead muted">Persistent ticket dashboard — tickets survive server restarts.</p>
+      <div id="ticketBanner" class="banner info" hidden></div>
+
+      <div class="card" style="margin-top:0.5rem">
+        <h2>New ticket</h2>
+        <form id="newTicketForm" class="form-grid" style="max-width: 32rem">
+          <div>
+            <label for="tSubject">Subject</label>
+            <input type="text" id="tSubject" required />
+          </div>
+          <div>
+            <label for="tEmail">Requester email (optional)</label>
+            <input type="email" id="tEmail" />
+          </div>
+          <div>
+            <label for="tBody">Description</label>
+            <textarea id="tBody" required></textarea>
+          </div>
+          <button type="submit" class="btn primary">Submit</button>
+        </form>
+      </div>
+
+      <h2>Open &amp; recent</h2>
+      <div id="ticketList"></div>
+    </div>
+
+    <div data-panel="contact" hidden>
+      <h2>Contact &amp; onboarding</h2>
+      <p class="lead">
+        Reach out to talk about your team, your Software stack, and how you want Tier 1 staff to level up with
+        <strong>AI Tier 2</strong> style workflows.
+      </p>
+      <div class="card" style="margin-top:1rem; max-width: 36rem">
+        <h2>Get in touch</h2>
+        <p><a href="https://www.linkedin.com/in/rorhoff" target="_blank" rel="noopener noreferrer">Rory Hoffman on LinkedIn</a>.</p>
+        <p>Email: <a href="mailto:Rorhoff@gmail.com">Rorhoff@gmail.com</a></p>
+      </div>
+    </div>
+
+    <div data-panel="roadmap" hidden>
+      <h2>Roadmap</h2>
+      <p class="lead">Phases for AIRevolution: marketing site, brain, client portal, diagnostics, and go to market.</p>
+      <ul class="roadmap" style="margin-top:1rem">
+        <li><strong>Phase 1, Foundation</strong> — Marketing site, hero, services, pricing, contact.</li>
+        <li><strong>Phase 2, The brain</strong> — Full knowledge base and agent with RAG and Claude wiring.</li>
+        <li><strong>Phase 3, Client portal</strong> — Ticket list and AI audit trail.</li>
+        <li><strong>Phase 4, Diagnostics</strong> — Screenshot-based issue scanning.</li>
+        <li><strong>Phase 5, Go to market</strong> — Mid-size Software customers, starting at $500/month.</li>
+      </ul>
+    </div>
+  </main>
+  </div>
+
+  <script src="app.js" defer></script>
+  <script src="/assets/nav-mobile.js"></script>
+</body>
+</html>
