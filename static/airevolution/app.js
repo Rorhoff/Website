@@ -311,16 +311,21 @@ function initDocUpload() {
   if (form) {
     form.addEventListener("submit", async (ev) => {
       ev.preventDefault();
-      setBanner("kbBanner", "Uploading…", "info");
-      const fd = new FormData(form);
-      const imgFile = fd.get("docImg");
-      fd.delete("docImg");
+      const files = Array.from(el("docFile")?.files || []);
+      if (!files.length) { setBanner("kbBanner", "Select at least one file.", "err"); return; }
+      const imgFile = el("docImg")?.files?.[0];
+      const titleBase = (el("docTitle")?.value || "").trim();
+      setBanner("kbBanner", `Uploading ${files.length} file${files.length > 1 ? "s" : ""}…`, "info");
       try {
-        await _uploadImgIfPresent(imgFile instanceof File && imgFile.size ? imgFile : null,
-          (el("docTitle")?.value || "").trim());
-        await fetchJSON("/documents", { method: "POST", body: fd });
+        await _uploadImgIfPresent(imgFile?.size ? imgFile : null, titleBase);
+        for (const file of files) {
+          const fd = new FormData();
+          fd.set("file", file);
+          if (titleBase) fd.set("title", files.length === 1 ? titleBase : `${titleBase} — ${file.name}`);
+          await fetchJSON("/documents", { method: "POST", body: fd });
+        }
         form.reset();
-        setBanner("kbBanner", "Document added to knowledge base.", "ok");
+        setBanner("kbBanner", `${files.length} file${files.length > 1 ? "s" : ""} added to knowledge base.`, "ok");
         loadDocuments().catch(() => {});
         refreshStatus().catch(() => {});
       } catch (e) {
