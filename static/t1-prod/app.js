@@ -5,7 +5,6 @@
 
 const API = "/api/t1prod";
 let _pin = sessionStorage.getItem("t1prod_pin") || "";
-let _attachedImages = [];
 
 const QUICK_PROMPTS = [
   { label: "Cannot log in", text: "The user says they cannot log in. They tried resetting password but did not get an email. What should we check first?" },
@@ -197,34 +196,42 @@ function buildQuickPrompts() {
   host.querySelectorAll(".qp").forEach((b) => {
     b.addEventListener("click", () => {
       const ta = el("chatInput");
-      if (ta) ta.value = decodeURIComponent(b.getAttribute("data-qp") || "");
+      if (ta) ta.innerText = decodeURIComponent(b.getAttribute("data-qp") || "");
       ta?.focus();
     });
   });
 }
 
-function renderImgPreviews() {
-  const area = el("imgPreviewArea");
-  if (!area) return;
-  area.innerHTML = _attachedImages.map((src, i) =>
-    `<div class="img-preview"><img src="${src}" alt="" /><button type="button" class="img-preview-remove" data-idx="${i}">×</button></div>`
-  ).join("");
-  area.querySelectorAll("[data-idx]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      _attachedImages.splice(+btn.getAttribute("data-idx"), 1);
-      renderImgPreviews();
-    });
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => resolve(e.target.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
   });
 }
 
-function addFileAsImage(file) {
-  if (!file || !file.type.startsWith("image/")) return;
-  const reader = new FileReader();
-  reader.onload = (e) => {
-    _attachedImages.push(e.target.result);
-    renderImgPreviews();
-  };
-  reader.readAsDataURL(file);
+async function extractImages(container) {
+  const results = [];
+  for (const img of Array.from(container.querySelectorAll("img"))) {
+    const src = img.getAttribute("src") || "";
+    if (src.startsWith("data:image/")) {
+      results.push(src);
+    } else if (src.startsWith("blob:")) {
+      try {
+        results.push(await blobToDataUrl(await (await fetch(src)).blob()));
+      } catch { /* inaccessible blob */ }
+    } else if (src) {
+      try {
+        const c = document.createElement("canvas");
+        c.width = img.naturalWidth || 400;
+        c.height = img.naturalHeight || 300;
+        c.getContext("2d").drawImage(img, 0, 0);
+        results.push(c.toDataURL("image/png"));
+      } catch { /* CORS-blocked URL */ }
+    }
+  }
+  return results;
 }
 
 function initChat() {
@@ -237,19 +244,35 @@ function initChat() {
     chatTextarea.addEventListener("paste", (ev) => {
       const cd = ev.clipboardData;
       if (!cd) return;
+      // Native clipboard image (e.g. Win+Shift+S screenshot) — insert inline
       const items = Array.from(cd.items || []);
-      for (const item of items) {
-        if (item.kind === "file" && item.type.startsWith("image/")) {
-          const file = item.getAsFile();
-          if (file) { ev.preventDefault(); addFileAsImage(file); return; }
+      const imgItem = items.find((i) => i.kind === "file" && i.type.startsWith("image/"));
+      if (imgItem) {
+        const file = imgItem.getAsFile();
+        if (file) {
+          ev.preventDefault();
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            const img = document.createElement("img");
+            img.src = e.target.result;
+            const sel = window.getSelection();
+            if (sel && sel.rangeCount) {
+              const range = sel.getRangeAt(0);
+              range.deleteContents();
+              range.insertNode(img);
+              range.setStartAfter(img);
+              range.collapse(true);
+              sel.removeAllRanges();
+              sel.addRange(range);
+            } else {
+              chatTextarea.appendChild(img);
+            }
+          };
+          reader.readAsDataURL(file);
+          return;
         }
       }
-      const files = Array.from(cd.files || []);
-      for (const file of files) {
-        if (file.type.startsWith("image/")) {
-          ev.preventDefault(); addFileAsImage(file); return;
-        }
-      }
+      // Rich HTML (email with inline images) — let browser paste naturally
     });
   }
 
@@ -272,7 +295,7 @@ function initChat() {
     const out = el("aiOutput");
     const retrieval = el("retrieval");
     const submitBtn = el("chatSubmit");
-    if (!input?.value.trim()) return;
+    if (!input?.innerText?.trim() && !input?.querySelector("img")) return;
     out.textContent = "Working on your request…";
     if (retrieval) retrieval.innerHTML = "";
     const kbImages = el("kbImages");
@@ -280,10 +303,11 @@ function initChat() {
     if (copyBtn) { copyBtn.hidden = true; copyBtn.textContent = "Copy reply"; }
     if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = "Working…"; }
     try {
+      const images = await extractImages(input);
       const res = await fetchJSON("/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: input.value, create_ticket: !!(logTicket && logTicket.checked), images: _attachedImages }),
+        body: JSON.stringify({ message: input.innerText, create_ticket: !!(logTicket && logTicket.checked), images }),
       });
       out.textContent = res.reply;
       if (copyBtn) copyBtn.hidden = !res.reply?.trim();
@@ -306,8 +330,7 @@ function initChat() {
             `<div class="kb-image-card"><a href="${escapeAttr(img.url_path)}" target="_blank" rel="noopener"><img src="${escapeAttr(img.url_path)}" alt="${escapeAttr(img.caption || "")}" /></a><div class="kb-image-cap">${escapeHtml(img.caption || "")}</div></div>`
           ).join("") + "</div>";
       }
-      _attachedImages = [];
-      renderImgPreviews();
+      input.innerHTML = "";
       loadTickets().catch(() => {});
       refreshStatus().catch(() => {});
     } catch (e) {
