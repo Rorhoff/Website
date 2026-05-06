@@ -242,15 +242,16 @@ function initChat() {
   const chatTextarea = el("chatInput");
   if (chatTextarea) {
     chatTextarea.addEventListener("paste", (ev) => {
+      ev.preventDefault();  // always — prevents raw HTML injection
       const cd = ev.clipboardData;
       if (!cd) return;
-      // Native clipboard image (e.g. Win+Shift+S screenshot) — insert inline
+
+      // Native binary image (Win+Shift+S screenshot) — insert as base64 img
       const items = Array.from(cd.items || []);
       const imgItem = items.find((i) => i.kind === "file" && i.type.startsWith("image/"));
       if (imgItem) {
         const file = imgItem.getAsFile();
         if (file) {
-          ev.preventDefault();
           const reader = new FileReader();
           reader.onload = (e) => {
             const img = document.createElement("img");
@@ -272,7 +273,25 @@ function initChat() {
           return;
         }
       }
-      // Rich HTML (email with inline images) — let browser paste naturally
+
+      // Plain text (strips all HTML formatting)
+      const text = cd.getData("text/plain");
+      if (text) document.execCommand("insertText", false, text);
+
+      // Pull img elements from the HTML and append them after the text
+      const html = cd.getData("text/html");
+      if (html) {
+        const temp = document.createElement("div");
+        temp.innerHTML = html;
+        temp.querySelectorAll("img").forEach((srcImg) => {
+          const src = srcImg.getAttribute("src") || "";
+          if (src) {
+            const img = document.createElement("img");
+            img.src = src;
+            chatTextarea.appendChild(img);
+          }
+        });
+      }
     });
   }
 
