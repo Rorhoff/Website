@@ -253,14 +253,6 @@ function initChat() {
     });
   }
 
-  const imgAttach = el("imgAttach");
-  if (imgAttach) {
-    imgAttach.addEventListener("change", () => {
-      Array.from(imgAttach.files || []).forEach(addFileAsImage);
-      imgAttach.value = "";
-    });
-  }
-
   const copyBtn = el("copyReply");
   if (copyBtn) {
     copyBtn.addEventListener("click", async () => {

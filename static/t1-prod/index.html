@@ -135,6 +135,9 @@
     .quick-prompts button:hover { border-color: var(--accent2); color: var(--accent2); }
 
     /* Inquiry image attachments */
+    .inquiry-input-wrap { border: 1px solid var(--border); border-radius: 8px; background: #fff; overflow: hidden; }
+    .inquiry-input-wrap textarea { border: none; border-radius: 0; background: transparent; }
+    .inquiry-input-wrap .img-attach-area { margin-top: 0; padding: 0 0.5rem 0.35rem; }
     .img-attach-area { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.4rem; }
     .img-preview { position: relative; }
     .img-preview img { width: 80px; height: 56px; object-fit: cover; border-radius: 6px; border: 1px solid var(--border); display: block; }
@@ -341,17 +344,17 @@
           <form id="chatForm" class="form-grid">
             <div>
               <label for="chatInput">Customer message or issue</label>
-              <textarea id="chatInput" rows="8" required placeholder="Paste the customer's message here…"></textarea>
+              <div class="inquiry-input-wrap">
+                <textarea id="chatInput" rows="8" required placeholder="Paste the customer's message here…"></textarea>
+                <div id="imgPreviewArea" class="img-attach-area"></div>
+              </div>
             </div>
-            <div id="imgPreviewArea" class="img-attach-area"></div>
             <label class="sm" style="display:flex; gap:0.4rem; align-items:center; cursor:pointer; color:var(--text)">
               <input type="checkbox" id="logTicket" />
               Log as ticket (audit trail in portal)
             </label>
             <div style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center">
               <button type="submit" class="btn primary" id="chatSubmit">Get resolution</button>
-              <label class="attach-label" for="imgAttach">+ Screenshot</label>
-              <input type="file" id="imgAttach" accept="image/*" multiple style="display:none" />
             </div>
           </form>
         </div>
