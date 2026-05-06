@@ -83,66 +83,58 @@ async function refreshStatus() {
 async function loadDocuments() {
   const [docs, imgs] = await Promise.all([fetchJSON("/documents"), fetchJSON("/images")]);
   const docList = el("docList");
-  const imgList = el("imgList");
-  if (docList) {
-    docList.innerHTML = docs.length
-      ? docs
-          .map(
-            (d) =>
-              `<li class="kb-item"><div><strong>${escapeHtml(d.title)}</strong> <span class="muted">${
-                d.chunk_count
-              } chunks</span></div><button type="button" class="btn sm danger" data-del-doc="${d.id}">Remove</button></li>`
-          )
-          .join("")
-      : '<li class="muted">No documents yet.</li>';
-    docList.querySelectorAll("[data-del-doc]").forEach((btn) => {
-      btn.addEventListener("click", async () => {
-        if (!confirm("Remove this document from the knowledge base?")) return;
-        await fetchJSON(`/documents/${btn.getAttribute("data-del-doc")}`, { method: "DELETE" });
-        loadDocuments().catch(() => {});
-        refreshStatus().catch(() => {});
-      });
-    });
+  if (!docList) return;
+
+  let html = docs.length
+    ? docs.map((d) =>
+        `<li class="kb-item"><div><strong>${escapeHtml(d.title)}</strong> <span class="muted">${d.chunk_count} chunks</span></div><button type="button" class="btn sm danger" data-del-doc="${d.id}">Remove</button></li>`
+      ).join("")
+    : '<li class="muted">No documents yet.</li>';
+
+  if (imgs.length) {
+    html += imgs.map((im) => `
+      <li class="kb-item img-row" data-id="${im.id}">
+        <a href="${im.url_path}" target="_blank" rel="noopener"><img src="${im.url_path}" alt="" class="thumb" /></a>
+        <div class="grow">
+          <div class="muted sm">${escapeHtml(im.filename)}</div>
+          <input type="text" class="caption-in" data-cap="${im.id}" placeholder="What this screenshot shows (settings, error, …)" value="${escapeAttr(im.caption || "")}" />
+        </div>
+        <div class="img-actions">
+          <button type="button" class="btn sm" data-save-cap="${im.id}">Save caption</button>
+          <button type="button" class="btn sm danger" data-del-img="${im.id}">Remove</button>
+        </div>
+      </li>`).join("");
   }
-  if (imgList) {
-    imgList.innerHTML = imgs.length
-      ? imgs
-          .map(
-            (im) => `
-        <li class="kb-item img-row" data-id="${im.id}">
-          <a href="${im.url_path}" target="_blank" rel="noopener"><img src="${im.url_path}" alt="" class="thumb" /></a>
-          <div class="grow">
-            <div class="muted sm">${escapeHtml(im.filename)}</div>
-            <input type="text" class="caption-in" data-cap="${im.id}" placeholder="What this screenshot shows (settings, error, …)" value="${escapeAttr(im.caption || "")}" />
-          </div>
-          <div class="img-actions">
-            <button type="button" class="btn sm" data-save-cap="${im.id}">Save caption</button>
-            <button type="button" class="btn sm danger" data-del-img="${im.id}">Remove</button>
-          </div>
-        </li>`
-          )
-          .join("")
-      : '<li class="muted">No screenshots yet.</li>';
-    imgList.querySelectorAll("[data-save-cap]").forEach((btn) => {
-      btn.addEventListener("click", async () => {
-        const id = btn.getAttribute("data-save-cap");
-        const input = imgList.querySelector(`input[data-cap="${id}"]`);
-        const fd = new FormData();
-        fd.set("caption", input?.value || "");
-        await fetchJSON(`/images/${id}/caption`, { method: "POST", body: fd });
-        setBanner("kbBanner", "Caption saved.", "ok");
-        setTimeout(() => setBanner("kbBanner", "", ""), 2000);
-      });
+
+  docList.innerHTML = html;
+
+  docList.querySelectorAll("[data-del-doc]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      if (!confirm("Remove this document from the knowledge base?")) return;
+      await fetchJSON(`/documents/${btn.getAttribute("data-del-doc")}`, { method: "DELETE" });
+      loadDocuments().catch(() => {});
+      refreshStatus().catch(() => {});
     });
-    imgList.querySelectorAll("[data-del-img]").forEach((btn) => {
-      btn.addEventListener("click", async () => {
-        if (!confirm("Remove this image?")) return;
-        await fetchJSON(`/images/${btn.getAttribute("data-del-img")}`, { method: "DELETE" });
-        loadDocuments().catch(() => {});
-        refreshStatus().catch(() => {});
-      });
+  });
+  docList.querySelectorAll("[data-save-cap]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const id = btn.getAttribute("data-save-cap");
+      const input = docList.querySelector(`input[data-cap="${id}"]`);
+      const fd = new FormData();
+      fd.set("caption", input?.value || "");
+      await fetchJSON(`/images/${id}/caption`, { method: "POST", body: fd });
+      setBanner("kbBanner", "Caption saved.", "ok");
+      setTimeout(() => setBanner("kbBanner", "", ""), 2000);
     });
-  }
+  });
+  docList.querySelectorAll("[data-del-img]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      if (!confirm("Remove this image?")) return;
+      await fetchJSON(`/images/${btn.getAttribute("data-del-img")}`, { method: "DELETE" });
+      loadDocuments().catch(() => {});
+      refreshStatus().catch(() => {});
+    });
+  });
 }
 
 function escapeHtml(s) {
@@ -306,6 +298,14 @@ function initChat() {
   });
 }
 
+async function _uploadImgIfPresent(imgFile, captionFallback) {
+  if (!imgFile) return;
+  const ifd = new FormData();
+  ifd.set("file", imgFile);
+  ifd.set("caption", captionFallback || imgFile.name);
+  await fetchJSON("/images", { method: "POST", body: ifd });
+}
+
 function initDocUpload() {
   const form = el("docUploadForm");
   if (form) {
@@ -313,7 +313,11 @@ function initDocUpload() {
       ev.preventDefault();
       setBanner("kbBanner", "Uploading…", "info");
       const fd = new FormData(form);
+      const imgFile = fd.get("docImg");
+      fd.delete("docImg");
       try {
+        await _uploadImgIfPresent(imgFile instanceof File && imgFile.size ? imgFile : null,
+          (el("docTitle")?.value || "").trim());
         await fetchJSON("/documents", { method: "POST", body: fd });
         form.reset();
         setBanner("kbBanner", "Document added to knowledge base.", "ok");
@@ -329,33 +333,18 @@ function initDocUpload() {
     pasteForm.addEventListener("submit", async (ev) => {
       ev.preventDefault();
       setBanner("kbBanner", "Adding text…", "info");
-      const body = (el("pasteBody") && el("pasteBody").value) || "";
-      if (!body.trim()) return;
+      const bodyText = (el("pasteBody")?.value) || "";
+      if (!bodyText.trim()) return;
+      const imgFile = el("pasteImg")?.files?.[0];
+      const pt = (el("pasteTitle")?.value || "").trim();
       const fd = new FormData();
-      fd.set("text", body);
-      const pt = (el("pasteTitle") && el("pasteTitle").value) || "";
-      if (pt.trim()) fd.set("title", pt.trim());
+      fd.set("text", bodyText);
+      if (pt) fd.set("title", pt);
       try {
+        await _uploadImgIfPresent(imgFile?.size ? imgFile : null, pt);
         await fetchJSON("/documents", { method: "POST", body: fd });
         pasteForm.reset();
         setBanner("kbBanner", "Pasted text added to knowledge base.", "ok");
-        loadDocuments().catch(() => {});
-        refreshStatus().catch(() => {});
-      } catch (e) {
-        setBanner("kbBanner", String(e), "err");
-      }
-    });
-  }
-  const imgForm = el("imageUploadForm");
-  if (imgForm) {
-    imgForm.addEventListener("submit", async (ev) => {
-      ev.preventDefault();
-      setBanner("kbBanner", "Uploading image…", "info");
-      const fd = new FormData(imgForm);
-      try {
-        await fetchJSON("/images", { method: "POST", body: fd });
-        imgForm.reset();
-        setBanner("kbBanner", "Image stored. Add a caption so the AI can use it in context.", "ok");
         loadDocuments().catch(() => {});
         refreshStatus().catch(() => {});
       } catch (e) {

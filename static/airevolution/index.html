@@ -525,6 +525,10 @@
               <label for="docFile">PDF or text file</label>
               <input type="file" name="file" id="docFile" accept=".pdf,.txt,.md,.text" />
             </div>
+            <div>
+              <label for="docImg">Screenshot (optional)</label>
+              <input type="file" name="docImg" id="docImg" accept="image/*" />
+            </div>
             <button type="submit" class="btn primary">Ingest file</button>
           </form>
         </div>
@@ -540,31 +544,17 @@
               <label for="pasteBody">Content</label>
               <textarea name="text" id="pasteBody" placeholder="Paste procedures, error explanations, or release notes here…" rows="6" required></textarea>
             </div>
+            <div>
+              <label for="pasteImg">Screenshot (optional)</label>
+              <input type="file" name="pasteImg" id="pasteImg" accept="image/*" />
+            </div>
             <button type="submit" class="btn">Add pasted text</button>
           </form>
         </div>
       </div>
 
-      <div class="card" style="margin-top:1rem">
-        <h2>Screenshots</h2>
-        <p class="sm muted" style="margin-top:0">PNG, JPG, or WebP. Add a short caption (what page, which setting) so the AI can use the image in reasoning.</p>
-        <form id="imageUploadForm" class="form-grid" style="margin-top:0.75rem" enctype="multipart/form-data">
-          <div>
-            <label for="imgFile">Image</label>
-            <input type="file" name="file" id="imgFile" accept="image/*" required />
-          </div>
-          <div>
-            <label for="imgCap">Caption</label>
-            <input type="text" name="caption" id="imgCap" placeholder="e.g. Import settings, file mask error" />
-          </div>
-          <button type="submit" class="btn primary">Upload screenshot</button>
-        </form>
-      </div>
-
-      <h3>Indexed documents</h3>
+      <h3>Indexed knowledge</h3>
       <ul id="docList" class="muted" style="list-style:none;padding:0"></ul>
-      <h3>Screenshots</h3>
-      <ul id="imgList" style="list-style:none;padding:0"></ul>
     </div>
 
     <div data-panel="agent" hidden>
