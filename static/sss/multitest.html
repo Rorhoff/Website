@@ -21,13 +21,20 @@
       background: var(--bg); color: var(--text);
       font-family: 'Segoe UI', system-ui, sans-serif;
       padding: .5rem .6rem 1.5rem; min-height: 100vh;
+      line-height: 1.6;
     }
 
     /* ── Nav ── */
-    .site-nav { display: flex; gap: 1.25rem; margin-bottom: .75rem; font-size: .85rem; }
-    .site-nav a { color: var(--muted); text-decoration: none; }
-    .site-nav a.active { color: var(--accent); font-weight: 600; }
+    .site-nav {
+      display: flex; flex-wrap: wrap; gap: .65rem 1.25rem;
+      padding: .75rem 1.5rem; border-bottom: 1px solid var(--border);
+      background: #0a0f18; align-items: center;
+      position: sticky; top: 0; z-index: 50;
+      margin-bottom: .75rem;
+    }
+    .site-nav a { color: var(--muted); text-decoration: none; font-size: .9rem; font-weight: 500; border-bottom: 2px solid transparent; padding-bottom: .1rem; }
     .site-nav a:hover { color: var(--text); }
+    .site-nav a.active { color: var(--text); border-bottom-color: #ff2aff; }
     h1 { color: var(--accent); font-size: 1.05rem; font-weight: 700;
          letter-spacing: .04em; margin-bottom: .65rem; }
 
@@ -231,13 +238,21 @@
     /* ── Ship trail animation ── */
     @keyframes trailFade { from { opacity: 0.85 } to { opacity: 0 } }
   </style>
+  <link rel="stylesheet" href="/assets/nav-mobile.css" />
 </head>
 <body>
 
-  <nav class="site-nav">
-    <a href="../index.html">About</a>
-    <a href="./">SSS</a>
-    <a href="multitest.html" class="active">SSS Test</a>
+  <nav class="site-nav" aria-label="Primary">
+    <button class="nav-hamburger" id="navHamburger" aria-label="Toggle navigation" aria-expanded="false">☰</button>
+    <div class="nav-links" id="navLinks">
+      <a href="../index.html">About</a>
+      <a href="https://www.linkedin.com/in/rorhoff" target="_blank" rel="noopener noreferrer">LinkedIn</a>
+      <a href="../api-testing/">API Testing</a>
+      <a href="../classifieds/">Classifieds</a>
+      <a href="../airevolution/">AI Revolution</a>
+      <a href="./">SSS</a>
+      <a href="multitest.html" class="active">SSS Test</a>
+    </div>
   </nav>
 
   <h1>SSS — Multi-Player Test Harness</h1>
@@ -1871,5 +1886,6 @@
     if (e.key === "ArrowRight") { e.preventDefault(); stepForward(); }
   });
   </script>
+  <script src="/assets/nav-mobile.js"></script>
 </body>
 </html>
