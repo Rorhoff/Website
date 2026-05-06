@@ -19,13 +19,14 @@ body {
   color: var(--text);
   font-family: 'Segoe UI', system-ui, sans-serif;
   min-height: 100vh;
+  line-height: 1.6;
 }
 
 /* ── Site nav ─────────────────────────────────────────────── */
 .site-nav {
   display: flex; flex-wrap: wrap; gap: .65rem 1.25rem;
   padding: .75rem 1.5rem; border-bottom: 1px solid var(--border);
-  background: #0a0f18; align-items: center; line-height: 1.6;
+  background: #0a0f18; align-items: center;
 }
 .site-nav a { color: var(--muted); text-decoration: none; font-size: .9rem; font-weight: 500; border-bottom: 2px solid transparent; padding-bottom: .1rem; }
 .site-nav a:hover { color: var(--accent); }
