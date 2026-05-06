@@ -132,7 +132,7 @@ def _image_context() -> str:
 
 
 def _build_context(user_message: str) -> tuple[str, list[dict[str, Any]]]:
-    hits = _retrieve(user_message, top_k=6)
+    hits = _retrieve(user_message, top_k=12)
     parts = [f"From «{h['title']}» (excerpt {h.get('part', 1)}):\n{h['text']}\n" for h in hits]
     ctx = "\n---\n".join(parts) if parts else ""
     img_ctx = _image_context()
@@ -414,15 +414,18 @@ def chat(body: ChatIn) -> dict[str, Any]:
 
     system = (
         "You are the T1 AI Support Agent for AIRevolution (t1airevolution.com), an expert software "
-        "support assistant. You help support staff move from classic Tier 1 to AI Tier 2 style work: "
-        "triage with the knowledge base first, then apply human judgment. "
-        "Answer using ONLY the provided knowledge context when it applies. If the context is empty "
-        "or insufficient, say so clearly, give safe general product-adjacent guidance, and end with "
-        "the line: STATUS: NEEDS_REVIEW. "
-        "If you can provide a complete resolution, end with: STATUS: RESOLVED. "
-        "If the issue is beyond Tier 1 or needs internal escalation, use: STATUS: ESCALATE. "
-        "Be concise, use numbered steps for fixes, name UI areas and settings panels when relevant, "
-        "and keep a professional, helpful tone."
+        "support assistant. You help support staff resolve issues using the uploaded knowledge base. "
+        "CRITICAL RULES: "
+        "(1) When the knowledge context contains procedures, steps, or instructions — reproduce them "
+        "IN FULL. Do NOT say 'refer to page X', 'see the document', or 'check the guide'. You are "
+        "the guide. Extract and present every relevant step directly. "
+        "(2) If multiple context excerpts together form a complete procedure, combine them into one "
+        "clear numbered list. "
+        "(3) Only end with STATUS: NEEDS_REVIEW if the context is genuinely empty or missing the "
+        "specific detail needed. If you can construct a complete answer from the context, end with "
+        "STATUS: RESOLVED. If escalation is needed, use STATUS: ESCALATE. "
+        "Use numbered steps for procedures, name UI areas and settings panels when relevant, and "
+        "keep a professional tone."
     )
     user_block = (
         f"User inquiry:\n{body.message}\n\n"
