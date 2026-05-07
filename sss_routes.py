@@ -170,7 +170,7 @@ CLUSTER_LABELS = ["018", "011", "015", "002", "001", "003", "009", "007", "013"]
 
 _TRI_TYPES = {"red", "blue", "yellow"}
 
-VP_TARGET = 9
+VP_TARGET = 7  # first player to hold this many VP-planets wins (all planets in a 2P game)
 
 
 def _count_vp(game, player_name: str) -> int:
@@ -185,10 +185,27 @@ def _count_vp(game, player_name: str) -> int:
     return planet_vp + tech_vp
 
 
-def _check_vp_winner(game) -> str | None:
+def _check_any_winner(game) -> str | None:
+    """Return the winning player name for any win condition, or None."""
+    # Ancient capture (001 core)
+    if game.ancient_winner:
+        return game.ancient_winner
+    # VP threshold
     for n in game.players:
         if _count_vp(game, n) >= VP_TARGET:
             return n
+    # Conquest: one player owns every VP-bearing planet with no unclaimed VP planets
+    vp_hexes = [
+        h for h in game.board
+        if h["local"] == 0 and h.get("planet") and h["planet"].get("vp", 0) > 0
+    ]
+    if vp_hexes:
+        owners = {
+            next((p["owner"] for p in h["pieces"] if p["type"] == "empire_flag"), None)
+            for h in vp_hexes
+        }
+        if len(owners) == 1 and None not in owners:
+            return owners.pop()
     return None
 
 
@@ -197,7 +214,7 @@ _BUILDING_TYPES = {"building_tool", "building_science", "building_money", "farme
 
 def _build_endgame_stats(game) -> dict:
     """Return a dict with winner name + per-player summary for the end-game report."""
-    winner = game.ancient_winner or _check_vp_winner(game) or next(
+    winner = _check_any_winner(game) or next(
         (n for n, p in game.players.items() if n in game.turn_order and p.connected), None
     )
 
@@ -1314,7 +1331,7 @@ async def _ai_board_action(game: Game, ai_name: str) -> None:
             ai_p.invasions_won += 1
         _use_action(game)
         await _flush_eliminations(game)
-        if won and _check_vp_winner(game):
+        if won and _check_any_winner(game):
             game.phase = "ended"
         state = game.public_state()
         state["board"] = game.board
@@ -1918,11 +1935,17 @@ async def sss_ws(ws: WebSocket, game_code: str):
                     player.tech_cards.append(card["id"])
                     drawn.append({"id": card["id"], "name": card["name"]})
                 _advance_turn(game)
+                if _check_any_winner(game):
+                    game.phase = "ended"
                 state = game.public_state()
                 state["board"] = game.board
                 if drawn:
                     await game.send_to(player.name, {"type": "bonus_tech_drawn", "cards": drawn})
-                await game.broadcast({"type": "game_state", **state})
+                await game.broadcast({
+                    "type": "game_state",
+                    **({"game_over": _build_endgame_stats(game)} if game.phase == "ended" else {}),
+                    **state,
+                })
 
             # ── exploration ───────────────────────────────────────────────────
             elif kind == "exploration":
@@ -2666,7 +2689,7 @@ async def sss_ws(ws: WebSocket, game_code: str):
                         game.ancient_winner = player.name
                 _use_action(game)
                 await _flush_eliminations(game)
-                if winner == "player" and (planet.get("ancient") or _check_vp_winner(game)):
+                if winner == "player" and _check_any_winner(game):
                     game.phase = "ended"
                 state = game.public_state()
                 state["board"] = game.board
