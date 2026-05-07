@@ -636,6 +636,14 @@ def _advance_turn(game) -> None:
         game.explorations.pop(name, None)  # clear exploration reveals when turn ends
         p = game.players.get(name)
         if p:
+            # Grace-turn expiry: if last_chance player still has 0 VP, eliminate them.
+            if name in game.last_chance:
+                game.last_chance.discard(name)
+                if _count_vp(game, name) == 0:
+                    game.eliminated.append(name)
+                    _do_elimination(game, name)
+                    game.turn_actions_remaining = 2 if len(game.turn_order) >= 5 else 3
+                    return
             _apply_turn_income(game, p)
             if p.resources.get("unrest", 0) >= 20:
                 game.eliminated.append(name)
@@ -688,9 +696,10 @@ def _planet_def_dice(game, attacker_name: str, planet: dict, gov_tech=None) -> l
 
 async def _flush_eliminations(game) -> None:
     """Send personal elimination message to any newly eliminated players."""
-    # Eliminate players who once owned a planet but now own none
+    # Eliminate players who once owned a planet but now own none.
+    # Skip players in last_chance — they get one more turn to recapture.
     for name in list(game.turn_order):
-        if name in game.ever_owned_planet and name not in game.eliminated:
+        if name in game.ever_owned_planet and name not in game.eliminated and name not in game.last_chance:
             if _player_planet_count(game, name) == 0:
                 game.eliminated.append(name)
                 _do_elimination(game, name)
