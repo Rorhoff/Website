@@ -1418,10 +1418,9 @@ async def _ai_board_action(game: Game, ai_name: str) -> None:
             if h["cluster"] == sys_cluster and h["type"] == "orbital"
             and sum(1 for pc in h["pieces"] if pc["type"] == "scout") < 3
         ]
-        if can_afford and avail_orbs and ai_p.pieces.get("scout", 0) > 0 and _player_planet_count(game, ai_name) > 0:
+        if can_afford and avail_orbs and _player_planet_count(game, ai_name) > 0:
             chosen = random.choice(avail_orbs)
             chosen["pieces"].append({"type": "scout", "owner": ai_name})
-            ai_p.pieces["scout"] = ai_p.pieces.get("scout", 1) - 1
             for r, v in cost.items():
                 ai_p.resources[r] = ai_p.resources.get(r, 0) - v
             _use_action(game)
