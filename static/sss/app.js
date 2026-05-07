@@ -1454,7 +1454,7 @@ function cvRender() {
       </div>
       <div class="cv-card-effect">${c.effect}</div>`;
   } else {
-    const playableIds = ["command_surge"];
+    const playableIds = ["command_surge", "fungal_farms", "the_hammer", "the_corn", "for_the_science", "biotechnology"];
     const canPlay = c.type === "tech" && playableIds.includes(c.id);
     inner = `
       <div class="cv-card-header">
@@ -1466,7 +1466,7 @@ function cvRender() {
   }
 
   document.getElementById("cv-card").innerHTML = inner;
-  if (c.type === "tech" && ["command_surge"].includes(c.id)) {
+  if (c.type === "tech" && ["command_surge", "fungal_farms", "the_hammer", "the_corn", "for_the_science", "biotechnology"].includes(c.id)) {
     document.getElementById("btn-cv-play")?.addEventListener("click", () => {
       send({ type: "play_tech_card", card_id: c.id });
       closeCardViewer();
@@ -1478,15 +1478,17 @@ function cvRender() {
 }
 
 const TECH_CARD_DATA = {
-  fungal_farms:           { name: "Fungal Farms",           timing: "Your Turn",          effect: "Spend 1 money to perform a +1 person. This increases resource production by 1." },
-  titanium_armor:         { name: "Titanium Armor",         timing: "After Combat Roll",   effect: "Re-roll up to 1 enemy die. You can only have one developed armor tech." },
-  nuclear_missile:        { name: "Nuclear Missile",        timing: "Combat",              effect: "+1 additional dice roll for combat." },
-  biotechnology:          { name: "Biotechnology",          timing: "Before +1 Person",    effect: "Spend 1 money to gain 2 food." },
-  death_spores:           { name: "Death Spores",           timing: "Invasion — Start",    effect: "Gain 1 die in the invasion roll and remove 1 person from the defending system." },
-  molecular_manipulation: { name: "Molecular Manipulation", timing: "During +Person",      effect: "Create a new person in a system you own with a battle station. Costs 1 food less (minimum 1)." },
-  invasion_dice:          { name: "Orbital Bombardment",    timing: "Invasion — Start",    effect: "+1 attack die when invading a planet." },
-  command_surge:          { name: "Command Surge",          timing: "Any Time (Your Turn)", effect: "Discard to gain 1 extra action this turn." },
-  plasma_forge:           { name: "Plasma Forge",           timing: "Passive — Rare",       effect: "All your d6 attack dice are upgraded to d15." },
+  fungal_farms:    { name: "Fungal Farms",        timing: "Any Time (Your Turn)", effect: "Spend 2 money for 1 Science." },
+  the_hammer:      { name: "The Hammer",          timing: "Any Time (Your Turn)", effect: "Spend 2 money for 1 tool." },
+  the_corn:        { name: "The Corn",            timing: "Any Time (Your Turn)", effect: "Spend 1 money for 2 food." },
+  for_the_science: { name: "For the Science",     timing: "Any Time (Your Turn)", effect: "Spend 1 Science and 1 tool for 3 money." },
+  titanium_armor:  { name: "Titanium Armor",      timing: "After Combat Roll",    effect: "Re-roll up to 1 enemy die." },
+  nuclear_missile: { name: "Nuclear Missile",     timing: "Combat",               effect: "+1 extra die in combat." },
+  biotechnology:   { name: "Biotechnology",       timing: "Any Time (Your Turn)", effect: "Spend 1 money to gain 2 food." },
+  death_spores:    { name: "Death Spores",        timing: "Invasion — Start",     effect: "+1 attack dice AND remove 5 food from the defending player." },
+  invasion_dice:   { name: "Orbital Bombardment", timing: "Invasion — Start",     effect: "+1 attack dice when invading a planet." },
+  command_surge:   { name: "Command Surge",       timing: "Any Time (Your Turn)", effect: "Discard to gain 1 extra action this turn." },
+  plasma_forge:    { name: "Plasma Forge (rare)", timing: "Any Time (Your Turn)", effect: "All your d6 attack dice become d12." },
 };
 
 const RESOURCE_ICONS = {

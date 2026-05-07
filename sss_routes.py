@@ -70,44 +70,56 @@ TECH_CARDS = [
     {
         "id": "fungal_farms",
         "name": "Fungal Farms",
-        "timing": "Your Turn",
-        "effect": "Spend 1 money to perform a +1 person. This increases resource production by 1.",
+        "timing": "Any Time (Your Turn)",
+        "effect": "Spend 2 money for 1 Science.",
+    },
+    {
+        "id": "the_hammer",
+        "name": "The Hammer",
+        "timing": "Any Time (Your Turn)",
+        "effect": "Spend 2 money for 1 tool.",
+    },
+    {
+        "id": "the_corn",
+        "name": "The Corn",
+        "timing": "Any Time (Your Turn)",
+        "effect": "Spend 1 money for 2 food.",
+    },
+    {
+        "id": "for_the_science",
+        "name": "For the Science",
+        "timing": "Any Time (Your Turn)",
+        "effect": "Spend 1 Science and 1 tool for 3 money.",
     },
     {
         "id": "titanium_armor",
         "name": "Titanium Armor",
         "timing": "After Combat Roll",
-        "effect": "Re-roll up to 1 enemy die. You can only have one developed armor tech.",
+        "effect": "Re-roll up to 1 enemy die.",
     },
     {
         "id": "nuclear_missile",
         "name": "Nuclear Missile",
         "timing": "Combat",
-        "effect": "+1 additional dice roll for combat.",
+        "effect": "+1 extra die in combat.",
     },
     {
         "id": "biotechnology",
         "name": "Biotechnology",
-        "timing": "Before +1 Person",
+        "timing": "Any Time (Your Turn)",
         "effect": "Spend 1 money to gain 2 food.",
     },
     {
         "id": "death_spores",
         "name": "Death Spores",
         "timing": "Invasion — Start",
-        "effect": "Gain 1 die in the invasion roll and remove 1 person from the defending system.",
-    },
-    {
-        "id": "molecular_manipulation",
-        "name": "Molecular Manipulation",
-        "timing": "During +Person",
-        "effect": "Create a new person in a system you own with a battle station. Costs 1 food less (minimum 1).",
+        "effect": "+1 attack dice AND remove 5 food from the defending player.",
     },
     {
         "id": "invasion_dice",
         "name": "Orbital Bombardment",
         "timing": "Invasion — Start",
-        "effect": "+1 attack die when invading a planet.",
+        "effect": "+1 attack dice when invading a planet.",
     },
     {
         "id": "command_surge",
@@ -118,8 +130,8 @@ TECH_CARDS = [
     {
         "id": "plasma_forge",
         "name": "Plasma Forge",
-        "timing": "Passive — Rare",
-        "effect": "All your d6 attack dice are upgraded to d15.",
+        "timing": "Any Time (Your Turn)",
+        "effect": "All your d6 attack dice become d12.",
         "rare": True,
     },
 ]
@@ -1292,7 +1304,7 @@ async def _ai_board_action(game: Game, ai_name: str) -> None:
         # Perform invasion_attack directly
         cluster = h["cluster"]
         num_dice = min(len(my_frigates), 3)
-        _inv_die = 15 if "plasma_forge" in ai_p.tech_cards else 6
+        _inv_die = 12 if "plasma_forge" in ai_p.tech_cards else 6
         _inv_tech = next((c for c in ("nuclear_missile", "death_spores", "invasion_dice") if c in ai_p.tech_cards), None)
         if _inv_tech:
             ai_p.tech_cards.remove(_inv_tech)
@@ -1301,6 +1313,12 @@ async def _ai_board_action(game: Game, ai_name: str) -> None:
         atk_total = sum(atk_dice)
         planet_dice = _planet_def_dice(game, ai_name, planet)
         planet_total = sum(planet_dice)
+        # Death Spores: drain 5 food from the defending player regardless of outcome
+        if _inv_tech == "death_spores":
+            _def_owner = next((pc["owner"] for pc in h.get("pieces", []) if pc["type"] == "empire_flag"), None)
+            _def_p = game.players.get(_def_owner) if _def_owner else None
+            if _def_p:
+                _def_p.resources["food"] = max(0, _def_p.resources.get("food", 0) - 5)
         won = atk_total > planet_total
         if won:
             prev_owner = next(
@@ -2615,11 +2633,18 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 dest_cluster = combat["dest_cluster"]
                 planet = combat["planet"]
                 # Base dice = 1 per attacking ship; tech cards and Physics add extras
-                _si_die = 15 if "plasma_forge" in player.tech_cards else 6
+                _si_die = 12 if "plasma_forge" in player.tech_cards else 6
                 atk_count = combat.get("atk_count", 1)
                 atk_dice = [random.randint(1, _si_die) for _ in range(atk_count)]
                 if tech_card in ("nuclear_missile", "death_spores", "invasion_dice"):
                     atk_dice.append(random.randint(1, _si_die))
+                # Death Spores: drain 5 food from the defending player
+                if tech_card == "death_spores":
+                    _ds_core = next((h for h in game.board if h["cluster"] == combat["dest_cluster"] and h["local"] == 0), None)
+                    _ds_owner = next((p["owner"] for p in (_ds_core.get("pieces", []) if _ds_core else []) if p["type"] == "empire_flag"), None)
+                    _ds_p = game.players.get(_ds_owner) if _ds_owner else None
+                    if _ds_p:
+                        _ds_p.resources["food"] = max(0, _ds_p.resources.get("food", 0) - 5)
                 _si_phys = player.tech.get("physics", [])
                 if len(_si_phys) > 2 and _si_phys[2]: atk_dice.append(random.randint(1, _si_die))  # Lv3
                 if len(_si_phys) > 4 and _si_phys[4]: atk_dice.append(random.randint(1, _si_die))  # Lv5
@@ -2720,14 +2745,32 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 if card_id not in player.tech_cards:
                     await ws.send_json({"type": "error", "msg": "Card not in hand"})
                     continue
+                _res_exchanges = {
+                    "fungal_farms":   ({"money": 2}, {"science": 1}),
+                    "the_hammer":     ({"money": 2}, {"tool": 1}),
+                    "the_corn":       ({"money": 1}, {"food": 2}),
+                    "for_the_science":({"science": 1, "tool": 1}, {"money": 3}),
+                    "biotechnology":  ({"money": 1}, {"food": 2}),
+                }
                 if card_id == "command_surge":
                     player.tech_cards.remove(card_id)
                     game.turn_actions_remaining += 1
-                    state = game.public_state()
-                    state["board"] = game.board
-                    await game.broadcast({"type": "game_state", **state})
+                elif card_id in _res_exchanges:
+                    cost, gain = _res_exchanges[card_id]
+                    if not all(player.resources.get(r, 0) >= v for r, v in cost.items()):
+                        await ws.send_json({"type": "error", "msg": "Not enough resources"})
+                        continue
+                    player.tech_cards.remove(card_id)
+                    for r, v in cost.items():
+                        player.resources[r] = player.resources.get(r, 0) - v
+                    for r, v in gain.items():
+                        player.resources[r] = player.resources.get(r, 0) + v
                 else:
                     await ws.send_json({"type": "error", "msg": "That card cannot be played this way"})
+                    continue
+                state = game.public_state()
+                state["board"] = game.board
+                await game.broadcast({"type": "game_state", **state})
 
             # ── draw_tech_card ────────────────────────────────────────────────
             elif kind == "draw_tech_card":
