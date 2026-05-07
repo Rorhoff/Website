@@ -1266,7 +1266,12 @@ async def _ai_board_action(game: Game, ai_name: str) -> None:
         # Perform invasion_attack directly
         cluster = h["cluster"]
         num_dice = min(len(my_frigates), 3)
-        atk_dice = [random.randint(1, 6) for _ in range(num_dice)]
+        _inv_die = 15 if "plasma_forge" in ai_p.tech_cards else 6
+        _inv_tech = next((c for c in ("nuclear_missile", "death_spores", "invasion_dice") if c in ai_p.tech_cards), None)
+        if _inv_tech:
+            ai_p.tech_cards.remove(_inv_tech)
+            num_dice += 1
+        atk_dice = [random.randint(1, _inv_die) for _ in range(num_dice)]
         atk_total = sum(atk_dice)
         planet_dice = _planet_def_dice(game, ai_name, planet)
         planet_total = sum(planet_dice)
@@ -1348,7 +1353,15 @@ async def _ai_board_action(game: Game, ai_name: str) -> None:
                     for pc in dh["pieces"] if pc["type"] == "scout" and pc["owner"] == ai_name
                 )
                 def_count = sum(1 for ef in enemy_frigates if ef["owner"] == defender_name)
+                if "nuclear_missile" in ai_p.tech_cards:
+                    ai_p.tech_cards.remove("nuclear_missile")
+                    atk_count += 1
                 atk_dice = [random.randint(1, 6) for _ in range(max(1, atk_count))]
+                _def_p = game.players.get(defender_name)
+                _def_nm_idx = next((i for i, c in enumerate((_def_p.tech_cards if _def_p else [])) if c == "nuclear_missile"), None)
+                if _def_nm_idx is not None:
+                    _def_p.tech_cards.pop(_def_nm_idx)
+                    def_count += 1
                 def_dice = [random.randint(1, 6) for _ in range(max(1, def_count))]
                 atk_total = sum(atk_dice)
                 def_total = sum(def_dice)
@@ -2283,6 +2296,9 @@ async def sss_ws(ws: WebSocket, game_code: str):
                         def_dice_count = combat["def_frigate_count"]
                         if len(_def_phys) > 1 and _def_phys[1]: def_dice_count += 1
                         if len(_def_phys) > 3 and _def_phys[3]: def_dice_count += 1
+                        if "nuclear_missile" in def_p.tech_cards:
+                            def_p.tech_cards.remove("nuclear_missile")
+                            def_dice_count += 1
                         def_dice = (
                             [random.randint(1, 6)  for _ in range(max(1, def_dice_count))] +
                             [random.randint(1, 12) for _ in range(combat.get("def_cruise_count", 0))]
