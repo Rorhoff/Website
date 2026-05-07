@@ -851,6 +851,7 @@ function renderBoard(state, placementMode) {
   const triClusters = new Set();
   for (const h of hexes) { if (h.tri) triClusters.add(h.cluster); }
   const claimedClusters = new Set(Object.values(state.player_system ?? {}));
+  for (const h of hexes) { if (h.pieces?.some(p => p.type === "empire_flag")) claimedClusters.add(h.cluster); }
   const playerColorMap = {};
   for (const p of (state.players ?? [])) { if (p.name && p.color) playerColorMap[p.name] = p.color; }
   const claimedColor = {};
