@@ -2546,31 +2546,6 @@ function detectOpponentMoves(newBoard, state) {
   const clusterLabel = {};
   for (const h of newBoard) if (h.local === 0) clusterLabel[h.cluster] = h.label ?? h.cluster;
 
-  // Track opponent ship clusters before and after
-  const prevClusters = {};
-  for (const h of _prevBoardState) {
-    for (const p of (h.pieces ?? [])) {
-      if (MOBILE_SHIPS.has(p.type) && p.owner !== myName) {
-        (prevClusters[p.owner] ??= new Set()).add(h.cluster);
-      }
-    }
-  }
-  const newClusters = {};
-  for (const h of newBoard) {
-    for (const p of (h.pieces ?? [])) {
-      if (MOBILE_SHIPS.has(p.type) && p.owner !== myName) {
-        (newClusters[p.owner] ??= new Set()).add(h.cluster);
-      }
-    }
-  }
-  for (const [name, ns] of Object.entries(newClusters)) {
-    for (const c of ns) {
-      if (!(prevClusters[name] ?? new Set()).has(c)) {
-        showToast(`${name} moved to <strong>${clusterLabel[c]}</strong>`, playerColor[name]);
-      }
-    }
-  }
-
   // Track empire_flag captures by opponents
   const prevFlags = {};
   for (const h of _prevBoardState) {
