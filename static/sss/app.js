@@ -1710,13 +1710,19 @@ function showInvasionPrompt(msg) {
   const techCards = (msg.tech_cards ?? []).filter(id => ["nuclear_missile", "death_spores", "invasion_dice", "titanium_armor"].includes(id));
   let selectedTech = null;
 
-  const techHtml = techCards.length > 0 ? `
+  const cardCounts = techCards.reduce((acc, id) => { acc[id] = (acc[id] ?? 0) + 1; return acc; }, {});
+  const uniqueCards = [...new Set(techCards)];
+  const techHtml = uniqueCards.length > 0 ? `
     <div class="combat-tech-label">Play a tech card (optional — 1 max):</div>
     <div class="combat-tech-list" id="combat-tech-list">
-      ${techCards.map(id => {
+      ${uniqueCards.map(id => {
         const t = TECH_CARD_DATA[id];
+        const cnt = cardCounts[id];
         return `<div class="combat-tech-item" data-id="${id}">
-          <span class="combat-tech-name">${t?.name ?? id}</span>
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <span class="combat-tech-name">${t?.name ?? id}</span>
+            ${cnt > 1 ? `<span class="card-count-badge">×${cnt}</span>` : ""}
+          </div>
           <span class="combat-tech-effect">${t?.effect ?? ""}</span>
         </div>`;
       }).join("")}
@@ -1795,7 +1801,7 @@ function showInvasionResult(msg) {
         <div class="combat-dice-vals">${(msg.atk_dice ?? []).map(d => `<span class="die">${d}</span>`).join("")} <span style="margin-left:.3rem">= <strong>${msg.atk_total}</strong></span></div>
       </div>
       <div class="combat-dice-block">
-        <div class="combat-dice-label">Planet Defense (3 dice)</div>
+        <div class="combat-dice-label">Planet Defense (${(msg.planet_dice ?? []).length} dice)</div>
         <div class="combat-dice-vals">${(msg.planet_dice ?? []).map(d => `<span class="die">${d}</span>`).join("")} <span style="margin-left:.3rem">= <strong>${msg.planet_total}</strong></span></div>
       </div>
     </div>
@@ -2633,6 +2639,13 @@ function runShipAnimations(moves, onComplete) {
     const start = performance.now();
     let lastTrail = -1;
     (function frame(now) {
+      // If drag-layer was cleared by a mid-animation renderBoard call, bail out cleanly
+      // so onComplete fires and the animation queue can continue draining.
+      if (!ship.isConnected) {
+        for (const d of trail) d.el.remove();
+        if (++done === moves.length) onComplete?.();
+        return;
+      }
       const t = Math.min((now - start) / DURATION, 1);
       const x = mv.fromX + (mv.toX - mv.fromX) * ease(t);
       const y = mv.fromY + (mv.toY - mv.fromY) * ease(t);

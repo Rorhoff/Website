@@ -674,7 +674,8 @@ h1 { font-size: 2rem; font-weight: 700; color: var(--accent); text-align: center
 }
 .combat-tech-item:hover { border-color: var(--accent); }
 .combat-tech-item.selected { border-color: var(--accent2); background: rgba(124,58,237,.12); }
-.combat-tech-name { font-size: .88rem; font-weight: 700; color: var(--text); display: block; }
+.combat-tech-name { font-size: .88rem; font-weight: 700; color: var(--text); }
+.card-count-badge { font-size: .75rem; font-weight: 700; color: var(--accent2); opacity: .9; }
 .combat-tech-effect { font-size: .75rem; color: var(--muted); display: block; line-height: 1.4; }
 .combat-result-outcome {
   font-size: 1.1rem; font-weight: 700; text-align: center;

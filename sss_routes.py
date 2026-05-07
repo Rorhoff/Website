@@ -1178,6 +1178,18 @@ async def _ai_board_action(game: Game, ai_name: str) -> None:
     if not ai_p:
         return
 
+    # Last-chance check: AI never sends end_turn so the normal handler never runs it.
+    # Replicate the same logic here before the AI acts.
+    if ai_name in game.last_chance:
+        game.last_chance.discard(ai_name)
+        if _count_vp(game, ai_name) == 0:
+            _do_elimination(game, ai_name)
+            game.turn_actions_remaining = 2 if len(game.turn_order) >= 5 else 3
+            state = game.public_state()
+            state["board"] = game.board
+            await game.broadcast({"type": "game_state", **state})
+            return
+
     # Build sets of clusters the AI occupies
     my_clusters: set[int] = set()
     for h in game.board:
@@ -1393,7 +1405,7 @@ async def _ai_board_action(game: Game, ai_name: str) -> None:
             if h["cluster"] == sys_cluster and h["type"] == "orbital"
             and sum(1 for pc in h["pieces"] if pc["type"] == "scout") < 3
         ]
-        if can_afford and avail_orbs and ai_p.pieces.get("scout", 0) > 0:
+        if can_afford and avail_orbs and ai_p.pieces.get("scout", 0) > 0 and _player_planet_count(game, ai_name) > 0:
             chosen = random.choice(avail_orbs)
             chosen["pieces"].append({"type": "scout", "owner": ai_name})
             ai_p.pieces["scout"] = ai_p.pieces.get("scout", 1) - 1
@@ -1417,33 +1429,36 @@ async def _ai_board_action(game: Game, ai_name: str) -> None:
 
 
 def _ai_do_flight(game: Game, ai_name: str, from_wh: int, to_wh: int) -> bool:
-    """Move one AI frigate via wormhole. Returns True if moved."""
+    """Move all available AI frigates via wormhole (up to landing cap). Returns True if at least one moved."""
     from_hex = game.board[from_wh]
     to_hex = game.board[to_wh]
     from_cluster = from_hex["cluster"]
     dest_cluster = to_hex["cluster"]
-    landing = next(
-        (h for h in game.board
-         if h["cluster"] == dest_cluster and h["type"] == "orbital"
-         and sum(1 for pc in h["pieces"] if pc["type"] == "scout") < 3),
-        None
-    )
-    if not landing:
-        return False
-    moved_piece = None
-    for h in game.board:
-        if h["cluster"] != from_cluster:
-            continue
-        for i, pc in enumerate(h["pieces"]):
-            if pc["type"] == "scout" and pc["owner"] == ai_name:
-                moved_piece = h["pieces"].pop(i)
-                break
-        if moved_piece:
+    moved = False
+    for _ in range(3):  # landing orbitals cap at 3 scouts each
+        landing = next(
+            (h for h in game.board
+             if h["cluster"] == dest_cluster and h["type"] == "orbital"
+             and sum(1 for pc in h["pieces"] if pc["type"] == "scout") < 3),
+            None
+        )
+        if not landing:
             break
-    if not moved_piece:
-        return False
-    landing["pieces"].append(moved_piece)
-    return True
+        moved_piece = None
+        for h in game.board:
+            if h["cluster"] != from_cluster:
+                continue
+            for i, pc in enumerate(h["pieces"]):
+                if pc["type"] == "scout" and pc["owner"] == ai_name:
+                    moved_piece = h["pieces"].pop(i)
+                    break
+            if moved_piece:
+                break
+        if not moved_piece:
+            break
+        landing["pieces"].append(moved_piece)
+        moved = True
+    return moved
 
 
 async def _ai_loop(game: Game) -> None:
@@ -1451,13 +1466,7 @@ async def _ai_loop(game: Game) -> None:
     await asyncio.sleep(1.5)
     while game.phase not in ("ended", "lobby"):
         try:
-            if game.phase == "race_pick":
-                # Wait for all human players to pick before AI selects
-                humans_done = all(p.race for p in game.players.values() if p.role != "ai")
-                if humans_done and _ai_pick_races(game):
-                    await game.broadcast({"type": "game_state", **game.public_state()})
-
-            elif game.phase == "dice_roll":
+            if game.phase == "dice_roll":
                 changed = False
                 for name in list(game.dice_round):
                     p = game.players.get(name)
@@ -1691,6 +1700,8 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 if game.phase != "race_pick":
                     continue
                 if player.role == "host":
+                    # Assign races to AI players now (on Launch Game click, not before)
+                    _ai_pick_races(game)
                     unready = [n for n, p in game.players.items() if p.race is None]
                     if unready:
                         await ws.send_json({"type": "error", "msg": f"Waiting for: {', '.join(unready)}"})
@@ -1935,6 +1946,9 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 current = game.turn_order[game.turn_idx % len(game.turn_order)]
                 if player.name != current:
                     await ws.send_json({"type": "error", "msg": "Not your turn"})
+                    continue
+                if _player_planet_count(game, player.name) == 0:
+                    await ws.send_json({"type": "error", "msg": "You need at least one planet to build"})
                     continue
                 piece_type = raw.get("piece_type")
                 hex_id     = raw.get("hex_id")
