@@ -692,6 +692,8 @@ h1 { font-size: 2rem; font-weight: 700; color: var(--accent); text-align: center
   width: 1.6rem; height: 1.6rem; border: 1px solid var(--border);
   border-radius: 5px; font-size: .85rem; font-weight: 700; background: #0a0f18;
 }
+.die-reroll { cursor: pointer; border-color: var(--accent2); color: var(--accent2); }
+.die-reroll:hover { background: rgba(99,179,237,.15); filter: brightness(1.3); }
 .btn-danger { background: var(--danger); border-color: var(--danger); color: #fff; font-weight: 600; }
 .btn-danger:hover { background: #dc2626; border-color: #dc2626; }
 

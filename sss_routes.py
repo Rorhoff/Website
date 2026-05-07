@@ -806,6 +806,7 @@ class Game:
     ever_owned_planet: set = field(default_factory=set)
     last_chance: set = field(default_factory=set)  # players who lost their last planet; eliminated at end of next turn if still 0
     ancient_winner: str | None = None
+    pending_reroll: dict | None = None  # titanium_armor pause: invasion dice awaiting player's re-roll pick
     ai_task: Any = None
     explorations: dict = field(default_factory=dict)  # player_name → set of cluster IDs revealed this turn
     ai_invasion_failures: dict = field(default_factory=dict)  # ai_name → set of clusters that repelled invasion
@@ -2691,6 +2692,29 @@ async def sss_ws(ws: WebSocket, game_code: str):
                             game.last_chance.add(prev_planet_owner)
                 else:
                     winner = "planet"
+                    # Titanium Armor — pause before applying the loss so the player can pick a die to re-roll
+                    if "titanium_armor" in player.tech_cards:
+                        game.pending_reroll = {
+                            "attacker": player.name,
+                            "dest_cluster": dest_cluster,
+                            "atk_dice": atk_dice,
+                            "planet_dice": planet_dice,
+                            "planet": planet,
+                            "remove_all_on_loss": combat.get("remove_all_on_loss"),
+                        }
+                        game.pending_combat = None
+                        state = game.public_state()
+                        state["board"] = game.board
+                        await game.broadcast({
+                            "type": "invasion_result",
+                            "attacker": player.name,
+                            "atk_dice": atk_dice, "atk_total": atk_total,
+                            "planet_dice": planet_dice, "planet_total": planet_total,
+                            "won": False, "planet": planet,
+                            "reroll_available": True,
+                            **state,
+                        })
+                        continue
                     if combat.get("remove_all_on_loss"):
                         # Direct invasion: remove all attacking ships from the cluster
                         for h in game.board:
@@ -2771,6 +2795,87 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 state = game.public_state()
                 state["board"] = game.board
                 await game.broadcast({"type": "game_state", **state})
+
+            # ── reroll_planet_die / skip_reroll (Titanium Armor) ─────────────
+            elif kind in ("reroll_planet_die", "skip_reroll"):
+                if not game or not player:
+                    continue
+                if not game.pending_reroll or game.pending_reroll.get("attacker") != player.name:
+                    continue
+                pr = game.pending_reroll
+                game.pending_reroll = None
+                dest_cluster = pr["dest_cluster"]
+                atk_dice     = pr["atk_dice"]
+                planet_dice  = list(pr["planet_dice"])
+                planet       = pr["planet"]
+
+                if kind == "reroll_planet_die":
+                    die_idx = raw.get("die_index")
+                    if die_idx is not None and 0 <= die_idx < len(planet_dice):
+                        planet_dice[die_idx] = random.randint(1, 6)
+                    player.tech_cards.remove("titanium_armor")
+
+                atk_total    = sum(atk_dice)
+                planet_total = sum(planet_dice)
+
+                if atk_total > planet_total:
+                    winner = "player"
+                    _reveal_dwarf_planet(planet)
+                    for _k in ("food", "science", "tool", "money"):
+                        player.income[_k] = player.income.get(_k, 0) + planet.get(_k, 0)
+                    inv_core = next((h for h in game.board if h["cluster"] == dest_cluster and h["local"] == 0), None)
+                    prev_flag_owner = next(
+                        (p["owner"] for p in (inv_core.get("pieces", []) if inv_core else []) if p["type"] == "empire_flag"), None)
+                    home_owner = next(
+                        (pname for pname, cl in game.player_system.items() if cl == dest_cluster and pname != player.name), None)
+                    prev_planet_owner = prev_flag_owner or home_owner
+                    if prev_planet_owner and prev_planet_owner != player.name:
+                        other = game.players.get(prev_planet_owner)
+                        if other:
+                            for _k in ("food", "science", "tool", "money"):
+                                other.income[_k] = max(0, other.income.get(_k, 0) - planet.get(_k, 0))
+                            lost = _strip_buildings_from_cluster(game, dest_cluster, prev_planet_owner)
+                            for _k, _amt in lost.items():
+                                other.income[_k] = max(0, other.income.get(_k, 0) - _amt)
+                    if inv_core:
+                        inv_core["pieces"] = [p for p in inv_core.get("pieces", []) if p["type"] != "empire_flag"]
+                        inv_core["pieces"].append({"type": "empire_flag", "owner": player.name})
+                    game.ever_owned_planet.add(player.name)
+                    if prev_planet_owner and prev_planet_owner != player.name:
+                        if _count_vp(game, prev_planet_owner) == 0:
+                            game.last_chance.add(prev_planet_owner)
+                    player.invasions_won += 1
+                    if planet.get("ancient"):
+                        game.ancient_winner = player.name
+                else:
+                    winner = "planet"
+                    if pr.get("remove_all_on_loss"):
+                        for h in game.board:
+                            if h["cluster"] != dest_cluster: continue
+                            h["pieces"] = [p for p in h["pieces"]
+                                           if not (p["type"] in _MOBILE_SHIPS and p["owner"] == player.name)]
+                    else:
+                        for h in game.board:
+                            if h["cluster"] != dest_cluster: continue
+                            for i, p in enumerate(h["pieces"]):
+                                if p["type"] in _MOBILE_SHIPS and p["owner"] == player.name:
+                                    h["pieces"].pop(i); break
+
+                _use_action(game)
+                await _flush_eliminations(game)
+                if winner == "player" and _check_any_winner(game):
+                    game.phase = "ended"
+                state = game.public_state()
+                state["board"] = game.board
+                await game.broadcast({
+                    "type": "invasion_result",
+                    "attacker": player.name,
+                    "atk_dice": atk_dice, "atk_total": atk_total,
+                    "planet_dice": planet_dice, "planet_total": planet_total,
+                    "won": winner == "player", "planet": planet,
+                    **({"game_over": _build_endgame_stats(game)} if game.phase == "ended" else {}),
+                    **state,
+                })
 
             # ── draw_tech_card ────────────────────────────────────────────────
             elif kind == "draw_tech_card":

@@ -1712,7 +1712,7 @@ function showInvasionPrompt(msg) {
   const board = msg.board ?? boardCache ?? [];
   const clusterLabel = board.find(h => h.cluster === msg.dest_cluster && h.local === 0)?.label ?? msg.dest_cluster;
   const planet = msg.planet ?? {};
-  const techCards = (msg.tech_cards ?? []).filter(id => ["nuclear_missile", "death_spores", "invasion_dice", "titanium_armor"].includes(id));
+  const techCards = (msg.tech_cards ?? []).filter(id => ["nuclear_missile", "death_spores", "invasion_dice"].includes(id));
   let selectedTech = null;
 
   const cardCounts = techCards.reduce((acc, id) => { acc[id] = (acc[id] ?? 0) + 1; return acc; }, {});
@@ -1798,8 +1798,19 @@ function showInvasionResult(msg) {
     ? `${msg.attacker}${atkRace} — Invasion Successful!`
     : `${msg.attacker}${atkRace} — Invasion Failed`;
 
+  const rerollAvailable = !!msg.reroll_available && isMe;
+  const planetDiceHtml = (msg.planet_dice ?? []).map((d, i) =>
+    rerollAvailable
+      ? `<span class="die die-reroll" data-idx="${i}" title="Click to re-roll">${d}</span>`
+      : `<span class="die">${d}</span>`
+  ).join("");
+  const rerollHint = rerollAvailable
+    ? `<div class="hint" style="margin:.35rem 0 .5rem;color:var(--accent2)">Titanium Armor — click a planet die to re-roll it</div>`
+    : "";
+
   document.getElementById("combat-body").innerHTML = `
     <div class="combat-result-outcome ${won ? "win" : "lose"}">${won ? "The planet is conquered!" : "The planet repelled the attack."}</div>
+    ${rerollHint}
     <div class="combat-dice-row">
       <div class="combat-dice-block">
         <div class="combat-dice-label">Attacker</div>
@@ -1807,17 +1818,32 @@ function showInvasionResult(msg) {
       </div>
       <div class="combat-dice-block">
         <div class="combat-dice-label">Planet Defense (${(msg.planet_dice ?? []).length} dice)</div>
-        <div class="combat-dice-vals">${(msg.planet_dice ?? []).map(d => `<span class="die">${d}</span>`).join("")} <span style="margin-left:.3rem">= <strong>${msg.planet_total}</strong></span></div>
+        <div class="combat-dice-vals">${planetDiceHtml} <span style="margin-left:.3rem">= <strong>${msg.planet_total}</strong></span></div>
       </div>
     </div>
     ${resourceHtml}`;
-  document.getElementById("combat-footer").innerHTML =
-    `<button class="btn btn-primary" id="btn-combat-close" style="width:100%">Continue</button>`;
-
-  overlay.classList.remove("hidden");
-  document.getElementById("btn-combat-close").addEventListener("click", () => {
-    overlay.classList.add("hidden");
-  });
+  if (msg.reroll_available && isMe) {
+    document.getElementById("combat-footer").innerHTML =
+      `<button class="btn btn-ghost" id="btn-skip-reroll" style="width:100%">No Thanks — Keep Card</button>`;
+    overlay.classList.remove("hidden");
+    document.querySelectorAll(".die-reroll").forEach(el => {
+      el.addEventListener("click", () => {
+        send({ type: "reroll_planet_die", die_index: parseInt(el.dataset.idx) });
+        overlay.classList.add("hidden");
+      });
+    });
+    document.getElementById("btn-skip-reroll").addEventListener("click", () => {
+      send({ type: "skip_reroll" });
+      overlay.classList.add("hidden");
+    });
+  } else {
+    document.getElementById("combat-footer").innerHTML =
+      `<button class="btn btn-primary" id="btn-combat-close" style="width:100%">Continue</button>`;
+    overlay.classList.remove("hidden");
+    document.getElementById("btn-combat-close").addEventListener("click", () => {
+      overlay.classList.add("hidden");
+    });
+  }
 }
 
 // ── Action picker overlay ──────────────────────────────────────────────────
@@ -2234,7 +2260,7 @@ function showCombatPrompt(msg, isAttacker) {
   let selectedTech = null;
 
   if (isAttacker) {
-    const techCards = (msg.tech_cards ?? []).filter(id => ["nuclear_missile", "death_spores", "invasion_dice", "titanium_armor"].includes(id));
+    const techCards = (msg.tech_cards ?? []).filter(id => ["nuclear_missile", "death_spores", "invasion_dice"].includes(id));
     const techHtml = techCards.length > 0 ? `
       <div class="combat-tech-label">Play a tech card (optional):</div>
       <div class="combat-tech-list" id="combat-tech-list">
