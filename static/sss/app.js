@@ -43,9 +43,10 @@ let _connectingErrId = null;
 let _lastStateSeq = -1;  // monotonic seq; reject any state with seq <= this
 let _boardPhaseOpened = false;
 let _prevBoardState  = null;  // last board snapshot for opponent move detection
-let _animRunning      = false;  // true while a ship animation batch is in progress
-let _animQueue        = [];     // {moves, oldBoard, state}[] — sequential animation batches
+let _animRunning      = false;  // true while any ship animation batch is in progress
+let _animQueue        = [];     // {moves, oldBoard, state}[] — pending animation batches
 let _animLatestState  = null;   // most recent state received while animation was running
+let _activeAnimCount  = 0;      // how many animation batches are currently running in parallel
 let _actionMode      = null;  // { type: "flight"|"invasion"|"attack"|"construction" }
 let _selectedCluster = null;  // cluster index of selected source, or null
 let _selectedRoutes  = [];    // routes from _selectedCluster
@@ -64,7 +65,7 @@ function resetToLanding() {
   boardCache = null; _lastState = null;
   _actionMode = null; _selectedCluster = null; _selectedRoutes = [];
   _constructionPiece = null; _boardPhaseOpened = false; _lastStateSeq = -1;
-  _animRunning = false; _animQueue = []; _animLatestState = null;
+  _animRunning = false; _animQueue = []; _animLatestState = null; _activeAnimCount = 0;
   showScreen("screen-landing");
   setWsStatus(false);
 }
@@ -382,7 +383,8 @@ function applyState(state) {
         for (const q of _animQueue) { if (q.state === null) q.state = state; }
 
         if (_animRunning) {
-          _animLatestState = state;  // animation in progress — remember latest state
+          _animLatestState = state;  // remember latest state for final render
+          _startParallelBatches();   // start any newly queued moves alongside running ones
         } else if (_animQueue.length > 0) {
           _drainAnimQueue();
         } else {
@@ -811,7 +813,7 @@ function renderBoard(state, placementMode) {
   wormholeLayer.innerHTML = "";
   pieceLayer.innerHTML    = "";
   labelLayer.innerHTML    = "";
-  if (dragLayer) dragLayer.innerHTML = "";
+  if (dragLayer && !_animRunning) dragLayer.innerHTML = "";
 
   // When an action is in progress, make upper SVG layers transparent to pointer events
   // so clicks always land on the hex polygon in hex-layer beneath them.
@@ -2568,31 +2570,57 @@ function detectOpponentMoves(newBoard, state) {
 
 function cancelAnimations() {
   _animRunning = false;
+  _activeAnimCount = 0;
   _animQueue = [];
   _animLatestState = null;
   const layer = document.getElementById("drag-layer");
   if (layer) layer.innerHTML = "";
 }
 
+// Called when a batch completes; renders final state once all parallel batches are done.
+function _makeAnimOnComplete(savedState) {
+  return () => {
+    if (!_animRunning) return; // already cancelled — don't touch state
+    _activeAnimCount--;
+    if (_activeAnimCount === 0 && _animQueue.length === 0) {
+      _animRunning = false;
+      const final = _animLatestState ?? savedState;
+      _animLatestState = null;
+      const layer = document.getElementById("drag-layer");
+      if (layer) layer.innerHTML = "";
+      renderBoard(final, false);
+    } else if (_animQueue.length > 0) {
+      _startParallelBatches();
+    }
+  };
+}
+
+// Start all currently queued batches immediately, running in parallel with any active animations.
+// Does NOT call renderBoard first — preserves running trails in drag-layer.
+function _startParallelBatches() {
+  while (_animQueue.length > 0) {
+    const item = _animQueue.shift();
+    if (!item.state) continue;
+    _activeAnimCount++;
+    runShipAnimations(item.moves, _makeAnimOnComplete(item.state));
+  }
+}
+
 function _drainAnimQueue() {
   if (_animQueue.length === 0) {
-    _animRunning = false;
+    if (_activeAnimCount === 0) _animRunning = false;
     return;
   }
   const item = _animQueue.shift();
   if (!item.state) { _drainAnimQueue(); return; }
   _animRunning = true;
+  _activeAnimCount++;
+  // Pre-render at old positions so the animated ship starts at the right spot.
+  // drag-layer is preserved because _animRunning is already true.
   renderBoard({ ...item.state, board: item.oldBoard }, false);
-  runShipAnimations(item.moves, () => {
-    if (_animQueue.length > 0) {
-      _drainAnimQueue();
-    } else {
-      _animRunning = false;
-      const finalState = _animLatestState ?? item.state;
-      _animLatestState = null;
-      renderBoard(finalState, false);
-    }
-  });
+  runShipAnimations(item.moves, _makeAnimOnComplete(item.state));
+  // Start any additional batches that arrived at the same time, in parallel.
+  _startParallelBatches();
 }
 
 function runShipAnimations(moves, onComplete) {
