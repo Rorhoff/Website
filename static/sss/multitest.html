@@ -1571,18 +1571,19 @@
     }
 
     if (msg.game_over) {
-      const winner = msg.game_over;
+      const go = msg.game_over;
+      const winnerName = typeof go === "string" ? go : (go?.winner ?? "?");
       const mins = estimateRealMinutes();
       const timeStr = formatMinutes(mins);
       for (let i = 0; i < panels.length; i++) {
-        sysLog(i, `🏆 GAME OVER — ${winner} wins!`);
+        sysLog(i, `🏆 GAME OVER — ${winnerName} wins!`);
         sysLog(i, `⏱ Real-pace estimate: ~${timeStr}  (${_statFinalRound} rounds · ${_statTurns} turns · ${_statInvasions} invasions · ${_statCombats} combats)`);
       }
       autoPaused = true;
       const btn = document.getElementById("btn-pause");
       btn.classList.add("paused");
       btn.innerHTML = "&#9654; Resume";
-      setAutoMsg(`🏆 ${winner} wins! Estimated real-pace duration: ~${timeStr}`);
+      setAutoMsg(`🏆 ${winnerName} wins! Estimated real-pace duration: ~${timeStr}`);
     }
 
     if (msg.type === "eliminated") {
@@ -1649,8 +1650,9 @@
 
     const vp = me?.vp ?? me?.victory_points;
     document.getElementById(`race-vp-${idx}`).textContent = vp != null ? `${vp} VP` : "";
-    const unrest = me?.unrest ?? 0;
-    document.getElementById(`race-unrest-${idx}`).textContent = unrest > 0 ? `⚠ ${unrest}` : "";
+    const unrest = me?.resources?.unrest ?? me?.unrest ?? 0;
+    document.getElementById(`race-unrest-${idx}`).textContent =
+      unrest > 0 ? `⚠ ${unrest}/20 unrest` : `${unrest}/20 unrest`;
 
     // Tint panel top border to race color
     panels[idx].el.style.borderTopColor = color + (locked ? "cc" : "44");

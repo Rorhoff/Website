@@ -812,7 +812,8 @@ class Game:
     ai_invasion_failures: dict = field(default_factory=dict)  # ai_name → set of clusters that repelled invasion
 
     def public_state(self) -> dict:
-        in_board = self.phase in ("place_pieces", "draft", "board")
+        # Include "ended" so clients keep showing VP/resources/unrest until lobby reset/new game.
+        in_board = self.phase in ("place_pieces", "draft", "board", "ended")
         return {
             "code": self.code,
             "phase": self.phase,
