@@ -751,8 +751,12 @@
     const tools    = (me?.resources ?? {}).tool  ?? 0;
     const strategy = p.strategy ?? "default";
     const BUILD_TYPES    = ["building_tool","building_science","building_money"];
-    const SPACECRAFT_MAX = 3;
-    const SHIP_TYPES     = ["scout","cruise_ship","outpost","super_ship","battle_station","death_star"];
+    /** Matches server `_spacecraft_types` — fills an orbital slot. */
+    const SPACECRAFT_TYPES = ["scout","cruise_ship","outpost","super_ship","battle_station","death_star"];
+    /** Matches server `_MOBILE_SHIPS` — can use wormholes / flight. */
+    const MOBILE_SHIP_TYPES = ["scout","cruise_ship","super_ship","death_star"];
+    /** Matches server `_ATTACK_SHIPS` — invasions & ship combat attack (not cruise). */
+    const ATTACK_SHIP_TYPES = ["scout","super_ship","death_star"];
 
     // ── Common derived sets ───────────────────────────────────────────────────
     const myClusters = new Set();
@@ -771,29 +775,29 @@
 
     const myFrigClusters = new Set();
     for (const h of board) {
-      if ((h.pieces ?? []).some(pc => pc.type === "scout" && pc.owner === p.name))
+      if ((h.pieces ?? []).some(pc => MOBILE_SHIP_TYPES.includes(pc.type) && pc.owner === p.name))
         myFrigClusters.add(h.cluster);
     }
 
     // ── Common helpers ────────────────────────────────────────────────────────
-    function countFrigs(cluster) {
+    function countAttackShips(cluster) {
       return board.reduce((n, h) => n + (h.cluster === cluster
-        ? (h.pieces ?? []).filter(pc => pc.type === "scout" && pc.owner === p.name).length : 0), 0);
+        ? (h.pieces ?? []).filter(pc => ATTACK_SHIP_TYPES.includes(pc.type) && pc.owner === p.name).length : 0), 0);
     }
-    const totalFrigs = board.reduce((n, h) => n +
-      (h.pieces ?? []).filter(pc => pc.type === "scout" && pc.owner === p.name).length, 0);
+    const totalAttackShips = board.reduce((n, h) => n +
+      (h.pieces ?? []).filter(pc => ATTACK_SHIP_TYPES.includes(pc.type) && pc.owner === p.name).length, 0);
 
     function tryInvadeInSystem() {
       for (const cl of myFrigClusters) {
         if (myClusters.has(cl)) continue;
         const core = board.find(h => h.cluster === cl && h.local === 0);
         if (!core?.planet) continue;
-        if (board.some(h => h.cluster === cl && (h.pieces ?? []).some(pc => pc.type === "scout" && pc.owner !== p.name))) continue;
-        const frigsHere = countFrigs(cl);
+        if (board.some(h => h.cluster === cl && (h.pieces ?? []).some(pc => MOBILE_SHIP_TYPES.includes(pc.type) && pc.owner !== p.name))) continue;
+        const atkHere = countAttackShips(cl);
         const isAncient = !!core.planet?.ancient;
         const required = isAncient ? 3 : 2;
-        if (frigsHere < required && totalFrigs > frigsHere) continue;
-        sysLog(idx, `🌍 Invade cluster ${cl} with ${frigsHere} scout(s)${isAncient ? " ☠ ANCIENT" : ""}`);
+        if (atkHere < required && totalAttackShips > atkHere) continue;
+        sysLog(idx, `🌍 Invade cluster ${cl} with ${atkHere} attack ship(s)${isAncient ? " ☠ ANCIENT" : ""}`);
         send(idx, { type: "invasion_attack", cluster: cl });
         return true;
       }
@@ -805,19 +809,19 @@
         if (myClusters.has(cl)) continue;
         const core = board.find(h => h.cluster === cl && h.local === 0);
         if (!core?.planet) continue;
-        if (board.some(h => h.cluster === cl && (h.pieces ?? []).some(pc => pc.type === "scout" && pc.owner !== p.name))) continue;
+        if (board.some(h => h.cluster === cl && (h.pieces ?? []).some(pc => MOBILE_SHIP_TYPES.includes(pc.type) && pc.owner !== p.name))) continue;
         const isAncient = !!core.planet?.ancient;
         const required = isAncient ? 3 : 2;
-        if (countFrigs(cl) >= required) continue;
-        if (totalFrigs <= countFrigs(cl)) continue; // nothing to spare
+        if (countAttackShips(cl) >= required) continue;
+        if (totalAttackShips <= countAttackShips(cl)) continue; // nothing to spare
         for (const homeCl of myClusters) {
           const wh = board.find(h =>
             h.cluster === homeCl && h.wormhole && h.wormhole_partner != null &&
             board[h.wormhole_partner]?.cluster === cl &&
-            (h.pieces ?? []).some(pc => pc.type === "scout" && pc.owner === p.name)
+            (h.pieces ?? []).some(pc => MOBILE_SHIP_TYPES.includes(pc.type) && pc.owner === p.name)
           );
           if (wh) {
-            sysLog(idx, `🚀 Stage frigate to ${isAncient ? "ANCIENT " : ""}invasion cluster ${cl} (have ${countFrigs(cl)}/${required})`);
+            sysLog(idx, `🚀 Stage ship to ${isAncient ? "ANCIENT " : ""}invasion cluster ${cl} (have ${countAttackShips(cl)}/${required})`);
             send(idx, { type: "flight_move", from_wormhole: wh.id, to_wormhole: wh.wormhole_partner });
             return true;
           }
@@ -834,15 +838,58 @@
       return base * Math.max(1, planets);
     }
 
-    function tryBuildFrigate() {
-      if (money < 10 || tools < 2) return false;
-      for (const cl of myClusters) {
-        const h = board.find(o => o.cluster === cl && o.type === "orbital" && o.local !== 0
-          && (o.pieces ?? []).filter(pc => SHIP_TYPES.includes(pc.type)).length < SPACECRAFT_MAX);
-        if (h) {
-          sysLog(idx, `🚀 Build frigate cluster ${cl} hex ${h.id} ($${money} ⚙${tools})`);
-          send(idx, { type: "build_piece", piece_type: "scout", hex_id: h.id });
-          return true;
+    function orbitalCraftCap() {
+      const eng = (me?.tech?.engineering ?? []);
+      return eng.length > 4 && eng[4] ? 4 : 3;
+    }
+
+    function shipBuildCost(pieceType) {
+      const COSTS = {
+        cruise_ship: { money: 10, tool: 0 },
+        scout: { money: 10, tool: 2 },
+        super_ship: { money: 50, tool: 8 },
+        death_star: { money: 100, tool: 20 },
+      };
+      const base = COSTS[pieceType];
+      if (!base) return null;
+      let mc = base.money;
+      let tc = base.tool;
+      const eng = (me?.tech?.engineering ?? []);
+      if (eng.length > 1 && eng[1]) mc = Math.max(1, mc - 2);
+      if (eng.length > 2 && eng[2]) tc = Math.max(0, tc - 1);
+      return { money: mc, tool: tc };
+    }
+
+    /** Prefer heavy hulls when solvent and invasion-ready; mirrors server costs/discounts. */
+    function tryBuildShip() {
+      const cap = orbitalCraftCap();
+      let candidates;
+      if (totalAttackShips < 2) {
+        candidates = ["scout", "super_ship", "death_star", "cruise_ship"];
+      } else if (money >= 95 && tools >= 18) {
+        candidates = ["death_star", "super_ship", "cruise_ship", "scout"];
+      } else if (money >= 48 && tools >= 7) {
+        candidates = ["super_ship", "death_star", "cruise_ship", "scout"];
+      } else {
+        candidates = ["scout", "cruise_ship", "super_ship", "death_star"];
+      }
+
+      for (const pieceType of candidates) {
+        const c = shipBuildCost(pieceType);
+        if (!c || money < c.money || tools < c.tool) continue;
+        for (const cl of myClusters) {
+          const h = board.find(o =>
+            o.cluster === cl &&
+            o.type === "orbital" &&
+            o.local !== 0 &&
+            (o.pieces ?? []).filter(pc => SPACECRAFT_TYPES.includes(pc.type)).length < cap
+          );
+          if (h) {
+            const label = ({ scout: "Scout", cruise_ship: "Cruise", super_ship: "Super Ship", death_star: "Death Star" })[pieceType] ?? pieceType;
+            sysLog(idx, `🚀 Build ${label} cl:${cl} hex ${h.id} ($${money} ⚙${tools})`);
+            send(idx, { type: "build_piece", piece_type: pieceType, hex_id: h.id });
+            return true;
+          }
         }
       }
       return false;
@@ -931,8 +978,8 @@
       const seen = new Set();
       for (const h of board) {
         if (!h.wormhole || h.wormhole_partner == null || !myFrigClusters.has(h.cluster)) continue;
-        // Require a frigate actually sitting on this wormhole hex (not just anywhere in cluster)
-        if (!(h.pieces ?? []).some(pc => pc.type === "scout" && pc.owner === p.name)) continue;
+        // Require a mobile ship on this wormhole hex (not just anywhere in cluster)
+        if (!(h.pieces ?? []).some(pc => MOBILE_SHIP_TYPES.includes(pc.type) && pc.owner === p.name)) continue;
         const partner = board[h.wormhole_partner];
         if (!partner) continue;
         const dest = partner.cluster;
@@ -940,7 +987,7 @@
         if (seen.has(key)) continue;
         seen.add(key);
         const r = { from_wormhole: h.id, to_wormhole: h.wormhole_partner, from_cluster: h.cluster, dest_cluster: dest };
-        const hasEnemy = board.some(dh => dh.cluster === dest && (dh.pieces ?? []).some(pc => pc.type === "scout" && pc.owner !== p.name));
+        const hasEnemy = board.some(dh => dh.cluster === dest && (dh.pieces ?? []).some(pc => MOBILE_SHIP_TYPES.includes(pc.type) && pc.owner !== p.name));
         if (hasEnemy) attack.push(r);
         else if (!myClusters.has(dest)) expand.push(r);
       }
@@ -952,12 +999,12 @@
       for (const cl of myClusters) {
         const enemyHex = board.find(h =>
           h.cluster === cl &&
-          (h.pieces ?? []).some(pc => (pc.type === "scout" || pc.type === "super_ship") && pc.owner !== p.name)
+          (h.pieces ?? []).some(pc => MOBILE_SHIP_TYPES.includes(pc.type) && pc.owner !== p.name)
         );
         if (!enemyHex) continue;
         const hasAttacker = board.some(h =>
           h.cluster === cl &&
-          (h.pieces ?? []).some(pc => (pc.type === "scout" || pc.type === "super_ship") && pc.owner === p.name)
+          (h.pieces ?? []).some(pc => ATTACK_SHIP_TYPES.includes(pc.type) && pc.owner === p.name)
         );
         if (!hasAttacker) continue;
         sysLog(idx, `⚔ Counter-attack intruder in own cluster ${cl} hex ${enemyHex.id}`);
@@ -967,13 +1014,13 @@
       // Priority 2: enemy frigates in adjacent wormhole-connected clusters
       for (const h of board) {
         if (!h.wormhole || h.wormhole_partner == null) continue;
-        if (!(h.pieces ?? []).some(pc => pc.type === "scout" && pc.owner === p.name)) continue;
+        if (!(h.pieces ?? []).some(pc => MOBILE_SHIP_TYPES.includes(pc.type) && pc.owner === p.name)) continue;
         const partner = board[h.wormhole_partner];
         if (!partner) continue;
         const destCluster = partner.cluster;
         const enemyHex = board.find(dh =>
           dh.cluster === destCluster &&
-          (dh.pieces ?? []).some(pc => (pc.type === "scout" || pc.type === "super_ship") && pc.owner !== p.name)
+          (dh.pieces ?? []).some(pc => MOBILE_SHIP_TYPES.includes(pc.type) && pc.owner !== p.name)
         );
         if (!enemyHex) continue;
         sysLog(idx, `⚔ Attack enemy cluster ${destCluster} hex ${enemyHex.id}`);
@@ -1000,7 +1047,7 @@
       if (tryFixNegativeResource()) return;
       if (tryAttack()) return;
       if (tryBuildBuilding()) return;
-      if (tryBuildFrigate()) return;
+      if (tryBuildShip()) return;
       const techCount = (me?.tech_cards ?? []).length;
       if (techCount < 2) {
         sysLog(idx, `📜 Draw tech card (have ${techCount})`);
@@ -1029,7 +1076,7 @@
       if (tryFixNegativeResource()) return;
       if (tryAttack()) return;
       if (tools < 2) { if (tryBuildBuilding()) return; } // need tools before frigates
-      if (tryBuildFrigate()) return;
+      if (tryBuildShip()) return;
       if (tryStageForInvasion()) return;
       if (tryInvadeInSystem()) return;
       const { expand } = buildRoutes();
@@ -1057,7 +1104,7 @@
         if (myClusters.has(cl)) return false;
         const core = board.find(h => h.cluster === cl && h.local === 0);
         if (!core?.planet) return false;
-        if (board.some(h => h.cluster === cl && (h.pieces ?? []).some(pc => pc.type === "scout" && pc.owner !== p.name))) return false;
+        if (board.some(h => h.cluster === cl && (h.pieces ?? []).some(pc => MOBILE_SHIP_TYPES.includes(pc.type) && pc.owner !== p.name))) return false;
         return !(core.pieces ?? []).some(pc => pc.type === "empire_flag");
       });
       for (const cl of unclaimedFirst) {
@@ -1079,7 +1126,7 @@
         send(idx, { type: "flight_move", from_wormhole: r.from_wormhole, to_wormhole: r.to_wormhole });
         return;
       }
-      if (tryBuildFrigate()) return;
+      if (tryBuildShip()) return;
       if (tryBuildBuilding()) return;
       if (tryResearchSkill("government")) return;
       if (tryResearchSkill("physics")) return;
@@ -1097,7 +1144,7 @@
       const { attack, expand } = buildRoutes();
       // Prefer routes toward targeted players
       const targetAttack = attack.filter(r =>
-        board.some(h => h.cluster === r.dest_cluster && (h.pieces ?? []).some(pc => pc.type === "scout" && targetNames.has(pc.owner)))
+        board.some(h => h.cluster === r.dest_cluster && (h.pieces ?? []).some(pc => MOBILE_SHIP_TYPES.includes(pc.type) && targetNames.has(pc.owner)))
       );
       const chosenAttack = targetAttack.length > 0 ? targetAttack : attack;
       if (chosenAttack.length > 0) {
@@ -1117,7 +1164,7 @@
         send(idx, { type: "flight_move", from_wormhole: r.from_wormhole, to_wormhole: r.to_wormhole });
         return;
       }
-      if (tryBuildFrigate()) return;
+      if (tryBuildShip()) return;
       if (tryBuildBuilding()) return;
       if (tryResearchSkill("physics")) return;
       if (tryResearchSkill("government")) return;
@@ -1138,7 +1185,7 @@
       send(idx, { type: "flight_move", from_wormhole: r.from_wormhole, to_wormhole: r.to_wormhole });
       return;
     }
-    if (tryBuildFrigate()) return;
+    if (tryBuildShip()) return;
     if (expand.length > 0) {
       const r = expand[Math.floor(Math.random() * expand.length)];
       sysLog(idx, `✈ Expand to ${r.dest_cluster}`);
@@ -1796,9 +1843,18 @@
       cardsLine.hidden = true;
     } else {
       cardsLine.hidden = false;
-      cardsLine.innerHTML = `<span class="tc-h">Tech cards</span>` + ids.map(id => {
+      const counts = new Map();
+      for (const id of ids) counts.set(id, (counts.get(id) ?? 0) + 1);
+      const entries = [...counts.entries()].sort((a, b) => {
+        const na = TECH_CARD_LABEL[a[0]] ?? a[0].replace(/_/g, " ");
+        const nb = TECH_CARD_LABEL[b[0]] ?? b[0].replace(/_/g, " ");
+        return na.localeCompare(nb, undefined, { sensitivity: "base" });
+      });
+      cardsLine.innerHTML = `<span class="tc-h">Tech cards</span>` + entries.map(([id, n]) => {
         const nm = TECH_CARD_LABEL[id] ?? id.replace(/_/g, " ");
-        return `<span class="tc-name" title="${escAttr(id)}">${escAttr(nm)}</span>`;
+        const label = n > 1 ? `${nm} ×${n}` : nm;
+        const tip = n > 1 ? `${id} (${n} copies)` : id;
+        return `<span class="tc-name" title="${escAttr(tip)}">${escAttr(label)}</span>`;
       }).join("");
     }
   }
