@@ -122,8 +122,9 @@ def _add_planet_flag(game, owner: str, cluster_id: int) -> None:
 
 # ── VP_TARGET ─────────────────────────────────────────────────────────────────
 
-def test_vp_target_is_nine():
-    assert VP_TARGET == 9, f"Expected VP_TARGET=9, got {VP_TARGET}"
+def test_vp_target_matches_server_win_condition():
+    """Keeps tests aligned with `VP_TARGET` in `sss_routes.py` (client shows `/7 VP`)."""
+    assert VP_TARGET == 7, f"Expected VP_TARGET=7, got {VP_TARGET}"
 
 
 # ── _apply_turn_income ────────────────────────────────────────────────────────
