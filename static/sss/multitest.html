@@ -796,7 +796,9 @@
         const atkHere = countAttackShips(cl);
         const isAncient = !!core.planet?.ancient;
         const required = isAncient ? 3 : 2;
-        if (atkHere < required && totalAttackShips > atkHere) continue;
+        // Never send invasion without enough attack-capable ships on-site (server rejects).
+        // If understrength here but ships exist elsewhere, tryStageForInvasion runs first in strategies.
+        if (atkHere < required) continue;
         sysLog(idx, `🌍 Invade cluster ${cl} with ${atkHere} attack ship(s)${isAncient ? " ☠ ANCIENT" : ""}`);
         send(idx, { type: "invasion_attack", cluster: cl });
         return true;
@@ -1099,6 +1101,10 @@
     if (strategy === "conqueror") {
       if (tryFixNegativeResource()) return;
       if (tryAttack()) return;
+      if (totalAttackShips === 0) {
+        if (tryBuildBuilding()) return;
+        if (tryBuildShip()) return;
+      }
       // Prefer unclaimed (no empire_flag) over enemy-owned
       const unclaimedFirst = [...myFrigClusters].filter(cl => {
         if (myClusters.has(cl)) return false;
@@ -1108,6 +1114,10 @@
         return !(core.pieces ?? []).some(pc => pc.type === "empire_flag");
       });
       for (const cl of unclaimedFirst) {
+        const core = board.find(h => h.cluster === cl && h.local === 0);
+        const isAncient = !!(core?.planet?.ancient);
+        const required = isAncient ? 3 : 2;
+        if (countAttackShips(cl) < required) continue;
         sysLog(idx, `🌍 [conqueror] Claim unclaimed cluster ${cl}`);
         send(idx, { type: "invasion_attack", cluster: cl });
         return;
@@ -1139,6 +1149,11 @@
     if (strategy === "aggressor") {
       if (tryFixNegativeResource()) return;
       if (tryAttack()) return;
+      // Cruise-only scouts-of-opportunity still leave totalAttackShips === 0 — invasions always fail.
+      if (totalAttackShips === 0) {
+        if (tryBuildBuilding()) return;
+        if (tryBuildShip()) return;
+      }
       const allPlayers = state.players ?? [];
       const targetNames = new Set(allPlayers.slice(-2).map(pl => pl.name));
       const { attack, expand } = buildRoutes();
