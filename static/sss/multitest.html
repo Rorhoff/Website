@@ -195,6 +195,56 @@
     .res-inc.pos { color: #4ade8077; }
     .res-inc.neg { color: #f8717177; }
 
+    /* ── Skill tree (matches main SSS client tracks) ── */
+    .tech-panel {
+      display: none;
+      margin-bottom: .35rem;
+      padding: .28rem .4rem;
+      background: #0a1520;
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      font-size: .58rem;
+    }
+    .tech-panel-hdr {
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      font-weight: 600;
+      margin-bottom: .22rem;
+      font-size: .54rem;
+    }
+    .tech-strip-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: .3rem .55rem;
+      align-items: center;
+    }
+    .tech-track {
+      display: flex;
+      align-items: center;
+      gap: .22rem;
+      white-space: nowrap;
+      cursor: default;
+    }
+    .tech-track .ttl { color: #94a3b8; font-weight: 700; min-width: 1.55rem; }
+    .tech-track .dots { letter-spacing: .06em; color: var(--accent); font-family: ui-monospace, monospace; font-size: .62rem; }
+    .tech-cards-line {
+      margin-top: .28rem;
+      padding-top: .22rem;
+      border-top: 1px solid #1e2d45;
+      color: #cbd5e1;
+      line-height: 1.45;
+      font-size: .56rem;
+    }
+    .tech-cards-line .tc-h { color: var(--muted); margin-right: .28rem; font-weight: 600; }
+    .tech-cards-line .tc-name {
+      display: inline-block;
+      background: #1e293b;
+      border-radius: 3px;
+      padding: .06rem .28rem;
+      margin: .06rem .18rem .06rem 0;
+    }
+
     /* ── Log ── */
     .log-label { font-size: .56rem; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; font-weight: 600; margin-bottom: .15rem; }
     .log { background: #050810; border: 1px solid var(--border); border-radius: 5px; padding: .25rem .35rem; font-size: .6rem; font-family: monospace; color: var(--muted); height: 72px; overflow-y: auto; }
@@ -342,6 +392,26 @@
     dust_runners:  "Dust Runners",
   };
   const RES_KEYS = ["food","science","tool","money"];
+  /** Tracks mirror server + main game UI (`app.js` TECH_COLS). */
+  const TECH_TRACKS = [
+    { key: "biology", label: "Bio", names: ["Hydroponics", "Chemical Synthesis", "Soil Enrichment", "Organic Chemistry", "Genetic Mastery"] },
+    { key: "physics", label: "Phy", names: ["Ballistics", "Deflector Fields", "Plasma Cannons", "Quantum Shields", "Antimatter Weapons"] },
+    { key: "engineering", label: "Eng", names: ["Workshop Efficiency", "Shipyard Optimization", "Advanced Metallurgy", "Modular Construction", "Orbital Expansion"] },
+    { key: "government", label: "Gov", names: ["Civil Order", "Expanded Senate", "Martial Command", "Pacification Bureau", "Imperial Authority"] },
+  ];
+  const TECH_CARD_LABEL = {
+    fungal_farms: "Fungal Farms",
+    the_hammer: "The Hammer",
+    the_corn: "The Corn",
+    for_the_science: "For the Science",
+    titanium_armor: "Titanium Armor",
+    nuclear_missile: "Nuclear Missile",
+    biotechnology: "Biotechnology",
+    death_spores: "Death Spores",
+    invasion_dice: "Orbital Bombardment",
+    command_surge: "Command Surge",
+    plasma_forge: "Plasma Forge (rare)",
+  };
   const PHASE_ORDER = ["connect","lobby","race_pick","dice_roll","place_pieces","draft","playing"];
   const WS_BASE = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/sss/ws/`;
 
@@ -489,6 +559,11 @@
               <div class="res-inc" id="inc-${i}-${k}"></div>
             </div>
           </div>`).join("")}
+        </div>
+        <div class="tech-panel" id="tech-panel-${i}">
+          <div class="tech-panel-hdr">Skill tree</div>
+          <div class="tech-strip-row" id="tech-strip-${i}"></div>
+          <div class="tech-cards-line" id="tech-cards-${i}" hidden></div>
         </div>
         <div>
           <div class="log-label">Message log</div>
@@ -1366,6 +1441,7 @@
     document.getElementById("info-phase").textContent = phase;
     document.getElementById("info-round").textContent = msg.round ?? "—";
     renderResources(idx, msg);
+    renderTechStrip(idx, msg);
     renderRace(idx, msg);
     renderActions(idx, msg);
     renderTurnStrip(msg);
@@ -1677,6 +1753,54 @@
         incEl.className   = `res-inc ${n>0?"pos":n<0?"neg":""}`;
       }
     });
+  }
+
+  /** Skill-tree tiers (●/○) + drawn tech cards — data from `players[].tech` / `tech_cards`. */
+  function renderTechStrip(idx, state) {
+    const wrap = document.getElementById(`tech-panel-${idx}`);
+    const row = document.getElementById(`tech-strip-${idx}`);
+    const cardsLine = document.getElementById(`tech-cards-${idx}`);
+    if (!wrap || !row || !cardsLine) return;
+
+    const phase = state.phase ?? "";
+    if (["lobby", "race_pick"].includes(phase)) {
+      wrap.style.display = "none";
+      return;
+    }
+
+    const me = (state.players ?? []).find(pl => pl.name === panels[idx].name);
+    if (!me?.race) {
+      wrap.style.display = "none";
+      return;
+    }
+
+    wrap.style.display = "block";
+
+    const tech = me.tech ?? {};
+    const escAttr = (t) => String(t).replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+
+    row.innerHTML = TECH_TRACKS.map(tr => {
+      const levels = tech[tr.key] ?? [false, false, false, false, false];
+      const unlocked = [];
+      levels.forEach((on, i) => { if (on) unlocked.push(tr.names[i]); });
+      const dots = levels.map(on => (on ? "●" : "○")).join("");
+      const tip = unlocked.length
+        ? `${tr.label} — ${unlocked.join("; ")}`
+        : `${tr.label} — no upgrades yet`;
+      return `<div class="tech-track" title="${escAttr(tip)}"><span class="ttl">${tr.label}</span><span class="dots">${dots}</span></div>`;
+    }).join("");
+
+    const ids = me.tech_cards ?? [];
+    if (!ids.length) {
+      cardsLine.innerHTML = "";
+      cardsLine.hidden = true;
+    } else {
+      cardsLine.hidden = false;
+      cardsLine.innerHTML = `<span class="tc-h">Tech cards</span>` + ids.map(id => {
+        const nm = TECH_CARD_LABEL[id] ?? id.replace(/_/g, " ");
+        return `<span class="tc-name" title="${escAttr(id)}">${escAttr(nm)}</span>`;
+      }).join("");
+    }
   }
 
   // ── Render action buttons ─────────────────────────────────────────────────
