@@ -2,15 +2,163 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import random
+import re
 import string
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse
 
 router = APIRouter(prefix="/api/sss", tags=["sss"])
+
+# ── Recordings ────────────────────────────────────────────────────────────────
+# Every started game writes a JSONL event log to RECORDINGS_DIR. The log is action-stream
+# style — inbound messages (one line per player decision) plus the interesting outbound
+# events (combat outcomes, phase transitions, errors). Full game_state broadcasts are
+# logged as slim summaries (phase, current_turn, seq) to keep file size sane; a full state
+# snapshot is captured at start, on every phase change, and on game over.
+
+RECORDINGS_DIR = Path(__file__).resolve().parent / "recordings"
+RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
+
+# Outbound types whose full payload is worth keeping in the recording (small messages or
+# important moments).
+_RECORD_OUT_FULL = frozenset({
+    "combat_result", "invasion_result", "tech_card_drawn", "error",
+    "place_pieces_start", "draft_start",
+})
+
+_RECORDING_FILENAME_RE = re.compile(r"^[A-Z]{4}_\d{8}-\d{6}\.jsonl$")
+
+
+def _slim_state(msg: dict) -> dict:
+    """Return a compact projection of a game_state broadcast — no board or per-player dumps."""
+    keep = {"type", "seq", "phase", "current_turn", "round", "turn_idx", "turn_actions_remaining"}
+    out = {k: msg[k] for k in keep if k in msg}
+    if "players" in msg and isinstance(msg["players"], list):
+        out["players"] = [
+            {"name": p.get("name"), "vp": p.get("vp", 0), "race": p.get("race")}
+            for p in msg["players"]
+        ]
+    return out
+
+
+class GameRecorder:
+    """Append-only JSONL recorder bound to one game.
+
+    File operations run inside ``asyncio.to_thread`` so the WebSocket loop never blocks on
+    disk I/O; ordering is preserved by an asyncio.Lock.
+    """
+
+    def __init__(self, code: str):
+        self.code = code
+        self.path: Path | None = None
+        self._fp = None
+        self._lock = asyncio.Lock()
+        self._started = False
+        self._closed = False
+        self._last_phase: str | None = None
+        self._event_count = 0
+        self._start_ts = 0.0
+
+    async def start(self, game: "Game") -> None:
+        if self._started or self._closed:
+            return
+        self._started = True
+        self._start_ts = time.time()
+        ts = time.strftime("%Y%m%d-%H%M%S", time.gmtime(self._start_ts))
+        self.path = RECORDINGS_DIR / f"{self.code}_{ts}.jsonl"
+        try:
+            self._fp = await asyncio.to_thread(self.path.open, "a", encoding="utf-8")
+        except OSError:
+            self._fp = None
+            return
+        await self._write({
+            "kind": "game_start",
+            "ts": self._start_ts,
+            "code": self.code,
+            "host": game.host_name,
+            "players": [
+                {"name": n, "role": p.role, "race": p.race}
+                for n, p in game.players.items()
+            ],
+            "n_clusters": len(set(h["cluster"] for h in (game.board or []))),
+        })
+
+    async def _write(self, event: dict) -> None:
+        fp = self._fp
+        if not fp:
+            return
+        line = json.dumps(event, default=str) + "\n"
+        async with self._lock:
+            try:
+                await asyncio.to_thread(fp.write, line)
+                await asyncio.to_thread(fp.flush)
+                self._event_count += 1
+            except Exception:
+                pass
+
+    async def record_inbound(self, name: str | None, raw: dict) -> None:
+        if not self._fp:
+            return
+        # Strip anything truly huge; we keep raw player intents verbatim otherwise.
+        await self._write({
+            "kind": "in",
+            "ts": time.time(),
+            "player": name,
+            "msg": raw,
+        })
+
+    async def record_outbound(self, msg: dict) -> None:
+        if not self._fp:
+            return
+        t = msg.get("type", "")
+        phase = msg.get("phase")
+        phase_changed = phase is not None and phase != self._last_phase
+        if t == "game_state":
+            if phase_changed:
+                # Full snapshot at every phase transition for jump-to-phase replay.
+                await self._write({"kind": "snapshot", "ts": time.time(), "msg": msg})
+                self._last_phase = phase
+            else:
+                await self._write({"kind": "out", "ts": time.time(), "msg": _slim_state(msg)})
+        elif t in _RECORD_OUT_FULL:
+            # Strip the noisy `board` field but keep everything else.
+            slim = {k: v for k, v in msg.items() if k != "board"}
+            await self._write({"kind": "out", "ts": time.time(), "msg": slim})
+            if "game_over" in msg:
+                await self._write({
+                    "kind": "game_over",
+                    "ts": time.time(),
+                    "stats": msg.get("game_over"),
+                })
+        else:
+            await self._write({"kind": "out", "ts": time.time(), "msg": {"type": t}})
+
+    async def end(self, reason: str = "") -> None:
+        if self._closed:
+            return
+        self._closed = True
+        fp = self._fp
+        if not fp:
+            return
+        await self._write({
+            "kind": "game_end",
+            "ts": time.time(),
+            "duration_sec": round(time.time() - self._start_ts, 2),
+            "events": self._event_count,
+            "reason": reason,
+        })
+        try:
+            await asyncio.to_thread(fp.close)
+        except Exception:
+            pass
+        self._fp = None
 
 # ── Race definitions ──────────────────────────────────────────────────────────
 
@@ -810,6 +958,13 @@ class Game:
     ai_task: Any = None
     explorations: dict = field(default_factory=dict)  # player_name → set of cluster IDs revealed this turn
     ai_invasion_failures: dict = field(default_factory=dict)  # ai_name → set of clusters that repelled invasion
+    # Clusters each AI flew into during its CURRENT turn — used to forbid the AI from chaining
+    # "fly through wormhole" + "invade planet" within a single turn (the defender wouldn't have
+    # a chance to react and the invasion looks like it came from a nearby system).
+    ai_arrived_this_turn: dict = field(default_factory=dict)  # ai_name → set[cluster_id]
+    # Last `turn_idx` we observed an AI act on, used to reset ai_arrived_this_turn at turn start.
+    ai_last_turn_idx: dict = field(default_factory=dict)  # ai_name → int
+    recorder: "GameRecorder | None" = None
 
     def public_state(self) -> dict:
         # Include "ended" so clients keep showing VP/resources/unrest until lobby reset/new game.
@@ -907,6 +1062,14 @@ class Game:
     async def broadcast(self, msg: dict, exclude: WebSocket | None = None) -> None:
         self._seq += 1
         msg = {**msg, "seq": self._seq}
+        # Recording — kick off before the network sends so even messages that fail to deliver
+        # are captured. Fires a single tracked event regardless of fog (recordings get the
+        # canonical/full message, not the per-player redacted view).
+        if self.recorder:
+            asyncio.create_task(self.recorder.record_outbound(msg))
+            # Auto-finalize the recording when the game ends.
+            if msg.get("phase") == "ended" or msg.get("type") == "game_over":
+                asyncio.create_task(self.recorder.end("ended"))
         if not FOG_OF_WAR or "board" not in msg:
             targets = list(self.players.values()) + self.watchers
             await asyncio.gather(
@@ -1218,6 +1381,15 @@ async def _ai_board_action(game: Game, ai_name: str) -> None:
     if not ai_p:
         return
 
+    # Reset the "arrived this turn" tracker if this is a new turn for this AI. We compare
+    # against `game.turn_idx` so the set carries across the multiple `_ai_board_action`
+    # ticks that make up one AI turn, but is wiped when control passes back to that AI on
+    # a later turn — preventing fly-and-invade-in-one-turn while still allowing follow-up
+    # invasion after the defender has had a chance to react.
+    if game.ai_last_turn_idx.get(ai_name) != game.turn_idx:
+        game.ai_arrived_this_turn[ai_name] = set()
+        game.ai_last_turn_idx[ai_name] = game.turn_idx
+
     # Last-chance check: AI never sends end_turn so the normal handler never runs it.
     # Replicate the same logic here before the AI acts.
     if ai_name in game.last_chance:
@@ -1281,6 +1453,7 @@ async def _ai_board_action(game: Game, ai_name: str) -> None:
     plain_expand = [r for r in expand_routes if not has_enemy_frigates(r["dest_cluster"]) and r["dest_cluster"] not in my_clusters]
 
     failed_clusters = game.ai_invasion_failures.get(ai_name, set())
+    arrived_this_turn = game.ai_arrived_this_turn.get(ai_name, set())
 
     # 1. Try invasion_attack in a cluster AI already has frigates and planet is not owned
     for h in game.board:
@@ -1293,6 +1466,10 @@ async def _ai_board_action(game: Game, ai_name: str) -> None:
         if already_mine:
             continue
         if h["cluster"] in failed_clusters:
+            continue
+        # Don't invade clusters the AI flew into this same turn — make the AI park for at
+        # least one turn so the defender sees the inbound scout before combat resolves.
+        if h["cluster"] in arrived_this_turn:
             continue
         enemy_ships = has_enemy_frigates(h["cluster"])
         if enemy_ships:
@@ -1454,29 +1631,52 @@ async def _ai_board_action(game: Game, ai_name: str) -> None:
         await game.broadcast({"type": "game_state", **state})
         return
 
-    # 4. Build frigate if affordable
-    sys_cluster = game.player_system.get(ai_name)
-    if sys_cluster is not None:
-        cost = {"food": 2, "tool": 1}
-        can_afford = all(ai_p.resources.get(r, 0) >= v for r, v in cost.items())
-        avail_orbs = [
-            h for h in game.board
-            if h["cluster"] == sys_cluster and h["type"] == "orbital"
-            and sum(1 for pc in h["pieces"] if pc["type"] == "scout") < 3
-        ]
-        if can_afford and avail_orbs and _player_planet_count(game, ai_name) > 0:
-            chosen = random.choice(avail_orbs)
-            chosen["pieces"].append({"type": "scout", "owner": ai_name})
-            for r, v in cost.items():
-                ai_p.resources[r] = ai_p.resources.get(r, 0) - v
-            _use_action(game)
-            await _flush_eliminations(game)
-            state = game.public_state()
-            state["board"] = game.board
-            await game.broadcast({"type": "game_state", **state})
-            return
+    # ── New: scout-count-aware behaviour. ─────────────────────────────────────
+    # If the AI has no scouts left on the board, building one becomes the top priority so the
+    # turn doesn't degenerate into endless no-ops just because invasion/expand routes happen
+    # to require a scout in cluster. Before that we also let the AI invest in income (skill
+    # tree, buildings) so it stays competitive across long games.
+    ai_scout_count = sum(
+        1 for h in game.board for pc in h["pieces"]
+        if pc["type"] == "scout" and pc["owner"] == ai_name
+    )
 
-    # 5. No action found — reset invasion failure memory so the AI can retry next turn
+    if ai_scout_count == 0 and _ai_try_build_scout(game, ai_p, ai_name):
+        _use_action(game)
+        await _flush_eliminations(game)
+        state = game.public_state()
+        state["board"] = game.board
+        await game.broadcast({"type": "game_state", **state})
+        return
+
+    # 4. Research a skill if it pays for itself in income/VP.
+    if _ai_try_research_skill(game, ai_p, ai_name):
+        _use_action(game)
+        await _flush_eliminations(game)
+        state = game.public_state()
+        state["board"] = game.board
+        await game.broadcast({"type": "game_state", **state})
+        return
+
+    # 5. Construct a building on an owned bs_slot (or apply a farmer upgrade).
+    if _ai_try_construct_building(game, ai_p, ai_name):
+        _use_action(game)
+        await _flush_eliminations(game)
+        state = game.public_state()
+        state["board"] = game.board
+        await game.broadcast({"type": "game_state", **state})
+        return
+
+    # 6. Build a scout if we can.
+    if _ai_try_build_scout(game, ai_p, ai_name):
+        _use_action(game)
+        await _flush_eliminations(game)
+        state = game.public_state()
+        state["board"] = game.board
+        await game.broadcast({"type": "game_state", **state})
+        return
+
+    # 7. No action found — reset invasion failure memory so the AI can retry next turn.
     if game.ai_invasion_failures.get(ai_name):
         game.ai_invasion_failures[ai_name] = set()
     _use_action(game)
@@ -1516,7 +1716,157 @@ def _ai_do_flight(game: Game, ai_name: str, from_wh: int, to_wh: int) -> bool:
             break
         landing["pieces"].append(moved_piece)
         moved = True
+    if moved:
+        # Mark this cluster as "arrived this turn" so the AI can't immediately invade — the
+        # defender needs at least one turn to see the inbound scout before combat.
+        game.ai_arrived_this_turn.setdefault(ai_name, set()).add(dest_cluster)
     return moved
+
+
+# ── AI economy helpers ────────────────────────────────────────────────────────
+# These mirror the human action handlers in build_piece / research_skill but with simple
+# heuristics. Each returns True if it consumed the AI's action.
+
+def _ai_try_build_scout(game: "Game", ai_p: "Player", ai_name: str) -> bool:
+    """Build one scout in an open orbital of the AI's home cluster (human cost + tech)."""
+    if _player_planet_count(game, ai_name) == 0:
+        return False
+    sys_cluster = game.player_system.get(ai_name)
+    if sys_cluster is None:
+        return False
+    avail_orbs = [
+        h for h in game.board
+        if h["cluster"] == sys_cluster and h["type"] == "orbital"
+        and sum(1 for pc in h["pieces"] if pc["type"] == "scout") < 3
+    ]
+    if not avail_orbs:
+        return False
+    _eng = ai_p.tech.get("engineering", [])
+    money_cost = 10
+    tool_cost  = 2
+    if len(_eng) > 1 and _eng[1]: money_cost = max(1, money_cost - 2)  # Lv2 Shipyard Optimization
+    if len(_eng) > 2 and _eng[2]: tool_cost  = max(0, tool_cost  - 1)  # Lv3 Advanced Metallurgy
+    if ai_p.resources.get("money", 0) < money_cost:
+        return False
+    if ai_p.resources.get("tool", 0)  < tool_cost:
+        return False
+    chosen = random.choice(avail_orbs)
+    chosen["pieces"].append({"type": "scout", "owner": ai_name})
+    ai_p.resources["money"] = ai_p.resources.get("money", 0) - money_cost
+    if tool_cost:
+        ai_p.resources["tool"] = ai_p.resources.get("tool", 0) - tool_cost
+    ai_p.pieces["scout"] = ai_p.pieces.get("scout", 0) - 1
+    ai_p.ships_built["scout"] = ai_p.ships_built.get("scout", 0) + 1
+    return True
+
+
+# Skill columns ranked by AI value: income-producing first, then VP/combat-flavored.
+_AI_SKILL_PRIORITY = ("biology", "engineering", "government", "physics")
+
+
+def _ai_try_research_skill(game: "Game", ai_p: "Player", ai_name: str) -> bool:
+    """Buy the cheapest available skill level the AI can afford, picking columns that yield
+    income or VP first. Avoids paying just for the sake of paying — skips if the AI is short
+    on science it will need for future buys.
+    """
+    science = ai_p.resources.get("science", 0)
+    if science < 2:
+        return False
+    candidates: list[tuple[int, str, int, dict]] = []  # (cost_sci, column, level, effect)
+    for column in _AI_SKILL_PRIORITY:
+        levels = ai_p.tech.setdefault(column, [False] * 5)
+        next_lvl = next((i for i, done in enumerate(levels) if not done), None)
+        if next_lvl is None:
+            continue
+        effect = _SKILL_EFFECTS[column][next_lvl]
+        cost_sci = int(effect.get("science", 0))
+        if science < cost_sci:
+            continue
+        candidates.append((cost_sci, column, next_lvl, effect))
+    if not candidates:
+        return False
+    # Prefer effects with concrete payoff (any income or VP) over flat unlocks; tiebreak on
+    # the column order in _AI_SKILL_PRIORITY (which is the iteration order).
+    def _payoff(c: tuple[int, str, int, dict]) -> int:
+        eff = c[3]
+        return (1 if eff.get("income") or eff.get("vp") else 0)
+    candidates.sort(key=lambda c: (-_payoff(c), c[0]))
+    cost_sci, column, next_lvl, effect = candidates[0]
+    ai_p.resources["science"] = science - cost_sci
+    levels = ai_p.tech[column]
+    levels[next_lvl] = True
+    ai_p.tech[column] = levels
+    for res, amt in effect.get("income", {}).items():
+        ai_p.income[res] = ai_p.income.get(res, 0) + int(amt)
+    if effect.get("vp"):
+        ai_p.pieces["vp"] = ai_p.pieces.get("vp", 0) + int(effect["vp"])
+    return True
+
+
+# Buildings ranked by per-money payoff for an AI: money first (3/4 ratio), then science, tool,
+# and lastly the farmer upgrade (tools cost, food savings).
+_AI_BUILDING_ORDER = ("building_money", "building_science", "building_tool")
+
+
+def _ai_try_construct_building(game: "Game", ai_p: "Player", ai_name: str) -> bool:
+    """Place a building (or farmer upgrade) on an AI-owned hex. Uses the same cost scaling as
+    the human action handler in build_piece so the economy stays consistent.
+    """
+    if _player_planet_count(game, ai_name) == 0:
+        return False
+    sys_cluster = game.player_system.get(ai_name)
+    if sys_cluster is None:
+        return False
+    owned_clusters = {sys_cluster} | {
+        h["cluster"] for h in game.board
+        for p in h.get("pieces", [])
+        if p["type"] == "empire_flag" and p["owner"] == ai_name
+    }
+    _eng = ai_p.tech.get("engineering", [])
+    bld_cap = 4 if (len(_eng) > 3 and _eng[3]) else 3
+    money_scale = max(1, _player_planet_count(game, ai_name))
+    money_have = ai_p.resources.get("money", 0)
+    tool_have  = ai_p.resources.get("tool", 0)
+
+    for piece_type in _AI_BUILDING_ORDER:
+        base_money = 6 if piece_type == "building_money" else 4
+        money_cost = base_money
+        if len(_eng) > 0 and _eng[0]:
+            money_cost = max(1, money_cost - 1)
+        money_cost *= money_scale
+        if money_have < money_cost:
+            continue
+        slot = next(
+            (h for h in game.board
+             if h["cluster"] in owned_clusters and h["type"] == "bs_slot"
+             and len([p for p in h["pieces"] if p["type"] in _BUILDING_INCOME]) < bld_cap),
+            None,
+        )
+        if not slot:
+            continue
+        slot["pieces"].append({"type": piece_type, "owner": ai_name})
+        ai_p.resources["money"] = money_have - money_cost
+        for _bkey, _bamt in _BUILDING_INCOME.get(piece_type, {}).items():
+            ai_p.income[_bkey] = ai_p.income.get(_bkey, 0) + int(_bamt)
+        ai_p.ships_built[piece_type] = ai_p.ships_built.get(piece_type, 0) + 1
+        ai_p.pieces[piece_type] = ai_p.pieces.get(piece_type, 0) - 1
+        return True
+
+    # Farmer upgrade: cheap tool spend to reduce food upkeep on a tri-hex we own.
+    if tool_have >= 3:
+        tri_hex = next(
+            (h for h in game.board
+             if h.get("tri") and h["cluster"] in owned_clusters and not h.get("tri_farmer_green")),
+            None,
+        )
+        if tri_hex is not None:
+            tri_hex["tri_farmer_green"] = True
+            ai_p.resources["tool"] = tool_have - 3
+            ai_p.ships_built["farmer_upgrade"] = ai_p.ships_built.get("farmer_upgrade", 0) + 1
+            ai_p.pieces["farmer_upgrade"] = ai_p.pieces.get("farmer_upgrade", 0) - 1
+            return True
+
+    return False
 
 
 async def _ai_loop(game: Game) -> None:
@@ -1553,6 +1903,70 @@ async def _ai_loop(game: Game) -> None:
         await asyncio.sleep(2.0)
 
 
+# ── Recording HTTP endpoints ──────────────────────────────────────────────────
+
+@router.get("/recordings")
+def list_recordings() -> list[dict]:
+    """List every recording on disk, newest first.
+
+    Each entry includes filename, byte size, modification time, the 4-letter game code,
+    and lightweight metadata pulled from the first line (`game_start` event) without
+    streaming the whole file — useful for the recordings UI.
+    """
+    items: list[dict] = []
+    for path in sorted(RECORDINGS_DIR.glob("*.jsonl"),
+                       key=lambda p: p.stat().st_mtime, reverse=True):
+        st = path.stat()
+        # filename is <CODE>_<YYYYMMDD-HHMMSS>.jsonl
+        m = _RECORDING_FILENAME_RE.match(path.name)
+        code = m.group(0).split("_", 1)[0] if m else path.stem.split("_", 1)[0]
+        meta: dict[str, Any] = {
+            "filename": path.name,
+            "code": code,
+            "size_bytes": st.st_size,
+            "modified": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(st.st_mtime)) + "Z",
+        }
+        try:
+            with path.open("r", encoding="utf-8") as fp:
+                first = fp.readline()
+            if first:
+                first_event = json.loads(first)
+                if isinstance(first_event, dict) and first_event.get("kind") == "game_start":
+                    meta["started_at"] = time.strftime(
+                        "%Y-%m-%dT%H:%M:%S",
+                        time.gmtime(float(first_event.get("ts", st.st_mtime))),
+                    ) + "Z"
+                    meta["host"] = first_event.get("host")
+                    meta["players"] = [
+                        p.get("name") for p in (first_event.get("players") or [])
+                        if isinstance(p, dict)
+                    ]
+        except (OSError, ValueError):
+            pass
+        items.append(meta)
+    return items
+
+
+@router.get("/recordings/{filename}")
+def get_recording(filename: str):
+    """Stream a single recording back as a downloadable JSONL file.
+
+    Filenames are validated against ``_RECORDING_FILENAME_RE`` (4-letter game code +
+    timestamp) to prevent any path-traversal trick.
+    """
+    if not _RECORDING_FILENAME_RE.match(filename):
+        raise HTTPException(400, "Invalid recording filename")
+    path = RECORDINGS_DIR / filename
+    if not path.is_file():
+        raise HTTPException(404, "Recording not found")
+    return FileResponse(
+        str(path),
+        media_type="application/x-ndjson",
+        filename=filename,
+        headers={"Cache-Control": "no-store"},
+    )
+
+
 # ── WebSocket endpoint ────────────────────────────────────────────────────────
 
 @router.websocket("/ws/{game_code}")
@@ -1565,6 +1979,15 @@ async def sss_ws(ws: WebSocket, game_code: str):
         async for raw in ws.iter_json():
             kind = raw.get("type")
 
+            # Recording: log every inbound message (player intent / action) as soon as we have
+            # a game on the socket. We deliberately don't log the very first 'host'/'join'
+            # message — those are captured inside the start()/join handlers instead, after the
+            # game object exists.
+            if game and game.recorder and kind not in ("ping",):
+                asyncio.create_task(game.recorder.record_inbound(
+                    player.name if player else None, raw
+                ))
+
             # ── host ──────────────────────────────────────────────────────────
             if kind == "host":
                 name = (raw.get("name") or "").strip()[:32]
@@ -1573,6 +1996,9 @@ async def sss_ws(ws: WebSocket, game_code: str):
                     continue
                 code = _new_code()
                 game = Game(code=code, host_name=name)
+                game.recorder = GameRecorder(code)
+                await game.recorder.start(game)
+                await game.recorder.record_inbound(name, raw)
                 _games[code] = game
                 player = Player(ws=ws, name=name, role="host")
                 game.players[name] = player
@@ -2523,11 +2949,13 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 if not player_frigates:
                     await ws.send_json({"type": "error", "msg": "No ships in that cluster"})
                     continue
-                # Verify player doesn't own it
-                already_owns = (
-                    game.player_system.get(player.name) == cluster
-                    or any(p["type"] == "empire_flag" and p["owner"] == player.name
-                           for p in core_hex.get("pieces", []))
+                # Verify player doesn't own it — current ownership is the empire_flag on the
+                # planet's core hex, NOT `game.player_system` (which stays pinned to the
+                # player's original home and would block legitimate re-conquest of a home
+                # planet that an opponent has captured).
+                already_owns = any(
+                    p["type"] == "empire_flag" and p["owner"] == player.name
+                    for p in core_hex.get("pieces", [])
                 )
                 if already_owns:
                     await ws.send_json({"type": "error", "msg": "You already own this cluster"})
@@ -2967,4 +3395,9 @@ async def sss_ws(ws: WebSocket, game_code: str):
                     )
                 elif game.phase == "lobby":
                     # Nobody connected in lobby — no reason to keep the game
+                    if game.recorder:
+                        asyncio.create_task(game.recorder.end("abandoned_in_lobby"))
                     _games.pop(game.code, None)
+                # When players disconnect mid-game we deliberately keep the recorder open so
+                # rejoining players continue writing into the same log; it is finalized when
+                # the game.phase flips to "ended" inside broadcast().

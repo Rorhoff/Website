@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Game Recordings — Secret Space Society</title>
+  <link rel="icon" type="image/png" href="favicon.png" />
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="/assets/nav-mobile.css" />
+  <style>
+    .rec-wrap   { max-width: 1100px; margin: 0 auto; padding: 1rem; display: grid;
+                  gap: 1rem; grid-template-columns: 1fr;}
+    @media (min-width: 880px) { .rec-wrap { grid-template-columns: 320px 1fr; } }
+    .rec-list   { border: 1px solid var(--border); border-radius: 8px; overflow: hidden;
+                  background: #0a0f18; max-height: 70vh; overflow-y: auto; }
+    .rec-list h3 { margin: 0; padding: .6rem .8rem; font-size: .85rem;
+                   border-bottom: 1px solid var(--border); color: var(--muted);
+                   text-transform: uppercase; letter-spacing: .05em; }
+    .rec-item   { padding: .6rem .8rem; border-bottom: 1px solid #1c2333;
+                  cursor: pointer; font-size: .82rem; }
+    .rec-item:hover    { background: #131a26; }
+    .rec-item.selected { background: #1e2a3e; }
+    .rec-item .code    { font-weight: 700; color: var(--accent); letter-spacing: .04em; }
+    .rec-item .meta    { color: var(--muted); font-size: .72rem; margin-top: .2rem; }
+    .rec-detail { border: 1px solid var(--border); border-radius: 8px;
+                  background: #0a0f18; padding: 1rem; min-height: 200px; }
+    .rec-detail h2 { margin: 0 0 .5rem; font-size: 1.2rem; }
+    .rec-detail .toolbar { display: flex; gap: .5rem; flex-wrap: wrap; margin: .6rem 0 .8rem; }
+    .rec-event-list { max-height: 60vh; overflow-y: auto; font-family: 'Courier New', monospace;
+                      font-size: .78rem; }
+    .rec-event { padding: .25rem .5rem; border-bottom: 1px solid #131a26;
+                 display: grid; grid-template-columns: 60px 80px 70px 1fr; gap: .5rem;
+                 align-items: baseline; }
+    .rec-event .seq    { color: var(--muted); font-size: .7rem; }
+    .rec-event .kind   { font-weight: 700; }
+    .rec-event .kind.in       { color: #60a5fa; }
+    .rec-event .kind.out      { color: #c4b5fd; }
+    .rec-event .kind.snapshot { color: #fbbf24; }
+    .rec-event .kind.game_start, .rec-event .kind.game_end, .rec-event .kind.game_over {
+      color: #34d399;
+    }
+    .rec-event .player { color: var(--muted); font-size: .72rem; }
+    .rec-event .payload { color: #e5e7eb; word-break: break-word; }
+    .rec-event details summary { cursor: pointer; }
+    .rec-event details pre { white-space: pre-wrap; word-break: break-word; margin: .25rem 0 0;
+                             padding: .35rem; background: #0c1220; border-radius: 4px;
+                             color: #9ca3af; font-size: .72rem; max-height: 320px; overflow: auto; }
+    .rec-filter { display: flex; gap: .4rem; flex-wrap: wrap; margin: .25rem 0 .5rem; }
+    .rec-filter label { display: inline-flex; gap: .25rem; align-items: center; font-size: .8rem;
+                        color: var(--muted); cursor: pointer; }
+    .empty-hint { color: var(--muted); font-size: .9rem; padding: 1rem; }
+  </style>
+</head>
+<body>
+  <nav class="site-nav" aria-label="Primary">
+    <button class="nav-hamburger" id="navHamburger" aria-label="Toggle navigation" aria-expanded="false">☰</button>
+    <div class="nav-links" id="navLinks">
+      <a href="../index.html">About</a>
+      <a href="https://www.linkedin.com/in/rorhoff" target="_blank" rel="noopener noreferrer">LinkedIn</a>
+      <a href="../api-testing/">API Testing</a>
+      <a href="../classifieds/">Classifieds</a>
+      <a href="../airevolution/">AI Revolution</a>
+      <a href="./" class="active">SSS</a>
+    </div>
+  </nav>
+
+  <div id="app">
+    <h1>Game Recordings</h1>
+    <p class="tagline">Every game played on this server is recorded for review.</p>
+
+    <div class="rec-wrap">
+      <div class="rec-list">
+        <h3>Recordings</h3>
+        <div id="rec-listing"><div class="empty-hint">Loading…</div></div>
+      </div>
+
+      <div class="rec-detail">
+        <h2 id="rec-title">Select a recording</h2>
+        <div id="rec-meta" class="hint" style="font-size:.85rem;color:var(--muted)"></div>
+        <div class="toolbar" id="rec-toolbar" style="display:none">
+          <a class="btn btn-ghost" id="rec-download" download>Download JSONL</a>
+        </div>
+        <div class="rec-filter" id="rec-filter" style="display:none">
+          <strong style="font-size:.8rem;color:var(--muted)">Show:</strong>
+          <label><input type="checkbox" data-flt="in"        checked /> player actions</label>
+          <label><input type="checkbox" data-flt="out"       checked /> server events</label>
+          <label><input type="checkbox" data-flt="snapshot"  checked /> state snapshots</label>
+          <label><input type="checkbox" data-flt="markers"   checked /> start / end markers</label>
+        </div>
+        <div class="rec-event-list" id="rec-events"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/assets/nav-mobile.js"></script>
+  <script>
+    const API = "/api/sss";
+    const $ = (id) => document.getElementById(id);
+
+    let currentEvents = [];
+    let visibleFilters = new Set(["in", "out", "snapshot", "markers"]);
+
+    function fmtTime(ts) {
+      if (!ts) return "";
+      const d = new Date(ts * 1000);
+      return d.toLocaleString();
+    }
+    function escapeHtml(s) {
+      const d = document.createElement("div");
+      d.textContent = String(s ?? "");
+      return d.innerHTML;
+    }
+
+    async function loadList() {
+      const host = $("rec-listing");
+      try {
+        const r = await fetch(API + "/recordings");
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        const items = await r.json();
+        if (!items.length) {
+          host.innerHTML = '<div class="empty-hint">No games recorded yet.</div>';
+          return;
+        }
+        host.innerHTML = items.map((it) => {
+          const players = (it.players || []).join(", ");
+          const started = it.started_at || it.modified;
+          const kb = (it.size_bytes / 1024).toFixed(1);
+          return `<div class="rec-item" data-fn="${escapeHtml(it.filename)}">
+            <div><span class="code">${escapeHtml(it.code)}</span> <span style="color:var(--muted);font-size:.72rem">${kb} KB</span></div>
+            <div class="meta">${escapeHtml(started)}</div>
+            <div class="meta">${escapeHtml(players) || "(no players)"}</div>
+          </div>`;
+        }).join("");
+        host.querySelectorAll(".rec-item").forEach((row) => {
+          row.addEventListener("click", () => {
+            host.querySelectorAll(".rec-item").forEach((r) => r.classList.remove("selected"));
+            row.classList.add("selected");
+            loadRecording(row.getAttribute("data-fn"));
+          });
+        });
+      } catch (e) {
+        host.innerHTML = `<div class="empty-hint">Couldn't load recordings: ${escapeHtml(e.message)}</div>`;
+      }
+    }
+
+    async function loadRecording(filename) {
+      $("rec-title").textContent = filename;
+      $("rec-meta").textContent = "Loading…";
+      $("rec-toolbar").style.display = "";
+      $("rec-filter").style.display = "";
+      const downloadLink = $("rec-download");
+      downloadLink.href = API + "/recordings/" + encodeURIComponent(filename);
+      downloadLink.setAttribute("download", filename);
+
+      try {
+        const r = await fetch(API + "/recordings/" + encodeURIComponent(filename));
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        const text = await r.text();
+        currentEvents = text.split("\n").filter(Boolean).map((line) => {
+          try { return JSON.parse(line); } catch { return null; }
+        }).filter(Boolean);
+        renderEvents();
+      } catch (e) {
+        $("rec-meta").textContent = "";
+        $("rec-events").innerHTML = `<div class="empty-hint">Error: ${escapeHtml(e.message)}</div>`;
+      }
+    }
+
+    function renderEvents() {
+      const events = currentEvents;
+      const startEvt = events.find((e) => e.kind === "game_start");
+      const endEvt   = events.find((e) => e.kind === "game_end");
+      const players  = (startEvt?.players || []).map((p) => p.name).join(", ");
+      $("rec-meta").innerHTML = `
+        <div><strong>Code:</strong> ${escapeHtml(startEvt?.code || "?")} · <strong>Host:</strong> ${escapeHtml(startEvt?.host || "?")}</div>
+        <div><strong>Players:</strong> ${escapeHtml(players) || "(none)"} </div>
+        <div><strong>Started:</strong> ${escapeHtml(fmtTime(startEvt?.ts))}</div>
+        ${endEvt ? `<div><strong>Ended:</strong> ${escapeHtml(fmtTime(endEvt.ts))} · ${escapeHtml(endEvt.reason || "")} · ${endEvt.events} events</div>` : '<div><em>In progress.</em></div>'}
+      `;
+
+      const host = $("rec-events");
+      let seq = 0;
+      const rows = events.map((evt) => {
+        seq += 1;
+        const k = evt.kind || "";
+        if (k === "in" && !visibleFilters.has("in")) return "";
+        if (k === "out" && !visibleFilters.has("out")) return "";
+        if (k === "snapshot" && !visibleFilters.has("snapshot")) return "";
+        if ((k === "game_start" || k === "game_end" || k === "game_over") && !visibleFilters.has("markers")) return "";
+        const t = evt.ts ? new Date(evt.ts * 1000).toLocaleTimeString() : "";
+        const player = evt.player || "";
+        let summary = "";
+        let payload = "";
+        if (k === "in") {
+          summary = evt.msg?.type || "(unknown)";
+          payload = JSON.stringify(evt.msg, null, 2);
+        } else if (k === "out") {
+          summary = evt.msg?.type || "(unknown)";
+          payload = JSON.stringify(evt.msg, null, 2);
+        } else if (k === "snapshot") {
+          summary = "snapshot: phase=" + (evt.msg?.phase || "?");
+          payload = JSON.stringify(evt.msg, null, 2);
+        } else if (k === "game_start") {
+          summary = "game_start (" + (evt.players?.length || 0) + " players)";
+          payload = JSON.stringify(evt, null, 2);
+        } else if (k === "game_end") {
+          summary = "game_end (" + (evt.reason || "") + ")";
+          payload = JSON.stringify(evt, null, 2);
+        } else if (k === "game_over") {
+          summary = "game_over";
+          payload = JSON.stringify(evt.stats, null, 2);
+        } else {
+          summary = k;
+          payload = JSON.stringify(evt, null, 2);
+        }
+        return `<div class="rec-event">
+          <span class="seq">${seq}</span>
+          <span class="kind ${k.replace(/[^a-z_]/g, '')}">${k}</span>
+          <span class="player">${escapeHtml(player)}</span>
+          <span class="payload">
+            <span>${escapeHtml(summary)} <span class="seq">${escapeHtml(t)}</span></span>
+            <details><summary style="color:var(--muted)">payload</summary><pre>${escapeHtml(payload)}</pre></details>
+          </span>
+        </div>`;
+      }).join("");
+      host.innerHTML = rows || '<div class="empty-hint">No events match the current filters.</div>';
+    }
+
+    document.getElementById("rec-filter").addEventListener("change", (ev) => {
+      const cb = ev.target;
+      if (!(cb instanceof HTMLInputElement)) return;
+      const f = cb.getAttribute("data-flt");
+      if (!f) return;
+      if (cb.checked) visibleFilters.add(f);
+      else visibleFilters.delete(f);
+      renderEvents();
+    });
+
+    loadList();
+  </script>
+</body>
+</html>

@@ -900,10 +900,11 @@
     function tryBuildBuilding() {
       const toolIncome = me?.income?.tool    ?? 0;
       const sciIncome  = me?.income?.science ?? 0;
-      // Priority: fix missing tool income first (needed for frigates), then science, then money
+      const science    = me?.resources?.science ?? 0;
+      // Priority: fabs when income OR stock is thin (planet upkeep can mask missing buildings).
       const priority = [];
-      if (toolIncome === 0) priority.push("building_tool");
-      if (sciIncome  === 0) priority.push("building_science");
+      if (toolIncome === 0 || tools < 4) priority.push("building_tool");
+      if (sciIncome === 0 || science < 10) priority.push("building_science");
       priority.push("building_money", "building_tool", "building_science");
       const tried = new Set();
       for (const btype of priority) {
@@ -1025,8 +1026,11 @@
           (dh.pieces ?? []).some(pc => MOBILE_SHIP_TYPES.includes(pc.type) && pc.owner !== p.name)
         );
         if (!enemyHex) continue;
+        const fromCluster = h.cluster;
+        // Server needs _ATTACK_SHIPS somewhere in from_cluster — cruise on wormhole alone is invalid.
+        if (countAttackShips(fromCluster) < 1) continue;
         sysLog(idx, `⚔ Attack enemy cluster ${destCluster} hex ${enemyHex.id}`);
-        send(idx, { type: "attack_move", from_cluster: h.cluster, target_hex_id: enemyHex.id });
+        send(idx, { type: "attack_move", from_cluster: fromCluster, target_hex_id: enemyHex.id });
         return true;
       }
       return false;
@@ -1100,11 +1104,11 @@
     // ── CONQUEROR: unclaimed planets first → expand to new systems ────────────
     if (strategy === "conqueror") {
       if (tryFixNegativeResource()) return;
-      if (tryAttack()) return;
       if (totalAttackShips === 0) {
         if (tryBuildBuilding()) return;
         if (tryBuildShip()) return;
       }
+      if (tryAttack()) return;
       // Prefer unclaimed (no empire_flag) over enemy-owned
       const unclaimedFirst = [...myFrigClusters].filter(cl => {
         if (myClusters.has(cl)) return false;
@@ -1148,12 +1152,12 @@
     // ── AGGRESSOR: attack players 4-5 (last two in list), chase enemies ───────
     if (strategy === "aggressor") {
       if (tryFixNegativeResource()) return;
-      if (tryAttack()) return;
-      // Cruise-only scouts-of-opportunity still leave totalAttackShips === 0 — invasions always fail.
+      // Establish fabs / hulls before combat — avoids burning actions on invalid attacks when cruise-only.
       if (totalAttackShips === 0) {
         if (tryBuildBuilding()) return;
         if (tryBuildShip()) return;
       }
+      if (tryAttack()) return;
       const allPlayers = state.players ?? [];
       const targetNames = new Set(allPlayers.slice(-2).map(pl => pl.name));
       const { attack, expand } = buildRoutes();

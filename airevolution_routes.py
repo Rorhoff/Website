@@ -95,65 +95,317 @@ def _all_chunks() -> list[dict[str, Any]]:
     return out
 
 
-def _retrieve(query: str, top_k: int = 6) -> list[dict[str, Any]]:
+BROAD_QUERY_RE = re.compile(
+    r"\b(every|each|all|entire|complete|whole|comprehensive|exhaustive|"
+    r"list(?:\s+(?:out|all|every|each|the))?|enumerate|"
+    r"in\s+order|step[- ]by[- ]step|walk\s+(?:me\s+)?through|"
+    r"for\s+(?:every|each|all)|"
+    r"every\s+(?:application|app|product|tool|module|service|item|one)|"
+    r"all\s+(?:applications|apps|products|tools|modules|services|items))\b",
+    re.IGNORECASE,
+)
+
+
+def _is_broad_query(text: str) -> bool:
+    return bool(BROAD_QUERY_RE.search(text or ""))
+
+
+def _retrieve(
+    query: str,
+    top_k: int = 6,
+    per_doc_limit: int | None = None,
+) -> list[dict[str, Any]]:
+    """Score chunks by token overlap with the query.
+
+    When `per_doc_limit` is set, no single source document contributes more than that many
+    chunks to the result until the rest of the budget is filled — this keeps a single chatty
+    document from crowding out other documents on enumerative queries.
+    """
     q_toks = _tokenize(query)
     if not q_toks:
         return []
     q_set = set(q_toks)
     q_counts = Counter(q_toks)
+    norm_q = (sum(q_counts[w] ** 2 for w in q_counts) ** 0.5) or 1.0
     scored: list[tuple[float, dict[str, Any]]] = []
     for ch in _all_chunks():
         toks = _tokenize(ch["text"])
         if not toks:
             continue
         doc_counts = Counter(toks)
-        # Cosine-like overlap score
         dot = sum(q_counts[w] * doc_counts.get(w, 0) for w in q_set)
         if dot <= 0:
             continue
-        norm_q = sum(q_counts[w] ** 2 for w in q_counts) ** 0.5
-        norm_d = sum(doc_counts[w] ** 2 for w in doc_counts) ** 0.5
-        score = dot / (norm_q * norm_d) if norm_q and norm_d else 0.0
+        norm_d = (sum(doc_counts[w] ** 2 for w in doc_counts) ** 0.5) or 1.0
+        score = dot / (norm_q * norm_d)
         scored.append((score, ch))
     scored.sort(key=lambda x: -x[0])
-    return [c for _, c in scored[:top_k]]
+
+    if not per_doc_limit:
+        return [c for _, c in scored[:top_k]]
+
+    selected: list[dict[str, Any]] = []
+    overflow: list[dict[str, Any]] = []
+    per_doc_count: dict[Any, int] = {}
+    for _s, ch in scored:
+        sid = ch.get("source_id")
+        if per_doc_count.get(sid, 0) < per_doc_limit:
+            selected.append(ch)
+            per_doc_count[sid] = per_doc_count.get(sid, 0) + 1
+            if len(selected) >= top_k:
+                break
+        else:
+            overflow.append(ch)
+    if len(selected) < top_k:
+        for ch in overflow:
+            selected.append(ch)
+            if len(selected) >= top_k:
+                break
+    return selected
 
 
-def _image_context() -> str:
+def _focused_window(
+    full_text: str,
+    query_terms: set[str],
+    budget: int,
+) -> tuple[int, int]:
+    """Return ``(start, end)`` for the window of size ``budget`` in ``full_text`` with the
+    highest density of query keywords.
+
+    Slides a coarse window across the document, counts case-insensitive occurrences of every
+    query token of length >= 3, and snaps the start backwards to the nearest paragraph break
+    so we don't slice through a chapter heading. This is what lets us keep "Chapter 7" in view
+    when the relevant content is in the middle of a large guide instead of at the start.
+    """
+    n = len(full_text)
+    if n <= budget:
+        return 0, n
+    keywords = [t for t in query_terms if len(t) >= 3]
+    if not keywords:
+        return 0, budget
+    lower = full_text.lower()
+    stride = max(500, budget // 16)
+    best_start = 0
+    best_score = -1
+    last_start = n - budget
+    start = 0
+    while True:
+        win = lower[start : start + budget]
+        score = sum(win.count(t) for t in keywords)
+        if score > best_score:
+            best_score = score
+            best_start = start
+        if start >= last_start:
+            break
+        start = min(last_start, start + stride)
+    look = full_text.rfind("\n\n", max(0, best_start - 2000), best_start + 200)
+    if look >= 0:
+        best_start = look
+    end = min(n, best_start + budget)
+    return best_start, end
+
+
+def _retrieve_full_docs(
+    query: str,
+    max_docs: int = 10,
+    per_doc_cap: int = 80_000,
+    char_cap: int = 240_000,
+    single_doc_cap: int = 240_000,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """For enumerative queries, hand Claude the *full* text of the most relevant documents.
+
+    Budgets are sized to fit comfortably inside Claude's 200K-token context window:
+    ~240K chars ≈ 60K tokens. A per-document cap keeps one huge document from starving the
+    others, but when only a single document matches it gets the entire budget so a chapter
+    deep inside (e.g. Chapter 7 of a 9-chapter install guide) is not cut off.
+
+    When a document does have to be truncated, ``_focused_window`` anchors the slice on the
+    section with the highest query-keyword density so we keep the relevant chapter, not
+    arbitrary opening pages.
+    """
+    q_toks = _tokenize(query)
+    if not q_toks:
+        return [], []
+    q_set = set(q_toks)
+    q_counts = Counter(q_toks)
+    norm_q = (sum(q_counts[w] ** 2 for w in q_counts) ** 0.5) or 1.0
+    with _lock:
+        docs_snapshot = [
+            {
+                "id": d["id"],
+                "title": d.get("title") or f"Document {d['id']}",
+                "full_text": d.get("full_text") or "",
+            }
+            for d in _docs
+        ]
+    scored_docs: list[tuple[float, dict[str, Any]]] = []
+    for d in docs_snapshot:
+        toks = _tokenize(d["full_text"])
+        if not toks:
+            continue
+        doc_counts = Counter(toks)
+        dot = sum(q_counts[w] * doc_counts.get(w, 0) for w in q_set)
+        if dot <= 0:
+            continue
+        norm_d = (sum(doc_counts[w] ** 2 for w in doc_counts) ** 0.5) or 1.0
+        score = dot / (norm_q * norm_d)
+        scored_docs.append((score, d))
+    scored_docs.sort(key=lambda x: -x[0])
+    matching_count = len(scored_docs)
+    effective_per_doc = single_doc_cap if matching_count == 1 else per_doc_cap
+
+    full_docs: list[dict[str, Any]] = []
+    hits: list[dict[str, Any]] = []
+    total_chars = 0
+    for _s, d in scored_docs[:max_docs]:
+        if total_chars >= char_cap:
+            break
+        remaining_total = char_cap - total_chars
+        budget = min(effective_per_doc, remaining_total)
+        full_text = d["full_text"]
+        truncated = False
+        if len(full_text) > budget:
+            start, end = _focused_window(full_text, q_set, budget)
+            section = full_text[start:end].rstrip()
+            leading_note = (
+                f"[Excerpt focused near char {start} of {len(full_text)} — anchored on the "
+                f"section with the highest density of query keywords. Earlier pages are not "
+                f"shown.]\n\n"
+                if start > 0
+                else ""
+            )
+            trailing_note = (
+                "\n\n[Document continues beyond this excerpt.]"
+                if end < len(full_text)
+                else ""
+            )
+            text = leading_note + section + trailing_note
+            truncated = True
+        else:
+            text = full_text
+        full_docs.append({"id": d["id"], "title": d["title"], "text": text, "truncated": truncated})
+        hits.append({
+            "title": d["title"],
+            "source_id": d["id"],
+            "part": 0,
+            "text": d["full_text"][:600],
+        })
+        total_chars += len(text)
+    return full_docs, hits
+
+
+def _retrieve_images(query: str, top_k: int = 4) -> list[dict[str, Any]]:
+    """Return knowledge-base images whose caption/filename tokens best match the query."""
+    q_toks = _tokenize(query)
+    if not q_toks:
+        return []
+    q_set = set(q_toks)
+    q_counts = Counter(q_toks)
+    norm_q = (sum(q_counts[w] ** 2 for w in q_counts) ** 0.5) or 1.0
+    with _lock:
+        images_snapshot = [dict(x) for x in _images]
+    scored: list[tuple[float, dict[str, Any]]] = []
+    for im in images_snapshot:
+        text = " ".join(filter(None, [im.get("caption") or "", im.get("filename") or ""]))
+        toks = _tokenize(text)
+        if not toks:
+            continue
+        d_counts = Counter(toks)
+        dot = sum(q_counts[w] * d_counts.get(w, 0) for w in q_set)
+        if dot <= 0:
+            continue
+        norm_d = (sum(d_counts[w] ** 2 for w in d_counts) ** 0.5) or 1.0
+        score = dot / (norm_q * norm_d)
+        scored.append((score, im))
+    scored.sort(key=lambda x: -x[0])
+    return [im for _, im in scored[:top_k]]
+
+
+def _image_context(matched: list[dict[str, Any]] | None = None) -> str:
+    """Render an image listing for the model.
+
+    If `matched` is provided, those images are listed first as the most relevant; the full
+    library is still listed below so the model can reference any screenshot by filename.
+    """
     with _lock:
         if not _images:
             return ""
-    lines: list[str] = []
-    for im in _images:
-        u = im.get("url_path", "")
+        all_images = [dict(x) for x in _images]
+    matched_ids = {im["id"] for im in (matched or [])}
+
+    def _line(im: dict[str, Any]) -> str:
         cap = (im.get("caption") or "").strip()
-        if cap:
-            lines.append(f"- Screenshot ({im.get('filename')}): {cap}")
-        else:
-            lines.append(f"- Screenshot available: {u} (add a caption in the UI to describe what it shows).")
-    return "Reference screenshots in knowledge base:\n" + "\n".join(lines)
+        fname = im.get("filename") or ""
+        url = im.get("url_path", "")
+        cap_part = f": {cap}" if cap else " (no caption — describe in UI)"
+        return f"- filename={fname} url={url}{cap_part}"
+
+    out: list[str] = []
+    if matched:
+        out.append("Most relevant screenshots for this inquiry:")
+        out.extend(_line(im) for im in matched)
+        rest = [im for im in all_images if im["id"] not in matched_ids]
+        if rest:
+            out.append("")
+            out.append("Other screenshots in the knowledge base:")
+            out.extend(_line(im) for im in rest)
+    else:
+        out.append("Reference screenshots in knowledge base:")
+        out.extend(_line(im) for im in all_images)
+    return "\n".join(out)
 
 
-def _build_context_for_query(user_message: str) -> tuple[str, list[dict[str, Any]]]:
-    hits = _retrieve(user_message, top_k=6)
+def _build_context_for_query(
+    user_message: str,
+) -> tuple[str, list[dict[str, Any]], list[dict[str, Any]], bool]:
+    """Assemble the knowledge context block for the model.
+
+    Detects enumerative/broad questions (``every``, ``all``, ``each``, ``list``, ``in order``,
+    ``step by step`` …) and, for those, includes the *full* text of every matching document so
+    items cannot be silently dropped because their chunks lost the chunk-level scoring race.
+    Narrow questions keep the original chunk-level RAG behavior.
+    """
+    broad = _is_broad_query(user_message)
+    img_hits = _retrieve_images(user_message, top_k=4)
     parts: list[str] = []
-    for h in hits:
-        parts.append(f"From «{h['title']}» (excerpt {h.get('part', 1)}):\n{h['text']}\n")
+
+    if broad:
+        full_docs, doc_hits = _retrieve_full_docs(user_message, max_docs=10)
+        diverse_chunks = _retrieve(user_message, top_k=24, per_doc_limit=6)
+        if full_docs:
+            for d in full_docs:
+                parts.append(f"Full document «{d['title']}»:\n{d['text']}\n")
+            hits = list(doc_hits)
+            seen = {(h.get("source_id"), h.get("part")) for h in hits}
+            for ch in diverse_chunks:
+                key = (ch.get("source_id"), ch.get("part"))
+                if key not in seen:
+                    hits.append(ch)
+                    seen.add(key)
+        else:
+            hits = diverse_chunks
+            for h in hits:
+                parts.append(f"From «{h['title']}» (excerpt {h.get('part', 1)}):\n{h['text']}\n")
+    else:
+        hits = _retrieve(user_message, top_k=6)
+        for h in hits:
+            parts.append(f"From «{h['title']}» (excerpt {h.get('part', 1)}):\n{h['text']}\n")
+
     ctx = "\n---\n".join(parts) if parts else ""
-    img_ctx = _image_context()
+    img_ctx = _image_context(img_hits)
     if img_ctx:
         ctx = (ctx + "\n\n" + img_ctx) if ctx else img_ctx
-    return ctx, hits
+    return ctx, hits, img_hits, broad
 
 
-def _call_claude(system: str, user_text: str) -> str:
+def _call_claude(system: str, user_text: str, max_tokens: int = 4096) -> str:
     key = os.getenv("ANTHROPIC_API_KEY", "").strip()
     if not key:
         return ""
     model = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
     payload = {
         "model": model,
-        "max_tokens": 4096,
+        "max_tokens": max_tokens,
         "system": system,
         "messages": [{"role": "user", "content": user_text}],
     }
@@ -378,7 +630,7 @@ def delete_image(image_id: int) -> dict[str, bool]:
 @router.post("/chat")
 def chat(body: ChatIn) -> dict[str, Any]:
     _ensure_storage()
-    ctx, hits = _build_context_for_query(body.message)
+    ctx, hits, img_hits, broad = _build_context_for_query(body.message)
     has_kb = bool(ctx)
 
     system = (
@@ -391,8 +643,27 @@ def chat(body: ChatIn) -> dict[str, Any]:
         "If you can provide a complete resolution, end with: STATUS: RESOLVED. "
         "If the issue is beyond Tier 1 or needs internal escalation, use: STATUS: ESCALATE. "
         "Be concise, use numbered steps for fixes, name UI areas and settings panels when relevant, "
-        "and keep a professional, helpful tone."
+        "and keep a professional, helpful tone. "
+        "When a screenshot from the knowledge base helps illustrate a step, embed it inline using "
+        "the marker `[[image: FILENAME]]` on its own line, where FILENAME exactly matches the "
+        "`filename=` value listed in the knowledge context. The UI will render that screenshot in "
+        "place. Only reference images that appear in the listing; do not invent filenames."
     )
+    if broad:
+        system += (
+            " IMPORTANT — enumerative request: the user is asking you to cover every/all/each item "
+            "or to provide a list, an ordered walkthrough, or step-by-step instructions across "
+            "multiple items. Before drafting, scan the knowledge context for numbered or labeled "
+            "subsections (for example 'Chapter 7' with sub-sections 7.1, 7.2, 7.3 … 7.N, or a "
+            "list of application names with their own setup sections). Enumerate EVERY such "
+            "subsection that the context actually shows — do not stop early, do not summarize "
+            "items away, do not silently merge them. Use a numbered top-level list. For each "
+            "subsection, include its original heading or label (e.g. '7.1 ApplicationName') "
+            "followed by its steps. After listing what you found, explicitly state how many "
+            "subsections you covered (e.g. 'Covered 9 of 9 subsections under Chapter 7'). If "
+            "any expected subsection is missing from the context, name it explicitly and end "
+            "with STATUS: NEEDS_REVIEW."
+        )
 
     user_block = (
         f"User inquiry:\n{body.message}\n\n"
@@ -400,7 +671,11 @@ def chat(body: ChatIn) -> dict[str, Any]:
         f"{ctx or '(no documents matched; inform user and use STATUS: NEEDS_REVIEW unless trivial).'}"
     )
 
-    reply = _call_claude(system, user_block) if os.getenv("ANTHROPIC_API_KEY", "").strip() else ""
+    reply = (
+        _call_claude(system, user_block, max_tokens=(8192 if broad else 4096))
+        if os.getenv("ANTHROPIC_API_KEY", "").strip()
+        else ""
+    )
 
     if not reply:
         if has_kb:
@@ -460,7 +735,17 @@ def chat(body: ChatIn) -> dict[str, Any]:
     return {
         "reply": reply,
         "retrieval": [{"title": h["title"], "part": h.get("part"), "preview": h["text"][:220]} for h in hits],
+        "images": [
+            {
+                "id": im["id"],
+                "filename": im.get("filename", ""),
+                "url_path": im.get("url_path", ""),
+                "caption": im.get("caption", ""),
+            }
+            for im in img_hits
+        ],
         "status": status_line,
+        "broad": broad,
         "anthropic_configured": bool(os.getenv("ANTHROPIC_API_KEY", "").strip()),
         "ticket_id": body.ticket_id or new_ticket_id,
     }

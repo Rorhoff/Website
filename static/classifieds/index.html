@@ -148,7 +148,12 @@
       </section>
     </section>
 
-    <section id="postAdSection" class="post-ad-grid" hidden>
+    <nav id="profileTabs" class="profile-tabs" aria-label="Profile sections" hidden>
+      <button type="button" class="profile-tab" data-tab="profile" aria-selected="true">Profile</button>
+      <button type="button" class="profile-tab" data-tab="postAd" aria-selected="false">Post an Ad</button>
+    </nav>
+
+    <section id="profileSection" class="profile-pane" hidden>
       <section class="card">
         <h2>Profile</h2>
         <form id="profileForm">
@@ -183,7 +188,9 @@
           <button type="submit">Save Profile</button>
         </form>
       </section>
+    </section>
 
+    <section id="postAdSection" class="profile-pane" hidden>
       <section class="card">
         <h2>Post an Ad</h2>
         <form id="adForm">

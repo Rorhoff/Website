@@ -5,13 +5,19 @@
  */
 const CLASSIFIED_TOKEN_KEY = "classified_api_session";
 const PROFILE_ACTIVE_KEY = "classified_profile_active";
+const PROFILE_TAB_KEY = "classified_profile_tab"; // "profile" | "postAd"
 
 const registerForm = document.getElementById("registerForm");
 const loginForm = document.getElementById("loginForm");
 const profileForm = document.getElementById("profileForm");
 const adForm = document.getElementById("adForm");
 const authSection = document.getElementById("authSection");
+const profileSection = document.getElementById("profileSection");
 const postAdSection = document.getElementById("postAdSection");
+const profileTabsNav = document.getElementById("profileTabs");
+const profileTabButtons = profileTabsNav
+  ? Array.from(profileTabsNav.querySelectorAll(".profile-tab"))
+  : [];
 const menuWrapper = document.getElementById("menuWrapper");
 const menuToggleBtn = document.getElementById("menuToggleBtn");
 const menuPanel = document.getElementById("menuPanel");
@@ -56,6 +62,31 @@ function isProfileActive() {
 
 function setProfileActive(active) {
   localStorage.setItem(PROFILE_ACTIVE_KEY, active ? "true" : "false");
+}
+
+function getActiveProfileTab() {
+  const stored = localStorage.getItem(PROFILE_TAB_KEY);
+  return stored === "postAd" ? "postAd" : "profile";
+}
+
+function setActiveProfileTab(tab) {
+  const normalized = tab === "postAd" ? "postAd" : "profile";
+  localStorage.setItem(PROFILE_TAB_KEY, normalized);
+}
+
+function applyProfileTabUI() {
+  // Show/hide the two panes and update the tab strip's aria-selected state. Called from
+  // updateAuthUI() and from the tab click handlers — both flows should converge here so
+  // the visible pane and the highlighted tab stay in sync.
+  const profileActive = Boolean(getCurrentUserRecord()) && isProfileActive();
+  if (profileTabsNav) profileTabsNav.hidden = !profileActive;
+  const activeTab = getActiveProfileTab();
+  if (profileSection) profileSection.hidden = !profileActive || activeTab !== "profile";
+  if (postAdSection) postAdSection.hidden = !profileActive || activeTab !== "postAd";
+  profileTabButtons.forEach((btn) => {
+    const selected = btn.dataset.tab === activeTab;
+    btn.setAttribute("aria-selected", selected ? "true" : "false");
+  });
 }
 
 function showToast(message) {
@@ -147,7 +178,7 @@ function updateAuthUI() {
 
   setAuthSectionVisibility(!currentUser);
   menuWrapper.hidden = !userRecord;
-  postAdSection.hidden = !profileActive;
+  applyProfileTabUI(); // owns visibility of #profileSection and #postAdSection + tab strip
   adForm.querySelector("button").disabled = !profileActive;
   enterProfileBtn.hidden = profileActive;
   exitProfileBtn.hidden = !profileActive;
@@ -295,6 +326,13 @@ loginForm.addEventListener("submit", async (event) => {
 
 menuToggleBtn.addEventListener("click", () => {
   menuPanel.hidden = !menuPanel.hidden;
+});
+
+profileTabButtons.forEach((btn) => {
+  btn.addEventListener("click", () => {
+    setActiveProfileTab(btn.dataset.tab);
+    applyProfileTabUI();
+  });
 });
 
 document.addEventListener("click", (event) => {

@@ -186,10 +186,21 @@ async function loadTickets() {
     btn.addEventListener("click", async () => {
       const id = +btn.getAttribute("data-run-ai");
       setBanner("ticketBanner", "Running AI…", "info");
+      const aiImages = el("aiImages");
+      if (aiImages) {
+        aiImages.hidden = true;
+        aiImages.innerHTML = "";
+      }
       try {
         const res = await fetchJSON(`/tickets/${id}/ai-resolve`, { method: "POST" });
         setBanner("ticketBanner", "AI response recorded.", "ok");
-        el("aiOutput").textContent = res.reply;
+        const out = el("aiOutput");
+        const images = Array.isArray(res.images) ? res.images : [];
+        if (out) {
+          const { html, inlinedIds } = renderReplyWithImages(res.reply || "", images);
+          out.innerHTML = html || '<span class="muted">No response.</span>';
+          renderAIImageGallery(images.filter((im) => !inlinedIds.has(im.id)));
+        }
         loadTickets().catch(() => {});
         refreshStatus().catch(() => {});
         tabSwitch("tickets");
@@ -214,6 +225,70 @@ function buildQuickPrompts() {
       ta?.focus();
     });
   });
+}
+
+function _findImageByName(images, name) {
+  if (!images || !name) return null;
+  const norm = String(name).trim().toLowerCase();
+  if (!norm) return null;
+  return (
+    images.find((im) => (im.filename || "").toLowerCase() === norm) ||
+    images.find((im) => (im.url_path || "").toLowerCase().endsWith("/" + norm)) ||
+    images.find((im) => (im.url_path || "").toLowerCase().includes(norm)) ||
+    null
+  );
+}
+
+function renderReplyWithImages(reply, images) {
+  const inlinedIds = new Set();
+  if (!reply) return { html: "", inlinedIds };
+  const parts = [];
+  const regex = /\[\[\s*image\s*:\s*([^\]\n]+?)\s*\]\]/gi;
+  let lastIndex = 0;
+  let m;
+  while ((m = regex.exec(reply)) !== null) {
+    if (m.index > lastIndex) {
+      parts.push(escapeHtml(reply.slice(lastIndex, m.index)));
+    }
+    const name = (m[1] || "").trim();
+    const img = _findImageByName(images, name);
+    if (img) {
+      inlinedIds.add(img.id);
+      const cap = img.caption || img.filename || "";
+      parts.push(
+        `<img class="inline-img" src="${escapeAttr(img.url_path)}" alt="${escapeAttr(cap)}" title="${escapeAttr(cap)}" />`
+      );
+    } else {
+      parts.push(`<span class="inline-img-missing">[image not found: ${escapeHtml(name)}]</span>`);
+    }
+    lastIndex = m.index + m[0].length;
+  }
+  if (lastIndex < reply.length) {
+    parts.push(escapeHtml(reply.slice(lastIndex)));
+  }
+  return { html: parts.join(""), inlinedIds };
+}
+
+function renderAIImageGallery(images) {
+  const host = el("aiImages");
+  if (!host) return;
+  if (!images || !images.length) {
+    host.hidden = true;
+    host.innerHTML = "";
+    return;
+  }
+  host.hidden = false;
+  host.innerHTML = images
+    .map((im) => {
+      const cap = im.caption || im.filename || "";
+      return `<figure>
+        <a href="${escapeAttr(im.url_path)}" target="_blank" rel="noopener">
+          <img src="${escapeAttr(im.url_path)}" alt="${escapeAttr(cap)}" />
+        </a>
+        ${cap ? `<figcaption>${escapeHtml(cap)}</figcaption>` : ""}
+      </figure>`;
+    })
+    .join("");
 }
 
 function initChat() {
@@ -242,10 +317,15 @@ function initChat() {
     const logTicket = el("logTicket");
     const out = el("aiOutput");
     const retrieval = el("retrieval");
+    const aiImages = el("aiImages");
     const submitBtn = el("chatSubmit");
     if (!input?.value.trim()) return;
     out.textContent = "Working on your request…";
     if (retrieval) retrieval.innerHTML = "";
+    if (aiImages) {
+      aiImages.hidden = true;
+      aiImages.innerHTML = "";
+    }
     if (copyBtn) {
       copyBtn.hidden = true;
       copyBtn.textContent = "Copy reply";
@@ -263,12 +343,16 @@ function initChat() {
           create_ticket: !!(logTicket && logTicket.checked),
         }),
       });
-      out.textContent = res.reply;
+      const images = Array.isArray(res.images) ? res.images : [];
+      const { html: replyHtml, inlinedIds } = renderReplyWithImages(res.reply || "", images);
+      out.innerHTML = replyHtml || '<span class="muted">No response.</span>';
+      renderAIImageGallery(images.filter((im) => !inlinedIds.has(im.id)));
       if (copyBtn) copyBtn.hidden = !res.reply?.trim();
+      const broadTag = res.broad ? " · mode: enumerate-all" : "";
       if (res.ticket_id) {
-        setBanner("agentBanner", `Logged as ticket #${res.ticket_id} (status: ${res.status})`, "ok");
+        setBanner("agentBanner", `Logged as ticket #${res.ticket_id} (status: ${res.status})${broadTag}`, "ok");
       } else {
-        setBanner("agentBanner", `Status: ${res.status} · Claude: ${res.anthropic_configured ? "yes" : "no"}`, "info");
+        setBanner("agentBanner", `Status: ${res.status} · Claude: ${res.anthropic_configured ? "yes" : "no"}${broadTag}`, "info");
       }
       if (retrieval && res.retrieval && res.retrieval.length) {
         retrieval.innerHTML =
@@ -306,6 +390,93 @@ async function _uploadImgIfPresent(imgFile, captionFallback) {
   await fetchJSON("/images", { method: "POST", body: ifd });
 }
 
+const _pastedImages = [];
+
+function _extImageType(mime) {
+  switch ((mime || "").toLowerCase()) {
+    case "image/png": return ".png";
+    case "image/jpeg": return ".jpg";
+    case "image/jpg": return ".jpg";
+    case "image/gif": return ".gif";
+    case "image/webp": return ".webp";
+    default: return "";
+  }
+}
+
+function _normalizePastedFile(file, idx) {
+  const ext = _extImageType(file.type);
+  if (!ext) return null;
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const safeName = `pasted-${stamp}-${idx}${ext}`;
+  try {
+    return new File([file], safeName, { type: file.type });
+  } catch {
+    return file;
+  }
+}
+
+function renderPastedImages() {
+  const host = el("pastedImagesPreview");
+  if (!host) return;
+  if (!_pastedImages.length) {
+    host.hidden = true;
+    host.innerHTML = "";
+    return;
+  }
+  host.hidden = false;
+  host.innerHTML = _pastedImages
+    .map((p, i) => `
+      <figure data-idx="${i}">
+        <button type="button" class="rm" data-rm="${i}" title="Remove">×</button>
+        <img src="${p.dataUrl}" alt="" />
+        <figcaption title="${escapeAttr(p.file.name)}">${escapeHtml(p.file.name)}</figcaption>
+      </figure>`)
+    .join("");
+  host.querySelectorAll("[data-rm]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const i = +btn.getAttribute("data-rm");
+      if (i >= 0 && i < _pastedImages.length) {
+        _pastedImages.splice(i, 1);
+        renderPastedImages();
+      }
+    });
+  });
+}
+
+function clearPastedImages() {
+  _pastedImages.length = 0;
+  renderPastedImages();
+}
+
+function initPasteImageCapture() {
+  const ta = el("pasteBody");
+  if (!ta) return;
+  ta.addEventListener("paste", (ev) => {
+    const items = ev.clipboardData?.items || [];
+    const newFiles = [];
+    let hasText = false;
+    for (const item of items) {
+      if (item.kind === "string" && item.type === "text/plain") hasText = true;
+      if (item.kind === "file" && (item.type || "").startsWith("image/")) {
+        const f = item.getAsFile();
+        if (f) newFiles.push(f);
+      }
+    }
+    if (!newFiles.length) return;
+    if (!hasText) ev.preventDefault();
+    newFiles.forEach((f, k) => {
+      const norm = _normalizePastedFile(f, _pastedImages.length + k);
+      if (!norm) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        _pastedImages.push({ file: norm, dataUrl: reader.result });
+        renderPastedImages();
+      };
+      reader.readAsDataURL(norm);
+    });
+  });
+}
+
 function initDocUpload() {
   const form = el("docUploadForm");
   if (form) {
@@ -335,21 +506,35 @@ function initDocUpload() {
   }
   const pasteForm = el("pasteDocForm");
   if (pasteForm) {
+    initPasteImageCapture();
     pasteForm.addEventListener("submit", async (ev) => {
       ev.preventDefault();
-      setBanner("kbBanner", "Adding text…", "info");
       const bodyText = (el("pasteBody")?.value) || "";
-      if (!bodyText.trim()) return;
-      const imgFile = el("pasteImg")?.files?.[0];
+      const filePickerImgs = Array.from(el("pasteImg")?.files || []);
+      const pastedImgs = _pastedImages.map((p) => p.file);
+      const imageCount = filePickerImgs.length + pastedImgs.length;
+      if (!bodyText.trim() && imageCount === 0) {
+        setBanner("kbBanner", "Add some text or paste at least one image.", "err");
+        return;
+      }
       const pt = (el("pasteTitle")?.value || "").trim();
-      const fd = new FormData();
-      fd.set("text", bodyText);
-      if (pt) fd.set("title", pt);
+      setBanner("kbBanner", imageCount ? `Adding text + ${imageCount} image${imageCount > 1 ? "s" : ""}…` : "Adding text…", "info");
       try {
-        await _uploadImgIfPresent(imgFile?.size ? imgFile : null, pt);
-        await fetchJSON("/documents", { method: "POST", body: fd });
+        for (const f of [...pastedImgs, ...filePickerImgs]) {
+          if (f && f.size) await _uploadImgIfPresent(f, pt);
+        }
+        if (bodyText.trim()) {
+          const fd = new FormData();
+          fd.set("text", bodyText);
+          if (pt) fd.set("title", pt);
+          await fetchJSON("/documents", { method: "POST", body: fd });
+        }
         pasteForm.reset();
-        setBanner("kbBanner", "Pasted text added to knowledge base.", "ok");
+        clearPastedImages();
+        const summary = bodyText.trim()
+          ? (imageCount ? `Pasted text + ${imageCount} image${imageCount > 1 ? "s" : ""} added to knowledge base.` : "Pasted text added to knowledge base.")
+          : `${imageCount} image${imageCount > 1 ? "s" : ""} added to knowledge base.`;
+        setBanner("kbBanner", summary, "ok");
         loadDocuments().catch(() => {});
         refreshStatus().catch(() => {});
       } catch (e) {

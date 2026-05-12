@@ -10,6 +10,10 @@ from sss_routes import (
     _use_action,
     _planet_def_dice,
     _player_planet_count,
+    _ai_try_build_scout,
+    _ai_try_research_skill,
+    _ai_try_construct_building,
+    _ai_do_flight,
     Game,
     Player,
 )
@@ -462,3 +466,185 @@ def test_flight_move_target_hex_id_wrong_cluster_falls_back():
     assert result["id"] == expected_fallback["id"], (
         "Wrong-cluster target_hex_id must fall back to first available orbital"
     )
+
+
+# ── AI economy helpers (_ai_try_build_scout / _research_skill / _construct_building) ──────────
+# Reproduces the user-reported scenario: AI's scouts all died, AI still owns its home planet,
+# AI has resources and orbital space — it should rebuild on the next turn (and also invest in
+# buildings + skill tree, which used to be missing entirely).
+
+def _setup_ai_game_with_home() -> Game:
+    """Build a 2-player game with an AI 'AI' that has a home cluster, planet, and orbitals."""
+    board = _build_board(2)
+    game = Game(code="AIT", host_name="Hu")
+    game.board = board
+    game.players = {
+        "Hu": Player(ws=None, name="Hu", role="player"),
+        "AI": Player(ws=None, name="AI", role="ai"),
+    }
+    game.turn_order = ["Hu", "AI"]
+    game.turn_idx = 1  # AI's turn
+    game.turn_actions_remaining = 3
+    # Pick the first cluster's battle_station / planet / orbitals for the AI.
+    cluster = next(h["cluster"] for h in board if h["type"] == "orbital")
+    game.player_system["AI"] = cluster
+    # Place empire_flag on the planet hex (local==0) so _player_planet_count > 0.
+    planet_hex = next(h for h in board if h["cluster"] == cluster and h.get("local") == 0)
+    planet_hex.setdefault("planet", {"food": 1, "science": 0, "tool": 0, "money": 0, "vp": 1})
+    planet_hex["pieces"].append({"type": "empire_flag", "owner": "AI"})
+    # Drop a battle_station on an orbital so the AI's home is real.
+    orbital_hex = next(h for h in board if h["cluster"] == cluster and h["type"] == "orbital")
+    orbital_hex["pieces"].append({"type": "battle_station", "owner": "AI"})
+    ai = game.players["AI"]
+    ai.resources = {"food": 5, "science": 0, "tool": 5, "money": 50}
+    ai.income = {"food": 1, "science": 1, "tool": 1, "money": 3}
+    ai.pieces = {"scout": 9, "battle_station": 0, "empire_flag": 0, "building_money": 3,
+                 "building_science": 3, "building_tool": 3, "farmer_upgrade": 3}
+    ai.tech = {}
+    ai.tech_cards = []
+    return game
+
+
+def test_ai_rebuilds_scout_when_scouts_wiped():
+    """After every scout dies the AI should still be able to put a new one in an open orbital."""
+    game = _setup_ai_game_with_home()
+    ai = game.players["AI"]
+    # Confirm there are no AI scouts on the board to start (regression for the user bug).
+    starting_scouts = sum(
+        1 for h in game.board for pc in h["pieces"]
+        if pc["type"] == "scout" and pc["owner"] == "AI"
+    )
+    assert starting_scouts == 0
+
+    built = _ai_try_build_scout(game, ai, "AI")
+    assert built is True, "AI should rebuild a scout when home planet + resources + orbital exist"
+    new_scouts = sum(
+        1 for h in game.board for pc in h["pieces"]
+        if pc["type"] == "scout" and pc["owner"] == "AI"
+    )
+    assert new_scouts == 1
+    # Cost matches human build_piece cost (money 10 + tool 2) with no engineering.
+    assert ai.resources["money"] == 40
+    assert ai.resources["tool"] == 3
+
+
+def test_ai_skips_scout_build_when_broke():
+    game = _setup_ai_game_with_home()
+    ai = game.players["AI"]
+    ai.resources["money"] = 5  # below 10-money scout cost
+    assert _ai_try_build_scout(game, ai, "AI") is False
+
+
+def test_ai_builds_scout_uses_engineering_discounts():
+    """Engineering Lv2 cuts 2 money, Lv3 cuts 1 tool from spacecraft cost."""
+    game = _setup_ai_game_with_home()
+    ai = game.players["AI"]
+    ai.tech = {"engineering": [True, True, True, False, False]}
+    assert _ai_try_build_scout(game, ai, "AI") is True
+    assert ai.resources["money"] == 50 - 8  # 10 - 2
+    assert ai.resources["tool"]  == 5  - 1  # 2  - 1
+
+
+def test_ai_researches_skill_when_science_available():
+    """With enough science the AI buys the cheapest payoff skill (Hydroponics, 2 sci → +1 food)."""
+    game = _setup_ai_game_with_home()
+    ai = game.players["AI"]
+    ai.resources["science"] = 10
+    initial_food_income = ai.income.get("food", 0)
+    bought = _ai_try_research_skill(game, ai, "AI")
+    assert bought is True
+    assert ai.resources["science"] == 8  # 10 - 2
+    assert ai.tech["biology"][0] is True
+    assert ai.income["food"] == initial_food_income + 1
+
+
+def test_ai_skips_skill_when_no_science():
+    game = _setup_ai_game_with_home()
+    ai = game.players["AI"]
+    ai.resources["science"] = 1  # below the cheapest 2-sci buy
+    assert _ai_try_research_skill(game, ai, "AI") is False
+
+
+def test_ai_constructs_money_building_first():
+    """AI should prefer building_money (income 3) over the other buildings."""
+    game = _setup_ai_game_with_home()
+    ai = game.players["AI"]
+    # Ensure there's a bs_slot in the AI's cluster.
+    has_bs = any(
+        h["type"] == "bs_slot" and h["cluster"] == game.player_system["AI"]
+        for h in game.board
+    )
+    if not has_bs:
+        pytest.skip("Board layout has no bs_slot in chosen cluster")
+    starting_money_income = ai.income.get("money", 0)
+    built = _ai_try_construct_building(game, ai, "AI")
+    assert built is True
+    # building_money base cost 6 × max(1, 1 planet) = 6 money.
+    assert ai.resources["money"] == 50 - 6
+    assert ai.income["money"] == starting_money_income + 3
+    # Confirm the piece exists on a bs_slot.
+    placed = any(
+        pc["type"] == "building_money" and pc["owner"] == "AI"
+        for h in game.board if h["type"] == "bs_slot"
+        for pc in h["pieces"]
+    )
+    assert placed
+
+
+# ── AI fly-and-invade gating ──────────────────────────────────────────────────
+
+def test_ai_flight_marks_arrived_this_turn():
+    """`_ai_do_flight` should record the destination cluster in `ai_arrived_this_turn`
+    so subsequent invasion logic can refuse a same-turn planet invasion."""
+    game = _setup_ai_game_with_home()
+    ai_name = "AI"
+    home_cluster = game.player_system[ai_name]
+    ai_p = game.players[ai_name]
+    # Park a scout in the AI's home cluster on an orbital so flight has something to move.
+    home_orbital = next(
+        h for h in game.board if h["cluster"] == home_cluster and h["type"] == "orbital"
+    )
+    home_orbital["pieces"].append({"type": "scout", "owner": ai_name})
+
+    # Find any wormhole hex owned/located in the home cluster as the source.
+    src_wh = next(
+        (h for h in game.board
+         if h["cluster"] == home_cluster and h.get("wormhole_partner") is not None),
+        None,
+    )
+    if src_wh is None:
+        pytest.skip("Random home cluster has no wormhole — try a different layout")
+    dest_wh_id = src_wh["wormhole_partner"]
+    dest_cluster = game.board[dest_wh_id]["cluster"]
+
+    moved = _ai_do_flight(game, ai_name, src_wh["id"], dest_wh_id)
+    assert moved is True
+    arrived = game.ai_arrived_this_turn.get(ai_name, set())
+    assert dest_cluster in arrived, "Flight destination must be flagged as arrived-this-turn"
+    # Sanity: the scout actually landed somewhere in dest_cluster.
+    landed = any(
+        pc["type"] == "scout" and pc["owner"] == ai_name
+        for h in game.board if h["cluster"] == dest_cluster
+        for pc in h["pieces"]
+    )
+    assert landed
+
+
+def test_arrived_carries_within_same_turn_clears_across_turns():
+    """The arrived-this-turn set must persist while the AI's turn_idx is unchanged, but be
+    treated as stale (and reset by `_ai_board_action`) once turn_idx advances. This test
+    exercises only the *data invariant* — the actual reset runs as the first few lines of
+    `_ai_board_action`, which is verified via behavior in the WS integration tests."""
+    game = _setup_ai_game_with_home()
+    ai_name = "AI"
+    game.ai_arrived_this_turn[ai_name] = {5, 7}
+    game.ai_last_turn_idx[ai_name] = game.turn_idx
+
+    # Same turn — set must still match what we put in.
+    assert game.ai_arrived_this_turn[ai_name] == {5, 7}
+
+    # Advancing turn_idx alone does NOT clear it; the reset happens inside
+    # `_ai_board_action`. Both are intentionally simple to reason about.
+    game.turn_idx += 1
+    assert game.ai_arrived_this_turn[ai_name] == {5, 7}
+    assert game.ai_last_turn_idx[ai_name] != game.turn_idx

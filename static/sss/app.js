@@ -2767,32 +2767,83 @@ function initBoardPan() {
   }
   initBoardPan.resetView = resetView;
 
+  // When the wrap resizes (window/orientation/mobile address bar/fitBoardWrapHeight), re-clamp
+  // the pan in place so the board content can't slip behind the new bottom edge — but keep
+  // the user's current zoom and roughly their current focus point.
+  if (typeof ResizeObserver !== "undefined") {
+    let _firstResize = true;
+    const ro = new ResizeObserver(() => {
+      if (_firstResize) { _firstResize = false; return; }
+      clampPan();
+      commit();
+    });
+    ro.observe(wrap);
+  }
+
   // ── pan state ────────────────────────────────────────────────
   let panning = false, didDrag = false, capturedId = null;
   let startX = 0, startY = 0, startTx = 0, startTy = 0;
 
   // ── pinch-zoom state ─────────────────────────────────────────
+  // We track active pointers in a Map keyed by pointerId. Browsers sometimes drop pointerup /
+  // pointercancel events (finger lifts outside the element, tab loses focus, OS gesture
+  // preempts), which used to leave stale entries here — once 2 stale entries accumulated
+  // every subsequent touch was misread as a pinch with a corrupt baseline. The handlers below
+  // are self-healing: we listen for pointerup/pointercancel on window, dedupe duplicate
+  // pointerIds on pointerdown, cap the map at 2, time-out stale entries, and reset on
+  // visibility/blur.
   const activePointers = new Map();
   let pinching = false, pinchStartDist = 0, pinchPivot = null, baseScale = 1;
+  const POINTER_STALE_MS = 2500;
 
   function getPinchDist() {
     const [a, b] = [...activePointers.values()];
     return Math.hypot(a.x - b.x, a.y - b.y);
   }
 
+  function pruneStalePointers() {
+    const now = performance.now();
+    for (const [id, info] of activePointers) {
+      if (now - info.t > POINTER_STALE_MS) activePointers.delete(id);
+    }
+  }
+
+  function resetGestureState() {
+    activePointers.clear();
+    if (pinching) { pinching = false; pinchPivot = null; }
+    if (panning)  { panning  = false; wrap.classList.remove("panning"); }
+    if (capturedId !== null) {
+      try { wrap.releasePointerCapture(capturedId); } catch (_) {}
+      capturedId = null;
+    }
+  }
+
+  function startPinch() {
+    pinching = true; panning = false;
+    pinchStartDist = getPinchDist();
+    const [a, b] = [...activePointers.values()];
+    pinchPivot = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    baseScale = scale;
+    if (capturedId !== null) {
+      try { wrap.releasePointerCapture(capturedId); } catch (_) {}
+      capturedId = null;
+    }
+  }
+
   wrap.addEventListener("pointerdown", (e) => {
-    activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    pruneStalePointers();
+    // Dedupe: if we somehow already have this pointerId, drop the stale entry first so we
+    // don't double-count it (browsers occasionally re-fire pointerdown without an up).
+    if (activePointers.has(e.pointerId)) activePointers.delete(e.pointerId);
+    activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY, t: performance.now() });
+    // Hard cap at 2 — drop the oldest if a 3rd finger arrives so we don't corrupt pinch math.
+    while (activePointers.size > 2) {
+      const oldest = activePointers.keys().next().value;
+      activePointers.delete(oldest);
+    }
 
     if (activePointers.size === 2) {
-      pinching = true; panning = false;
-      pinchStartDist = getPinchDist();
-      const [a, b] = [...activePointers.values()];
-      pinchPivot = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
-      baseScale = scale;
-      if (capturedId !== null) {
-        try { wrap.releasePointerCapture(capturedId); } catch (_) {}
-        capturedId = null;
-      }
+      startPinch();
       return;
     }
 
@@ -2806,7 +2857,7 @@ function initBoardPan() {
 
   wrap.addEventListener("pointermove", (e) => {
     if (activePointers.has(e.pointerId)) {
-      activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY, t: performance.now() });
     }
 
     if (pinching && activePointers.size === 2) {
@@ -2822,7 +2873,7 @@ function initBoardPan() {
     const dy = e.clientY - startY;
     if (!didDrag && (Math.abs(dx) > 5 || Math.abs(dy) > 5)) {
       didDrag = true;
-      wrap.setPointerCapture(capturedId);
+      try { wrap.setPointerCapture(capturedId); } catch (_) {}
       wrap.classList.add("panning");
     }
     if (didDrag) {
@@ -2835,11 +2886,47 @@ function initBoardPan() {
 
   const stopPointer = (e) => {
     activePointers.delete(e.pointerId);
-    if (activePointers.size < 2 && pinching) { pinching = false; pinchPivot = null; }
-    if (activePointers.size === 0) { panning = false; wrap.classList.remove("panning"); }
+    // If pinching is ending but one finger is still down, hand off to panning so the user
+    // doesn't have to lift and re-tap to continue.
+    if (pinching && activePointers.size < 2) {
+      pinching = false;
+      pinchPivot = null;
+      if (activePointers.size === 1) {
+        const [pid, pos] = activePointers.entries().next().value;
+        panning = true;
+        didDrag = false;
+        capturedId = pid;
+        startX = pos.x; startY = pos.y;
+        startTx = tx; startTy = ty;
+      }
+    }
+    if (activePointers.size === 0) {
+      panning = false;
+      wrap.classList.remove("panning");
+      if (capturedId !== null) {
+        try { wrap.releasePointerCapture(capturedId); } catch (_) {}
+        capturedId = null;
+      }
+    }
   };
+  // Listen on window as a safety net: when a finger lifts outside #board-wrap, or a
+  // pointercancel fires at the document level, we still get notified and clean up.
   wrap.addEventListener("pointerup",     stopPointer);
   wrap.addEventListener("pointercancel", stopPointer);
+  window.addEventListener("pointerup",     stopPointer);
+  window.addEventListener("pointercancel", stopPointer);
+
+  // Full reset whenever the page is hidden, the window loses focus, or pointer leaves the
+  // browser entirely — covers iOS/Safari quirks and OS-level gesture interrupts.
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) resetGestureState();
+  });
+  window.addEventListener("blur",       resetGestureState);
+  window.addEventListener("pagehide",   resetGestureState);
+  document.addEventListener("pointerleave", (e) => {
+    // Some browsers fire this on the document when the pointer leaves the viewport.
+    if (e.target === document.documentElement) resetGestureState();
+  });
 
   wrap.addEventListener("click", (e) => {
     if (didDrag) { e.stopPropagation(); didDrag = false; }
@@ -2884,7 +2971,33 @@ function showScreen(id) {
   const tagline = document.getElementById("app-tagline");
   if (title)   title.style.display   = onLanding ? "" : "none";
   if (tagline) tagline.style.display = onLanding ? "" : "none";
+  if (id === "screen-board") {
+    // Recompute the board container height once the screen is visible so its bottom edge
+    // never extends behind the fixed #status-bar (the "Connected · Board code: …" footer).
+    requestAnimationFrame(fitBoardWrapHeight);
+  }
 }
+
+function fitBoardWrapHeight() {
+  const wrap = document.getElementById("board-wrap");
+  const sb   = document.getElementById("status-bar");
+  if (!wrap || !sb) return;
+  // Skip while the board screen is hidden — getBoundingClientRect returns 0s and would
+  // collapse the wrap. We re-run from showScreen() and from resize listeners.
+  if (wrap.offsetParent === null) return;
+  const wrapRect = wrap.getBoundingClientRect();
+  const sbRect   = sb.getBoundingClientRect();
+  // Status bar is `position: fixed; bottom: 0`, so sbRect.top = viewport bottom - sb height.
+  // Leave an 8px gap so the bottom border of the board doesn't visually touch the bar.
+  const available = sbRect.top - wrapRect.top - 8;
+    if (available > 100) {
+      wrap.style.height = Math.floor(available) + "px";
+      // The pan controller's ResizeObserver will re-clamp the pan on its own, so we don't
+      // forcibly recentre / lose the user's current zoom level mid-game.
+    }
+}
+window.addEventListener("resize", fitBoardWrapHeight);
+window.addEventListener("orientationchange", fitBoardWrapHeight);
 
 function $(id) { return document.getElementById(id); }
 
