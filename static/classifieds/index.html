@@ -151,6 +151,7 @@
     <nav id="profileTabs" class="profile-tabs" aria-label="Profile sections" hidden>
       <button type="button" class="profile-tab" data-tab="profile" aria-selected="true">Profile</button>
       <button type="button" class="profile-tab" data-tab="postAd" aria-selected="false">Post an Ad</button>
+      <button type="button" class="profile-tab" data-tab="myAds" aria-selected="false">My Ads</button>
     </nav>
 
     <section id="profileSection" class="profile-pane" hidden>
@@ -263,6 +264,17 @@
           <button type="submit">Post Ad</button>
         </form>
         <p class="hint">Profile mode is required for posting.</p>
+      </section>
+    </section>
+
+    <section id="myAdsSection" class="profile-pane" hidden>
+      <section class="card">
+        <div class="my-ads-header">
+          <h2>My Ads</h2>
+          <button type="button" id="refreshMyAdsBtn" class="secondary">Refresh</button>
+        </div>
+        <p id="myAdsHint" class="hint">Ads you've posted appear here. Use Delete to remove one.</p>
+        <div id="myAdsList" class="ads-list"></div>
       </section>
     </section>
 

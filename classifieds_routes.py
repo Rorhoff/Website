@@ -334,3 +334,34 @@ def classifieds_create_ad(
     db.commit()
     db.refresh(ad)
     return _ad_out(ad)
+
+
+@router.get("/me/ads")
+def classifieds_list_my_ads(
+    user: ClassifiedUser = Depends(get_current_classified_user),
+    db: Session = Depends(classifieds_db),
+):
+    """Return every ad owned by the currently authenticated user (regardless of state)."""
+    rows = db.scalars(
+        select(ClassifiedAd)
+        .where(ClassifiedAd.user_id == user.id)
+        .order_by(ClassifiedAd.created_at.desc())
+    ).all()
+    return [_ad_out(r) for r in rows]
+
+
+@router.delete("/ads/{ad_id}")
+def classifieds_delete_my_ad(
+    ad_id: str,
+    user: ClassifiedUser = Depends(get_current_classified_user),
+    db: Session = Depends(classifieds_db),
+):
+    """Delete an ad you own. Returns 404 for non-existent ads, 403 for someone else's."""
+    ad = db.get(ClassifiedAd, ad_id)
+    if ad is None:
+        raise HTTPException(status_code=404, detail="Ad not found")
+    if ad.user_id != user.id:
+        raise HTTPException(status_code=403, detail="You can only delete your own ads")
+    db.delete(ad)
+    db.commit()
+    return {"ok": True, "id": ad_id}

@@ -159,6 +159,38 @@ body {
 }
 .profile-pane[hidden] { display: none; }
 
+/* "My Ads" tab — header with title + refresh button, and a delete action on each row. */
+.my-ads-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+.my-ads-header h2 { margin: 0; }
+.my-ads-header .secondary {
+  font-size: 0.85rem;
+  padding: 0.35rem 0.75rem;
+}
+.my-ad-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 0.5rem;
+}
+.my-ad-delete {
+  appearance: none;
+  background: #fff;
+  color: #b91c1c;
+  border: 1px solid #fca5a5;
+  border-radius: 6px;
+  padding: 0.35rem 0.85rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.my-ad-delete:hover { background: #fee2e2; }
+.my-ad-delete:disabled { opacity: 0.55; cursor: progress; }
+
 .card {
   background: #fff;
   padding: 16px;

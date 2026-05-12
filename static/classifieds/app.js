@@ -14,6 +14,10 @@ const adForm = document.getElementById("adForm");
 const authSection = document.getElementById("authSection");
 const profileSection = document.getElementById("profileSection");
 const postAdSection = document.getElementById("postAdSection");
+const myAdsSection = document.getElementById("myAdsSection");
+const myAdsList = document.getElementById("myAdsList");
+const myAdsHint = document.getElementById("myAdsHint");
+const refreshMyAdsBtn = document.getElementById("refreshMyAdsBtn");
 const profileTabsNav = document.getElementById("profileTabs");
 const profileTabButtons = profileTabsNav
   ? Array.from(profileTabsNav.querySelectorAll(".profile-tab"))
@@ -64,29 +68,37 @@ function setProfileActive(active) {
   localStorage.setItem(PROFILE_ACTIVE_KEY, active ? "true" : "false");
 }
 
+const PROFILE_TABS = ["profile", "postAd", "myAds"];
+
 function getActiveProfileTab() {
   const stored = localStorage.getItem(PROFILE_TAB_KEY);
-  return stored === "postAd" ? "postAd" : "profile";
+  return PROFILE_TABS.includes(stored) ? stored : "profile";
 }
 
 function setActiveProfileTab(tab) {
-  const normalized = tab === "postAd" ? "postAd" : "profile";
+  const normalized = PROFILE_TABS.includes(tab) ? tab : "profile";
   localStorage.setItem(PROFILE_TAB_KEY, normalized);
 }
 
 function applyProfileTabUI() {
-  // Show/hide the two panes and update the tab strip's aria-selected state. Called from
+  // Show/hide the three panes and update the tab strip's aria-selected state. Called from
   // updateAuthUI() and from the tab click handlers — both flows should converge here so
-  // the visible pane and the highlighted tab stay in sync.
+  // the visible pane and the highlighted tab stay in sync. When the My Ads tab becomes
+  // visible we fire-and-forget renderMyAds() so the user always sees fresh data without
+  // having to hit Refresh.
   const profileActive = Boolean(getCurrentUserRecord()) && isProfileActive();
   if (profileTabsNav) profileTabsNav.hidden = !profileActive;
   const activeTab = getActiveProfileTab();
   if (profileSection) profileSection.hidden = !profileActive || activeTab !== "profile";
   if (postAdSection) postAdSection.hidden = !profileActive || activeTab !== "postAd";
+  if (myAdsSection) myAdsSection.hidden = !profileActive || activeTab !== "myAds";
   profileTabButtons.forEach((btn) => {
     const selected = btn.dataset.tab === activeTab;
     btn.setAttribute("aria-selected", selected ? "true" : "false");
   });
+  if (profileActive && activeTab === "myAds") {
+    renderMyAds().catch(() => { /* renderMyAds surfaces errors via the hint line */ });
+  }
 }
 
 function showToast(message) {
@@ -251,6 +263,90 @@ async function renderAds() {
     adsList.innerHTML = `<p class="hint">Could not load ads: ${escapeHTML(error.message)}</p>`;
     if (adsScopeHint) adsScopeHint.textContent = "";
   }
+}
+
+async function renderMyAds() {
+  // Renders the current user's own ads (any state) into the "My Ads" tab.
+  if (!myAdsList) return;
+  const userRecord = getCurrentUserRecord();
+  if (!userRecord) {
+    myAdsList.innerHTML = "";
+    if (myAdsHint) myAdsHint.textContent = "Log in to see your ads.";
+    return;
+  }
+  if (myAdsHint) myAdsHint.textContent = "Loading…";
+  try {
+    const ads = await classifiedsApi("/me/ads");
+    ads.sort((a, b) => b.createdAt - a.createdAt);
+    if (!ads.length) {
+      if (myAdsHint) myAdsHint.textContent = "You haven't posted any ads yet.";
+      myAdsList.innerHTML = "";
+      return;
+    }
+    if (myAdsHint) {
+      myAdsHint.textContent = `You have ${ads.length} ad${ads.length === 1 ? "" : "s"} posted.`;
+    }
+    myAdsList.innerHTML = ads
+      .map((ad) => {
+        const imageBlock = (ad.images || [])
+          .map(
+            (img, index) =>
+              `<img src="${String(img).replace(/"/g, "&quot;")}" alt="Ad image ${index + 1}" loading="lazy" />`
+          )
+          .join("");
+        return `
+      <article class="ad-item" data-ad-id="${escapeHTML(ad.id)}">
+        <div class="ad-title-row">
+          <span>${escapeHTML(ad.title)}</span>
+          <span>${escapeHTML(ad.price)}</span>
+        </div>
+        <p>${escapeHTML(ad.description)}</p>
+        <p class="meta">
+          ${escapeHTML(ad.category)} / ${escapeHTML(ad.subCategory)} in ${escapeHTML(ad.state)}
+        </p>
+        <p class="meta">Posted ${new Date(ad.createdAt).toLocaleString()}</p>
+        <div class="image-grid">${imageBlock}</div>
+        <div class="my-ad-actions">
+          <button type="button" class="my-ad-delete" data-ad-id="${escapeHTML(ad.id)}">Delete</button>
+        </div>
+      </article>
+    `;
+      })
+      .join("");
+  } catch (error) {
+    myAdsList.innerHTML = "";
+    if (myAdsHint) {
+      myAdsHint.textContent = `Could not load your ads: ${error.message || "unknown error"}`;
+    }
+  }
+}
+
+if (myAdsList) {
+  myAdsList.addEventListener("click", async (event) => {
+    const btn = event.target.closest(".my-ad-delete");
+    if (!btn) return;
+    const adId = btn.dataset.adId;
+    if (!adId) return;
+    if (!window.confirm("Delete this ad? This cannot be undone.")) return;
+    btn.disabled = true;
+    btn.textContent = "Deleting…";
+    try {
+      await classifiedsApi(`/ads/${encodeURIComponent(adId)}`, { method: "DELETE" });
+      await renderMyAds();
+      await renderAds(); // browse list may have included this ad too
+      showToast("Ad deleted.");
+    } catch (error) {
+      btn.disabled = false;
+      btn.textContent = "Delete";
+      showToast(error.message || "Could not delete ad.");
+    }
+  });
+}
+
+if (refreshMyAdsBtn) {
+  refreshMyAdsBtn.addEventListener("click", () => {
+    renderMyAds().catch(() => { /* error surfaced via hint */ });
+  });
 }
 
 function filesToDataUrls(fileList) {
@@ -446,6 +542,8 @@ adForm.addEventListener("submit", async (event) => {
     adForm.reset();
     adStateSelect.value = getCurrentUserRecord()?.state || "";
     await renderAds();
+    // Keep the My Ads tab in sync even when the user posts from the Post Ad tab.
+    await renderMyAds().catch(() => {});
     showToast("Ad posted.");
   } catch (error) {
     showToast(error.message || "Could not post ad.");
