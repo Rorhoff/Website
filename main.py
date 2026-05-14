@@ -45,7 +45,19 @@ from credential_service import COOKIE_NAME
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
 
-load_dotenv(BASE_DIR / ".env")
+# Honor ENV_FILE so the same code can run as the dev systemd service (.env.dev) and the
+# prod systemd service (.env.prod) on the same EC2 box. Falls back to .env for local dev.
+_env_file_override = os.environ.get("ENV_FILE")
+load_dotenv(_env_file_override if _env_file_override else BASE_DIR / ".env")
+APP_ENV = os.getenv("APP_ENV", "unknown")
+
+# SERVICE_MODE = "full"        -> everything (portfolio root + all SPAs + all routers)
+# SERVICE_MODE = "classifieds" -> only classifieds router + classifieds SPA at "/"
+# The classifieds-only mode is used by the prod service on t1classifieds.com so the
+# process is lean (less memory, fewer surprises) and "/" serves the SPA directly with
+# no redirect dance.
+SERVICE_MODE = os.getenv("SERVICE_MODE", "full").lower()
+_CLASSIFIEDS_ONLY = SERVICE_MODE == "classifieds"
 
 log = logging.getLogger("webapi-testing")
 
@@ -167,9 +179,10 @@ app.add_middleware(
 )
 
 app.include_router(classifieds_router)
-app.include_router(airevolution_router)
-app.include_router(sss_router)
-app.include_router(t1prod_router)
+if not _CLASSIFIEDS_ONLY:
+    app.include_router(airevolution_router)
+    app.include_router(sss_router)
+    app.include_router(t1prod_router)
 
 # --- Cross-origin and per-request analytics middleware ---
 
@@ -217,6 +230,9 @@ def which_app() -> PlainTextResponse:
     """Plain text so you can confirm the browser is talking to this repo (not another app on the port)."""
     return PlainTextResponse(
         "webapi-testing\n"
+        f"APP_ENV={APP_ENV}\n"
+        f"SERVICE_MODE={SERVICE_MODE}\n"
+        f"ENV_FILE={_env_file_override or str(BASE_DIR / '.env')}\n"
         f"{Path(__file__).resolve()}\n"
         "No extra path — use /which-app not /which-app/main.py\n"
         "If Cursor’s Simple Browser shows connection refused, use Chrome/Edge for localhost.\n"
@@ -238,6 +254,8 @@ def health_liveness() -> dict[str, str]:
     return {
         "status": "ok",
         "main_py": str(Path(__file__).resolve()),
+        "app_env": APP_ENV,
+        "service_mode": SERVICE_MODE,
     }
 
 
@@ -361,67 +379,72 @@ def slow(delay_ms: int = 500):
 
 # --- Static files: site root + mounted SPAs (paths must match nav links in static HTML) ---
 
+def _static(name: str) -> FileResponse:
+    return FileResponse(STATIC_DIR / name)
+
+
 app.mount("/assets", StaticFiles(directory=str(STATIC_DIR)), name="assets")
 app.mount(
     "/classifieds",
     StaticFiles(directory=str(STATIC_DIR / "classifieds"), html=True),
     name="classifieds",
 )
-app.mount(
-    "/api-testing",
-    StaticFiles(directory=str(STATIC_DIR / "api-testing"), html=True),
-    name="api_testing",
-)
-app.mount(
-    "/lost-in-space",
-    StaticFiles(directory=str(STATIC_DIR / "lost-in-space"), html=True),
-    name="lost_in_space",
-)
-app.mount(
-    "/airevolution",
-    StaticFiles(directory=str(STATIC_DIR / "airevolution"), html=True),
-    name="airevolution",
-)
-app.mount(
-    "/t1-prod",
-    StaticFiles(directory=str(STATIC_DIR / "t1-prod"), html=True),
-    name="t1_prod",
-)
 
+if _CLASSIFIEDS_ONLY:
+    # Prod (t1classifieds.com): "/" serves the classifieds SPA directly. Auxiliary SPAs
+    # and the portfolio root are not registered, so prod is lean and "/" is unambiguous.
+    @app.get("/", include_in_schema=False)
+    @app.get("/index.html", include_in_schema=False)
+    def root_classifieds():
+        return _static("classifieds/index.html")
+else:
+    # Dev / full mode (rorhoff.com): keep the portfolio + every other SPA reachable.
+    app.mount(
+        "/api-testing",
+        StaticFiles(directory=str(STATIC_DIR / "api-testing"), html=True),
+        name="api_testing",
+    )
+    app.mount(
+        "/lost-in-space",
+        StaticFiles(directory=str(STATIC_DIR / "lost-in-space"), html=True),
+        name="lost_in_space",
+    )
+    app.mount(
+        "/airevolution",
+        StaticFiles(directory=str(STATIC_DIR / "airevolution"), html=True),
+        name="airevolution",
+    )
+    app.mount(
+        "/t1-prod",
+        StaticFiles(directory=str(STATIC_DIR / "t1-prod"), html=True),
+        name="t1_prod",
+    )
 
-def _static(name: str) -> FileResponse:
-    return FileResponse(STATIC_DIR / name)
+    @app.get("/")
+    @app.get("/index.html")
+    def root():
+        return _static("index.html")
 
+    @app.get("/api-testing.html")
+    def api_testing_legacy():
+        return RedirectResponse(url="/api-testing/", status_code=301)
 
-@app.get("/")
-@app.get("/index.html")
-def root():
-    return _static("index.html")
+    @app.get("/lost-in-space.html")
+    def lost_in_space_legacy():
+        return RedirectResponse(url="/lost-in-space/", status_code=301)
 
+    @app.get("/sss")
+    @app.get("/sss/")
+    def sss_root():
+        return _static("sss/index.html")
 
-@app.get("/api-testing.html")
-def api_testing_legacy():
-    return RedirectResponse(url="/api-testing/", status_code=301)
-
-
-@app.get("/lost-in-space.html")
-def lost_in_space_legacy():
-    return RedirectResponse(url="/lost-in-space/", status_code=301)
-
-
-@app.get("/sss")
-@app.get("/sss/")
-def sss_root():
-    return _static("sss/index.html")
-
-
-@app.get("/sss/{path:path}")
-def sss_file(path: str):
-    file_path = (STATIC_DIR / "sss" / path).resolve()
-    sss_dir = (STATIC_DIR / "sss").resolve()
-    if not str(file_path).startswith(str(sss_dir)) or not file_path.exists():
-        raise HTTPException(status_code=404)
-    return FileResponse(file_path)
+    @app.get("/sss/{path:path}")
+    def sss_file(path: str):
+        file_path = (STATIC_DIR / "sss" / path).resolve()
+        sss_dir = (STATIC_DIR / "sss").resolve()
+        if not str(file_path).startswith(str(sss_dir)) or not file_path.exists():
+            raise HTTPException(status_code=404)
+        return FileResponse(file_path)
 
 
 # --- Local dev entrypoint ---

@@ -1,4 +1,7 @@
 .env
+.env.dev
+.env.prod
+.env.local
 key.pem
 *.pem
 .venv/
