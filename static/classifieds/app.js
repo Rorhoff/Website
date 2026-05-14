@@ -1,6 +1,8 @@
 /**
- * DEV: Classifieds SPA client. API base: /api/classifieds (see classifieds_routes.py).
+ * Classifieds SPA client. API base: /api/classifieds (see classifieds_routes.py).
  * Token: localStorage CLASSIFIED_TOKEN_KEY; sent as Authorization: Bearer.
+ * Images: uploaded one-by-one to /uploads (returns a public URL) before the ad payload
+ *   is POSTed; falls back to inline base64 when the server has no storage configured.
  * When adding endpoints, mirror paths here and in FastAPI router.
  */
 const CLASSIFIED_TOKEN_KEY = "classified_api_session";
@@ -36,6 +38,39 @@ const adImagesInput = document.getElementById("adImages");
 const adsList = document.getElementById("adsList");
 const adsBrowseSection = document.getElementById("adsBrowseSection");
 const adsScopeHint = document.getElementById("adsScopeHint");
+const adsFiltersWrap = document.getElementById("adsFiltersWrap");
+const homeCategoryFilter = document.getElementById("homeCategoryFilter");
+const HOME_CATEGORY_FILTER_KEY = "classified_home_category_filter";
+
+// Keep this in sync with the <select id="adCategory"> options in index.html — the browse
+// filter offers the same choices plus an "All categories" sentinel.
+const AD_CATEGORIES = [
+  "Clothing and Fashion",
+  "Collectibles",
+  "Electronics",
+  "Home and Garden",
+  "Jobs",
+  "Pets",
+  "Real Estate",
+  "Services",
+  "Sports and Outdoors",
+  "Vehicles",
+];
+
+function populateHomeCategoryFilter() {
+  if (!homeCategoryFilter) return;
+  const saved = localStorage.getItem(HOME_CATEGORY_FILTER_KEY) || "";
+  homeCategoryFilter.innerHTML =
+    '<option value="">All categories</option>' +
+    AD_CATEGORIES.map(
+      (c) => `<option value="${escapeHTML(c)}">${escapeHTML(c)}</option>`
+    ).join("");
+  // Restore the user's last-used filter on reload — if the stored category no longer exists
+  // (renamed/removed), the select silently falls back to "All categories" since the value
+  // simply won't match any <option>.
+  if (saved) homeCategoryFilter.value = saved;
+}
+populateHomeCategoryFilter();
 const authStatus = document.getElementById("authStatus");
 const profileHint = document.getElementById("profileHint");
 const toast = document.getElementById("toast");
@@ -221,6 +256,7 @@ async function renderAds() {
   if (!userRecord || isProfileActive()) {
     adsList.innerHTML = "";
     if (adsScopeHint) adsScopeHint.textContent = "";
+    if (adsFiltersWrap) adsFiltersWrap.hidden = true;
     return;
   }
 
@@ -228,13 +264,28 @@ async function renderAds() {
     const ads = await classifiedsApi("/ads");
     ads.sort((a, b) => b.createdAt - a.createdAt);
 
-    adsScopeHint.textContent = `Showing newest ads for ${userRecord.state}.`;
+    // Reveal the category filter only when there's something to filter; the dropdown is
+    // pre-populated at module load, so we just toggle the wrapping container here.
+    if (adsFiltersWrap) adsFiltersWrap.hidden = ads.length === 0;
+    const selectedCategory = homeCategoryFilter ? homeCategoryFilter.value : "";
+    const filtered = selectedCategory
+      ? ads.filter((ad) => ad.category === selectedCategory)
+      : ads;
+
     if (!ads.length) {
+      adsScopeHint.textContent = `Showing newest ads for ${userRecord.state}.`;
       adsList.innerHTML = `<p>No ads posted yet for ${escapeHTML(userRecord.state)}.</p>`;
       return;
     }
+    adsScopeHint.textContent = selectedCategory
+      ? `Showing ${filtered.length} ${selectedCategory} ad${filtered.length === 1 ? "" : "s"} for ${userRecord.state}.`
+      : `Showing newest ads for ${userRecord.state}.`;
+    if (!filtered.length) {
+      adsList.innerHTML = `<p>No ${escapeHTML(selectedCategory)} ads in ${escapeHTML(userRecord.state)} right now.</p>`;
+      return;
+    }
 
-    adsList.innerHTML = ads
+    adsList.innerHTML = filtered
       .map((ad) => {
         const imageBlock = (ad.images || [])
           .map(
@@ -349,6 +400,16 @@ if (refreshMyAdsBtn) {
   });
 }
 
+if (homeCategoryFilter) {
+  homeCategoryFilter.addEventListener("change", () => {
+    // Persist so the user's preference survives a reload, then re-render. We re-fetch from
+    // the server inside renderAds() but that's cheap and ensures freshly-posted ads can
+    // appear when a less restrictive filter is picked.
+    localStorage.setItem(HOME_CATEGORY_FILTER_KEY, homeCategoryFilter.value || "");
+    renderAds().catch(() => { /* surfaced via adsList content */ });
+  });
+}
+
 function filesToDataUrls(fileList) {
   const files = Array.from(fileList);
   return Promise.all(
@@ -362,6 +423,52 @@ function filesToDataUrls(fileList) {
         })
     )
   );
+}
+
+// Upload one image to /api/classifieds/uploads and return the public URL.
+// Throws an Error with message "STORAGE_DISABLED" when the env has no bucket configured
+// so the caller can fall back to inline data URLs (current dev-mode behavior).
+async function uploadOneImage(file) {
+  const fd = new FormData();
+  fd.append("file", file);
+  const headers = {};
+  if (sessionToken) headers.Authorization = `Bearer ${sessionToken}`;
+  const r = await fetch("/api/classifieds/uploads", {
+    method: "POST",
+    headers,
+    body: fd,
+    credentials: "same-origin",
+  });
+  if (r.status === 503) {
+    throw new Error("STORAGE_DISABLED");
+  }
+  let payload = {};
+  try { payload = await r.json(); } catch {}
+  if (!r.ok) {
+    throw new Error(detailMessage(payload, `Upload failed (HTTP ${r.status}).`));
+  }
+  if (!payload || typeof payload.url !== "string") {
+    throw new Error("Upload succeeded but response had no url.");
+  }
+  return payload.url;
+}
+
+// Prefer object-storage uploads (R2/S3) when the env is configured; otherwise fall back
+// to inline base64 so local/dev without storage env vars keeps working unchanged.
+async function imagesForAd(fileList) {
+  const files = Array.from(fileList);
+  try {
+    const urls = [];
+    for (const file of files) {
+      urls.push(await uploadOneImage(file));
+    }
+    return urls;
+  } catch (err) {
+    if (err && err.message === "STORAGE_DISABLED") {
+      return filesToDataUrls(files);
+    }
+    throw err;
+  }
 }
 
 registerForm.addEventListener("submit", async (event) => {
@@ -526,7 +633,7 @@ adForm.addEventListener("submit", async (event) => {
   }
 
   try {
-    const images = await filesToDataUrls(files);
+    const images = await imagesForAd(files);
     await classifiedsApi("/ads", {
       method: "POST",
       jsonBody: {

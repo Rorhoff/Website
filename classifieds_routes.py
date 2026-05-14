@@ -6,25 +6,34 @@ Developer notes:
 - Auth: Authorization: Bearer <token> from /register or /login.
 - JSON field names in responses use camelCase for ad fields (subCategory, createdAt) — keep static/classifieds in sync.
 - To add fields: extend models.Classified*, Pydantic bodies here, and the frontend app.js if needed.
+- Image uploads: POST /api/classifieds/uploads stores bytes in S3/R2 (see image_storage.py)
+  and returns a URL the frontend then sends in the ads payload. Existing base64 data URLs
+  in the images column keep rendering — the column accepts both shapes for backward compat.
 """
 
 from __future__ import annotations
 
+import logging
 import secrets
 import uuid
 from datetime import datetime, timedelta
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Depends, File, Header, HTTPException, UploadFile, status
 from passlib.hash import bcrypt as bcrypt_hasher
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 import credential_service
+import image_storage
 from credential_service import truncate_for_bcrypt
 from database import SessionLocal
 from models import ClassifiedAd, ClassifiedSession, ClassifiedUser
+
+log = logging.getLogger("webapi-testing")
+
+MAX_IMAGE_UPLOAD_BYTES = 8 * 1024 * 1024  # 8 MiB per image
 
 router = APIRouter(prefix="/api/classifieds", tags=["classifieds"])
 
@@ -293,6 +302,45 @@ def classifieds_patch_me(
     db.commit()
     db.refresh(user)
     return _user_out(user)
+
+
+# --- Image uploads (S3 / R2). Returns a public URL the client puts in images[]. ---
+
+
+@router.post("/uploads")
+async def classifieds_upload_image(
+    file: UploadFile = File(...),
+    user: ClassifiedUser = Depends(get_current_classified_user),
+):
+    """Upload one image. Returns {url: ...}. Frontend uploads N times, then POSTs the ad
+    with the resulting URLs. Falls back gracefully (503) when storage is not configured —
+    the SPA detects that and uses inline data URLs instead so dev keeps working."""
+    if not image_storage.storage_enabled():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Image storage is not configured on this environment.",
+        )
+    if not image_storage.allowed_content_type(file.content_type):
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail=f"Unsupported file type: {file.content_type or 'unknown'}.",
+        )
+    # Read one byte past the limit so we can reject without buffering huge files.
+    content = await file.read(MAX_IMAGE_UPLOAD_BYTES + 1)
+    if len(content) > MAX_IMAGE_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"Image exceeds the {MAX_IMAGE_UPLOAD_BYTES // (1024 * 1024)} MB limit.",
+        )
+    try:
+        url = image_storage.upload_image(user.id, content, file.content_type or "")
+    except Exception:
+        log.exception("Image upload failed for user_id=%s", user.id)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Image upload failed.",
+        )
+    return {"url": url}
 
 
 # --- Ads: list (filtered by user state) and create ---
