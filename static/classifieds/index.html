@@ -36,6 +36,76 @@
        only when SERVICE_MODE=classifieds, so dev (rorhoff.com/classifieds) keeps
        the nav visible. */
     html[data-service-mode="classifieds"] .site-nav { display: none; }
+
+    /* Gold-frame paywall visuals — see stripe_service.py + app.js. */
+    .ad-item--gold {
+      border: 2px solid #d4a017;
+      box-shadow: 0 0 0 1px #f5d76e inset, 0 2px 14px rgba(212, 160, 23, 0.12);
+      background: linear-gradient(180deg, #fffdf3 0%, #fffaee 100%);
+    }
+    .gold-badge {
+      display: inline-block;
+      margin-left: 0.4rem;
+      padding: 0.05rem 0.45rem;
+      border-radius: 999px;
+      background: #fbbf24;
+      color: #422006;
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      vertical-align: middle;
+    }
+    .my-ad-boost {
+      background: #fbbf24;
+      color: #422006;
+      border: 1px solid #d4a017;
+      font-weight: 600;
+    }
+    .my-ad-boost:hover { background: #f59e0b; color: #fff; }
+    .my-ad-boost.is-loading { opacity: 0.6; cursor: progress; }
+
+    .boost-modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.55);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 200;
+      padding: 1rem;
+    }
+    .boost-modal-backdrop[hidden] { display: none; }
+    .boost-modal {
+      position: relative;
+      background: #fff;
+      border-radius: 12px;
+      max-width: 480px;
+      width: 100%;
+      padding: 1.5rem 1.5rem 1.25rem;
+      box-shadow: 0 20px 50px rgba(15, 23, 42, 0.25);
+      font-family: "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+    }
+    .boost-modal h3 { margin: 0 0 0.5rem; color: #422006; }
+    .boost-modal-close {
+      position: absolute; top: 0.5rem; right: 0.75rem;
+      background: none; border: 0; font-size: 1.5rem; cursor: pointer;
+      color: #64748b; padding: 0 0.25rem;
+    }
+    .boost-tier-list { display: flex; flex-direction: column; gap: 0.5rem; margin: 0.75rem 0; }
+    .boost-tier-btn {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 0.85rem 1rem;
+      border: 1px solid #d1dae6;
+      border-radius: 8px;
+      background: #fffdf3;
+      cursor: pointer;
+      font-size: 1rem;
+      transition: border-color 0.15s, transform 0.05s;
+    }
+    .boost-tier-btn:hover { border-color: #d4a017; transform: translateY(-1px); }
+    .boost-tier-btn.is-loading { opacity: 0.6; cursor: progress; transform: none; }
+    .boost-tier-label { font-weight: 600; color: #422006; }
+    .boost-tier-price { font-weight: 700; color: #1e293b; }
     .site-nav a {
       color: #64748b;
       text-decoration: none;

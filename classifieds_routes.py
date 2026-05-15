@@ -19,7 +19,7 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, File, Header, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Header, HTTPException, Request, UploadFile, status
 from passlib.hash import bcrypt as bcrypt_hasher
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, select
@@ -27,6 +27,7 @@ from sqlalchemy.orm import Session
 
 import credential_service
 import image_storage
+import stripe_service
 from credential_service import truncate_for_bcrypt
 from database import SessionLocal
 from models import ClassifiedAd, ClassifiedSession, ClassifiedUser
@@ -75,6 +76,12 @@ def _user_out(user: ClassifiedUser) -> dict[str, Any]:
 
 def _ad_out(row: ClassifiedAd) -> dict[str, Any]:
     created_ms = int(row.created_at.timestamp() * 1000)
+    # goldUntil is an epoch-ms timestamp when active, or None when never boosted / expired.
+    # The frontend treats anything > Date.now() as "currently gold" — no need to filter
+    # expired golds out of the response, just let the client decide on render.
+    gold_until_ms: int | None = None
+    if row.gold_until is not None:
+        gold_until_ms = int(row.gold_until.timestamp() * 1000)
     return {
         "id": row.id,
         "title": row.title,
@@ -86,6 +93,7 @@ def _ad_out(row: ClassifiedAd) -> dict[str, Any]:
         "images": list(row.images) if row.images is not None else [],
         "author": row.author_username,
         "createdAt": created_ms,
+        "goldUntil": gold_until_ms,
     }
 
 
@@ -343,6 +351,124 @@ async def classifieds_upload_image(
     return {"url": url}
 
 
+# --- Gold-frame paywall (Stripe Checkout, surge pricing). See stripe_service.py. ---
+
+
+@router.get("/gold/config")
+def classifieds_gold_config():
+    """Frontend reads this on load to decide whether to show the 'Boost to Gold' button.
+    Publishable key is safe to expose (it's designed to be embedded in browsers)."""
+    return {
+        "enabled": stripe_service.stripe_enabled(),
+        "publishableKey": stripe_service.publishable_key(),
+        "tiers": [
+            {"id": tid, "label": label, "days": days, "basePriceUsd": base}
+            for (tid, label, days, base) in stripe_service.GOLD_TIERS
+        ],
+    }
+
+
+@router.get("/gold/quote/{ad_id}")
+def classifieds_gold_quote(
+    ad_id: str,
+    user: ClassifiedUser = Depends(get_current_classified_user),
+    db: Session = Depends(classifieds_db),
+):
+    """Live quote for boosting `ad_id` at each tier. Surge multiplier is recomputed every
+    call — clients display the current numbers, then post to /gold/checkout to lock them in
+    (the checkout endpoint recomputes server-side; client values are not trusted)."""
+    ad = db.get(ClassifiedAd, ad_id)
+    if ad is None:
+        raise HTTPException(status_code=404, detail="Ad not found")
+    if ad.user_id != user.id:
+        raise HTTPException(status_code=403, detail="You can only boost your own ads")
+    tiers = []
+    for (tier_id, _label, _days, _base) in stripe_service.GOLD_TIERS:
+        q = stripe_service.quote_gold(db, ad, tier_id)
+        tiers.append(
+            {
+                "tierId": q.tier_id,
+                "label": q.label,
+                "days": q.days,
+                "basePriceUsd": q.base_price_usd,
+                "multiplier": q.multiplier,
+                "priceUsdCents": q.price_usd_cents,
+                "priceUsd": round(q.price_usd, 2),
+                "activeInBucket": q.active_in_bucket,
+            }
+        )
+    return {
+        "adId": ad.id,
+        "state": ad.state,
+        "category": ad.category,
+        "tiers": tiers,
+    }
+
+
+class GoldCheckoutBody(BaseModel):
+    adId: str = Field(min_length=1, max_length=64)
+    tierId: str = Field(min_length=1, max_length=16)
+
+
+@router.post("/gold/checkout")
+def classifieds_gold_checkout(
+    body: GoldCheckoutBody,
+    user: ClassifiedUser = Depends(get_current_classified_user),
+    db: Session = Depends(classifieds_db),
+):
+    """Create a Stripe Checkout session for boosting an ad. Returns {url} the SPA
+    redirects to. Stripe holds the cardholder; we only get the verified result via the
+    webhook (so a tampered return-URL can't grant gold)."""
+    if not stripe_service.stripe_enabled():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Payments are not configured on this environment.",
+        )
+    if stripe_service.tier_info(body.tierId) is None:
+        raise HTTPException(status_code=400, detail=f"Unknown tier: {body.tierId}")
+    ad = db.get(ClassifiedAd, body.adId)
+    if ad is None:
+        raise HTTPException(status_code=404, detail="Ad not found")
+    if ad.user_id != user.id:
+        raise HTTPException(status_code=403, detail="You can only boost your own ads")
+    try:
+        _session_id, url = stripe_service.create_checkout_session(
+            db, ad, body.tierId, user.id
+        )
+    except Exception:
+        log.exception("Stripe checkout creation failed for ad=%s tier=%s", body.adId, body.tierId)
+        raise HTTPException(status_code=500, detail="Could not start checkout.")
+    return {"url": url}
+
+
+@router.post("/gold/webhook")
+async def classifieds_gold_webhook(
+    request: Request,
+    db: Session = Depends(classifieds_db),
+):
+    """Stripe → us. Signature-verified; activates gold on confirmed payment. No auth — the
+    webhook secret is the credential. Stripe expects a 2xx within ~20s or it retries."""
+    if not stripe_service.stripe_enabled():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Payments are not configured on this environment.",
+        )
+    payload = await request.body()
+    sig_header = request.headers.get("stripe-signature", "")
+    try:
+        event = stripe_service.verify_webhook(payload, sig_header)
+    except Exception:
+        log.exception("Stripe webhook signature verification failed")
+        raise HTTPException(status_code=400, detail="Bad webhook signature")
+    try:
+        ad_id = stripe_service.apply_completed_checkout(db, event)
+    except Exception:
+        # 500 makes Stripe retry. Don't swallow — gold activation is the whole point.
+        log.exception("Stripe webhook application failed for event=%s", event.get("id"))
+        raise HTTPException(status_code=500, detail="Webhook processing failed.")
+    return {"ok": True, "adId": ad_id}
+
+
 # --- Ads: list (filtered by user state) and create ---
 
 
@@ -352,10 +478,20 @@ def classifieds_list_ads(
     db: Session = Depends(classifieds_db),
 ):
     state_key = user.state.strip().lower()
+    now = datetime.utcnow()
+    # Sort active gold ads to the top within the buyer's state (any category): a gold ad
+    # is "active" when gold_until > now. Among golds, the freshest expiry wins (so a 14-day
+    # boost stays above a 3-day boost purchased earlier). Non-gold ads fall through to
+    # newest-first.
+    is_active_gold = (ClassifiedAd.gold_until.is_not(None)) & (ClassifiedAd.gold_until > now)
     rows = db.scalars(
         select(ClassifiedAd)
         .where(func.lower(ClassifiedAd.state) == state_key)
-        .order_by(ClassifiedAd.created_at.desc())
+        .order_by(
+            is_active_gold.desc(),
+            ClassifiedAd.gold_until.desc().nullslast(),
+            ClassifiedAd.created_at.desc(),
+        )
     ).all()
     return [_ad_out(r) for r in rows]
 

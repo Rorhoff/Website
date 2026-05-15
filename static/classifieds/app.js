@@ -371,11 +371,11 @@ async function renderAds() {
               `<img src="${String(img).replace(/"/g, "&quot;")}" alt="Ad image ${index + 1}" loading="lazy" />`
           )
           .join("");
-
+        const goldClass = isGoldActive(ad) ? " ad-item--gold" : "";
         return `
-      <article class="ad-item">
+      <article class="ad-item${goldClass}">
         <div class="ad-title-row">
-          <span>${escapeHTML(ad.title)}</span>
+          <span>${escapeHTML(ad.title)} ${goldBadgeHTML(ad)}</span>
           <span>${escapeHTML(ad.price)}</span>
         </div>
         <p>${escapeHTML(ad.description)}</p>
@@ -423,10 +423,16 @@ async function renderMyAds() {
               `<img src="${String(img).replace(/"/g, "&quot;")}" alt="Ad image ${index + 1}" loading="lazy" />`
           )
           .join("");
+        const gold = isGoldActive(ad);
+        const goldClass = gold ? " ad-item--gold" : "";
+        const boostLabel = gold ? "Extend Gold" : "Boost to Gold ★";
+        const boostBtn = goldConfig?.enabled
+          ? `<button type="button" class="my-ad-boost" data-boost-ad-id="${escapeHTML(ad.id)}">${boostLabel}</button>`
+          : "";
         return `
-      <article class="ad-item" data-ad-id="${escapeHTML(ad.id)}">
+      <article class="ad-item${goldClass}" data-ad-id="${escapeHTML(ad.id)}">
         <div class="ad-title-row">
-          <span>${escapeHTML(ad.title)}</span>
+          <span>${escapeHTML(ad.title)} ${goldBadgeHTML(ad)}</span>
           <span>${escapeHTML(ad.price)}</span>
         </div>
         <p>${escapeHTML(ad.description)}</p>
@@ -436,6 +442,7 @@ async function renderMyAds() {
         <p class="meta">Posted ${new Date(ad.createdAt).toLocaleString()}</p>
         <div class="image-grid">${imageBlock}</div>
         <div class="my-ad-actions">
+          ${boostBtn}
           <button type="button" class="my-ad-delete" data-ad-id="${escapeHTML(ad.id)}">Delete</button>
         </div>
       </article>
@@ -735,8 +742,159 @@ adForm.addEventListener("submit", async (event) => {
   }
 });
 
+// --- Gold-frame paywall (Stripe Checkout). See stripe_service.py + classifieds_routes.py.
+// goldConfig is fetched once at init; if Stripe isn't configured the Boost button is hidden
+// everywhere (no half-broken state). Surge prices are quoted live per ad, so the modal
+// always shows what Stripe will actually charge.
+
+let goldConfig = null; // { enabled, publishableKey, tiers: [...] } | null when not loaded
+
+async function loadGoldConfig() {
+  try {
+    const r = await fetch("/api/classifieds/gold/config", { credentials: "same-origin" });
+    if (!r.ok) return;
+    goldConfig = await r.json();
+  } catch {
+    goldConfig = null;
+  }
+}
+
+function isGoldActive(ad) {
+  return typeof ad?.goldUntil === "number" && ad.goldUntil > Date.now();
+}
+
+function goldBadgeHTML(ad) {
+  if (!isGoldActive(ad)) return "";
+  const until = new Date(ad.goldUntil);
+  return `<span class="gold-badge" title="Gold until ${until.toLocaleString()}">★ Gold</span>`;
+}
+
+function formatUSD(cents) {
+  return `$${(cents / 100).toFixed(2)}`;
+}
+
+// Builds (and caches) the boost modal DOM. Returns the root <div>.
+let _boostModal = null;
+function ensureBoostModal() {
+  if (_boostModal) return _boostModal;
+  const root = document.createElement("div");
+  root.className = "boost-modal-backdrop";
+  root.hidden = true;
+  root.innerHTML = `
+    <div class="boost-modal" role="dialog" aria-modal="true" aria-labelledby="boostModalTitle">
+      <button type="button" class="boost-modal-close" aria-label="Close">&times;</button>
+      <h3 id="boostModalTitle">Boost this ad to Gold</h3>
+      <p class="hint" id="boostModalBucketHint"></p>
+      <div class="boost-tier-list" id="boostTierList"></div>
+      <p class="hint">You'll be redirected to Stripe to complete payment. The ad becomes gold
+      automatically once payment confirms.</p>
+    </div>
+  `;
+  document.body.appendChild(root);
+  root.addEventListener("click", (event) => {
+    if (event.target === root || event.target.classList.contains("boost-modal-close")) {
+      closeBoostModal();
+    }
+  });
+  _boostModal = root;
+  return root;
+}
+
+function closeBoostModal() {
+  if (_boostModal) _boostModal.hidden = true;
+}
+
+async function openBoostModal(adId) {
+  if (!goldConfig?.enabled) {
+    showToast("Payments are not configured on this environment.");
+    return;
+  }
+  const root = ensureBoostModal();
+  const list = root.querySelector("#boostTierList");
+  const bucketHint = root.querySelector("#boostModalBucketHint");
+  list.innerHTML = '<p class="hint">Loading current prices…</p>';
+  bucketHint.textContent = "";
+  root.hidden = false;
+  let quote;
+  try {
+    quote = await classifiedsApi(`/gold/quote/${encodeURIComponent(adId)}`);
+  } catch (err) {
+    list.innerHTML = `<p class="hint">Could not load prices: ${escapeHTML(err.message || "unknown error")}</p>`;
+    return;
+  }
+  const active = quote.tiers[0]?.activeInBucket ?? 0;
+  const mult = quote.tiers[0]?.multiplier ?? 1;
+  bucketHint.textContent =
+    `Pricing for ${quote.category} in ${quote.state}. ` +
+    (active === 0
+      ? "No other gold ads here — base price."
+      : `${active} other gold ad${active === 1 ? "" : "s"} active here — surge ×${mult}.`);
+  list.innerHTML = quote.tiers
+    .map((t) => {
+      const surge = t.multiplier > 1 ? ` <span class="hint">(×${t.multiplier} surge)</span>` : "";
+      return `
+        <button type="button" class="boost-tier-btn" data-tier-id="${escapeHTML(t.tierId)}" data-ad-id="${escapeHTML(adId)}">
+          <span class="boost-tier-label">${escapeHTML(t.label)}</span>
+          <span class="boost-tier-price">${formatUSD(t.priceUsdCents)}${surge}</span>
+        </button>
+      `;
+    })
+    .join("");
+}
+
+async function startBoostCheckout(adId, tierId, btn) {
+  if (!adId || !tierId) return;
+  btn.disabled = true;
+  btn.classList.add("is-loading");
+  try {
+    const payload = await classifiedsApi("/gold/checkout", {
+      method: "POST",
+      jsonBody: { adId, tierId },
+    });
+    if (!payload?.url) throw new Error("Checkout did not return a URL.");
+    window.location.href = payload.url;
+  } catch (err) {
+    btn.disabled = false;
+    btn.classList.remove("is-loading");
+    showToast(err.message || "Could not start checkout.");
+  }
+}
+
+// Click delegation for "Boost to Gold" buttons on My Ads cards and the modal tier picker.
+document.addEventListener("click", (event) => {
+  const boostBtn = event.target.closest("[data-boost-ad-id]");
+  if (boostBtn) {
+    const adId = boostBtn.dataset.boostAdId;
+    if (adId) openBoostModal(adId);
+    return;
+  }
+  const tierBtn = event.target.closest(".boost-tier-btn");
+  if (tierBtn) {
+    startBoostCheckout(tierBtn.dataset.adId, tierBtn.dataset.tierId, tierBtn);
+  }
+});
+
+// On return from Stripe Checkout, the URL carries ?gold=success or ?gold=cancel. We toast,
+// then clean the URL so a reload doesn't keep re-toasting. The webhook (not this handler)
+// is what actually flips the ad to gold; the success toast is just UX.
+function handleGoldReturnParams() {
+  const params = new URLSearchParams(window.location.search);
+  const gold = params.get("gold");
+  if (!gold) return;
+  if (gold === "success") {
+    showToast("Payment received. Your ad will appear as gold within a few seconds.");
+  } else if (gold === "cancel") {
+    showToast("Checkout canceled. Your ad was not boosted and your card was not charged.");
+  }
+  params.delete("gold");
+  params.delete("ad_id");
+  const clean = window.location.pathname + (params.toString() ? `?${params}` : "");
+  window.history.replaceState({}, "", clean);
+}
+
 (async function initClassifieds() {
-  await refreshMe();
+  await Promise.all([refreshMe(), loadGoldConfig()]);
   updateAuthUI();
+  handleGoldReturnParams();
   await renderAds();
 })();

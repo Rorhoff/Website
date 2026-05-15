@@ -14,7 +14,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, ForeignKey, String, Text, func
+from sqlalchemy import DateTime, ForeignKey, Index, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -83,3 +83,19 @@ class ClassifiedAd(Base):
     images: Mapped[list[Any]] = mapped_column(JSONB)
     author_username: Mapped[str] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    # Gold-frame paywall. gold_until is the UTC expiry timestamp (or NULL if never boosted /
+    # expired). The composite index lets _surge_count() in stripe_service.py compute "how
+    # many gold ads are active in this state+category right now" in a single seek.
+    gold_until: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True, default=None
+    )
+    # Last successful Stripe Checkout session that activated this ad's gold. Stored for
+    # idempotency (a replayed webhook is a no-op) and audit. Not unique on its own because
+    # an ad may be boosted multiple times over its lifetime; the latest one wins.
+    stripe_session_id: Mapped[str | None] = mapped_column(
+        String(200), nullable=True, default=None
+    )
+
+    __table_args__ = (
+        Index("ix_classified_ad_state_gold", "state", "gold_until"),
+    )
