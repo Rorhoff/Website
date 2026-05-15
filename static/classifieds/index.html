@@ -31,6 +31,11 @@
       top: 0;
       z-index: 50;
     }
+    /* Hide the cross-site portfolio nav on the dedicated classifieds domain
+       (t1classifieds.com). main.py adds data-service-mode="classifieds" on <html>
+       only when SERVICE_MODE=classifieds, so dev (rorhoff.com/classifieds) keeps
+       the nav visible. */
+    html[data-service-mode="classifieds"] .site-nav { display: none; }
     .site-nav a {
       color: #64748b;
       text-decoration: none;

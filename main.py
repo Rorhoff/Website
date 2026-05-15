@@ -31,7 +31,7 @@ from typing import Annotated, Any
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, PlainTextResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, Field
@@ -393,10 +393,16 @@ app.mount(
 if _CLASSIFIEDS_ONLY:
     # Prod (t1classifieds.com): "/" serves the classifieds SPA directly. Auxiliary SPAs
     # and the portfolio root are not registered, so prod is lean and "/" is unambiguous.
+    # We inject data-service-mode="classifieds" on <html> so the SPA's CSS can hide the
+    # cross-site portfolio nav (LinkedIn/About/etc.) — those links 404 in this mode.
+    _CLASSIFIEDS_INDEX_PROD = (STATIC_DIR / "classifieds" / "index.html").read_text(
+        encoding="utf-8"
+    ).replace('<html lang="en">', '<html lang="en" data-service-mode="classifieds">', 1)
+
     @app.get("/", include_in_schema=False)
     @app.get("/index.html", include_in_schema=False)
-    def root_classifieds():
-        return _static("classifieds/index.html")
+    def root_classifieds() -> HTMLResponse:
+        return HTMLResponse(_CLASSIFIEDS_INDEX_PROD)
 else:
     # Dev / full mode (rorhoff.com): keep the portfolio + every other SPA reachable.
     app.mount(
