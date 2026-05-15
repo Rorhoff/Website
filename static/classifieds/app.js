@@ -57,6 +57,55 @@ const AD_CATEGORIES = [
   "Vehicles",
 ];
 
+// Sub-categories shown after the user picks a category in the Post Ad form. Edit freely —
+// the backend stores subCategory as an arbitrary string, so adding/renaming entries here
+// only affects what's offered to new posters. Existing ads keep whatever string was saved.
+const AD_SUB_CATEGORIES = {
+  "Clothing and Fashion": [
+    "Men's Clothing", "Women's Clothing", "Kids & Baby", "Shoes",
+    "Bags & Accessories", "Jewelry & Watches", "Other",
+  ],
+  "Collectibles": [
+    "Coins & Currency", "Stamps", "Trading Cards", "Antiques",
+    "Memorabilia", "Art", "Other",
+  ],
+  "Electronics": [
+    "Phones & Accessories", "Computers & Laptops", "TVs & Home Theater",
+    "Cameras & Photo", "Audio & Headphones", "Video Games & Consoles",
+    "Smart Home", "Other",
+  ],
+  "Home and Garden": [
+    "Furniture", "Appliances", "Tools", "Kitchen & Dining",
+    "Bedding & Bath", "Garden & Outdoor", "Decor", "Other",
+  ],
+  "Jobs": [
+    "Full-time", "Part-time", "Contract", "Internship", "Remote", "Gig", "Other",
+  ],
+  "Pets": [
+    "Dogs", "Cats", "Birds", "Fish & Aquariums", "Reptiles & Amphibians",
+    "Small Animals", "Pet Supplies", "Other",
+  ],
+  "Real Estate": [
+    "For Sale - House", "For Sale - Condo/Townhome", "For Rent - House",
+    "For Rent - Apartment", "Land", "Commercial", "Vacation Rental", "Other",
+  ],
+  "Services": [
+    "Cleaning", "Handyman & Home Repair", "Lawn & Landscaping",
+    "Tutoring & Lessons", "Photography & Video", "Moving & Hauling",
+    "Pet Services", "Computer & Tech", "Beauty & Wellness",
+    "Legal & Financial", "Other",
+  ],
+  "Sports and Outdoors": [
+    "Bicycles", "Camping & Hiking", "Fitness & Exercise",
+    "Hunting & Fishing", "Team Sports", "Water Sports",
+    "Winter Sports", "Other",
+  ],
+  "Vehicles": [
+    "Cars", "Trucks", "SUVs", "Motorcycles", "RVs & Campers",
+    "Boats & Watercraft", "Trailers", "ATVs & UTVs", "Parts & Accessories", "Other",
+  ],
+};
+
 function populateHomeCategoryFilter() {
   if (!homeCategoryFilter) return;
   const saved = localStorage.getItem(HOME_CATEGORY_FILTER_KEY) || "";
@@ -71,6 +120,35 @@ function populateHomeCategoryFilter() {
   if (saved) homeCategoryFilter.value = saved;
 }
 populateHomeCategoryFilter();
+
+// Wire the Post Ad sub-category dropdown to refresh whenever the user changes the category.
+// Without this, the sub-category select is permanently stuck on "Select category first" and
+// the form can't be submitted (subCategory is a required field).
+function wireAdSubCategorySelect() {
+  const catSelect = document.getElementById("adCategory");
+  const subSelect = document.getElementById("adSubCategory");
+  if (!catSelect || !subSelect) return;
+
+  function repopulate() {
+    const cat = catSelect.value;
+    const options = AD_SUB_CATEGORIES[cat] || [];
+    if (!options.length) {
+      subSelect.innerHTML = '<option value="">Select category first</option>';
+      subSelect.disabled = true;
+      return;
+    }
+    subSelect.disabled = false;
+    subSelect.innerHTML =
+      '<option value="">Select a sub category</option>' +
+      options
+        .map((s) => `<option value="${escapeHTML(s)}">${escapeHTML(s)}</option>`)
+        .join("");
+  }
+
+  catSelect.addEventListener("change", repopulate);
+  repopulate();
+}
+wireAdSubCategorySelect();
 const authStatus = document.getElementById("authStatus");
 const profileHint = document.getElementById("profileHint");
 const toast = document.getElementById("toast");
