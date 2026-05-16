@@ -540,6 +540,30 @@ def classifieds_list_my_ads(
     return [_ad_out(r) for r in rows]
 
 
+@router.get("/ads/{ad_id}")
+def classifieds_get_ad(
+    ad_id: str,
+    user: ClassifiedUser = Depends(get_current_classified_user),
+    db: Session = Depends(classifieds_db),
+):
+    """Single-ad detail view — what the SPA shows when a buyer taps an ad tile.
+
+    Includes the seller's email and phone (browsing requires auth, so we're not exposing
+    contact info to anonymous scrapers). If the seller's account was deleted (user_id is
+    NULL), contact fields come back empty so the buyer just sees the listing without a
+    way to contact a defunct seller.
+    """
+    ad = db.get(ClassifiedAd, ad_id)
+    if ad is None:
+        raise HTTPException(status_code=404, detail="Ad not found")
+    payload = _ad_out(ad)
+    # Seller contact pulled live so a profile change shows up immediately on the next view.
+    seller = db.get(ClassifiedUser, ad.user_id) if ad.user_id is not None else None
+    payload["authorEmail"] = seller.email if seller else ""
+    payload["authorPhone"] = (seller.phone or "") if seller else ""
+    return payload
+
+
 @router.delete("/ads/{ad_id}")
 def classifieds_delete_my_ad(
     ad_id: str,

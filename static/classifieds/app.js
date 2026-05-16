@@ -363,28 +363,26 @@ async function renderAds() {
       return;
     }
 
+    // Compact image-first tile. The whole tile is a <button> so it's keyboard-focusable
+    // and click-delegated via [data-detail-ad-id] in the global handler. Title/category/
+    // contact info live in the detail modal that opens on tap to keep tiles scannable.
     adsList.innerHTML = filtered
       .map((ad) => {
-        const imageBlock = (ad.images || [])
-          .map(
-            (img, index) =>
-              `<img src="${String(img).replace(/"/g, "&quot;")}" alt="Ad image ${index + 1}" loading="lazy" />`
-          )
-          .join("");
-        const goldClass = isGoldActive(ad) ? " ad-item--gold" : "";
+        const firstImage = (ad.images || []).find(Boolean) || "";
+        const goldClass = isGoldActive(ad) ? " ad-tile--gold" : "";
+        const goldOverlay = isGoldActive(ad)
+          ? `<span class="ad-tile-badge" aria-label="Gold ad">★ Gold</span>`
+          : "";
+        const imageHtml = firstImage
+          ? `<img class="ad-tile-image" src="${escapeHTML(firstImage)}" alt="${escapeHTML(ad.title || "Ad")}" loading="lazy" />`
+          : `<div class="ad-tile-empty">${escapeHTML(ad.title || "No image")}</div>`;
+        const aria = `${ad.title || "Ad"} — ${ad.price || ""}`;
         return `
-      <article class="ad-item${goldClass}">
-        <div class="ad-title-row">
-          <span>${escapeHTML(ad.title)} ${goldBadgeHTML(ad)}</span>
-          <span>${escapeHTML(ad.price)}</span>
-        </div>
-        <p>${escapeHTML(ad.description)}</p>
-        <p class="meta">
-          ${escapeHTML(ad.category)} / ${escapeHTML(ad.subCategory)} in ${escapeHTML(ad.state)}
-        </p>
-        <p class="meta">Posted by ${escapeHTML(ad.author)} on ${new Date(ad.createdAt).toLocaleString()}</p>
-        <div class="image-grid">${imageBlock}</div>
-      </article>
+      <button type="button" class="ad-tile${goldClass}" data-detail-ad-id="${escapeHTML(ad.id)}" aria-label="${escapeHTML(aria)}">
+        ${imageHtml}
+        ${goldOverlay}
+        <span class="ad-tile-price">${escapeHTML(ad.price)}</span>
+      </button>
     `;
       })
       .join("");
@@ -891,6 +889,182 @@ function handleGoldReturnParams() {
   const clean = window.location.pathname + (params.toString() ? `?${params}` : "");
   window.history.replaceState({}, "", clean);
 }
+
+// === Ad detail modal ===
+// The browse list renders compact image-first tiles; the full ad (description, all
+// images, seller contact info) lives behind this modal so the grid stays scannable.
+// Markup is pre-rendered in index.html (#adDetailModal) — we just populate fields
+// from a single GET /ads/{id} fetch on each open.
+const adDetailModal = document.getElementById("adDetailModal");
+const detailModalCard = document.getElementById("detailModalCard");
+const detailHeroImage = document.getElementById("detailHeroImage");
+const detailThumbnails = document.getElementById("detailThumbnails");
+const detailTitleEl = document.getElementById("detailTitle");
+const detailPriceEl = document.getElementById("detailPrice");
+const detailMetaEl = document.getElementById("detailPhone"); // legacy id, repurposed for meta
+const detailContactEl = document.getElementById("detailContact");
+const detailDescriptionEl = document.getElementById("detailDescription");
+const detailGoldBannerEl = document.getElementById("detailGoldBanner");
+const closeAdDetailBtn = document.getElementById("closeAdDetailBtn");
+
+function closeAdDetail() {
+  if (!adDetailModal) return;
+  adDetailModal.hidden = true;
+  // Drop the hero src so the next open doesn't briefly show the previous ad's image.
+  if (detailHeroImage) {
+    detailHeroImage.removeAttribute("src");
+    detailHeroImage.alt = "";
+  }
+  if (detailThumbnails) detailThumbnails.innerHTML = "";
+  if (detailContactEl) {
+    detailContactEl.hidden = true;
+    detailContactEl.innerHTML = "";
+  }
+  if (detailGoldBannerEl) detailGoldBannerEl.hidden = true;
+  detailModalCard?.classList.remove("gold-frame-active");
+}
+
+function renderDetailContact(ad) {
+  if (!detailContactEl) return;
+  const email = (ad.authorEmail || "").trim();
+  const phone = (ad.authorPhone || "").trim();
+  // Build a tel: link by stripping non-digits but preserving a leading + for intl numbers.
+  const telHref = phone ? phone.replace(/(?!^\+)[^\d]/g, "") : "";
+  const rows = [];
+  rows.push(
+    `<div class="contact-row"><span class="contact-label">Seller</span><span>${escapeHTML(ad.author || "(unknown)")}</span></div>`
+  );
+  if (email) {
+    rows.push(
+      `<div class="contact-row"><span class="contact-label">Email</span><a class="contact-link" href="mailto:${encodeURIComponent(email)}">${escapeHTML(email)}</a></div>`
+    );
+  }
+  if (phone) {
+    rows.push(
+      `<div class="contact-row"><span class="contact-label">Phone</span><a class="contact-link" href="tel:${escapeHTML(telHref)}">${escapeHTML(phone)}</a></div>`
+    );
+  }
+  if (!email && !phone) {
+    rows.push(`<p class="contact-empty">Seller has not shared contact info.</p>`);
+  }
+  detailContactEl.innerHTML = rows.join("");
+  detailContactEl.hidden = false;
+}
+
+async function openAdDetail(adId) {
+  if (!adDetailModal || !adId) return;
+  adDetailModal.hidden = false;
+  // Reset to a loading state — instant feedback, content fills in once fetch resolves.
+  if (detailTitleEl) detailTitleEl.textContent = "Loading…";
+  if (detailPriceEl) detailPriceEl.textContent = "";
+  if (detailMetaEl) detailMetaEl.textContent = "";
+  if (detailDescriptionEl) detailDescriptionEl.textContent = "";
+  if (detailHeroImage) {
+    detailHeroImage.removeAttribute("src");
+    detailHeroImage.alt = "";
+  }
+  if (detailThumbnails) detailThumbnails.innerHTML = "";
+  if (detailContactEl) {
+    detailContactEl.hidden = true;
+    detailContactEl.innerHTML = "";
+  }
+  if (detailGoldBannerEl) detailGoldBannerEl.hidden = true;
+  detailModalCard?.classList.remove("gold-frame-active");
+  // Scroll the modal back to top in case the previous detail left it scrolled.
+  if (detailModalCard) detailModalCard.scrollTop = 0;
+
+  let ad;
+  try {
+    ad = await classifiedsApi(`/ads/${encodeURIComponent(adId)}`);
+  } catch (err) {
+    if (detailTitleEl) detailTitleEl.textContent = "Could not load ad";
+    if (detailDescriptionEl) {
+      detailDescriptionEl.textContent = err?.message || "Network or server error.";
+    }
+    return;
+  }
+
+  if (detailTitleEl) detailTitleEl.textContent = ad.title || "";
+  if (detailPriceEl) detailPriceEl.textContent = ad.price || "";
+  if (detailDescriptionEl) detailDescriptionEl.textContent = ad.description || "";
+
+  if (detailMetaEl) {
+    const metaBits = [];
+    const taxonomy = [ad.category, ad.subCategory].filter(Boolean).join(" / ");
+    const where = ad.state ? `in ${ad.state}` : "";
+    if (taxonomy || where) metaBits.push(`${taxonomy}${where ? " " + where : ""}`.trim());
+    if (ad.createdAt) metaBits.push(`Posted ${new Date(ad.createdAt).toLocaleString()}`);
+    detailMetaEl.innerHTML = metaBits
+      .map((bit) => `<span class="detail-meta-row">${escapeHTML(bit)}</span>`)
+      .join("");
+  }
+
+  renderDetailContact(ad);
+
+  const images = (ad.images || []).filter(Boolean);
+  if (detailHeroImage) {
+    if (images.length) {
+      detailHeroImage.src = images[0];
+      detailHeroImage.alt = ad.title || "";
+      detailHeroImage.hidden = false;
+    } else {
+      detailHeroImage.hidden = true;
+      detailHeroImage.removeAttribute("src");
+    }
+  }
+  if (detailThumbnails) {
+    if (images.length > 1) {
+      detailThumbnails.innerHTML = images
+        .map(
+          (img, i) =>
+            `<img class="detail-thumb${i === 0 ? " is-active" : ""}" data-thumb-src="${escapeHTML(img)}" src="${escapeHTML(img)}" alt="Image ${i + 1}" loading="lazy" />`
+        )
+        .join("");
+    } else {
+      detailThumbnails.innerHTML = "";
+    }
+  }
+
+  if (isGoldActive(ad) && detailGoldBannerEl) {
+    detailGoldBannerEl.hidden = false;
+    detailGoldBannerEl.textContent = `★ Gold listing — featured until ${new Date(ad.goldUntil).toLocaleString()}`;
+    detailModalCard?.classList.add("gold-frame-active");
+  }
+}
+
+// Click delegation for: tile → open detail modal; thumbnail → swap hero image;
+// close button or backdrop → dismiss. Kept separate from the boost handler to
+// avoid intermixing concerns.
+document.addEventListener("click", (event) => {
+  const tile = event.target.closest("[data-detail-ad-id]");
+  if (tile) {
+    openAdDetail(tile.dataset.detailAdId);
+    return;
+  }
+  if (event.target === closeAdDetailBtn) {
+    closeAdDetail();
+    return;
+  }
+  if (event.target === adDetailModal) {
+    // Click landed on the dim backdrop, not the modal card.
+    closeAdDetail();
+    return;
+  }
+  const thumb = event.target.closest(".detail-thumb");
+  if (thumb && detailHeroImage && detailThumbnails) {
+    const src = thumb.dataset.thumbSrc || thumb.src;
+    detailHeroImage.src = src;
+    detailThumbnails.querySelectorAll(".detail-thumb").forEach((t) => {
+      t.classList.toggle("is-active", t === thumb);
+    });
+  }
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && adDetailModal && !adDetailModal.hidden) {
+    closeAdDetail();
+  }
+});
 
 (async function initClassifieds() {
   await Promise.all([refreshMe(), loadGoldConfig()]);

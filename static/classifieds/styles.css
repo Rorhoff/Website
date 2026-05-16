@@ -310,8 +310,109 @@ button.secondary:hover {
 
 .ads-list {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  /* Public browse list: tile-style cards. auto-fill keeps tiles sized ≥200px on
+     desktop/tablet so we naturally flow 3-5 columns; the mobile media query below
+     forces 2 columns at narrow widths regardless of the 200px minimum. */
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
   gap: 14px;
+}
+
+/* Compact image-first tile used in the public browse list. Markup is a <button> so
+   the whole tile is keyboard-focusable and exposes its own click target without
+   needing extra <a> nav. */
+.ad-tile {
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  padding: 0;
+  margin: 0;
+  border: 2px solid #cdd5e3;
+  border-radius: 14px;
+  overflow: hidden;
+  background: #d6dfeb;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  transition: transform 120ms ease, box-shadow 120ms ease, border-color 120ms ease;
+}
+
+.ad-tile:hover,
+.ad-tile:focus-visible {
+  border-color: #94a3b8;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.12);
+  outline: none;
+}
+
+.ad-tile:active {
+  transform: scale(0.985);
+}
+
+.ad-tile--gold {
+  border: 3px solid #d4af37;
+  box-shadow: 0 0 0 1px rgba(212, 175, 55, 0.35), 0 4px 14px rgba(180, 140, 40, 0.25);
+}
+
+.ad-tile--gold:hover,
+.ad-tile--gold:focus-visible {
+  border-color: #b8902f;
+  box-shadow: 0 0 0 1px rgba(212, 175, 55, 0.5), 0 6px 18px rgba(180, 140, 40, 0.35);
+}
+
+.ad-tile-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.ad-tile-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  padding: 12px;
+  color: #475569;
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-align: center;
+}
+
+.ad-tile-price {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #0f172a;
+  font-weight: 700;
+  font-size: 0.95rem;
+  padding: 4px 10px;
+  border-radius: 6px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+  pointer-events: none;
+  max-width: calc(100% - 16px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ad-tile-badge {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  background: linear-gradient(90deg, #fef3c7, #fde68a);
+  border: 1px solid #d4af37;
+  color: #78350f;
+  font-weight: 700;
+  font-size: 0.7rem;
+  padding: 3px 8px;
+  border-radius: 999px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+  pointer-events: none;
+  letter-spacing: 0.02em;
 }
 
 .ad-item {
@@ -617,6 +718,70 @@ button.secondary:hover {
   object-fit: cover;
   border-radius: 6px;
   border: 1px solid #dbe1f0;
+  cursor: pointer;
+  transition: border-color 120ms ease, transform 120ms ease;
+}
+
+.detail-thumbnails .detail-thumb:hover {
+  border-color: #94a3b8;
+}
+
+.detail-thumbnails .detail-thumb.is-active {
+  border: 2px solid #2563eb;
+  transform: translateY(-1px);
+}
+
+.detail-meta-row {
+  display: block;
+}
+
+.detail-meta-row + .detail-meta-row {
+  margin-top: 2px;
+}
+
+/* Contact box inside the detail modal — visually distinct so buyers can spot
+   the seller's email/phone at a glance without scrolling past gray meta text. */
+.detail-contact-block {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: 0.95rem;
+}
+
+.detail-contact-block .contact-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.detail-contact-block .contact-label {
+  font-weight: 600;
+  color: #334155;
+  min-width: 56px;
+}
+
+.detail-contact-block .contact-row + .contact-row {
+  margin-top: 4px;
+}
+
+.detail-contact-block a.contact-link {
+  color: #1d4ed8;
+  text-decoration: none;
+  word-break: break-all;
+}
+
+.detail-contact-block a.contact-link:hover {
+  text-decoration: underline;
+}
+
+.detail-contact-block .contact-empty {
+  margin: 0;
+  color: #64748b;
+  font-style: italic;
+  font-size: 0.9rem;
 }
 
 .detail-modal-title-row {
@@ -661,15 +826,12 @@ button.secondary:hover {
   height: 120px;
 }
 
-@media (max-width: 900px) {
+/* Mobile: hold the line at 2 columns even on the narrowest phones — the user
+   explicitly wants a denser, scrollable browse on small screens. */
+@media (max-width: 480px) {
   .ads-list {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 620px) {
-  .ads-list {
-    grid-template-columns: 1fr;
+    gap: 10px;
   }
 }
 
