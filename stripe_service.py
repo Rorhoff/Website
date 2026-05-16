@@ -204,37 +204,48 @@ def verify_webhook(payload: bytes, signature_header: str) -> Any:
     return stripe.Webhook.construct_event(payload, signature_header, secret)
 
 
+def _safe_get(obj: Any, key: str) -> Any:
+    """Stripe-python's StripeObject overrides __getattr__ such that .get(...) is treated as
+    a dict-key lookup ('get') rather than a method, raising AttributeError. Always use
+    bracket-style access via this helper, which catches KeyError so optional keys don't
+    crash the webhook handler."""
+    try:
+        return obj[key]
+    except (KeyError, TypeError):
+        return None
+
+
 def apply_completed_checkout(db: Session, event: Any) -> str | None:
     """Webhook handler: marks the ad gold for `days` after now. Idempotent — replaying
     the same event is a no-op. Returns the ad_id on success, None if the event isn't a
     successful checkout we care about."""
-    if event.get("type") != "checkout.session.completed":
+    if _safe_get(event, "type") != "checkout.session.completed":
         return None
     session = event["data"]["object"]
+    session_id = _safe_get(session, "id") or ""
     # Only fully-paid sessions activate gold — skip async unpaid ones (e.g. ACH pending).
-    if session.get("payment_status") != "paid":
+    if _safe_get(session, "payment_status") != "paid":
         log.info(
             "Stripe checkout %s not yet paid (status=%s); skipping",
-            session.get("id"),
-            session.get("payment_status"),
+            session_id,
+            _safe_get(session, "payment_status"),
         )
         return None
-    meta = session.get("metadata") or {}
-    ad_id = meta.get("ad_id")
-    days_str = meta.get("days")
+    meta = _safe_get(session, "metadata") or {}
+    ad_id = _safe_get(meta, "ad_id")
+    days_str = _safe_get(meta, "days")
     if not ad_id or not days_str:
-        log.warning("Stripe checkout %s missing metadata: %r", session.get("id"), meta)
+        log.warning("Stripe checkout %s missing metadata: %r", session_id, dict(meta) if meta else {})
         return None
     try:
         days = int(days_str)
     except ValueError:
-        log.warning("Stripe checkout %s bad days metadata: %r", session.get("id"), days_str)
+        log.warning("Stripe checkout %s bad days metadata: %r", session_id, days_str)
         return None
     ad = db.get(ClassifiedAd, ad_id)
     if ad is None:
-        log.warning("Stripe checkout %s referenced missing ad %s", session.get("id"), ad_id)
+        log.warning("Stripe checkout %s referenced missing ad %s", session_id, ad_id)
         return None
-    session_id = session.get("id") or ""
     # Idempotency: same session id replayed → no-op.
     if ad.stripe_session_id == session_id:
         log.info("Stripe checkout %s already applied to ad %s", session_id, ad_id)

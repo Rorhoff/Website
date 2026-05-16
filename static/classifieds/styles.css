@@ -355,18 +355,6 @@ button.secondary:hover {
   max-width: 100%;
 }
 
-.gold-frame-fieldset {
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  padding: 10px 12px;
-  margin: 0;
-}
-
-.gold-frame-fieldset legend {
-  padding: 0 6px;
-  font-weight: 600;
-  font-size: 0.95rem;
-}
 
 .ad-card-footer {
   display: flex;

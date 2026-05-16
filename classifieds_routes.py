@@ -460,11 +460,17 @@ async def classifieds_gold_webhook(
     except Exception:
         log.exception("Stripe webhook signature verification failed")
         raise HTTPException(status_code=400, detail="Bad webhook signature")
+    # Avoid event.get(...) — Stripe's StripeObject treats `.get` as a dict-key lookup,
+    # not a method (would raise AttributeError). Use bracket access via try/except instead.
+    try:
+        event_id = event["id"]
+    except (KeyError, TypeError):
+        event_id = "<unknown>"
     try:
         ad_id = stripe_service.apply_completed_checkout(db, event)
     except Exception:
         # 500 makes Stripe retry. Don't swallow — gold activation is the whole point.
-        log.exception("Stripe webhook application failed for event=%s", event.get("id"))
+        log.exception("Stripe webhook application failed for event=%s", event_id)
         raise HTTPException(status_code=500, detail="Webhook processing failed.")
     return {"ok": True, "adId": ad_id}
 
