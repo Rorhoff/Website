@@ -270,37 +270,45 @@ appear on `https://rorhoff.com/classifieds/`. That's your isolation proof.
 
 ## Day-2 ops
 
-All of the workflows below are wrapped in `deploy/deploy.sh`, which is the supported
-entry point on EC2. Install it once:
+Two scripts in this folder are the supported entry points on EC2:
+
+- **`commit.sh`** — push test (rorhoff.com / dev). Pulls `origin/main` into
+  `/home/ubuntu/Website` and restarts the dev service.
+- **`commitprod.sh`** — push prod (t1classifieds.com). Checks out a `prod-v*`
+  tag in `/home/ubuntu/website-prod` and restarts `webapi-prod`.
+
+Install both once (this also overwrites your old `~/commit.sh`):
 
 ```bash
-sudo cp /home/ubuntu/Website/deploy/deploy.sh /home/ubuntu/deploy.sh
-sudo chmod +x /home/ubuntu/deploy.sh
+cd /home/ubuntu/Website && git pull
+cp deploy/commit.sh     ~/commit.sh
+cp deploy/commitprod.sh ~/commitprod.sh
+chmod +x ~/commit.sh ~/commitprod.sh
 ```
 
-After that, every operation is one command. The raw `git` + `systemctl` recipes are
-still listed below so you know what the script does under the hood (and so you can
-run them by hand if the script is ever broken).
+Each script lists the variables you can tweak at the top (directory paths,
+service name, venv pip path) — change them once if your layout differs from
+the defaults.
 
-### Deploying to dev only (the normal workflow)
+### Deploying to dev / test (the normal workflow)
 
 ```bash
-~/deploy.sh dev
+~/commit.sh
 ```
 
-Pulls `origin/main` into `/home/ubuntu/Website`, runs `pip install` only if
-`requirements.txt` changed, and restarts `webapi-dev`. Prod is untouched.
+Refuses to run on a dirty working tree, fast-forwards `main`, restarts the dev
+service, and curl-probes `127.0.0.1:8000/which-app` to make sure it came back up.
+Prod is untouched.
 
 Manual equivalent:
 
 ```bash
 cd /home/ubuntu/Website
 git pull --ff-only origin main
-.venv/bin/pip install -r requirements.txt   # only if deps changed
-sudo systemctl restart webapi-dev
+sudo systemctl restart roryportfolio
 ```
 
-### Promoting `main` → prod (release a new version)
+### Promoting test → prod (release a new version)
 
 ```bash
 # Local: tag the commit you want live and push the tag.
@@ -309,12 +317,12 @@ git tag -a prod-v1.1 -m "Image-tile browse + ad-detail modal"
 git push origin prod-v1.1
 
 # On EC2: deploy the tag. This is the only step that actually moves prod.
-~/deploy.sh prod prod-v1.1
+~/commitprod.sh prod-v1.1
 ```
 
-The script fetches tags, refuses to deploy if the tag doesn't exist on origin, checks
-out the tag in `/home/ubuntu/website-prod`, runs `pip install` only on requirements
-changes, restarts `webapi-prod`, and confirms the service came back up.
+The script fetches tags, refuses to deploy if the tag doesn't exist on origin,
+checks out the tag in `/home/ubuntu/website-prod`, runs `pip install` only when
+`requirements.txt` changed, restarts `webapi-prod`, and probes `127.0.0.1:8001`.
 
 Manual equivalent:
 
@@ -326,24 +334,28 @@ git checkout prod-v1.1
 sudo systemctl restart webapi-prod
 ```
 
-### Rolling back prod
-
-Same command, with an older tag:
+### Listing tags
 
 ```bash
-~/deploy.sh prod-list           # show recent tags
-~/deploy.sh prod prod-v1.0      # roll back
+~/commitprod.sh                 # no args = show recent prod-v* tags + usage
 ```
 
-Code rollbacks are this simple. If a release also ran a DB migration you need to
-undo, restoring an RDS snapshot is a separate (Cloudflare-side) step.
+### Rolling back prod
 
-### Status / quick checks
+Same script, with an older tag:
 
 ```bash
-~/deploy.sh status              # what each service is running, whether it's active
-sudo systemctl restart webapi-prod   # bounce one without touching the other
-sudo systemctl stop    webapi-prod   # take prod down; dev keeps serving
+~/commitprod.sh prod-v1.0
+```
+
+Code rollbacks are this simple. If a release also ran a DB migration you need
+to undo, restoring an RDS snapshot is a separate (AWS console) step.
+
+### Independent restarts
+
+```bash
+sudo systemctl restart webapi-prod      # bounce one without touching the other
+sudo systemctl stop    webapi-prod      # take prod down; dev keeps serving
 ```
 
 ### (Optional, later) Lock down the EC2 origin
