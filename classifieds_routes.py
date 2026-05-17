@@ -14,6 +14,7 @@ Developer notes:
 from __future__ import annotations
 
 import logging
+import re
 import secrets
 import uuid
 from datetime import datetime, timedelta
@@ -74,6 +75,39 @@ def _user_out(user: ClassifiedUser) -> dict[str, Any]:
     }
 
 
+_PRICE_LEADING_DOLLAR = re.compile(r"^\s*\$\s*")
+_PRICE_TRAILING_DOLLAR = re.compile(r"\s*\$\s*$")
+
+
+def _normalize_price(raw: str | None) -> str:
+    """Canonicalize a user-submitted price to ``$<value>``.
+
+    The form lets users type free text so they can express ranges (``$100-150``),
+    OBOs (``$50 OBO``), and so on. We only normalize the position of the dollar
+    sign — everything else is left alone:
+
+    - ``"100"``     -> ``"$100"``
+    - ``"$100"``    -> ``"$100"``
+    - ``"100$"``    -> ``"$100"``
+    - ``"  100 $"`` -> ``"$100"``
+    - ``"Free"``    -> ``"Free"``  (no digits => not a price; preserve verbatim)
+    - ``""``        -> ``""``
+    """
+    if raw is None:
+        return ""
+    s = raw.strip()
+    if not s:
+        return ""
+    s = _PRICE_LEADING_DOLLAR.sub("", s)
+    s = _PRICE_TRAILING_DOLLAR.sub("", s)
+    s = s.strip()
+    if not s:
+        return ""
+    # Pure-text values like "Free" / "TBD" / "Negotiable" don't get a $ glued to
+    # them — that would read as "$Free" which nobody wants.
+    return f"${s}" if any(c.isdigit() for c in s) else s
+
+
 def _ad_out(row: ClassifiedAd) -> dict[str, Any]:
     created_ms = int(row.created_at.timestamp() * 1000)
     # goldUntil is an epoch-ms timestamp when active, or None when never boosted / expired.
@@ -88,7 +122,9 @@ def _ad_out(row: ClassifiedAd) -> dict[str, Any]:
         "state": row.state,
         "category": row.category,
         "subCategory": row.sub_category,
-        "price": row.price,
+        # Normalized on the way out too so legacy rows saved before _normalize_price
+        # existed still render canonically without a one-off DB migration.
+        "price": _normalize_price(row.price),
         "description": row.description,
         "images": list(row.images) if row.images is not None else [],
         "author": row.author_username,
@@ -515,7 +551,7 @@ def classifieds_create_ad(
         state=body.state.strip(),
         category=body.category.strip(),
         sub_category=body.subCategory.strip(),
-        price=body.price.strip(),
+        price=_normalize_price(body.price),
         description=body.description.strip(),
         images=body.images,
         author_username=user.username,

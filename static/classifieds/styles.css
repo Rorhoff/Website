@@ -399,22 +399,6 @@ button.secondary:hover {
   white-space: nowrap;
 }
 
-.ad-tile-badge {
-  position: absolute;
-  top: 8px;
-  left: 8px;
-  background: linear-gradient(90deg, #fef3c7, #fde68a);
-  border: 1px solid #d4af37;
-  color: #78350f;
-  font-weight: 700;
-  font-size: 0.7rem;
-  padding: 3px 8px;
-  border-radius: 999px;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
-  pointer-events: none;
-  letter-spacing: 0.02em;
-}
-
 .ad-item {
   border: 1px solid #dbe1f0;
   border-radius: 8px;

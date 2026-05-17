@@ -13,6 +13,7 @@ const registerForm = document.getElementById("registerForm");
 const loginForm = document.getElementById("loginForm");
 const profileForm = document.getElementById("profileForm");
 const adForm = document.getElementById("adForm");
+const adPriceInput = document.getElementById("adPrice");
 const authSection = document.getElementById("authSection");
 const profileSection = document.getElementById("profileSection");
 const postAdSection = document.getElementById("postAdSection");
@@ -149,6 +150,17 @@ function wireAdSubCategorySelect() {
   repopulate();
 }
 wireAdSubCategorySelect();
+
+// Auto-format the price field as soon as the user tabs/clicks away. Calling
+// formatPrice on input would fight the user mid-typing (e.g. eating digits
+// they paused on), so we only canonicalize on blur. Submit re-runs it as a
+// final guard in case someone tabs straight from "100$" to the submit button.
+if (adPriceInput) {
+  adPriceInput.addEventListener("blur", () => {
+    const next = formatPrice(adPriceInput.value);
+    if (next !== adPriceInput.value) adPriceInput.value = next;
+  });
+}
 const authStatus = document.getElementById("authStatus");
 const profileHint = document.getElementById("profileHint");
 const toast = document.getElementById("toast");
@@ -229,6 +241,21 @@ function escapeHTML(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+// Canonicalize prices to "$<value>". Mirrors classifieds_routes._normalize_price
+// so the field looks the same whether the value is freshly typed (formatted on
+// blur), freshly saved (server-side), or read back from a legacy row (server-
+// side fallback in _ad_out). We strip a leading or trailing "$" + adjacent
+// whitespace, then re-prepend "$" only when the remaining string contains a
+// digit — that keeps free-form values like "Free" or "Negotiable" intact.
+function formatPrice(raw) {
+  if (raw == null) return "";
+  let s = String(raw).trim();
+  if (!s) return "";
+  s = s.replace(/^\s*\$\s*/, "").replace(/\s*\$\s*$/, "").trim();
+  if (!s) return "";
+  return /\d/.test(s) ? `$${s}` : s;
 }
 
 function closeMenu() {
@@ -366,22 +393,21 @@ async function renderAds() {
     // Compact image-first tile. The whole tile is a <button> so it's keyboard-focusable
     // and click-delegated via [data-detail-ad-id] in the global handler. Title/category/
     // contact info live in the detail modal that opens on tap to keep tiles scannable.
+    // Gold ads are signalled by the gold border alone — no overlay badge, since the
+    // border + soft glow already make them obvious without crowding the photo.
     adsList.innerHTML = filtered
       .map((ad) => {
         const firstImage = (ad.images || []).find(Boolean) || "";
         const goldClass = isGoldActive(ad) ? " ad-tile--gold" : "";
-        const goldOverlay = isGoldActive(ad)
-          ? `<span class="ad-tile-badge" aria-label="Gold ad">★ Gold</span>`
-          : "";
         const imageHtml = firstImage
           ? `<img class="ad-tile-image" src="${escapeHTML(firstImage)}" alt="${escapeHTML(ad.title || "Ad")}" loading="lazy" />`
           : `<div class="ad-tile-empty">${escapeHTML(ad.title || "No image")}</div>`;
-        const aria = `${ad.title || "Ad"} — ${ad.price || ""}`;
+        const priceLabel = formatPrice(ad.price);
+        const aria = `${ad.title || "Ad"} — ${priceLabel}`;
         return `
       <button type="button" class="ad-tile${goldClass}" data-detail-ad-id="${escapeHTML(ad.id)}" aria-label="${escapeHTML(aria)}">
         ${imageHtml}
-        ${goldOverlay}
-        <span class="ad-tile-price">${escapeHTML(ad.price)}</span>
+        <span class="ad-tile-price">${escapeHTML(priceLabel)}</span>
       </button>
     `;
       })
@@ -431,7 +457,7 @@ async function renderMyAds() {
       <article class="ad-item${goldClass}" data-ad-id="${escapeHTML(ad.id)}">
         <div class="ad-title-row">
           <span>${escapeHTML(ad.title)} ${goldBadgeHTML(ad)}</span>
-          <span>${escapeHTML(ad.price)}</span>
+          <span>${escapeHTML(formatPrice(ad.price))}</span>
         </div>
         <p>${escapeHTML(ad.description)}</p>
         <p class="meta">
@@ -702,7 +728,10 @@ adForm.addEventListener("submit", async (event) => {
   const state = String(formData.get("state")).trim();
   const category = String(formData.get("category")).trim();
   const subCategory = String(formData.get("subCategory")).trim();
-  const price = String(formData.get("price")).trim();
+  // Run the same canonicalization the server does so the optimistic view and
+  // the persisted record agree, and so a user typing "100$" immediately sees
+  // "$100" on their freshly-posted tile.
+  const price = formatPrice(formData.get("price"));
   const description = String(formData.get("description")).trim();
   const files = adImagesInput.files ? Array.from(adImagesInput.files) : [];
 
@@ -985,7 +1014,7 @@ async function openAdDetail(adId) {
   }
 
   if (detailTitleEl) detailTitleEl.textContent = ad.title || "";
-  if (detailPriceEl) detailPriceEl.textContent = ad.price || "";
+  if (detailPriceEl) detailPriceEl.textContent = formatPrice(ad.price);
   if (detailDescriptionEl) detailDescriptionEl.textContent = ad.description || "";
 
   if (detailMetaEl) {
