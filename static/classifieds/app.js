@@ -439,32 +439,34 @@ async function renderMyAds() {
     if (myAdsHint) {
       myAdsHint.textContent = `You have ${ads.length} ad${ads.length === 1 ? "" : "s"} posted.`;
     }
+    // My Ads cards: compact, click-to-expand. We deliberately *don't* render the
+    // full description — it lives in the detail modal that opens on click, same
+    // modal the public browse uses (data-detail-ad-id triggers it). Actions are
+    // pinned bottom-right via flex `margin-top: auto` so the card height can vary
+    // with title length without the buttons drifting around the viewport.
     myAdsList.innerHTML = ads
       .map((ad) => {
-        const imageBlock = (ad.images || [])
-          .map(
-            (img, index) =>
-              `<img src="${String(img).replace(/"/g, "&quot;")}" alt="Ad image ${index + 1}" loading="lazy" />`
-          )
-          .join("");
         const gold = isGoldActive(ad);
-        const goldClass = gold ? " ad-item--gold" : "";
+        const goldClass = gold ? " my-ad-card--gold" : "";
         const boostLabel = gold ? "Extend Gold" : "Boost to Gold ★";
         const boostBtn = goldConfig?.enabled
           ? `<button type="button" class="my-ad-boost" data-boost-ad-id="${escapeHTML(ad.id)}">${boostLabel}</button>`
           : "";
+        const firstImage = (ad.images || []).find(Boolean) || "";
+        const thumbHtml = firstImage
+          ? `<img class="my-ad-thumb" src="${escapeHTML(firstImage)}" alt="${escapeHTML(ad.title || "Ad image")}" loading="lazy" />`
+          : `<div class="my-ad-thumb my-ad-thumb--empty">No image</div>`;
         return `
-      <article class="ad-item${goldClass}" data-ad-id="${escapeHTML(ad.id)}">
-        <div class="ad-title-row">
-          <span>${escapeHTML(ad.title)} ${goldBadgeHTML(ad)}</span>
-          <span>${escapeHTML(formatPrice(ad.price))}</span>
+      <article class="my-ad-card${goldClass}" data-ad-id="${escapeHTML(ad.id)}" data-detail-ad-id="${escapeHTML(ad.id)}" tabindex="0" role="button" aria-label="View details for ${escapeHTML(ad.title || "ad")}">
+        <div class="my-ad-header">
+          <span class="my-ad-title">${escapeHTML(ad.title)} ${goldBadgeHTML(ad)}</span>
+          <span class="my-ad-price">${escapeHTML(formatPrice(ad.price))}</span>
         </div>
-        <p>${escapeHTML(ad.description)}</p>
+        ${thumbHtml}
         <p class="meta">
           ${escapeHTML(ad.category)} / ${escapeHTML(ad.subCategory)} in ${escapeHTML(ad.state)}
         </p>
         <p class="meta">Posted ${new Date(ad.createdAt).toLocaleString()}</p>
-        <div class="image-grid">${imageBlock}</div>
         <div class="my-ad-actions">
           ${boostBtn}
           <button type="button" class="my-ad-delete" data-ad-id="${escapeHTML(ad.id)}">Delete</button>
@@ -1067,8 +1069,17 @@ async function openAdDetail(adId) {
 document.addEventListener("click", (event) => {
   const tile = event.target.closest("[data-detail-ad-id]");
   if (tile) {
-    openAdDetail(tile.dataset.detailAdId);
-    return;
+    // A click that lands on an interactive control inside the card (Boost /
+    // Delete on My Ads cards) should fire that control's own handler instead
+    // of opening the detail modal. Public browse tiles are themselves a
+    // <button> so `interactive === tile` and we still open the modal.
+    const interactive = event.target.closest("button, a, input, select, textarea");
+    if (interactive && interactive !== tile) {
+      // Let the inner control handle this click in its own listener.
+    } else {
+      openAdDetail(tile.dataset.detailAdId);
+      return;
+    }
   }
   if (event.target === closeAdDetailBtn) {
     closeAdDetail();
@@ -1087,6 +1098,16 @@ document.addEventListener("click", (event) => {
       t.classList.toggle("is-active", t === thumb);
     });
   }
+});
+
+// Keyboard support for My Ads cards (which are <article role="button"> rather
+// than real <button>s, so they don't get Enter/Space activation for free).
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter" && event.key !== " ") return;
+  const card = event.target.closest(".my-ad-card[data-detail-ad-id]");
+  if (!card || event.target !== card) return;
+  event.preventDefault();
+  openAdDetail(card.dataset.detailAdId);
 });
 
 document.addEventListener("keydown", (event) => {

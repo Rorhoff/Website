@@ -172,18 +172,103 @@ body {
   font-size: 0.85rem;
   padding: 0.35rem 0.75rem;
 }
+/* My Ads card. Uses flex-column with margin-top:auto on the actions row so
+   Boost/Delete stay pinned to the bottom-right regardless of how tall the
+   card grows (longer titles, longer "Posted on" timestamps, etc.). The card
+   itself is the click target — a click anywhere except on a button opens
+   the detail modal. The full description and additional images live in
+   that modal so the card itself stays scannable. */
+.my-ad-card {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid #dbe1f0;
+  border-radius: 10px;
+  padding: 12px;
+  background: #fafcff;
+  cursor: pointer;
+  min-width: 0;
+  transition: border-color 120ms ease, box-shadow 120ms ease, transform 120ms ease;
+}
+
+.my-ad-card:hover,
+.my-ad-card:focus-visible {
+  border-color: #94a3b8;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.10);
+  outline: none;
+}
+
+.my-ad-card:active { transform: scale(0.99); }
+
+.my-ad-card--gold {
+  border: 3px solid #d4af37;
+  box-shadow: 0 0 0 1px rgba(212, 175, 55, 0.35), 0 4px 14px rgba(180, 140, 40, 0.25);
+  background: linear-gradient(180deg, #fffef8 0%, #fafcff 100%);
+}
+
+.my-ad-card--gold:hover,
+.my-ad-card--gold:focus-visible {
+  border-color: #b8902f;
+  box-shadow: 0 0 0 1px rgba(212, 175, 55, 0.5), 0 6px 18px rgba(180, 140, 40, 0.35);
+}
+
+.my-ad-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.my-ad-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  word-break: break-word;
+}
+
+.my-ad-price {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.my-ad-thumb {
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid #dbe1f0;
+  background: #e2e8f0;
+  margin: 4px 0 8px;
+}
+
+.my-ad-thumb--empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #64748b;
+  font-size: 0.85rem;
+  font-style: italic;
+}
+
+/* Pin to bottom-right: margin-top:auto pushes this row to the bottom of the
+   card regardless of how much content sits above; justify-content:flex-end
+   right-aligns the buttons. flex-wrap keeps the row sane on narrow widths. */
 .my-ad-actions {
   display: flex;
   justify-content: flex-end;
-  margin-top: 0.5rem;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 10px;
 }
+
 .my-ad-delete {
   appearance: none;
   background: #fff;
   color: #b91c1c;
   border: 1px solid #fca5a5;
   border-radius: 6px;
-  padding: 0.35rem 0.85rem;
+  padding: 0.4rem 0.85rem;
   font-size: 0.85rem;
   font-weight: 600;
   cursor: pointer;
