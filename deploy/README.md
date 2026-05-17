@@ -270,64 +270,80 @@ appear on `https://rorhoff.com/classifieds/`. That's your isolation proof.
 
 ## Day-2 ops
 
-### Promoting `main` → prod (release a new version)
+All of the workflows below are wrapped in `deploy/deploy.sh`, which is the supported
+entry point on EC2. Install it once:
 
 ```bash
-# 1) From your dev machine, tag the commit you want live.
-#    Use an annotated tag with a one-line release note.
-git checkout main
-git pull
-git tag -a prod-v1.1 -m "Image-tile browse + ad-detail modal"
-git push origin prod-v1.1
-
-# 2) On EC2 prod (this is the only step that actually moves prod).
-cd /home/ubuntu/website-prod
-git fetch --tags
-git checkout prod-v1.1
-
-# Only if requirements.txt changed in this release:
-.venv/bin/pip install -r requirements.txt
-
-# Bounce prod (dev keeps serving the whole time).
-sudo systemctl restart webapi-prod
-sudo journalctl -u webapi-prod -n 50 --no-pager
+sudo cp /home/ubuntu/Website/deploy/deploy.sh /home/ubuntu/deploy.sh
+sudo chmod +x /home/ubuntu/deploy.sh
 ```
+
+After that, every operation is one command. The raw `git` + `systemctl` recipes are
+still listed below so you know what the script does under the hood (and so you can
+run them by hand if the script is ever broken).
 
 ### Deploying to dev only (the normal workflow)
 
 ```bash
-# Local
-git push origin main
+~/deploy.sh dev
+```
 
-# On EC2 dev
+Pulls `origin/main` into `/home/ubuntu/Website`, runs `pip install` only if
+`requirements.txt` changed, and restarts `webapi-dev`. Prod is untouched.
+
+Manual equivalent:
+
+```bash
 cd /home/ubuntu/Website
-git pull
+git pull --ff-only origin main
 .venv/bin/pip install -r requirements.txt   # only if deps changed
 sudo systemctl restart webapi-dev
 ```
 
-Prod stays exactly where it is — pinned to whatever `prod-v*` tag it last checked out.
-
-### Rolling back prod
+### Promoting `main` → prod (release a new version)
 
 ```bash
-# Find the previous tag.
-cd /home/ubuntu/website-prod
-git tag --list 'prod-v*' --sort=-v:refname | head
+# Local: tag the commit you want live and push the tag.
+git checkout main && git pull
+git tag -a prod-v1.1 -m "Image-tile browse + ad-detail modal"
+git push origin prod-v1.1
 
-# Re-checkout it and restart.
-git checkout prod-v1.0
+# On EC2: deploy the tag. This is the only step that actually moves prod.
+~/deploy.sh prod prod-v1.1
+```
+
+The script fetches tags, refuses to deploy if the tag doesn't exist on origin, checks
+out the tag in `/home/ubuntu/website-prod`, runs `pip install` only on requirements
+changes, restarts `webapi-prod`, and confirms the service came back up.
+
+Manual equivalent:
+
+```bash
+cd /home/ubuntu/website-prod
+git fetch --tags
+git checkout prod-v1.1
+.venv/bin/pip install -r requirements.txt   # only if deps changed
 sudo systemctl restart webapi-prod
 ```
 
-If the rollback is because of a DB migration that's already run, restoring an older
-DB snapshot is a separate (RDS console) step. Most code rollbacks won't need it.
+### Rolling back prod
 
-### Independent restarts
+Same command, with an older tag:
 
 ```bash
-sudo systemctl restart webapi-prod      # bounce one without touching the other
-sudo systemctl stop    webapi-prod      # take prod down; dev keeps serving
+~/deploy.sh prod-list           # show recent tags
+~/deploy.sh prod prod-v1.0      # roll back
+```
+
+Code rollbacks are this simple. If a release also ran a DB migration you need to
+undo, restoring an RDS snapshot is a separate (Cloudflare-side) step.
+
+### Status / quick checks
+
+```bash
+~/deploy.sh status              # what each service is running, whether it's active
+sudo systemctl restart webapi-prod   # bounce one without touching the other
+sudo systemctl stop    webapi-prod   # take prod down; dev keeps serving
 ```
 
 ### (Optional, later) Lock down the EC2 origin
