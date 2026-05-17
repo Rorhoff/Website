@@ -1,9 +1,20 @@
 ; systemd unit for the PROD classifieds-only FastAPI service.
 ; Installs to: /etc/systemd/system/webapi-prod.service
-; Loads:       /home/ubuntu/Website/.env.prod  (DATABASE_URL=...Classifieds_Prod, APP_ENV=production,
-;                                               SERVICE_MODE=classifieds, S3_* set, CORS_ORIGINS=https://t1classifieds.com,...)
+; Runs from:   /home/ubuntu/website-prod   (separate checkout pinned to a `prod-v*` git tag,
+;                                            so `git pull` on the dev box never touches prod)
+; Loads:       /home/ubuntu/website-prod/.env.prod
+;              (DATABASE_URL=...Classifieds_Prod, APP_ENV=production, SERVICE_MODE=classifieds,
+;               S3_* set, CORS_ORIGINS=https://t1classifieds.com,..., live STRIPE_* keys)
 ; Listens on:  127.0.0.1:8001   (nginx for t1classifieds.com proxies to this, behind Cloudflare)
 ; Reload:      sudo systemctl daemon-reload && sudo systemctl restart webapi-prod
+;
+; To deploy a new version:
+;   1) on local: git tag -a prod-v1.1 -m "..." && git push origin prod-v1.1
+;   2) on EC2:   cd /home/ubuntu/website-prod
+;                git fetch --tags
+;                git checkout prod-v1.1
+;                .venv/bin/pip install -r requirements.txt   # only if deps changed
+;                sudo systemctl restart webapi-prod
 
 [Unit]
 Description=WebAPI (production, classifieds only) for t1classifieds.com
@@ -13,11 +24,11 @@ After=network.target
 Type=simple
 User=ubuntu
 Group=ubuntu
-WorkingDirectory=/home/ubuntu/Website
-EnvironmentFile=/home/ubuntu/Website/.env.prod
+WorkingDirectory=/home/ubuntu/website-prod
+EnvironmentFile=/home/ubuntu/website-prod/.env.prod
 Environment=PYTHONUNBUFFERED=1
-Environment=ENV_FILE=/home/ubuntu/Website/.env.prod
-ExecStart=/home/ubuntu/Website/.venv/bin/uvicorn main:app --host 127.0.0.1 --port 8001 --proxy-headers --forwarded-allow-ips=127.0.0.1
+Environment=ENV_FILE=/home/ubuntu/website-prod/.env.prod
+ExecStart=/home/ubuntu/website-prod/.venv/bin/uvicorn main:app --host 127.0.0.1 --port 8001 --proxy-headers --forwarded-allow-ips=127.0.0.1
 Restart=on-failure
 RestartSec=3
 

@@ -9,13 +9,33 @@ isolated services on one EC2 instance, with Cloudflare in front of prod.
    rorhoff.com (DNS) ──►│  nginx (rorhoff.conf)       │──► 127.0.0.1:8000  webapi-dev
                         │                             │                    SERVICE_MODE=full
                         │                             │                    DB=RoryPortfolio
+                        │                             │                    cwd=/home/ubuntu/Website (tracks `main`)
                         │                             │
    t1classifieds.com ──►│  nginx (t1classifieds.conf) │──► 127.0.0.1:8001  webapi-prod
    (proxied via         │                             │                    SERVICE_MODE=classifieds
     Cloudflare)         └─────────────────────────────┘                    DB=Classifieds_Prod
+                                                                            cwd=/home/ubuntu/website-prod (pinned to a prod-v* tag)
 ```
 
-One EC2 box, one RDS instance (separate database), one R2 bucket (separate key prefix).
+One EC2 box, one RDS instance (separate database), one R2 bucket (separate key prefix),
+**two separate git checkouts so `main` never auto-deploys to prod**.
+
+---
+
+## Release model — short version
+
+- **`main` branch = dev.** A push to `main` flows to `rorhoff.com` after you `git pull` on
+  the dev box. It does **not** touch prod.
+- **`prod-v*` tags = prod.** Prod runs from `/home/ubuntu/website-prod` which is checked
+  out at a specific tag (e.g. `prod-v1.0`). It only moves when you explicitly tag and
+  re-checkout.
+- **Promote**: tag `main`, push the tag, then on EC2 `git fetch --tags && git checkout
+  prod-vX` in the prod directory and restart the service.
+- **Rollback**: `git checkout prod-v(X-1)` in the prod directory and restart.
+
+Tag scheme: `prod-vMAJOR.MINOR`. Bump MINOR for normal ships, MAJOR for breaking changes
+(DB migrations, env-var changes). Annotated tags only — they show up nicely in `git log`
+and carry a release note: `git tag -a prod-v1.1 -m "Bugfix: webhook signature handling"`.
 
 ---
 
@@ -52,8 +72,8 @@ FastAPI backend is the only client that PUTs.
 
 ## 3. Create the two env files on EC2
 
-Both files live on the EC2 box, next to `main.py`, and are gitignored. Copy
-`.env.example` as the template; set chmod 600 so only the deploy user reads them.
+Each lives next to its own checkout and is gitignored. Copy `.env.example` as the
+template; chmod 600 so only the deploy user reads them.
 
 **`/home/ubuntu/Website/.env.dev`** (dev — full app, current behavior):
 
@@ -72,9 +92,15 @@ S3_ENDPOINT_URL=https://<account_id>.r2.cloudflarestorage.com
 S3_REGION=auto
 S3_PUBLIC_BASE_URL=https://images.t1classifieds.com
 S3_KEY_PREFIX=dev/
+
+# Stripe — TEST keys for dev so you can buy gold frames without charging real cards.
+STRIPE_SECRET_KEY=sk_test_...
+STRIPE_PUBLISHABLE_KEY=pk_test_...
+STRIPE_WEBHOOK_SECRET=whsec_test_...
+STRIPE_PUBLIC_BASE_URL=https://rorhoff.com
 ```
 
-**`/home/ubuntu/Website/.env.prod`** (prod — classifieds-only, must have storage):
+**`/home/ubuntu/website-prod/.env.prod`** (prod — classifieds-only, must have storage):
 
 ```ini
 APP_ENV=production
@@ -91,25 +117,63 @@ S3_REGION=auto
 S3_PUBLIC_BASE_URL=https://images.t1classifieds.com
 S3_KEY_PREFIX=prod/
 
+# Stripe — LIVE keys for prod. Webhook secret comes from a *separate* live-mode endpoint.
+STRIPE_SECRET_KEY=sk_live_...
+STRIPE_PUBLISHABLE_KEY=pk_live_...
+STRIPE_WEBHOOK_SECRET=whsec_live_...
+STRIPE_PUBLIC_BASE_URL=https://t1classifieds.com
+
 # DIFFERENT pair from dev — these grant access to the API dashboard.
 API_KEY=...
 API_SECRET=...
 ```
 
 ```bash
-sudo chown ubuntu:ubuntu /home/ubuntu/Website/.env.*
-sudo chmod 600 /home/ubuntu/Website/.env.*
+sudo chown ubuntu:ubuntu /home/ubuntu/Website/.env.dev
+sudo chown ubuntu:ubuntu /home/ubuntu/website-prod/.env.prod
+sudo chmod 600 /home/ubuntu/Website/.env.dev /home/ubuntu/website-prod/.env.prod
 ```
 
-## 4. Install the two systemd services
+## 4. Set up the side-by-side checkouts
+
+The dev directory likely already exists at `/home/ubuntu/Website` (tracking `main`).
+We're adding a **second** checkout next to it that prod will run from.
 
 ```bash
-cd /home/ubuntu/Website
-git pull
-.venv/bin/pip install -r requirements.txt   # picks up boto3
+cd /home/ubuntu
 
-sudo cp deploy/webapi-dev.service  /etc/systemd/system/
-sudo cp deploy/webapi-prod.service /etc/systemd/system/
+# DEV: confirm the existing checkout is on main and up to date.
+cd /home/ubuntu/Website
+git checkout main
+git pull
+.venv/bin/pip install -r requirements.txt   # picks up boto3, stripe, etc.
+
+# PROD: brand-new checkout, pinned to a prod-v* tag.
+cd /home/ubuntu
+git clone https://github.com/Rorhoff/Website.git website-prod
+cd website-prod
+git fetch --tags
+git checkout prod-v1.0       # ← whichever tag represents the version you want live
+python3 -m venv .venv
+.venv/bin/pip install --upgrade pip
+.venv/bin/pip install -r requirements.txt
+```
+
+If you previously had `.env.prod` inside `/home/ubuntu/Website`, move it now:
+
+```bash
+sudo mv /home/ubuntu/Website/.env.prod /home/ubuntu/website-prod/.env.prod
+sudo chown ubuntu:ubuntu /home/ubuntu/website-prod/.env.prod
+sudo chmod 600 /home/ubuntu/website-prod/.env.prod
+```
+
+## 5. Install the two systemd services
+
+```bash
+# Use the dev-checkout copy of the unit files; the prod service unit
+# already points at /home/ubuntu/website-prod by design.
+sudo cp /home/ubuntu/Website/deploy/webapi-dev.service  /etc/systemd/system/
+sudo cp /home/ubuntu/Website/deploy/webapi-prod.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now webapi-dev webapi-prod
 
@@ -134,11 +198,11 @@ curl -s http://127.0.0.1:8001/which-app
 The first should print `APP_ENV=development  SERVICE_MODE=full`, the second
 `APP_ENV=production  SERVICE_MODE=classifieds`.
 
-## 5. Install the two nginx vhosts
+## 6. Install the two nginx vhosts
 
 ```bash
-sudo cp deploy/nginx-rorhoff.conf        /etc/nginx/sites-available/rorhoff.conf
-sudo cp deploy/nginx-t1classifieds.conf  /etc/nginx/sites-available/t1classifieds.conf
+sudo cp /home/ubuntu/Website/deploy/nginx-rorhoff.conf        /etc/nginx/sites-available/rorhoff.conf
+sudo cp /home/ubuntu/Website/deploy/nginx-t1classifieds.conf  /etc/nginx/sites-available/t1classifieds.conf
 sudo ln -sf /etc/nginx/sites-available/rorhoff.conf       /etc/nginx/sites-enabled/
 sudo ln -sf /etc/nginx/sites-available/t1classifieds.conf /etc/nginx/sites-enabled/
 
@@ -151,7 +215,7 @@ If you had a default vhost serving everything, remove its symlink:
 sudo rm /etc/nginx/sites-enabled/default 2>/dev/null || true
 ```
 
-## 6. Issue / install the prod TLS cert
+## 7. Issue / install the prod TLS cert
 
 In Cloudflare → SSL/TLS → **Origin Server → Create Certificate** (defaults are fine).
 Save the certificate and private key to EC2:
@@ -173,7 +237,7 @@ sudo chmod 600 /etc/ssl/cloudflare/t1classifieds.com.*
 sudo nginx -t && sudo systemctl reload nginx
 ```
 
-## 7. Point Cloudflare DNS at EC2
+## 8. Point Cloudflare DNS at EC2
 
 In Cloudflare → DNS for `t1classifieds.com`:
 
@@ -185,7 +249,7 @@ In Cloudflare → DNS for `t1classifieds.com`:
 
 In Cloudflare → SSL/TLS → Overview: set mode to **Full (strict)**.
 
-## 8. Verify
+## 9. Verify
 
 ```bash
 # from anywhere
@@ -195,28 +259,80 @@ curl -s https://t1classifieds.com/which-app
 # the prod call should print:
 #   APP_ENV=production
 #   SERVICE_MODE=classifieds
-#   ENV_FILE=/home/ubuntu/Website/.env.prod
+#   ENV_FILE=/home/ubuntu/website-prod/.env.prod
 ```
 
 Visit `https://t1classifieds.com/` in a browser — you should land on the classifieds SPA
 directly (no `/classifieds/` in the URL). Register a fresh account; confirm it does **not**
 appear on `https://rorhoff.com/classifieds/`. That's your isolation proof.
 
-## 9. (Optional, later) Lock down the EC2 origin
+---
 
-Once prod is healthy, tighten the EC2 security group so port 443 only accepts
-Cloudflare's IP ranges (https://www.cloudflare.com/ips/). This means
-`t1classifieds.com` is reachable only via Cloudflare — and your raw EC2 IP isn't.
-`rorhoff.com` can stay open if you want the unproxied path.
+## Day-2 ops
 
-## Rollback
+### Promoting `main` → prod (release a new version)
 
-Each service is independent:
+```bash
+# 1) From your dev machine, tag the commit you want live.
+#    Use an annotated tag with a one-line release note.
+git checkout main
+git pull
+git tag -a prod-v1.1 -m "Image-tile browse + ad-detail modal"
+git push origin prod-v1.1
+
+# 2) On EC2 prod (this is the only step that actually moves prod).
+cd /home/ubuntu/website-prod
+git fetch --tags
+git checkout prod-v1.1
+
+# Only if requirements.txt changed in this release:
+.venv/bin/pip install -r requirements.txt
+
+# Bounce prod (dev keeps serving the whole time).
+sudo systemctl restart webapi-prod
+sudo journalctl -u webapi-prod -n 50 --no-pager
+```
+
+### Deploying to dev only (the normal workflow)
+
+```bash
+# Local
+git push origin main
+
+# On EC2 dev
+cd /home/ubuntu/Website
+git pull
+.venv/bin/pip install -r requirements.txt   # only if deps changed
+sudo systemctl restart webapi-dev
+```
+
+Prod stays exactly where it is — pinned to whatever `prod-v*` tag it last checked out.
+
+### Rolling back prod
+
+```bash
+# Find the previous tag.
+cd /home/ubuntu/website-prod
+git tag --list 'prod-v*' --sort=-v:refname | head
+
+# Re-checkout it and restart.
+git checkout prod-v1.0
+sudo systemctl restart webapi-prod
+```
+
+If the rollback is because of a DB migration that's already run, restoring an older
+DB snapshot is a separate (RDS console) step. Most code rollbacks won't need it.
+
+### Independent restarts
 
 ```bash
 sudo systemctl restart webapi-prod      # bounce one without touching the other
 sudo systemctl stop    webapi-prod      # take prod down; dev keeps serving
 ```
 
-If a deploy breaks prod, `git checkout <previous_sha>` in `/home/ubuntu/Website`,
-restart `webapi-prod`, done. Dev is unaffected.
+### (Optional, later) Lock down the EC2 origin
+
+Once prod is healthy, tighten the EC2 security group so port 443 only accepts
+Cloudflare's IP ranges (https://www.cloudflare.com/ips/). This means
+`t1classifieds.com` is reachable only via Cloudflare — and your raw EC2 IP isn't.
+`rorhoff.com` can stay open if you want the unproxied path.
