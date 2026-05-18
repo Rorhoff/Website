@@ -644,6 +644,7 @@ if (homeCategoryFilter) {
 const homeSubCategoryFilter = document.getElementById("homeSubCategoryFilter");
 const HOME_SUB_CATEGORY_FILTER_KEY = "classified_home_sub_category_filter";
 const filterModal = document.getElementById("filterModal");
+const topbarBrandBtn = document.getElementById("topbarBrandBtn");
 const topbarFilterBtn = document.getElementById("topbarFilterBtn");
 const topbarFilterDot = document.getElementById("topbarFilterDot");
 const filterApplyBtn = document.getElementById("filterApplyBtn");
@@ -707,6 +708,20 @@ function closeFilterModal() {
 
 if (topbarFilterBtn) {
   topbarFilterBtn.addEventListener("click", () => openFilterModal());
+}
+
+// Clicking the "T1Classifieds" brand re-fetches the ad list and bounces
+// the user back to the browse view. We keep the active filters in place
+// — the user's intent is "show me the newest stuff", not "wipe my
+// filters" — so renderAds() runs against current selectedCategory /
+// selectedSubCategory. Gold-first ordering is preserved because that's
+// done server-side.
+if (topbarBrandBtn) {
+  topbarBrandBtn.addEventListener("click", () => {
+    closeAdDetail();
+    closeFilterModal();
+    renderAds().catch(() => {});
+  });
 }
 
 if (filterCloseBtn) filterCloseBtn.addEventListener("click", () => closeFilterModal());

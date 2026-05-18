@@ -26,7 +26,7 @@
   <meta name="twitter:title" content="t1Classifieds — Buy & sell locally by state and category" />
   <meta name="twitter:description" content="Local classifieds board. Browse and post listings by state and category." />
   <link rel="canonical" href="https://t1classifieds.com/" />
-  <link rel="stylesheet" href="/classifieds/styles.css?v=2026-05-18k" />
+  <link rel="stylesheet" href="/classifieds/styles.css?v=2026-05-18l" />
   <style>
     :root {
       --surface: #ffffff;
@@ -167,12 +167,13 @@
   </nav>
   <div class="page-shell">
   <header class="topbar">
-    <h1>Classifieds Board</h1>
+    <h1>
+      <button id="topbarBrandBtn" type="button" class="topbar-brand-btn" aria-label="T1Classifieds — refresh listings">T1Classifieds</button>
+    </h1>
     <div class="topbar-actions">
       <div id="authStatus"></div>
-      <button id="topbarFilterBtn" class="topbar-filter-btn" type="button" hidden aria-label="Filter listings">
+      <button id="topbarFilterBtn" class="topbar-filter-btn" type="button" hidden aria-label="Filter listings" title="Filter listings">
         <span class="topbar-filter-icon" aria-hidden="true">⚙</span>
-        <span class="topbar-filter-label">Filter</span>
         <span id="topbarFilterDot" class="topbar-filter-dot" hidden aria-hidden="true"></span>
       </button>
       <div id="menuWrapper" class="menu-wrapper" hidden>
@@ -495,7 +496,7 @@
 
   <div id="toast" class="toast" hidden></div>
   <script src="/classifieds/cities.js?v=2026-05-18k"></script>
-  <script src="/classifieds/app.js?v=2026-05-18k"></script>
+  <script src="/classifieds/app.js?v=2026-05-18l"></script>
   <script src="/assets/nav-mobile.js"></script>
 </body>
 </html>

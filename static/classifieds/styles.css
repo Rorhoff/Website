@@ -802,7 +802,10 @@ button.secondary:hover {
   align-items: center;
   justify-content: center;
   padding: 16px;
-  z-index: 30;
+  /* Must stack above the sticky .topbar (z-index: 40) so the freezing
+     header doesn't clip the modal at the top. We also pad-top below to
+     keep the modal card itself off the very top edge on small screens. */
+  z-index: 60;
 }
 
 .modal-card {
@@ -1095,17 +1098,20 @@ button.secondary:hover {
   position: relative;
   appearance: none;
   margin: 0;
-  padding: 6px 12px;
+  /* Square-ish button so the lone gear icon looks balanced — we removed
+     the "Filter" label per prod-v1.14 design. The title attribute on the
+     <button> still surfaces "Filter listings" as a tooltip for keyboard /
+     mouse users; the aria-label keeps screen readers covered. */
+  padding: 6px 10px;
   border-radius: 6px;
   border: 1px solid #c7cce0;
   background: #fff;
   color: #1e293b;
-  font-size: 0.9rem;
   font-weight: 600;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  justify-content: center;
   line-height: 1.15;
 }
 .topbar-filter-btn:hover {
@@ -1113,11 +1119,10 @@ button.secondary:hover {
   border-color: #94a3b8;
 }
 .topbar-filter-icon {
-  font-size: 1rem;
+  /* Slightly larger than the surrounding text since this is now the only
+     thing inside the button. */
+  font-size: 1.15rem;
   line-height: 1;
-}
-.topbar-filter-label {
-  font-weight: 600;
 }
 .topbar-filter-dot {
   position: absolute;
@@ -1129,11 +1134,33 @@ button.secondary:hover {
   background: #ef4444;
   box-shadow: 0 0 0 2px #fff;
 }
-/* On very narrow screens hide the "Filter" word so the icon + dot still fit
-   alongside the hamburger without forcing a wrap. */
-@media (max-width: 480px) {
-  .topbar-filter-label { display: none; }
-  .topbar-filter-btn { padding: 6px 10px; }
+
+/* T1Classifieds brand button in the topbar — looks like a heading but is
+   actually a button. Clicking it re-renders the ads list (gold-first
+   server-side ordering, then newest), so it behaves like the standard
+   "click the site name to go home / refresh" affordance users expect. */
+.topbar-brand-btn {
+  appearance: none;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  /* Inherit the h1 font size so we don't have to maintain two clamp() values. */
+  font-size: inherit;
+  font-weight: 700;
+  color: inherit;
+  cursor: pointer;
+  letter-spacing: -0.01em;
+}
+.topbar-brand-btn:hover,
+.topbar-brand-btn:focus-visible {
+  color: #1d4ed8;
+  outline: none;
+}
+.topbar-brand-btn:focus-visible {
+  text-decoration: underline;
+  text-underline-offset: 4px;
 }
 
 /* Filter modal — the always-on entry point for category + sub-category. */
