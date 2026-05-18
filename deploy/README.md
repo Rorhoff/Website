@@ -65,6 +65,27 @@ Run these once against **each** classifieds database (dev `RoryPorfolioDB` and
 prod `Classifieds_Prod`). They're idempotent thanks to `IF NOT EXISTS` and
 narrow `WHERE` clauses.
 
+#### prod-v1.13 (city dropdown + display name required)
+
+There's a script that runs the migration against both databases in one
+shot — preferred over copy/pasting SQL into `psql`:
+
+```bash
+# One-time install on EC2:
+cd /home/ubuntu/Website && git pull
+cp deploy/migrate-prod-v1.13.sh ~/migrate-prod-v1.13.sh
+chmod +x ~/migrate-prod-v1.13.sh
+
+# Run it (PGPASSWORD lets you skip the interactive prompt):
+PGPASSWORD='your-real-password' ~/migrate-prod-v1.13.sh
+```
+
+The script wraps both statements in a transaction per database and uses
+`ON_ERROR_STOP=1` so a failure on one DB halts the script before touching
+the other. Re-running is safe (`ADD COLUMN IF NOT EXISTS` + narrow `WHERE`).
+
+If you'd rather run the SQL by hand, this is what the script does:
+
 ```sql
 -- prod-v1.12: seller-chosen display name shown in the ad detail modal.
 ALTER TABLE classified_ad ADD COLUMN IF NOT EXISTS contact_name VARCHAR(120);
