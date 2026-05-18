@@ -39,7 +39,8 @@ const adImagesInput = document.getElementById("adImages");
 const adsList = document.getElementById("adsList");
 const adsBrowseSection = document.getElementById("adsBrowseSection");
 const adsScopeHint = document.getElementById("adsScopeHint");
-const adsFiltersWrap = document.getElementById("adsFiltersWrap");
+// (adsFiltersWrap removed in prod-v1.11 — the filter controls moved into
+// #filterModal opened from the topbar filter button.)
 const homeCategoryFilter = document.getElementById("homeCategoryFilter");
 const HOME_CATEGORY_FILTER_KEY = "classified_home_category_filter";
 
@@ -354,6 +355,11 @@ function updateAuthUI() {
     adsBrowseSection.hidden = !showAdsBrowse;
     adsBrowseSection.style.display = showAdsBrowse ? "" : "none";
   }
+  // Topbar filter button only makes sense when the browse list is what the user
+  // is looking at. In profile mode (My Ads / Post Ad / Profile tabs), hide it so
+  // it can't be tapped while it'd have no visible effect.
+  const filterBtn = document.getElementById("topbarFilterBtn");
+  if (filterBtn) filterBtn.hidden = !showAdsBrowse;
 }
 
 async function renderAds() {
@@ -361,7 +367,7 @@ async function renderAds() {
   if (!userRecord || isProfileActive()) {
     adsList.innerHTML = "";
     if (adsScopeHint) adsScopeHint.textContent = "";
-    if (adsFiltersWrap) adsFiltersWrap.hidden = true;
+    if (adsActiveFilterEl) adsActiveFilterEl.hidden = true;
     return;
   }
 
@@ -373,24 +379,45 @@ async function renderAds() {
     // createdAt alone (which we used to do here) blew away the gold-first
     // ordering, so a gold ad created before a non-gold one ended up below it.
 
-    // Reveal the category filter only when there's something to filter; the dropdown is
-    // pre-populated at module load, so we just toggle the wrapping container here.
-    if (adsFiltersWrap) adsFiltersWrap.hidden = ads.length === 0;
     const selectedCategory = homeCategoryFilter ? homeCategoryFilter.value : "";
-    const filtered = selectedCategory
-      ? ads.filter((ad) => ad.category === selectedCategory)
-      : ads;
+    const selectedSubCategory = homeSubCategoryFilter ? homeSubCategoryFilter.value : "";
+    const filtered = ads.filter((ad) => {
+      if (selectedCategory && ad.category !== selectedCategory) return false;
+      if (selectedSubCategory && ad.subCategory !== selectedSubCategory) return false;
+      return true;
+    });
+
+    // Active-filter summary line ("Filtered: Vehicles / Cars  •  Clear") so the
+    // user always sees what they've narrowed down to without having to reopen
+    // the modal.
+    if (adsActiveFilterEl) {
+      if (selectedCategory || selectedSubCategory) {
+        const bits = [];
+        if (selectedCategory) bits.push(escapeHTML(selectedCategory));
+        if (selectedSubCategory) bits.push(escapeHTML(selectedSubCategory));
+        adsActiveFilterEl.innerHTML =
+          `Filtered: ${bits.join(" / ")}` +
+          ` &middot; <a href="#" id="adsClearFilterLink">Clear</a>`;
+        adsActiveFilterEl.hidden = false;
+      } else {
+        adsActiveFilterEl.innerHTML = "";
+        adsActiveFilterEl.hidden = true;
+      }
+    }
 
     if (!ads.length) {
       adsScopeHint.textContent = `Showing newest ads for ${userRecord.state}.`;
       adsList.innerHTML = `<p>No ads posted yet for ${escapeHTML(userRecord.state)}.</p>`;
       return;
     }
-    adsScopeHint.textContent = selectedCategory
-      ? `Showing ${filtered.length} ${selectedCategory} ad${filtered.length === 1 ? "" : "s"} for ${userRecord.state}.`
-      : `Showing newest ads for ${userRecord.state}.`;
+    adsScopeHint.textContent =
+      selectedCategory || selectedSubCategory
+        ? `Showing ${filtered.length} ad${filtered.length === 1 ? "" : "s"} for ${userRecord.state}.`
+        : `Showing newest ads for ${userRecord.state}.`;
     if (!filtered.length) {
-      adsList.innerHTML = `<p>No ${escapeHTML(selectedCategory)} ads in ${escapeHTML(userRecord.state)} right now.</p>`;
+      const label =
+        [selectedCategory, selectedSubCategory].filter(Boolean).join(" / ") || "matching";
+      adsList.innerHTML = `<p>No ${escapeHTML(label)} ads in ${escapeHTML(userRecord.state)} right now.</p>`;
       return;
     }
 
@@ -538,9 +565,134 @@ if (homeCategoryFilter) {
     // the server inside renderAds() but that's cheap and ensures freshly-posted ads can
     // appear when a less restrictive filter is picked.
     localStorage.setItem(HOME_CATEGORY_FILTER_KEY, homeCategoryFilter.value || "");
+    // Rebuild the sub-category list whenever the parent category changes. Done
+    // inside the change handler (rather than in the modal's open hook) so the
+    // sub-category options always match the currently-selected category.
+    populateHomeSubCategoryFilter();
     renderAds().catch(() => { /* surfaced via adsList content */ });
   });
 }
+
+// --- Filter modal (opened from the topbar filter button) ---------------------
+const homeSubCategoryFilter = document.getElementById("homeSubCategoryFilter");
+const HOME_SUB_CATEGORY_FILTER_KEY = "classified_home_sub_category_filter";
+const filterModal = document.getElementById("filterModal");
+const topbarFilterBtn = document.getElementById("topbarFilterBtn");
+const topbarFilterDot = document.getElementById("topbarFilterDot");
+const filterApplyBtn = document.getElementById("filterApplyBtn");
+const filterClearBtn = document.getElementById("filterClearBtn");
+const filterCloseBtn = document.getElementById("filterCloseBtn");
+const adsActiveFilterEl = document.getElementById("adsActiveFilter");
+
+function populateHomeSubCategoryFilter() {
+  // Sub-category options cascade from the parent category. We keep the saved
+  // sub-category in localStorage so it survives a reload, but if the parent
+  // category changes (or is cleared to "All categories"), we drop the saved
+  // sub-category since it would no longer match any option.
+  if (!homeSubCategoryFilter) return;
+  const parentCat = homeCategoryFilter ? homeCategoryFilter.value : "";
+  if (!parentCat) {
+    homeSubCategoryFilter.innerHTML = '<option value="">Pick a category first</option>';
+    homeSubCategoryFilter.value = "";
+    homeSubCategoryFilter.disabled = true;
+    localStorage.removeItem(HOME_SUB_CATEGORY_FILTER_KEY);
+    return;
+  }
+  const opts = AD_SUB_CATEGORIES[parentCat] || [];
+  const saved = localStorage.getItem(HOME_SUB_CATEGORY_FILTER_KEY) || "";
+  homeSubCategoryFilter.innerHTML =
+    '<option value="">All sub-categories</option>' +
+    opts.map((s) => `<option value="${escapeHTML(s)}">${escapeHTML(s)}</option>`).join("");
+  homeSubCategoryFilter.disabled = false;
+  if (saved && opts.includes(saved)) {
+    homeSubCategoryFilter.value = saved;
+  } else {
+    homeSubCategoryFilter.value = "";
+    if (saved) localStorage.removeItem(HOME_SUB_CATEGORY_FILTER_KEY);
+  }
+}
+populateHomeSubCategoryFilter();
+
+function updateFilterBadge() {
+  // Show the red dot on the topbar filter button whenever any filter is active,
+  // so users have a visual reminder that the list they're seeing is narrowed
+  // down (and they're not just looking at an empty state).
+  const anyActive = Boolean(
+    (homeCategoryFilter && homeCategoryFilter.value) ||
+      (homeSubCategoryFilter && homeSubCategoryFilter.value)
+  );
+  if (topbarFilterDot) topbarFilterDot.hidden = !anyActive;
+}
+updateFilterBadge();
+
+function openFilterModal() {
+  if (!filterModal) return;
+  // Re-sync the sub-category options against the currently-saved category in
+  // case the AD_SUB_CATEGORIES table was changed since the user last opened it.
+  populateHomeSubCategoryFilter();
+  filterModal.hidden = false;
+}
+
+function closeFilterModal() {
+  if (!filterModal) return;
+  filterModal.hidden = true;
+}
+
+if (topbarFilterBtn) {
+  topbarFilterBtn.addEventListener("click", () => openFilterModal());
+}
+
+if (filterCloseBtn) filterCloseBtn.addEventListener("click", () => closeFilterModal());
+
+if (filterApplyBtn) {
+  filterApplyBtn.addEventListener("click", () => {
+    if (homeSubCategoryFilter) {
+      localStorage.setItem(
+        HOME_SUB_CATEGORY_FILTER_KEY,
+        homeSubCategoryFilter.value || ""
+      );
+    }
+    if (homeCategoryFilter) {
+      localStorage.setItem(HOME_CATEGORY_FILTER_KEY, homeCategoryFilter.value || "");
+    }
+    updateFilterBadge();
+    closeFilterModal();
+    renderAds().catch(() => {});
+  });
+}
+
+if (filterClearBtn) {
+  filterClearBtn.addEventListener("click", () => {
+    if (homeCategoryFilter) homeCategoryFilter.value = "";
+    if (homeSubCategoryFilter) {
+      homeSubCategoryFilter.value = "";
+      homeSubCategoryFilter.disabled = true;
+      homeSubCategoryFilter.innerHTML = '<option value="">Pick a category first</option>';
+    }
+    localStorage.removeItem(HOME_CATEGORY_FILTER_KEY);
+    localStorage.removeItem(HOME_SUB_CATEGORY_FILTER_KEY);
+    updateFilterBadge();
+    closeFilterModal();
+    renderAds().catch(() => {});
+  });
+}
+
+// Dismiss the modal by clicking the dimmed backdrop (anywhere outside .modal-card).
+if (filterModal) {
+  filterModal.addEventListener("click", (event) => {
+    if (event.target === filterModal) closeFilterModal();
+  });
+}
+
+// "Clear" link inside the active-filter summary row above the ad grid. Lives
+// off document because the summary <p> is replaced on each render; binding on
+// the element directly would lose the listener after the first re-render.
+document.addEventListener("click", (event) => {
+  const link = event.target.closest && event.target.closest("#adsClearFilterLink");
+  if (!link) return;
+  event.preventDefault();
+  if (filterClearBtn) filterClearBtn.click();
+});
 
 function filesToDataUrls(fileList) {
   const files = Array.from(fileList);

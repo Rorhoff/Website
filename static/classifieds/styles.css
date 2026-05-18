@@ -42,6 +42,20 @@ body {
   background: #f0f4f9;
   border-bottom: 1px solid #d1dae6;
   color: #0f172a;
+  /* Freeze the header so the user always has the filter / profile menu / state
+     pill in reach while scrolling the ad grid. position: sticky works inside
+     any scrolling ancestor without needing fixed positioning's downsides
+     (no need to add manual top-padding to the page body). On dev where the
+     cross-site .site-nav is visible above this, the topbar still scrolls
+     normally until the page reaches it because the site-nav has a higher
+     z-index and is also sticky at top: 0; that's an intentional tradeoff for
+     simplicity since prod (t1classifieds.com) hides the site-nav. */
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  /* Small drop shadow only when sticky has stuck — gives a subtle "lifted"
+     feel without a visible border at all times. */
+  box-shadow: 0 1px 0 rgba(15, 23, 42, 0.04);
 }
 
 .topbar h1 {
@@ -1073,6 +1087,113 @@ button.secondary:hover {
   text-align: center;
   color: #64748b;
 }
+
+/* Topbar filter button — sits between authStatus and the hamburger. Compact
+   icon + label combo with a tiny red dot in the corner when any filter is
+   active so users always know whether the list they're seeing is narrowed. */
+.topbar-filter-btn {
+  position: relative;
+  appearance: none;
+  margin: 0;
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid #c7cce0;
+  background: #fff;
+  color: #1e293b;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  line-height: 1.15;
+}
+.topbar-filter-btn:hover {
+  background: #f1f5f9;
+  border-color: #94a3b8;
+}
+.topbar-filter-icon {
+  font-size: 1rem;
+  line-height: 1;
+}
+.topbar-filter-label {
+  font-weight: 600;
+}
+.topbar-filter-dot {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ef4444;
+  box-shadow: 0 0 0 2px #fff;
+}
+/* On very narrow screens hide the "Filter" word so the icon + dot still fit
+   alongside the hamburger without forcing a wrap. */
+@media (max-width: 480px) {
+  .topbar-filter-label { display: none; }
+  .topbar-filter-btn { padding: 6px 10px; }
+}
+
+/* Filter modal — the always-on entry point for category + sub-category. */
+.filter-modal-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 420px;
+}
+.filter-modal-card h3 {
+  margin: 0 0 4px;
+}
+.filter-modal-card label {
+  margin-top: 6px;
+  font-weight: 600;
+  color: #334155;
+}
+.filter-modal-card select {
+  /* Use the global input styling but make sure the disabled state reads as
+     "wait for category" rather than just dim — pointer disambiguates. */
+  cursor: pointer;
+}
+.filter-modal-card select:disabled {
+  background: #f1f5f9;
+  color: #94a3b8;
+  cursor: not-allowed;
+}
+.filter-modal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid #e2e8f0;
+}
+.filter-modal-actions button {
+  margin-top: 0;
+  flex: 1 1 auto;
+  min-width: 100px;
+}
+
+/* Inline "Filtered: X / Y · Clear" summary that appears above the ad grid
+   whenever any filter is active. Visually subordinate to the section title
+   so it doesn't compete with the ad tiles for attention. */
+.active-filter-summary {
+  margin: 4px 0 12px;
+  padding: 8px 12px;
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  color: #334155;
+}
+.active-filter-summary a {
+  color: #1d4ed8;
+  text-decoration: none;
+  font-weight: 600;
+  margin-left: 4px;
+}
+.active-filter-summary a:hover { text-decoration: underline; }
 
 /* Detail-modal top bar: Share button on the left, Close button on the right.
    Both buttons stay above the hero image so they remain reachable without

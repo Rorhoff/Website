@@ -8,7 +8,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>Classifieds App</title>
-  <link rel="stylesheet" href="/classifieds/styles.css?v=2026-05-18h" />
+  <link rel="stylesheet" href="/classifieds/styles.css?v=2026-05-18i" />
   <style>
     :root {
       --surface: #ffffff;
@@ -152,6 +152,11 @@
     <h1>Classifieds Board</h1>
     <div class="topbar-actions">
       <div id="authStatus"></div>
+      <button id="topbarFilterBtn" class="topbar-filter-btn" type="button" hidden aria-label="Filter listings">
+        <span class="topbar-filter-icon" aria-hidden="true">⚙</span>
+        <span class="topbar-filter-label">Filter</span>
+        <span id="topbarFilterDot" class="topbar-filter-dot" hidden aria-hidden="true"></span>
+      </button>
       <div id="menuWrapper" class="menu-wrapper" hidden>
         <button id="menuToggleBtn" class="hamburger-btn" type="button" aria-label="Open profile menu">☰</button>
         <div id="menuPanel" class="menu-panel" hidden>
@@ -362,10 +367,13 @@
     <section id="adsBrowseSection" class="card full" hidden>
       <h2 id="adsSectionTitle">Currently selected state</h2>
       <p id="adsScopeHint" class="hint"></p>
-      <div id="adsFiltersWrap" class="ads-filters-wrap" hidden>
-        <label for="homeCategoryFilter" class="ads-filter-label">Category</label>
-        <select id="homeCategoryFilter" class="ads-category-filter" aria-label="Filter ads by category"></select>
-      </div>
+      <p id="adsActiveFilter" class="active-filter-summary" hidden></p>
+      <!--
+        homeCategoryFilter + homeSubCategoryFilter live inside #filterModal below
+        so the always-visible top-bar filter button is the single entry point.
+        The selects below stay hidden but in the DOM so existing JS that reads
+        their .value keeps working without a refactor.
+      -->
       <div id="adsList" class="ads-list"></div>
     </section>
 
@@ -422,6 +430,29 @@
     </div>
   </div>
 
+  <!-- Filter modal opened by the topbar filter button. Holds the two cascading
+       selects (category + sub-category) plus Apply / Clear / Cancel actions.
+       Single entry point for filtering replaces the previous inline filter row. -->
+  <div id="filterModal" class="modal-backdrop" hidden>
+    <div class="modal-card filter-modal-card">
+      <h3>Filter listings</h3>
+      <p class="hint">Narrow down ads in your state by category and/or sub-category.</p>
+      <label for="homeCategoryFilter">Category</label>
+      <select id="homeCategoryFilter" aria-label="Filter ads by category"></select>
+
+      <label for="homeSubCategoryFilter">Sub-category</label>
+      <select id="homeSubCategoryFilter" aria-label="Filter ads by sub-category" disabled>
+        <option value="">Pick a category first</option>
+      </select>
+
+      <div class="filter-modal-actions">
+        <button id="filterApplyBtn" type="button">Apply</button>
+        <button id="filterClearBtn" class="secondary" type="button">Clear filters</button>
+        <button id="filterCloseBtn" class="secondary" type="button">Cancel</button>
+      </div>
+    </div>
+  </div>
+
   <div id="resetModal" class="modal-backdrop" hidden>
     <div class="modal-card">
       <h3>Reset Password</h3>
@@ -436,7 +467,7 @@
   </div>
 
   <div id="toast" class="toast" hidden></div>
-  <script src="/classifieds/app.js?v=2026-05-18h"></script>
+  <script src="/classifieds/app.js?v=2026-05-18i"></script>
   <script src="/assets/nav-mobile.js"></script>
 </body>
 </html>
