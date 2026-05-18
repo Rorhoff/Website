@@ -7,8 +7,26 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <title>Classifieds App</title>
-  <link rel="stylesheet" href="/classifieds/styles.css?v=2026-05-18i" />
+  <title>t1Classifieds — Buy & sell locally by state and category</title>
+  <!-- Baseline SEO + social-card metadata. These are the defaults used for
+       the home page and any pages we don't override at runtime. When a user
+       opens a specific ad via /classifieds?ad=<id>, app.js overwrites
+       document.title and the description meta tag with the ad's own title +
+       state so Googlebot (which executes JS during indexing) sees the
+       per-listing values. The OG tags below let iMessage / Facebook /
+       Slack render a sensible card when users share the homepage link. -->
+  <meta name="description" content="t1Classifieds is a local classifieds board — buy and sell items by US state and category. Browse listings, contact sellers directly, and post your own ads." />
+  <meta name="robots" content="index, follow, max-image-preview:large" />
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="t1Classifieds" />
+  <meta property="og:title" content="t1Classifieds — Buy & sell locally by state and category" />
+  <meta property="og:description" content="Local classifieds board. Browse and post listings by state and category." />
+  <meta property="og:url" content="https://t1classifieds.com/" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="t1Classifieds — Buy & sell locally by state and category" />
+  <meta name="twitter:description" content="Local classifieds board. Browse and post listings by state and category." />
+  <link rel="canonical" href="https://t1classifieds.com/" />
+  <link rel="stylesheet" href="/classifieds/styles.css?v=2026-05-18j" />
   <style>
     :root {
       --surface: #ffffff;
@@ -295,6 +313,9 @@
           <label for="adTitle">Title</label>
           <input id="adTitle" name="title" required />
 
+          <label for="adContactName">Display name <span class="hint-inline">(optional — shown to buyers; defaults to your username)</span></label>
+          <input id="adContactName" name="contactName" maxlength="120" placeholder="e.g. Mark or Mark's Garage" />
+
           <label for="adState">State</label>
           <select id="adState" name="state" required>
             <option value="">Select ad state</option>
@@ -467,7 +488,7 @@
   </div>
 
   <div id="toast" class="toast" hidden></div>
-  <script src="/classifieds/app.js?v=2026-05-18i"></script>
+  <script src="/classifieds/app.js?v=2026-05-18j"></script>
   <script src="/assets/nav-mobile.js"></script>
 </body>
 </html>

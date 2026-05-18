@@ -390,6 +390,122 @@ app.mount(
     name="classifieds",
 )
 
+
+# --- SEO surfaces: robots.txt + sitemap.xml -------------------------------
+#
+# We want Googlebot to be able to crawl and index t1classifieds.com (prod)
+# but NOT rorhoff.com/classifieds (dev) — same content otherwise competes
+# with itself in search results and dilutes our authority. The robots policy
+# is therefore branch-aware:
+#
+#   - classifieds-only mode (prod):   index everything, point to /sitemap.xml
+#   - full mode (dev):                disallow /classifieds entirely
+#
+# The sitemap is generated on demand from the live DB so newly posted ads
+# show up the next time a crawler fetches it. Each entry's <loc> is the
+# canonical share URL the SPA already uses (/?ad=<id>) — Googlebot follows
+# query-string URLs fine, and the dynamic <title>/<meta description> set in
+# app.js will give each ad a distinct, state+title-keyed snippet.
+
+def _canonical_host() -> str:
+    """Best-effort canonical host for SEO surfaces.
+
+    Defaults to t1classifieds.com in prod (classifieds-only) and rorhoff.com
+    everywhere else. Override with SITE_ORIGIN in .env if you ever need to
+    point sitemap entries at a different domain (staging, preview, etc.).
+    """
+    override = os.getenv("SITE_ORIGIN", "").strip().rstrip("/")
+    if override:
+        return override
+    return "https://t1classifieds.com" if _CLASSIFIEDS_ONLY else "https://rorhoff.com"
+
+
+@app.get("/robots.txt", include_in_schema=False)
+def robots_txt() -> PlainTextResponse:
+    host = _canonical_host()
+    if _CLASSIFIEDS_ONLY:
+        body = (
+            "User-agent: *\n"
+            "Allow: /\n"
+            "Disallow: /api/\n"
+            f"Sitemap: {host}/sitemap.xml\n"
+        )
+    else:
+        # Dev: keep portfolio crawlable, but don't let Google index the dev
+        # classifieds path — the same listings live on t1classifieds.com and
+        # we don't want duplicate-content penalties or split authority.
+        body = (
+            "User-agent: *\n"
+            "Allow: /\n"
+            "Disallow: /classifieds\n"
+            "Disallow: /api/\n"
+        )
+    return PlainTextResponse(body, media_type="text/plain")
+
+
+@app.get("/sitemap.xml", include_in_schema=False)
+def sitemap_xml() -> Response:
+    """Sitemap listing the homepage, safety page, and every active classified ad.
+
+    Gold-frame ads get a slightly higher <priority> so crawlers spend more
+    budget on them; everything else uses the default 0.5. The sitemap is
+    intentionally lightweight (no full descriptions) — its job is just to
+    advertise URLs. The per-ad title/description SEO is injected by app.js
+    when the page actually loads.
+    """
+    host = _canonical_host()
+    # We only publish a sitemap in classifieds-only / prod mode. On dev the
+    # robots.txt above already disallows /classifieds, so emitting a sitemap
+    # there would be confusing/conflicting.
+    if not _CLASSIFIEDS_ONLY:
+        return Response(status_code=404)
+
+    # Import lazily so this module still loads if classifieds models are
+    # absent (e.g. DATABASE_URL unset in a smoke-test container).
+    try:
+        from database import SessionLocal  # type: ignore
+        from models import ClassifiedAd  # type: ignore
+    except Exception:  # pragma: no cover - missing-models defensive path
+        SessionLocal = None  # type: ignore[assignment]
+        ClassifiedAd = None  # type: ignore[assignment]
+
+    urls: list[str] = []
+
+    def add_url(loc: str, lastmod: str | None = None, priority: str = "0.5") -> None:
+        parts = [f"  <url>", f"    <loc>{loc}</loc>"]
+        if lastmod:
+            parts.append(f"    <lastmod>{lastmod}</lastmod>")
+        parts.append(f"    <priority>{priority}</priority>")
+        parts.append("  </url>")
+        urls.append("\n".join(parts))
+
+    add_url(f"{host}/", priority="1.0")
+    add_url(f"{host}/classifieds/safety.html", priority="0.4")
+
+    if SessionLocal is not None and ClassifiedAd is not None:
+        try:
+            db = SessionLocal()
+            try:
+                rows = db.query(ClassifiedAd).order_by(ClassifiedAd.created_at.desc()).all()
+            finally:
+                db.close()
+            now_ms = time.time() * 1000
+            for row in rows:
+                gold_active = row.gold_until is not None and row.gold_until.timestamp() * 1000 > now_ms
+                priority = "0.8" if gold_active else "0.6"
+                lastmod = row.created_at.date().isoformat() if row.created_at else None
+                add_url(f"{host}/?ad={row.id}", lastmod=lastmod, priority=priority)
+        except Exception as exc:  # pragma: no cover - sitemap should never 500
+            log.warning("sitemap.xml: failed to load ads (%s)", exc)
+
+    xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+        + "\n".join(urls)
+        + "\n</urlset>\n"
+    )
+    return Response(content=xml, media_type="application/xml")
+
 if _CLASSIFIEDS_ONLY:
     # Prod (t1classifieds.com): "/" serves the classifieds SPA directly. Auxiliary SPAs
     # and the portfolio root are not registered, so prod is lean and "/" is unambiguous.

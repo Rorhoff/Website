@@ -87,6 +87,10 @@ class ClassifiedAd(Base):
     description: Mapped[str] = mapped_column(Text())
     images: Mapped[list[Any]] = mapped_column(JSONB)
     author_username: Mapped[str] = mapped_column(String(64))
+    # Optional public-facing display name chosen at ad-creation time. Lets a
+    # seller go by "Mark" or "Mark's Garage" in the listing instead of their
+    # login username. Falls back to author_username on render when NULL/empty.
+    contact_name: Mapped[str | None] = mapped_column(String(120), nullable=True, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     # Gold-frame paywall. gold_until is the UTC expiry timestamp (or NULL if never boosted /
     # expired). The composite index lets _surge_count() in stripe_service.py compute "how

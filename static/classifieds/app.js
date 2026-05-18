@@ -960,6 +960,9 @@ adForm.addEventListener("submit", async (event) => {
   // "$100" on their freshly-posted tile.
   const price = formatPrice(formData.get("price"));
   const description = String(formData.get("description")).trim();
+  // Optional public-facing seller name. Blank string sent as null so the
+  // server falls back to the poster's username on render.
+  const contactName = String(formData.get("contactName") || "").trim() || null;
   const files = adImagesInput.files ? Array.from(adImagesInput.files) : [];
 
   if (!state || !category || !subCategory) {
@@ -983,6 +986,7 @@ adForm.addEventListener("submit", async (event) => {
         price,
         description,
         images,
+        contactName,
       },
     });
     adForm.reset();
@@ -1303,6 +1307,10 @@ function closeAdDetail() {
   detailModalCard?.classList.remove("gold-frame-active");
   currentDetailAdId = null;
   currentDetailAd = null;
+  // Reset the page title + meta description back to the homepage defaults
+  // so the address bar / share previews don't keep showing the previous ad
+  // after the modal closes.
+  if (typeof resetSeoToDefaults === "function") resetSeoToDefaults();
   // Clean ?ad= out of the URL so a refresh doesn't immediately reopen the modal.
   const params = new URLSearchParams(window.location.search);
   if (params.has("ad")) {
@@ -1458,6 +1466,74 @@ async function openAdDetail(adId) {
   if (isGoldActive(ad)) {
     detailModalCard?.classList.add("gold-frame-active");
   }
+
+  applySeoForAd(ad);
+}
+
+// Per-ad SEO metadata. Googlebot executes JS during indexing, so when an ad
+// is opened via /classifieds?ad=<id> we overwrite document.title and the
+// <meta name="description"> with the ad's title + state + price + first line
+// of description. Same goes for the OG tags so iMessage / Slack / Facebook
+// render a useful card when the link is shared. Reset to the homepage
+// defaults whenever the modal closes (see resetSeoToDefaults).
+const SEO_DEFAULTS = {
+  title: "t1Classifieds — Buy & sell locally by state and category",
+  description:
+    "t1Classifieds is a local classifieds board — buy and sell items by US state and category. Browse listings, contact sellers directly, and post your own ads.",
+  url: `${window.location.origin}${window.location.pathname.replace(/\?.*$/, "")}`,
+};
+
+function setMetaContent(selector, value) {
+  const el = document.querySelector(selector);
+  if (el) el.setAttribute("content", value);
+}
+
+function applySeoForAd(ad) {
+  if (!ad) return;
+  const where = ad.state ? ` in ${ad.state}` : "";
+  const price = ad.price ? ` — ${ad.price}` : "";
+  // Keep titles under ~60 characters where possible so SERP doesn't truncate.
+  const title = `${ad.title}${where}${price} | t1Classifieds`;
+  // Single-line description: take first 160 chars of the ad description,
+  // strip extra whitespace, prepend the location + category so the snippet
+  // reads as a useful summary even without the ad body.
+  const taxonomy = [ad.category, ad.subCategory].filter(Boolean).join(" / ");
+  const bodyLine = (ad.description || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 160);
+  const desc = `${taxonomy ? taxonomy + " " : ""}${where ? where.trim() : ""}. ${bodyLine}`.slice(
+    0,
+    300
+  );
+  const url = shareUrlForAd(ad.id);
+  const ogImage = (ad.images || []).find(Boolean) || "";
+
+  document.title = title;
+  setMetaContent('meta[name="description"]', desc);
+  setMetaContent('meta[property="og:title"]', title);
+  setMetaContent('meta[property="og:description"]', desc);
+  setMetaContent('meta[property="og:url"]', url);
+  setMetaContent('meta[name="twitter:title"]', title);
+  setMetaContent('meta[name="twitter:description"]', desc);
+  if (ogImage) {
+    setMetaContent('meta[property="og:image"]', ogImage);
+    setMetaContent('meta[name="twitter:image"]', ogImage);
+  }
+  const canonical = document.querySelector('link[rel="canonical"]');
+  if (canonical) canonical.setAttribute("href", url);
+}
+
+function resetSeoToDefaults() {
+  document.title = SEO_DEFAULTS.title;
+  setMetaContent('meta[name="description"]', SEO_DEFAULTS.description);
+  setMetaContent('meta[property="og:title"]', SEO_DEFAULTS.title);
+  setMetaContent('meta[property="og:description"]', SEO_DEFAULTS.description);
+  setMetaContent('meta[property="og:url"]', SEO_DEFAULTS.url);
+  setMetaContent('meta[name="twitter:title"]', SEO_DEFAULTS.title);
+  setMetaContent('meta[name="twitter:description"]', SEO_DEFAULTS.description);
+  const canonical = document.querySelector('link[rel="canonical"]');
+  if (canonical) canonical.setAttribute("href", SEO_DEFAULTS.url);
 }
 
 // Click delegation for: tile → open detail modal; thumbnail → swap hero image;

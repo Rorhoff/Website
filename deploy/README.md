@@ -59,6 +59,16 @@ SQLAlchemy `Base.metadata.create_all()`. No data is copied from dev — prod sta
 deploy (e.g. `classified_ad_report`, `classified_blocked_signature`) is automatic on
 service restart, but altering existing columns still requires a manual `ALTER TABLE`.
 
+### Column migrations (run before / right after deploying the matching tag)
+
+Run these once against **each** classifieds database (dev `RoryPorfolioDB` and
+prod `Classifieds_Prod`). They're idempotent thanks to `IF NOT EXISTS`.
+
+```sql
+-- prod-v1.12: seller-chosen display name shown in the ad detail modal.
+ALTER TABLE classified_ad ADD COLUMN IF NOT EXISTS contact_name VARCHAR(120);
+```
+
 ## 2. Create the R2 bucket and API token
 
 In the Cloudflare dashboard:

@@ -130,6 +130,11 @@ def _ad_out(row: ClassifiedAd) -> dict[str, Any]:
     gold_until_ms: int | None = None
     if row.gold_until is not None:
         gold_until_ms = int(row.gold_until.timestamp() * 1000)
+    # Public-facing seller name: prefer the contact_name picked at ad-creation
+    # time, fall back to the login username so older ads (without a contact
+    # name) still attribute correctly.
+    contact_name = (row.contact_name or "").strip() if hasattr(row, "contact_name") else ""
+    display_name = contact_name or row.author_username
     return {
         "id": row.id,
         "title": row.title,
@@ -141,7 +146,7 @@ def _ad_out(row: ClassifiedAd) -> dict[str, Any]:
         "price": _normalize_price(row.price),
         "description": row.description,
         "images": list(row.images) if row.images is not None else [],
-        "author": row.author_username,
+        "author": display_name,
         "createdAt": created_ms,
         "goldUntil": gold_until_ms,
     }
@@ -268,6 +273,10 @@ class CreateAdBody(BaseModel):
     price: str = Field(min_length=1, max_length=100)
     description: str = Field(min_length=1, max_length=50_000)
     images: list[str] = Field(min_length=1, max_length=10)
+    # Optional: the public-facing seller name shown in the detail modal. Blank
+    # / missing falls back to the poster's username on render. Capped at 120
+    # chars to keep the layout sane and prevent abuse via giant names.
+    contactName: str | None = Field(default=None, max_length=120)
 
 
 # --- In-memory reset tokens: token -> (user_id, expires_at) ---
@@ -629,6 +638,7 @@ def classifieds_create_ad(
             ),
         )
 
+    contact_name = (body.contactName or "").strip() or None
     ad = ClassifiedAd(
         id=str(uuid.uuid4()),
         user_id=user.id,
@@ -640,6 +650,7 @@ def classifieds_create_ad(
         description=description,
         images=body.images,
         author_username=user.username,
+        contact_name=contact_name,
     )
     db.add(ad)
     db.commit()
