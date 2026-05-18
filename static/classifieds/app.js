@@ -980,6 +980,8 @@ const closeAdDetailBtn = document.getElementById("closeAdDetailBtn");
 const shareAdBtn = document.getElementById("shareAdBtn");
 const detailAnonCta = document.getElementById("detailAnonCta");
 const detailAnonCtaBtn = document.getElementById("detailAnonCtaBtn");
+const detailModalActions = document.getElementById("detailModalActions");
+const detailReportBtn = document.getElementById("detailReportBtn");
 
 // Tracks which ad the modal is currently rendering, so the Share button and
 // the post-login modal-refresh hook know which ID to act on.
@@ -1055,6 +1057,47 @@ if (detailAnonCtaBtn) {
       } catch {
         authSection.scrollIntoView();
       }
+    }
+  });
+}
+
+if (detailReportBtn) {
+  detailReportBtn.addEventListener("click", async (event) => {
+    event.stopPropagation();
+    if (!currentDetailAdId) return;
+    if (!getCurrentUserRecord()) {
+      showToast("Log in to report a listing.");
+      return;
+    }
+    const ok = window.confirm(
+      "Report this listing as spam, a scam, or otherwise inappropriate?\n\n" +
+        "Repeated reports from different users will automatically remove the ad."
+    );
+    if (!ok) return;
+    detailReportBtn.disabled = true;
+    detailReportBtn.textContent = "Reporting…";
+    try {
+      const result = await classifiedsApi(
+        `/ads/${encodeURIComponent(currentDetailAdId)}/report`,
+        { method: "POST" }
+      );
+      if (result?.removed) {
+        showToast("Listing removed. Thanks for flagging it.");
+        closeAdDetail();
+        // Refresh the public browse list so the removed ad disappears
+        // immediately for this user without a manual reload.
+        renderAds().catch(() => {});
+      } else if (result?.alreadyReported) {
+        showToast("You already reported this listing — thanks.");
+        detailReportBtn.textContent = "Reported";
+      } else {
+        showToast("Report submitted. Thanks for helping keep listings safe.");
+        detailReportBtn.textContent = "Reported";
+      }
+    } catch (err) {
+      detailReportBtn.disabled = false;
+      detailReportBtn.textContent = "Report this listing";
+      showToast(err?.message || "Could not submit report.");
     }
   });
 }
@@ -1179,6 +1222,7 @@ async function openAdDetail(adId) {
   // viewerAuthenticated comes from the backend so client-side session state
   // can't trick the UI into showing contact info that the server didn't send.
   const viewerAuthed = ad.viewerAuthenticated !== false && Boolean(getCurrentUserRecord());
+  const isOwnAd = viewerAuthed && getCurrentUserRecord()?.username === ad.author;
   if (viewerAuthed) {
     renderDetailContact(ad);
     if (detailAnonCta) detailAnonCta.hidden = true;
@@ -1188,6 +1232,19 @@ async function openAdDetail(adId) {
       detailContactEl.innerHTML = "";
     }
     if (detailAnonCta) detailAnonCta.hidden = false;
+  }
+
+  // Report button is only useful for logged-in viewers who don't own the ad.
+  // (Hiding it for the seller prevents the "report your own ad" 400 path; the
+  // server still rejects it as defense in depth.) Anonymous viewers see the
+  // sign-up CTA instead — the report system requires accounts so we have a
+  // reasonable abuse signal.
+  if (detailModalActions) {
+    detailModalActions.hidden = !(viewerAuthed && !isOwnAd);
+  }
+  if (detailReportBtn) {
+    detailReportBtn.disabled = false;
+    detailReportBtn.textContent = "Report this listing";
   }
 
   const images = (ad.images || []).filter(Boolean);

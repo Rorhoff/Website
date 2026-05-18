@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<!--
+  Buyer/Seller safety tips page. Linked from the classifieds SPA footer and
+  from the in-modal Report button. Intentionally static + self-contained
+  (no JS, no API calls) so it loads instantly even for visitors who arrive
+  without a session.
+-->
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Buyer & Seller Safety — Classifieds</title>
+  <link rel="stylesheet" href="/classifieds/styles.css?v=2026-05-18e" />
+  <style>
+    body { background: #f1f5f9; }
+    .safety-shell {
+      max-width: 760px;
+      margin: 0 auto;
+      padding: 24px 20px 48px;
+      font-family: "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+      color: #1e293b;
+      line-height: 1.55;
+    }
+    .safety-shell h1 { font-size: 1.85rem; margin: 0 0 4px; }
+    .safety-shell .lede {
+      color: #475569;
+      margin: 0 0 24px;
+      font-size: 1.02rem;
+    }
+    .safety-card {
+      background: #fff;
+      border: 1px solid #d1dae6;
+      border-radius: 10px;
+      padding: 18px 22px;
+      margin-bottom: 16px;
+      box-shadow: 0 2px 6px rgba(15, 23, 42, 0.04);
+    }
+    .safety-card h2 {
+      margin: 0 0 8px;
+      font-size: 1.15rem;
+      color: #0f172a;
+    }
+    .safety-card p { margin: 0; color: #334155; }
+    .safety-card ul {
+      margin: 8px 0 0;
+      padding-left: 1.15rem;
+      color: #334155;
+    }
+    .safety-card li { margin: 4px 0; }
+    .safety-card strong { color: #0f172a; }
+    .safety-disclaimer {
+      margin-top: 28px;
+      padding: 14px 18px;
+      background: #fef9c3;
+      border: 1px solid #facc15;
+      border-radius: 8px;
+      color: #713f12;
+      font-size: 0.92rem;
+    }
+    .safety-back {
+      display: inline-block;
+      margin-bottom: 18px;
+      color: #1d4ed8;
+      text-decoration: none;
+      font-weight: 600;
+    }
+    .safety-back:hover { text-decoration: underline; }
+    .safety-footer {
+      margin-top: 32px;
+      padding-top: 14px;
+      border-top: 1px solid #d1dae6;
+      color: #64748b;
+      font-size: 0.85rem;
+      text-align: center;
+    }
+    .safety-footer a {
+      color: #1d4ed8;
+      text-decoration: none;
+      margin: 0 6px;
+    }
+    .safety-footer a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <main class="safety-shell">
+    <a href="/classifieds/" class="safety-back">&larr; Back to listings</a>
+    <h1>Buyer &amp; Seller Safety</h1>
+    <p class="lede">
+      Classifieds connects local buyers and sellers, but every transaction is between
+      the two of you. Please read these tips before meeting up or sending money.
+    </p>
+
+    <section class="safety-card">
+      <h2>Meet in public places</h2>
+      <p>
+        For in-person handoffs, choose busy, well-lit locations such as a grocery store
+        parking lot, a coffee shop, or your local police station's safe-exchange zone
+        (many U.S. precincts host these). Avoid meeting at private residences with
+        someone you do not know.
+      </p>
+    </section>
+
+    <section class="safety-card">
+      <h2>Bring someone with you</h2>
+      <p>
+        Tell a friend or family member where you're going, who you're meeting, and
+        when you expect to be back. Bring a buddy along when possible, especially
+        for higher-value items.
+      </p>
+    </section>
+
+    <section class="safety-card">
+      <h2>Inspect items before paying</h2>
+      <p>
+        Take time to verify the item matches the listing &mdash; check serial numbers,
+        confirm electronics power on, and test moving parts. If something feels off
+        or the seller refuses inspection, walk away.
+      </p>
+    </section>
+
+    <section class="safety-card">
+      <h2>Don't wire money to strangers</h2>
+      <ul>
+        <li><strong>Avoid</strong> bank wire transfers, Western Union, MoneyGram, gift
+          cards, or cryptocurrency for goods you have not yet received.</li>
+        <li>Prefer <strong>cash on pickup</strong> for local transactions.</li>
+        <li>For shipped items, use a payment platform with buyer protection
+          (e.g. PayPal Goods &amp; Services). "Friends &amp; Family" transfers
+          have <em>no</em> protection.</li>
+      </ul>
+    </section>
+
+    <section class="safety-card">
+      <h2>Never share financial or personal info</h2>
+      <ul>
+        <li>Don't share your full Social Security number, bank login, credit card
+          number, or one-time passcodes.</li>
+        <li>Legitimate buyers don't need a "verification code" texted to your phone &mdash;
+          that's a common takeover scam.</li>
+        <li>Be skeptical of anyone who insists on paying more than the asking price
+          or asks you to forward "extra" funds to a third party.</li>
+      </ul>
+    </section>
+
+    <section class="safety-card">
+      <h2>Watch for common scams</h2>
+      <ul>
+        <li><strong>Overpayment scams:</strong> a "buyer" sends a fake check or
+          payment for more than the price and asks for the difference back.</li>
+        <li><strong>Shipping scams:</strong> a "buyer" insists on shipping arrangements
+          you've never heard of and pushes you to send the item before payment clears.</li>
+        <li><strong>Phishing links:</strong> never click links in DMs that ask you to
+          "verify your listing" by logging in &mdash; navigate to the site directly.</li>
+        <li><strong>Too good to be true:</strong> deeply discounted phones, cars, or
+          electronics from sellers who can't meet in person are almost always fake.</li>
+      </ul>
+    </section>
+
+    <section class="safety-card">
+      <h2>Trust your instincts &mdash; and report it</h2>
+      <p>
+        If a buyer or seller pressures you, refuses to meet in public, or pushes
+        unusual payment methods, end the conversation. Use the <strong>Report this
+        listing</strong> button (visible to logged-in users on every ad) to flag
+        suspicious posts &mdash; multiple reports trigger automatic removal.
+      </p>
+      <p style="margin-top: 8px;">
+        For urgent safety concerns or completed transactions involving theft,
+        contact your local law enforcement.
+      </p>
+    </section>
+
+    <div class="safety-disclaimer">
+      <strong>Disclaimer:</strong> Classifieds provides a listing platform but does not
+      verify buyers, sellers, or the items posted. All transactions are between the
+      participants. These tips are general guidance and are not a substitute for
+      legal, financial, or law enforcement advice.
+    </div>
+
+    <footer class="safety-footer">
+      <a href="/classifieds/">Browse listings</a> &middot;
+      <a href="/classifieds/legal/terms.pdf" target="_blank" rel="noopener">Terms of Service</a> &middot;
+      <a href="/classifieds/legal/privacy.pdf" target="_blank" rel="noopener">Privacy Policy</a>
+      <p style="margin-top: 6px;">&copy; t1Classifieds</p>
+    </footer>
+  </main>
+</body>
+</html>

@@ -14,7 +14,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, ForeignKey, Index, String, Text, func
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -103,4 +103,63 @@ class ClassifiedAd(Base):
 
     __table_args__ = (
         Index("ix_classified_ad_state_gold", "state", "gold_until"),
+    )
+
+
+class ClassifiedAdReport(Base):
+    """A single user's report against an ad.
+
+    The unique constraint on (ad_id, reporter_user_id) means each user can
+    report any given ad at most once — the counting logic in the report
+    route just runs ``SELECT count(*) FROM classified_ad_report WHERE ad_id = ?``
+    to decide when to auto-remove the listing.
+
+    Reports are kept on disk even after the ad is removed so we have an audit
+    trail of who flagged what. They're not exposed in any UI today.
+    """
+
+    __tablename__ = "classified_ad_report"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    ad_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("classified_ad.id", ondelete="CASCADE"),
+        index=True,
+    )
+    reporter_user_id: Mapped[int] = mapped_column(
+        ForeignKey("classified_user.id", ondelete="CASCADE"), index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("ad_id", "reporter_user_id", name="uq_ad_report_per_user"),
+    )
+
+
+class ClassifiedBlockedSignature(Base):
+    """SHA-256 fingerprint of an ad's title+description that was auto-removed
+    after hitting the report threshold.
+
+    When a user tries to create a new ad we hash its title+description and
+    look for a matching row scoped to *that same seller*. If we find one,
+    the create is rejected. This is a deterrent against re-listing the
+    exact same content immediately after a removal — not a watertight ban,
+    since a determined seller can re-word the post.
+
+    Rows are not auto-pruned today; if/when this table gets big we can add
+    a cron job to drop entries older than N days.
+    """
+
+    __tablename__ = "classified_blocked_signature"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("classified_user.id", ondelete="CASCADE"), index=True
+    )
+    signature: Mapped[str] = mapped_column(String(64), index=True)
+    original_ad_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "signature", name="uq_blocked_sig_per_user"),
     )

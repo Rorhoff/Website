@@ -55,6 +55,9 @@ CREATE DATABASE "Classifieds_Prod";
 
 Schema is auto-created at first uvicorn start by `credential_service.create_tables()` +
 SQLAlchemy `Base.metadata.create_all()`. No data is copied from dev — prod starts empty.
+`create_all()` is idempotent and **only creates missing tables** — adding new tables on a
+deploy (e.g. `classified_ad_report`, `classified_blocked_signature`) is automatic on
+service restart, but altering existing columns still requires a manual `ALTER TABLE`.
 
 ## 2. Create the R2 bucket and API token
 

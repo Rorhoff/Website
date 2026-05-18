@@ -8,7 +8,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>Classifieds App</title>
-  <link rel="stylesheet" href="/classifieds/styles.css?v=2026-05-18d" />
+  <link rel="stylesheet" href="/classifieds/styles.css?v=2026-05-18e" />
   <style>
     :root {
       --surface: #ffffff;
@@ -372,6 +372,8 @@
 
   <footer class="site-footer">
     <p class="site-footer-links">
+      <a href="/classifieds/safety.html">Buyer &amp; Seller Safety</a>
+      <span aria-hidden="true">·</span>
       <a href="/classifieds/legal/terms.pdf" target="_blank" rel="noopener">Terms of Service</a>
       <span aria-hidden="true">·</span>
       <a href="/classifieds/legal/privacy.pdf" target="_blank" rel="noopener">Privacy Policy</a>
@@ -407,7 +409,8 @@
         <button type="button" id="detailAnonCtaBtn" class="detail-anon-cta-btn">Log in or create account</button>
       </div>
       <div id="detailModalActions" class="detail-modal-actions" hidden>
-        <button type="button" id="detailReportBtn" class="ad-report-btn">Report spam/scam</button>
+        <button type="button" id="detailReportBtn" class="ad-report-btn">Report this listing</button>
+        <a id="detailSafetyLink" class="detail-safety-link" href="/classifieds/safety.html" target="_blank" rel="noopener">Safety tips</a>
         <button type="button" id="detailAdminDeleteBtn" class="secondary ad-admin-delete-btn" hidden>Delete (admin)</button>
       </div>
     </div>
@@ -427,7 +430,7 @@
   </div>
 
   <div id="toast" class="toast" hidden></div>
-  <script src="/classifieds/app.js?v=2026-05-18d"></script>
+  <script src="/classifieds/app.js?v=2026-05-18e"></script>
   <script src="/assets/nav-mobile.js"></script>
 </body>
 </html>

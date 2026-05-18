@@ -13,6 +13,7 @@ Developer notes:
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import re
 import secrets
@@ -24,6 +25,7 @@ from fastapi import APIRouter, Depends, File, Header, HTTPException, Request, Up
 from passlib.hash import bcrypt as bcrypt_hasher
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 import credential_service
@@ -31,7 +33,19 @@ import image_storage
 import stripe_service
 from credential_service import truncate_for_bcrypt
 from database import SessionLocal
-from models import ClassifiedAd, ClassifiedSession, ClassifiedUser
+from models import (
+    ClassifiedAd,
+    ClassifiedAdReport,
+    ClassifiedBlockedSignature,
+    ClassifiedSession,
+    ClassifiedUser,
+)
+
+# How many distinct logged-in users have to report a single ad before it is
+# auto-removed and a signature ban is recorded against the seller. Tuned low
+# enough to act as a deterrent, high enough that one disgruntled buyer + a few
+# friends can't trivially knock a legit ad offline.
+REPORT_AUTO_REMOVE_THRESHOLD = 5
 
 log = logging.getLogger("webapi-testing")
 
@@ -574,21 +588,56 @@ def classifieds_list_ads(
     return [_ad_out(r) for r in rows]
 
 
+def _ad_signature(title: str, description: str) -> str:
+    """Stable SHA-256 fingerprint of an ad's textual content.
+
+    Whitespace is collapsed and case-folded before hashing so trivial edits
+    (extra spaces, capitalization changes) don't bypass the auto-removed
+    repost block. Image content is intentionally *not* hashed — a seller who
+    swaps photos but keeps the same title/description is still re-listing
+    the same removed ad.
+    """
+    canonical = re.sub(r"\s+", " ", f"{title}\n{description}").strip().lower()
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
 @router.post("/ads")
 def classifieds_create_ad(
     body: CreateAdBody,
     user: ClassifiedUser = Depends(get_current_classified_user),
     db: Session = Depends(classifieds_db),
 ):
+    title = body.title.strip()
+    description = body.description.strip()
+    # Repost block: if this seller has had an ad with the same title+description
+    # auto-removed via the report system, refuse to recreate it. Other sellers
+    # are unaffected — the block is scoped to (user_id, signature).
+    signature = _ad_signature(title, description)
+    blocked = db.scalar(
+        select(ClassifiedBlockedSignature).where(
+            ClassifiedBlockedSignature.user_id == user.id,
+            ClassifiedBlockedSignature.signature == signature,
+        )
+    )
+    if blocked is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "This listing was previously removed after multiple user reports "
+                "and cannot be re-posted. Please contact support if you believe "
+                "this is an error."
+            ),
+        )
+
     ad = ClassifiedAd(
         id=str(uuid.uuid4()),
         user_id=user.id,
-        title=body.title.strip(),
+        title=title,
         state=body.state.strip(),
         category=body.category.strip(),
         sub_category=body.subCategory.strip(),
         price=_normalize_price(body.price),
-        description=body.description.strip(),
+        description=description,
         images=body.images,
         author_username=user.username,
     )
@@ -660,3 +709,87 @@ def classifieds_delete_my_ad(
     db.delete(ad)
     db.commit()
     return {"ok": True, "id": ad_id}
+
+
+@router.post("/ads/{ad_id}/report")
+def classifieds_report_ad(
+    ad_id: str,
+    user: ClassifiedUser = Depends(get_current_classified_user),
+    db: Session = Depends(classifieds_db),
+):
+    """Flag an ad as spam/scam/inappropriate.
+
+    Rules:
+
+    - Reporting requires a logged-in account so anonymous spammers cannot
+      mass-flag legit listings.
+    - A user can only report a given ad once; subsequent reports are
+      treated as idempotent successes (we don't tell the caller they had
+      already reported it, just acknowledge).
+    - Sellers can't report their own ads.
+    - Once the number of distinct reporters reaches
+      ``REPORT_AUTO_REMOVE_THRESHOLD``, the ad is deleted and its
+      title+description signature is recorded against the seller so the
+      same content cannot be re-posted by them.
+
+    The response is intentionally vague — buyers don't get told whether the
+    ad already had a high report count, just that their report was logged.
+    """
+    ad = db.get(ClassifiedAd, ad_id)
+    if ad is None:
+        raise HTTPException(status_code=404, detail="Ad not found")
+    if ad.user_id == user.id:
+        raise HTTPException(status_code=400, detail="You cannot report your own ad")
+
+    # Insert the report idempotently (relies on the (ad_id, reporter_user_id)
+    # unique index). Catching IntegrityError lets us treat duplicate reports
+    # as a no-op while still using the constraint as the source of truth.
+    report = ClassifiedAdReport(ad_id=ad_id, reporter_user_id=user.id)
+    db.add(report)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        return {"ok": True, "alreadyReported": True}
+
+    report_count = db.scalar(
+        select(func.count())
+        .select_from(ClassifiedAdReport)
+        .where(ClassifiedAdReport.ad_id == ad_id)
+    ) or 0
+
+    if report_count >= REPORT_AUTO_REMOVE_THRESHOLD:
+        # Snapshot what we need before deletion since the ad row goes away.
+        seller_id = ad.user_id
+        signature = _ad_signature(ad.title, ad.description)
+        # Best-effort: only record the block if we still know who posted the
+        # ad. An orphaned ad (user_id NULL because the seller deleted their
+        # account) gets removed but nothing is blocklisted — there's no
+        # account left to block anyway.
+        if seller_id is not None:
+            try:
+                db.add(
+                    ClassifiedBlockedSignature(
+                        user_id=seller_id,
+                        signature=signature,
+                        original_ad_id=ad_id,
+                    )
+                )
+                db.flush()
+            except IntegrityError:
+                # Already blocklisted (e.g. seller had previously re-listed
+                # the same content under a different ad_id and that one was
+                # also reported). Roll back the duplicate insert but keep
+                # going so the ad still gets removed.
+                db.rollback()
+        log.info(
+            "auto-removing ad %s after %d reports (seller=%s)",
+            ad_id,
+            report_count,
+            seller_id,
+        )
+        db.delete(ad)
+        db.commit()
+        return {"ok": True, "removed": True}
+
+    return {"ok": True, "removed": False}

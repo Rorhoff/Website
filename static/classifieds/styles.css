@@ -570,19 +570,37 @@ button.secondary:hover {
 }
 
 .ad-report-btn {
-  font-size: 0.75rem;
-  padding: 4px 10px;
+  font-size: 0.85rem;
+  padding: 6px 14px;
   border-radius: 6px;
-  border: 1px solid #cbd5e1;
+  border: 1px solid #fca5a5;
   background: #fff;
-  color: #475569;
+  color: #b91c1c;
+  font-weight: 600;
   cursor: pointer;
 }
 
 .ad-report-btn:hover {
-  background: #f1f5f9;
-  border-color: #94a3b8;
+  background: #fef2f2;
+  border-color: #ef4444;
 }
+
+.ad-report-btn:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+/* Small inline "Safety tips" link that sits next to the Report button in the
+   detail-modal action row. Visually subordinate to the Report CTA so it doesn't
+   compete for attention, but always one tap away. */
+.detail-safety-link {
+  align-self: center;
+  font-size: 0.85rem;
+  color: #1d4ed8;
+  text-decoration: none;
+  margin-left: 4px;
+}
+.detail-safety-link:hover { text-decoration: underline; }
 
 .admin-dashboard {
   margin-top: 8px;
