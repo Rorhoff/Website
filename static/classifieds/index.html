@@ -8,7 +8,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>Classifieds App</title>
-  <link rel="stylesheet" href="/classifieds/styles.css?v=2026-05-18b" />
+  <link rel="stylesheet" href="/classifieds/styles.css?v=2026-05-18c" />
   <style>
     :root {
       --surface: #ffffff;
@@ -382,7 +382,10 @@
 
   <div id="adDetailModal" class="modal-backdrop" hidden>
     <div id="detailModalCard" class="modal-card modal-ad-card">
-      <button id="closeAdDetailBtn" class="secondary" type="button">Close</button>
+      <div class="detail-modal-top">
+        <button id="shareAdBtn" class="detail-share-btn" type="button" title="Share this ad">Share</button>
+        <button id="closeAdDetailBtn" class="secondary" type="button">Close</button>
+      </div>
       <p id="detailGoldBanner" class="detail-gold-banner" hidden></p>
       <img id="detailHeroImage" class="detail-hero-image" alt="" />
       <div id="detailThumbnails" class="detail-thumbnails"></div>
@@ -393,6 +396,16 @@
       <p id="detailPhone" class="detail-phone"></p>
       <div id="detailContact" class="detail-contact-block" hidden></div>
       <p id="detailDescription" class="detail-description"></p>
+      <!-- Shown only when the viewer is not logged in: a CTA telling them they
+           can see this ad because they got the link, but they need an account
+           to browse more or to contact the seller. -->
+      <div id="detailAnonCta" class="detail-anon-cta" hidden>
+        <p class="detail-anon-cta-title">Want to see more ads like this?</p>
+        <p class="detail-anon-cta-body">
+          Create a free account or log in to browse all listings and contact the seller.
+        </p>
+        <button type="button" id="detailAnonCtaBtn" class="detail-anon-cta-btn">Log in or create account</button>
+      </div>
       <div id="detailModalActions" class="detail-modal-actions" hidden>
         <button type="button" id="detailReportBtn" class="ad-report-btn">Report spam/scam</button>
         <button type="button" id="detailAdminDeleteBtn" class="secondary ad-admin-delete-btn" hidden>Delete (admin)</button>
@@ -414,7 +427,7 @@
   </div>
 
   <div id="toast" class="toast" hidden></div>
-  <script src="/classifieds/app.js?v=2026-05-18b"></script>
+  <script src="/classifieds/app.js?v=2026-05-18c"></script>
   <script src="/assets/nav-mobile.js"></script>
 </body>
 </html>

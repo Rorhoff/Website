@@ -147,6 +147,32 @@ def _create_session(db: Session, user_id: int) -> str:
 # --- Bearer token → ClassifiedUser (used as Depends(...) on protected routes) ---
 
 
+def get_current_classified_user_optional(
+    authorization: Annotated[str | None, Header()] = None,
+    db: Session = Depends(classifieds_db),
+) -> ClassifiedUser | None:
+    """Resolve the bearer token to a user *if* one is present and valid.
+
+    Returns ``None`` for missing / malformed / expired tokens instead of
+    raising 401. Used by routes that need to differentiate logged-in vs
+    anonymous viewers — e.g. the shared-ad detail endpoint, which is
+    publicly viewable but hides PII from non-logged-in callers.
+    """
+    if not authorization or not authorization.startswith("Bearer "):
+        return None
+    token = authorization[7:].strip()
+    if not token:
+        return None
+    row = db.get(ClassifiedSession, token)
+    if row is None:
+        return None
+    if row.expires_at < datetime.utcnow():
+        db.delete(row)
+        db.commit()
+        return None
+    return db.get(ClassifiedUser, row.user_id)
+
+
 def get_current_classified_user(
     authorization: Annotated[str | None, Header()] = None,
     db: Session = Depends(classifieds_db),
@@ -589,24 +615,33 @@ def classifieds_list_my_ads(
 @router.get("/ads/{ad_id}")
 def classifieds_get_ad(
     ad_id: str,
-    user: ClassifiedUser = Depends(get_current_classified_user),
+    user: ClassifiedUser | None = Depends(get_current_classified_user_optional),
     db: Session = Depends(classifieds_db),
 ):
-    """Single-ad detail view — what the SPA shows when a buyer taps an ad tile.
+    """Single-ad detail view — accessible to anyone with the share URL.
 
-    Includes the seller's email and phone (browsing requires auth, so we're not exposing
-    contact info to anonymous scrapers). If the seller's account was deleted (user_id is
-    NULL), contact fields come back empty so the buyer just sees the listing without a
-    way to contact a defunct seller.
+    Logged-in viewers receive the seller's contact info (email/phone); anonymous
+    viewers see only the public ad payload. This lets sellers share an ad with
+    friends/family who don't yet have an account, while still preventing
+    drive-by scrapers from harvesting seller PII via direct ad IDs. The browse
+    list endpoint (``GET /ads``) remains auth-gated, so anonymous visitors can
+    only see ads they were explicitly linked to.
+
+    If the seller's account was deleted (``user_id`` is NULL), contact fields
+    come back empty so the buyer just sees the listing without a way to contact
+    a defunct seller.
     """
     ad = db.get(ClassifiedAd, ad_id)
     if ad is None:
         raise HTTPException(status_code=404, detail="Ad not found")
     payload = _ad_out(ad)
-    # Seller contact pulled live so a profile change shows up immediately on the next view.
-    seller = db.get(ClassifiedUser, ad.user_id) if ad.user_id is not None else None
-    payload["authorEmail"] = seller.email if seller else ""
-    payload["authorPhone"] = (seller.phone or "") if seller else ""
+    payload["viewerAuthenticated"] = user is not None
+    if user is not None:
+        # Seller contact pulled live so a profile change shows up immediately
+        # on the next view.
+        seller = db.get(ClassifiedUser, ad.user_id) if ad.user_id is not None else None
+        payload["authorEmail"] = seller.email if seller else ""
+        payload["authorPhone"] = (seller.phone or "") if seller else ""
     return payload
 
 

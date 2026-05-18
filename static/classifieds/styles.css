@@ -1049,3 +1049,74 @@ button.secondary:hover {
   text-align: center;
   color: #64748b;
 }
+
+/* Detail-modal top bar: Share button on the left, Close button on the right.
+   Both buttons stay above the hero image so they remain reachable without
+   scrolling on tall ads (a lot of description text + several photos). */
+.detail-modal-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.detail-share-btn {
+  appearance: none;
+  margin: 0;
+  padding: 0.45rem 0.9rem;
+  border-radius: 6px;
+  border: 1px solid #2563eb;
+  background: #2563eb;
+  color: #fff;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.detail-share-btn:hover { background: #1d4ed8; border-color: #1d4ed8; }
+.detail-share-btn::before {
+  /* Lightweight inline "share" glyph — three connected dots — so we don't
+     pull in an icon font just for one button. Falls back gracefully if the
+     glyph isn't available in the user's font. */
+  content: "↗";
+  margin-right: 6px;
+  font-weight: 700;
+}
+
+/* Anonymous-viewer CTA inside the detail modal. Shown when a friend opens a
+   shared link without an account — surfaces the sign-up nudge inline so they
+   don't have to find the login form themselves. */
+.detail-anon-cta {
+  margin-top: 14px;
+  padding: 14px 16px;
+  background: linear-gradient(180deg, #eff6ff 0%, #dbeafe 100%);
+  border: 1px solid #93c5fd;
+  border-radius: 8px;
+  text-align: center;
+}
+
+.detail-anon-cta-title {
+  margin: 0 0 4px;
+  font-weight: 700;
+  color: #1e3a8a;
+}
+
+.detail-anon-cta-body {
+  margin: 0 0 10px;
+  color: #1e40af;
+  font-size: 0.95rem;
+}
+
+.detail-anon-cta-btn {
+  appearance: none;
+  margin: 0;
+  padding: 0.55rem 1.1rem;
+  border-radius: 6px;
+  border: none;
+  background: #1d4ed8;
+  color: #fff;
+  font-weight: 600;
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+.detail-anon-cta-btn:hover { background: #1e40af; }

@@ -634,6 +634,7 @@ registerForm.addEventListener("submit", async (event) => {
     updateAuthUI();
     await renderAds();
     showToast("Account created. You are logged in.");
+    reopenSharedAdIfAny();
   } catch (error) {
     showToast(error.message || "Registration failed.");
   }
@@ -658,10 +659,24 @@ loginForm.addEventListener("submit", async (event) => {
     updateAuthUI();
     await renderAds();
     showToast("Logged in successfully.");
+    reopenSharedAdIfAny();
   } catch (error) {
     showToast(error.message || "Login failed.");
   }
 });
+
+function reopenSharedAdIfAny() {
+  // After a successful login/register, if the visitor originally arrived via
+  // a shared ?ad=<id> link (or that param is still in the URL), re-open the
+  // modal so the now-authed viewer gets the seller's contact info (which the
+  // anonymous view intentionally suppresses).
+  const params = new URLSearchParams(window.location.search);
+  const sharedAdId = params.get("ad") || lastSharedAdId;
+  if (sharedAdId) {
+    openAdDetail(sharedAdId).catch(() => { /* error surfaced inside modal */ });
+    lastSharedAdId = null;
+  }
+}
 
 menuToggleBtn.addEventListener("click", () => {
   menuPanel.hidden = !menuPanel.hidden;
@@ -962,6 +977,87 @@ const detailContactEl = document.getElementById("detailContact");
 const detailDescriptionEl = document.getElementById("detailDescription");
 const detailGoldBannerEl = document.getElementById("detailGoldBanner");
 const closeAdDetailBtn = document.getElementById("closeAdDetailBtn");
+const shareAdBtn = document.getElementById("shareAdBtn");
+const detailAnonCta = document.getElementById("detailAnonCta");
+const detailAnonCtaBtn = document.getElementById("detailAnonCtaBtn");
+
+// Tracks which ad the modal is currently rendering, so the Share button and
+// the post-login modal-refresh hook know which ID to act on.
+let currentDetailAdId = null;
+// Snapshot of the most recently fetched ad so the Share button can pull
+// title/description without round-tripping the network again.
+let currentDetailAd = null;
+// Sticky reference to the ad ID an anonymous visitor arrived on (via ?ad=…).
+// Survives closeAdDetail's URL cleanup so the post-login refresh hook can
+// still reopen the ad after the visitor signs up from the in-modal CTA.
+let lastSharedAdId = null;
+
+function shareUrlForAd(adId) {
+  // Build the deep-link from the user's current origin + path so it works
+  // for both rorhoff.com/classifieds (dev) and t1classifieds.com (prod)
+  // without hardcoding either domain.
+  const { origin, pathname } = window.location;
+  return `${origin}${pathname}?ad=${encodeURIComponent(adId)}`;
+}
+
+async function shareCurrentAd() {
+  if (!currentDetailAdId) return;
+  const url = shareUrlForAd(currentDetailAdId);
+  const title = currentDetailAd?.title || "Classifieds listing";
+  const text = `Check out this listing: ${title}`;
+
+  // Prefer the native share sheet on supported devices (mobile + some
+  // desktops). Web Share rejects with AbortError if the user dismisses
+  // the sheet — that's fine, we just stay quiet.
+  if (navigator.share) {
+    try {
+      await navigator.share({ title, text, url });
+      return;
+    } catch (err) {
+      if (err && err.name === "AbortError") return;
+      // Fall through to clipboard fallback for any other Web Share error.
+    }
+  }
+
+  // Clipboard fallback. Requires HTTPS or localhost; most users are on
+  // HTTPS in production so this is the common path on desktop.
+  try {
+    await navigator.clipboard.writeText(url);
+    showToast("Link copied to clipboard.");
+    return;
+  } catch {
+    // Last-ditch fallback: prompt() lets the user select+copy manually.
+    try {
+      window.prompt("Copy this link:", url);
+    } catch {
+      showToast("Could not share link.");
+    }
+  }
+}
+
+if (shareAdBtn) {
+  shareAdBtn.addEventListener("click", (event) => {
+    event.stopPropagation();
+    shareCurrentAd();
+  });
+}
+
+if (detailAnonCtaBtn) {
+  detailAnonCtaBtn.addEventListener("click", (event) => {
+    event.stopPropagation();
+    closeAdDetail();
+    // Scroll the login form into view so the path forward is obvious. Falls
+    // back to a no-op on browsers that don't support scrollIntoView options.
+    const authSection = document.getElementById("authSection");
+    if (authSection) {
+      try {
+        authSection.scrollIntoView({ behavior: "smooth", block: "start" });
+      } catch {
+        authSection.scrollIntoView();
+      }
+    }
+  });
+}
 
 function closeAdDetail() {
   if (!adDetailModal) return;
@@ -976,8 +1072,18 @@ function closeAdDetail() {
     detailContactEl.hidden = true;
     detailContactEl.innerHTML = "";
   }
+  if (detailAnonCta) detailAnonCta.hidden = true;
   if (detailGoldBannerEl) detailGoldBannerEl.hidden = true;
   detailModalCard?.classList.remove("gold-frame-active");
+  currentDetailAdId = null;
+  currentDetailAd = null;
+  // Clean ?ad= out of the URL so a refresh doesn't immediately reopen the modal.
+  const params = new URLSearchParams(window.location.search);
+  if (params.has("ad")) {
+    params.delete("ad");
+    const clean = window.location.pathname + (params.toString() ? `?${params}` : "");
+    window.history.replaceState({}, "", clean);
+  }
 }
 
 function renderDetailContact(ad) {
@@ -1009,7 +1115,18 @@ function renderDetailContact(ad) {
 
 async function openAdDetail(adId) {
   if (!adDetailModal || !adId) return;
+  currentDetailAdId = adId;
+  currentDetailAd = null;
   adDetailModal.hidden = false;
+  // Reflect the open ad in the URL so the address-bar copy and the Share
+  // button produce the same link, and so reloading the page reopens the
+  // same ad.
+  const params = new URLSearchParams(window.location.search);
+  if (params.get("ad") !== adId) {
+    params.set("ad", adId);
+    const next = window.location.pathname + `?${params}`;
+    window.history.replaceState({}, "", next);
+  }
   // Reset to a loading state — instant feedback, content fills in once fetch resolves.
   if (detailTitleEl) detailTitleEl.textContent = "Loading…";
   if (detailPriceEl) detailPriceEl.textContent = "";
@@ -1024,6 +1141,7 @@ async function openAdDetail(adId) {
     detailContactEl.hidden = true;
     detailContactEl.innerHTML = "";
   }
+  if (detailAnonCta) detailAnonCta.hidden = true;
   if (detailGoldBannerEl) detailGoldBannerEl.hidden = true;
   detailModalCard?.classList.remove("gold-frame-active");
   // Scroll the modal back to top in case the previous detail left it scrolled.
@@ -1040,6 +1158,7 @@ async function openAdDetail(adId) {
     return;
   }
 
+  currentDetailAd = ad;
   if (detailTitleEl) detailTitleEl.textContent = ad.title || "";
   if (detailPriceEl) detailPriceEl.textContent = formatPrice(ad.price);
   if (detailDescriptionEl) detailDescriptionEl.textContent = ad.description || "";
@@ -1055,7 +1174,21 @@ async function openAdDetail(adId) {
       .join("");
   }
 
-  renderDetailContact(ad);
+  // Anonymous viewers (shared link, no session): hide the contact block
+  // (server already strips PII for them) and show the sign-up CTA instead.
+  // viewerAuthenticated comes from the backend so client-side session state
+  // can't trick the UI into showing contact info that the server didn't send.
+  const viewerAuthed = ad.viewerAuthenticated !== false && Boolean(getCurrentUserRecord());
+  if (viewerAuthed) {
+    renderDetailContact(ad);
+    if (detailAnonCta) detailAnonCta.hidden = true;
+  } else {
+    if (detailContactEl) {
+      detailContactEl.hidden = true;
+      detailContactEl.innerHTML = "";
+    }
+    if (detailAnonCta) detailAnonCta.hidden = false;
+  }
 
   const images = (ad.images || []).filter(Boolean);
   if (detailHeroImage) {
@@ -1141,9 +1274,23 @@ document.addEventListener("keydown", (event) => {
   }
 });
 
+function handleAdShareDeepLink() {
+  // If the page was opened with ?ad=<id> (a shared link), pop the detail
+  // modal on top of the SPA so the visitor sees the listing immediately —
+  // whether or not they're logged in. The backend gates contact info to
+  // authed callers, so anonymous visitors see the ad + the sign-up CTA.
+  const params = new URLSearchParams(window.location.search);
+  const sharedAdId = params.get("ad");
+  if (sharedAdId) {
+    lastSharedAdId = sharedAdId;
+    openAdDetail(sharedAdId).catch(() => { /* error surfaced inside modal */ });
+  }
+}
+
 (async function initClassifieds() {
   await Promise.all([refreshMe(), loadGoldConfig()]);
   updateAuthUI();
   handleGoldReturnParams();
   await renderAds();
+  handleAdShareDeepLink();
 })();
