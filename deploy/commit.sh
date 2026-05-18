@@ -50,7 +50,12 @@ before=$(git -C "$DEV_DIR" rev-parse --short HEAD)
 log "DEV: ${DEV_DIR} currently at ${before}"
 
 log "Fetching origin/main…"
-git -C "$DEV_DIR" fetch origin main --tags --prune
+# --force on the tag fetch so a tag that was moved on origin (e.g. you
+# re-tagged prod-v1.X while testing) overwrites the local copy instead of
+# aborting the whole script with "would clobber existing tag". We don't
+# rely on those tags here — we just want them in sync so prod operations
+# from this same checkout don't surprise anyone.
+git -C "$DEV_DIR" fetch origin main --tags --prune --force
 git -C "$DEV_DIR" checkout main >/dev/null
 # Fast-forward only — refuse to merge unrelated history. Anything funky should
 # be sorted out by hand, not by a deploy script.

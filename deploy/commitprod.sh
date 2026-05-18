@@ -47,7 +47,7 @@ die()  { echo "${RED}ERR${RESET} $*" >&2; exit 1; }
 show_tags_and_usage() {
   echo "${BOLD}Recent prod-v* tags${RESET} (newest first):"
   if [[ -d "$PROD_DIR/.git" ]]; then
-    git -C "$PROD_DIR" fetch origin --tags --quiet --prune --prune-tags 2>/dev/null || true
+    git -C "$PROD_DIR" fetch origin --tags --quiet --prune --prune-tags --force 2>/dev/null || true
     git -C "$PROD_DIR" tag --list 'prod-v*' --sort=-v:refname \
       --format='  %(refname:short)%09%(taggerdate:short)%09%(subject)' \
       | head -n 20 || true
@@ -82,7 +82,11 @@ current_ref=$(git -C "$PROD_DIR" describe --tags --exact-match 2>/dev/null || gi
 log "PROD: ${PROD_DIR} currently at ${current_ref:-detached} (${before})"
 
 log "Fetching tags from origin…"
-git -C "$PROD_DIR" fetch origin --tags --prune --prune-tags
+# --force so a moved tag on origin (e.g. you re-tagged prod-v1.X while
+# testing) overwrites the local copy instead of aborting the deploy with
+# "would clobber existing tag". --prune-tags still removes tags that were
+# deleted upstream; --force only governs how mismatched tags are resolved.
+git -C "$PROD_DIR" fetch origin --tags --prune --prune-tags --force
 if ! git -C "$PROD_DIR" rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
   die "Tag '${TAG}' not found even after fetch. Did you 'git push origin ${TAG}' from your dev machine?"
 fi
