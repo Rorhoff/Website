@@ -629,6 +629,10 @@ registerForm.addEventListener("submit", async (event) => {
     });
     setSessionToken(data.token);
     cachedUser = data.user;
+    // Save credentials to the browser's password manager BEFORE we reset the
+    // form — once .reset() runs the inputs are empty and Chrome's heuristic
+    // "did the form submit succeed?" detector can miss them.
+    await rememberCredentials(username, password);
     registerForm.reset();
     setProfileActive(false);
     updateAuthUI();
@@ -655,6 +659,7 @@ loginForm.addEventListener("submit", async (event) => {
     setSessionToken(data.token);
     cachedUser = data.user;
     setProfileActive(false);
+    await rememberCredentials(username, password);
     loginForm.reset();
     updateAuthUI();
     await renderAds();
@@ -664,6 +669,30 @@ loginForm.addEventListener("submit", async (event) => {
     showToast(error.message || "Login failed.");
   }
 });
+
+async function rememberCredentials(username, password) {
+  // Use the Credential Management API to explicitly ask the browser's password
+  // manager to save the just-used credential. This is what triggers Chrome's
+  // "Save password?" prompt on SPAs where the actual form submit is captured
+  // by JS (the browser's own heuristic detector often misses fetch-based
+  // submits, especially for registration). Feature-detected so unsupported
+  // browsers (older Safari, Firefox without flag) gracefully no-op.
+  //
+  // Only works on a secure context (HTTPS or localhost). Failures here are
+  // intentionally swallowed — the user is already logged in; missing a
+  // "Save password?" prompt is a minor UX miss, not a flow-breaking error.
+  if (!window.PasswordCredential || !username || !password) return;
+  try {
+    const cred = new window.PasswordCredential({
+      id: username,
+      password: password,
+      name: username,
+    });
+    await navigator.credentials.store(cred);
+  } catch {
+    /* unsupported, denied by user, or not in a secure context — ignore */
+  }
+}
 
 function reopenSharedAdIfAny() {
   // After a successful login/register, if the visitor originally arrived via

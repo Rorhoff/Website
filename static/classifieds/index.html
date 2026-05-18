@@ -8,7 +8,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>Classifieds App</title>
-  <link rel="stylesheet" href="/classifieds/styles.css?v=2026-05-18f" />
+  <link rel="stylesheet" href="/classifieds/styles.css?v=2026-05-18g" />
   <style>
     :root {
       --surface: #ffffff;
@@ -168,12 +168,16 @@
     <section id="authSection" class="auth-grid">
       <section class="card">
         <h2>Login</h2>
-        <form id="loginForm">
+        <!-- autocomplete hints below are what trigger Chrome / Safari / 1Password
+             / Bitwarden to offer to fill or save credentials. The form is a real
+             <form> (even though app.js intercepts submit) so the password manager
+             sees a proper signup/login surface. -->
+        <form id="loginForm" autocomplete="on">
           <label for="loginUsername">Username</label>
-          <input id="loginUsername" name="username" required />
+          <input id="loginUsername" name="username" required autocomplete="username" autocapitalize="none" spellcheck="false" />
 
           <label for="loginPassword">Password</label>
-          <input id="loginPassword" name="password" type="password" required />
+          <input id="loginPassword" name="password" type="password" required autocomplete="current-password" />
 
           <button type="submit">Login</button>
         </form>
@@ -183,18 +187,18 @@
 
       <section class="card">
         <h2>Register</h2>
-        <form id="registerForm">
+        <form id="registerForm" autocomplete="on">
           <label for="registerUsername">Username</label>
-          <input id="registerUsername" name="username" required minlength="3" />
+          <input id="registerUsername" name="username" required minlength="3" autocomplete="username" autocapitalize="none" spellcheck="false" />
 
           <label for="registerEmail">Email (required)</label>
-          <input id="registerEmail" name="email" type="email" required />
+          <input id="registerEmail" name="email" type="email" required autocomplete="email" autocapitalize="none" spellcheck="false" />
 
           <label for="registerPhone">Phone number (required)</label>
           <input id="registerPhone" name="phone" type="tel" required autocomplete="tel" placeholder="(555) 555-5555" />
 
           <label for="registerState">What state do you live in?</label>
-          <select id="registerState" name="state" required>
+          <select id="registerState" name="state" required autocomplete="address-level1">
             <option value="">Select your state</option>
             <option value="Alabama">Alabama</option><option value="Arizona">Arizona</option><option value="Arkansas">Arkansas</option>
             <option value="California">California</option><option value="Colorado">Colorado</option><option value="Connecticut">Connecticut</option>
@@ -216,7 +220,10 @@
           </select>
 
           <label for="registerPassword">Password</label>
-          <input id="registerPassword" name="password" type="password" required minlength="4" />
+          <!-- new-password is the key hint: it tells the browser this is a
+               sign-up password (not a login) so it offers "Save password" and
+               suggests strong passwords instead of trying to autofill. -->
+          <input id="registerPassword" name="password" type="password" required minlength="4" autocomplete="new-password" />
 
           <div class="tos-checkbox">
             <input id="registerTosAccepted" name="tosAccepted" type="checkbox" required />
@@ -421,7 +428,7 @@
       <p id="resetModalHint" class="hint"></p>
       <form id="resetPasswordForm">
         <label for="resetNewPassword">New password</label>
-        <input id="resetNewPassword" name="newPassword" type="password" required minlength="4" />
+        <input id="resetNewPassword" name="newPassword" type="password" required minlength="4" autocomplete="new-password" />
         <button type="submit">Update Password</button>
       </form>
       <button id="cancelResetBtn" class="secondary" type="button">Cancel</button>
@@ -429,7 +436,7 @@
   </div>
 
   <div id="toast" class="toast" hidden></div>
-  <script src="/classifieds/app.js?v=2026-05-18f"></script>
+  <script src="/classifieds/app.js?v=2026-05-18g"></script>
   <script src="/assets/nav-mobile.js"></script>
 </body>
 </html>

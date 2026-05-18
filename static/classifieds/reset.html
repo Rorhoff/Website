@@ -99,7 +99,7 @@
       <p class="hint">Enter the email address on your account and we'll generate a reset link.</p>
       <form id="requestForm">
         <label for="resetEmail">Email address</label>
-        <input id="resetEmail" type="email" required placeholder="you@example.com" />
+        <input id="resetEmail" type="email" required autocomplete="email" autocapitalize="none" spellcheck="false" placeholder="you@example.com" />
         <button type="submit">Send Reset Link</button>
       </form>
       <div id="requestResult" hidden></div>
@@ -111,7 +111,7 @@
       <h2>Set New Password</h2>
       <form id="confirmForm">
         <label for="newPassword">New password</label>
-        <input id="newPassword" type="password" required minlength="4" placeholder="At least 4 characters" />
+        <input id="newPassword" type="password" required minlength="4" autocomplete="new-password" placeholder="At least 4 characters" />
         <button type="submit">Update Password</button>
       </form>
       <div id="confirmResult" hidden></div>
