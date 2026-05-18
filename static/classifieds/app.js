@@ -453,6 +453,10 @@ async function renderAds() {
       if (selectedSubCategory && ad.subCategory !== selectedSubCategory) return false;
       return true;
     });
+    // Cache the filtered list so the modal's swipe / arrow-key
+    // navigation can walk through the same ads the user sees on the
+    // browse grid (gold-first, then newest, then any active filter).
+    lastRenderedBrowseList = filtered;
 
     // Active-filter summary line ("Filtered: Vehicles / Cars  •  Clear") so the
     // user always sees what they've narrowed down to without having to reopen
@@ -529,6 +533,8 @@ async function renderMyAds() {
   try {
     const ads = await classifiedsApi("/me/ads");
     ads.sort((a, b) => b.createdAt - a.createdAt);
+    // Cache the My Ads list for swipe navigation, mirroring renderAds.
+    lastRenderedMyAdsList = ads;
     if (!ads.length) {
       if (myAdsHint) myAdsHint.textContent = "You haven't posted any ads yet.";
       myAdsList.innerHTML = "";
@@ -1285,6 +1291,21 @@ let currentDetailAd = null;
 // still reopen the ad after the visitor signs up from the in-modal CTA.
 let lastSharedAdId = null;
 
+// --- Swipe navigation through the detail modal -------------------------
+// When the user opens an ad from the browse grid or My Ads view, we cache
+// the list it came from and the current ad's index in that list so a
+// horizontal swipe (or arrow key) can advance to the next/previous ad
+// without forcing the user to close the modal, scroll, and tap again.
+// Deep-link opens (?ad=<id>) leave this empty so swipe is a no-op there
+// — we don't have a meaningful "next ad" without a list context.
+let currentDetailNavList = [];
+let currentDetailNavIndex = -1;
+// Last list rendered into the browse grid / My Ads grid, so click
+// handlers (which fire after rendering) can pass the right list to
+// openAdDetail without rebuilding it from scratch.
+let lastRenderedBrowseList = [];
+let lastRenderedMyAdsList = [];
+
 function shareUrlForAd(adId) {
   // Build the deep-link from the user's current origin + path so it works
   // for both rorhoff.com/classifieds (dev) and t1classifieds.com (prod)
@@ -1297,7 +1318,11 @@ async function shareCurrentAd() {
   if (!currentDetailAdId) return;
   const url = shareUrlForAd(currentDetailAdId);
   const title = currentDetailAd?.title || "Classifieds listing";
-  const text = `Check out this listing: ${title}`;
+  // Keep the share message generic — the ad title is already visible in
+  // the link preview (Open Graph + per-ad <title> set in applySeoForAd),
+  // so appending it here just creates noise on platforms like iMessage
+  // that show both the text and the preview card.
+  const text = "Check out this listing!";
 
   // Prefer the native share sheet on supported devices (mobile + some
   // desktops). Web Share rejects with AbortError if the user dismisses
@@ -1410,6 +1435,8 @@ function closeAdDetail() {
   detailModalCard?.classList.remove("gold-frame-active");
   currentDetailAdId = null;
   currentDetailAd = null;
+  currentDetailNavList = [];
+  currentDetailNavIndex = -1;
   // Reset the page title + meta description back to the homepage defaults
   // so the address bar / share previews don't keep showing the previous ad
   // after the modal closes.
@@ -1447,10 +1474,24 @@ function renderDetailContact(ad) {
   detailContactEl.hidden = false;
 }
 
-async function openAdDetail(adId) {
+async function openAdDetail(adId, navList = null) {
   if (!adDetailModal || !adId) return;
   currentDetailAdId = adId;
   currentDetailAd = null;
+  // If the caller provided a list context (browse grid, My Ads), remember
+  // it + the current position so swipe / arrow-key handlers can advance
+  // to the neighbour. Deep links / share opens pass nothing and end up
+  // with a no-op swipe — fine, there's no meaningful "next" without a
+  // list of peers to navigate through.
+  if (Array.isArray(navList) && navList.length) {
+    currentDetailNavList = navList;
+    currentDetailNavIndex = navList.findIndex(
+      (a) => String(a && a.id) === String(adId),
+    );
+  } else {
+    currentDetailNavList = [];
+    currentDetailNavIndex = -1;
+  }
   adDetailModal.hidden = false;
   // Reflect the open ad in the URL so the address-bar copy and the Share
   // button produce the same link, and so reloading the page reopens the
@@ -1666,7 +1707,12 @@ document.addEventListener("click", (event) => {
     if (interactive && interactive !== tile) {
       // Let the inner control handle this click in its own listener.
     } else {
-      openAdDetail(tile.dataset.detailAdId);
+      // Pass the list this tile belongs to so swipe navigation works.
+      // Browse tiles live in #adsList → lastRenderedBrowseList; My Ads
+      // cards live in #myAdsList → lastRenderedMyAdsList.
+      const isMyAds = tile.classList.contains("my-ad-card");
+      const navList = isMyAds ? lastRenderedMyAdsList : lastRenderedBrowseList;
+      openAdDetail(tile.dataset.detailAdId, navList);
       return;
     }
   }
@@ -1696,7 +1742,7 @@ document.addEventListener("keydown", (event) => {
   const card = event.target.closest(".my-ad-card[data-detail-ad-id]");
   if (!card || event.target !== card) return;
   event.preventDefault();
-  openAdDetail(card.dataset.detailAdId);
+  openAdDetail(card.dataset.detailAdId, lastRenderedMyAdsList);
 });
 
 document.addEventListener("keydown", (event) => {
@@ -1704,6 +1750,98 @@ document.addEventListener("keydown", (event) => {
     closeAdDetail();
   }
 });
+
+// --- Swipe / arrow-key navigation through neighbouring ads -------------
+//
+// Walks the cached navigation list (lastRenderedBrowseList /
+// lastRenderedMyAdsList — set when the modal opened) by `delta` positions
+// and re-opens the modal with the neighbour. Because both lists are
+// already sorted newest-first (with gold-first on browse), `delta = +1`
+// advances to an older ad and `delta = -1` rewinds to a newer one. That
+// matches the user's mental model: swiping right-to-left "pushes the
+// current ad off" to reveal an older one underneath.
+function navigateDetailRelative(delta) {
+  if (
+    !currentDetailNavList.length ||
+    currentDetailNavIndex < 0 ||
+    currentDetailNavIndex >= currentDetailNavList.length
+  ) {
+    return;
+  }
+  const next = currentDetailNavIndex + delta;
+  if (next < 0) {
+    showToast("Already at the newest ad.");
+    return;
+  }
+  if (next >= currentDetailNavList.length) {
+    showToast("No older ads to show.");
+    return;
+  }
+  const nextAd = currentDetailNavList[next];
+  if (!nextAd || !nextAd.id) return;
+  // Pass the same list back in so navigation continues to work after the
+  // jump (otherwise the next openAdDetail call would clear the context).
+  openAdDetail(String(nextAd.id), currentDetailNavList).catch(() => {});
+}
+
+// Arrow keys = the desktop equivalent of swipe. ←/→ when the modal is
+// open and the user isn't typing in a form field, mirroring how image
+// viewers / native iOS Photos behave.
+document.addEventListener("keydown", (event) => {
+  if (!adDetailModal || adDetailModal.hidden) return;
+  if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+  const tag = (event.target && event.target.tagName) || "";
+  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+  event.preventDefault();
+  // Left arrow = newer ad (rewind through the list); right arrow = older.
+  navigateDetailRelative(event.key === "ArrowLeft" ? -1 : 1);
+});
+
+// Touch swipe — only fires on devices with a touchscreen. We listen on
+// the modal-backdrop (not document) so swipes outside the modal don't
+// accidentally trigger navigation. passive: true so vertical scrolling
+// inside the modal stays butter-smooth — we only react on `touchend`.
+if (adDetailModal) {
+  let swipeStartX = 0;
+  let swipeStartY = 0;
+  let swipeStartedAt = 0;
+  // Tuned thresholds: needs at least 50px horizontal AND less than 80px
+  // vertical drift (otherwise it was a diagonal scroll, not a swipe).
+  // Anything slower than ~800ms looks like a long-press / hesitation, so
+  // we ignore it to avoid surprising "I'm scrolling, why did the ad
+  // change" navigations.
+  const MIN_HORIZONTAL_PX = 50;
+  const MAX_VERTICAL_PX = 80;
+  const MAX_DURATION_MS = 800;
+
+  adDetailModal.addEventListener(
+    "touchstart",
+    (event) => {
+      if (!event.touches.length) return;
+      swipeStartX = event.touches[0].clientX;
+      swipeStartY = event.touches[0].clientY;
+      swipeStartedAt = Date.now();
+    },
+    { passive: true },
+  );
+
+  adDetailModal.addEventListener(
+    "touchend",
+    (event) => {
+      if (!event.changedTouches.length) return;
+      const dx = event.changedTouches[0].clientX - swipeStartX;
+      const dy = event.changedTouches[0].clientY - swipeStartY;
+      const dt = Date.now() - swipeStartedAt;
+      if (Math.abs(dx) < MIN_HORIZONTAL_PX) return;
+      if (Math.abs(dy) > MAX_VERTICAL_PX) return;
+      if (dt > MAX_DURATION_MS) return;
+      // Right-to-left swipe (dx < 0) → next/older ad.
+      // Left-to-right swipe (dx > 0) → previous/newer ad.
+      navigateDetailRelative(dx < 0 ? 1 : -1);
+    },
+    { passive: true },
+  );
+}
 
 function handleAdShareDeepLink() {
   // If the page was opened with ?ad=<id> (a shared link), pop the detail
