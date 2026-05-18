@@ -218,6 +218,16 @@
           <label for="registerPassword">Password</label>
           <input id="registerPassword" name="password" type="password" required minlength="4" />
 
+          <div class="tos-checkbox">
+            <input id="registerTosAccepted" name="tosAccepted" type="checkbox" required />
+            <label for="registerTosAccepted">
+              I have read and agree to the
+              <a href="/classifieds/legal/terms.pdf" target="_blank" rel="noopener">Terms of Service</a>
+              and
+              <a href="/classifieds/legal/privacy.pdf" target="_blank" rel="noopener">Privacy Policy</a>.
+            </label>
+          </div>
+
           <button type="submit">Create Account</button>
         </form>
       </section>
@@ -359,6 +369,15 @@
       <div id="adminSpamQueue" class="admin-spam-queue"></div>
     </section>
   </main>
+
+  <footer class="site-footer">
+    <p class="site-footer-links">
+      <a href="/classifieds/legal/terms.pdf" target="_blank" rel="noopener">Terms of Service</a>
+      <span aria-hidden="true">·</span>
+      <a href="/classifieds/legal/privacy.pdf" target="_blank" rel="noopener">Privacy Policy</a>
+    </p>
+    <p class="site-footer-copy">&copy; t1Classifieds</p>
+  </footer>
   </div><!-- /.page-shell -->
 
   <div id="adDetailModal" class="modal-backdrop" hidden>

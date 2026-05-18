@@ -54,6 +54,11 @@ class ClassifiedUser(Base):
     state: Mapped[str] = mapped_column(String(64))
     password_hash: Mapped[str] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    # Paper trail for Terms of Service / Privacy Policy acceptance. Nullable so
+    # accounts that existed before the checkbox was added don't need a backfill —
+    # they're treated as "accepted at registration time" implicitly. New
+    # registrations always set this at signup.
+    tos_accepted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
 class ClassifiedSession(Base):

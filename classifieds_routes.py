@@ -195,6 +195,9 @@ class RegisterBody(BaseModel):
     phone: str = Field(default="", max_length=64)
     state: str = Field(min_length=1, max_length=64)
     password: str = Field(min_length=4, max_length=256)
+    # Must be True — the frontend checkbox is `required`, and we re-enforce
+    # server-side so a curl/Postman call can't bypass acceptance.
+    tosAccepted: bool = Field(default=False)
 
 
 class LoginBody(BaseModel):
@@ -237,6 +240,11 @@ _RESET_TOKEN_TTL = timedelta(hours=1)
 
 @router.post("/register")
 def classifieds_register(body: RegisterBody, db: Session = Depends(classifieds_db)):
+    if not body.tosAccepted:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="You must accept the Terms of Service and Privacy Policy to register.",
+        )
     username = body.username.strip().lower()
     exists = db.scalars(
         select(ClassifiedUser).where(ClassifiedUser.username == username)
@@ -252,6 +260,8 @@ def classifieds_register(body: RegisterBody, db: Session = Depends(classifieds_d
         phone=(body.phone or "").strip(),
         state=body.state.strip(),
         password_hash=_hash_password(body.password),
+        # UTC so we never have to reason about DST when reading audit logs.
+        tos_accepted_at=datetime.utcnow(),
     )
     db.add(user)
     db.commit()

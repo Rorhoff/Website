@@ -590,9 +590,17 @@ registerForm.addEventListener("submit", async (event) => {
   const password = String(formData.get("password"));
   const email = String(formData.get("email")).trim();
   const phone = String(formData.get("phone")).trim();
+  // The HTML `required` attribute already gates the submit, but we also read
+  // and send the checkbox value so the server can enforce it (and timestamp
+  // when ToS was accepted) for users hitting the endpoint directly via curl.
+  const tosAccepted = formData.get("tosAccepted") === "on";
 
   if (!state) {
     showToast("Please select your state.");
+    return;
+  }
+  if (!tosAccepted) {
+    showToast("Please confirm you have read the Terms of Service and Privacy Policy.");
     return;
   }
 
@@ -600,7 +608,7 @@ registerForm.addEventListener("submit", async (event) => {
     const data = await classifiedsApi("/register", {
       method: "POST",
       withAuth: false,
-      jsonBody: { username, state, password, email, phone },
+      jsonBody: { username, state, password, email, phone, tosAccepted },
     });
     setSessionToken(data.token);
     cachedUser = data.user;

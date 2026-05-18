@@ -931,3 +931,78 @@ button.secondary:hover {
   border-radius: 8px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
+
+/* Terms-of-Service checkbox row in the registration form. Layout uses the
+   checkbox + label pattern so the entire link-rich label remains clickable
+   without flipping the checkbox when a link is tapped. */
+.tos-checkbox {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 12px 0 8px;
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+.tos-checkbox input[type="checkbox"] {
+  margin: 3px 0 0;
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+.tos-checkbox label {
+  margin: 0;
+  cursor: pointer;
+  color: #334155;
+}
+
+.tos-checkbox a {
+  color: #1d4ed8;
+  text-decoration: underline;
+}
+
+.tos-checkbox a:hover {
+  color: #1e40af;
+}
+
+/* Site footer — appears on every screen of the SPA. Sits inside .page-shell
+   so it inherits the centered max-width layout. */
+.site-footer {
+  margin-top: 24px;
+  padding: 16px;
+  padding-bottom: max(16px, env(safe-area-inset-bottom));
+  text-align: center;
+  border-top: 1px solid #d1dae6;
+  background: #f0f4f9;
+  color: #475569;
+  font-size: 0.85rem;
+}
+
+.site-footer-links {
+  margin: 0 0 6px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.site-footer-links a {
+  color: #1d4ed8;
+  text-decoration: none;
+}
+
+.site-footer-links a:hover {
+  text-decoration: underline;
+}
+
+.site-footer-links span {
+  color: #94a3b8;
+}
+
+.site-footer-copy {
+  margin: 0;
+  color: #64748b;
+}
