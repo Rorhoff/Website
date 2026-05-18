@@ -113,6 +113,20 @@ class ClassifiedAd(Base):
     stripe_session_id: Mapped[str | None] = mapped_column(
         String(200), nullable=True, default=None
     )
+    # Last gold Checkout payment snapshot (updated every successful webhook). Used to
+    # issue a partial Stripe refund only when we auto-remove the listing (report
+    # threshold) — not when the seller deletes voluntarily. Tracks the purchased
+    # time window for *that payment* only (stacked renewals overwrite this row).
+    last_gold_payment_intent_id: Mapped[str | None] = mapped_column(
+        String(255), nullable=True, default=None
+    )
+    last_gold_payment_cents: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    last_gold_window_start: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True, default=None
+    )
+    last_gold_window_end: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True, default=None
+    )
 
     __table_args__ = (
         Index("ix_classified_ad_state_gold", "state", "gold_until"),

@@ -12,6 +12,8 @@ Endpoints (in classifieds_routes.py):
 - POST /api/classifieds/gold/checkout  → creates a Stripe Checkout session
 - POST /api/classifieds/gold/webhook   → activates gold on payment confirmation
 
+Prorated partial refunds after platform auto-removals (report threshold): see `refund_prorated_gold_for_platform_removal`.
+
 Env vars (set in .env.prod; never log or commit):
 - STRIPE_SECRET_KEY:       sk_test_... or sk_live_...
 - STRIPE_WEBHOOK_SECRET:   whsec_... (from Stripe → Webhooks dashboard)
@@ -254,9 +256,128 @@ def apply_completed_checkout(db: Session, event: Any) -> str | None:
     # stack instead of overlap).
     now = datetime.utcnow()
     base = ad.gold_until if ad.gold_until and ad.gold_until > now else now
-    ad.gold_until = base + timedelta(days=days)
+    window_end = base + timedelta(days=days)
+    ad.gold_until = window_end
     ad.stripe_session_id = session_id
+    # Snapshot the paid window + charge for automated prorated refunds if we ever
+    # auto-remove this listing before window_end (report threshold). Seller-initiated
+    # deletes deliberately do NOT trigger this path — see classify gold-policy.html.
+    pi_raw = _safe_get(session, "payment_intent")
+    pi_id: str | None = None
+    if isinstance(pi_raw, dict):
+        pi_id = _safe_get(pi_raw, "id")
+    elif isinstance(pi_raw, str):
+        pi_id = pi_raw
+    amount_total = _safe_get(session, "amount_total")
+    if pi_id:
+        ad.last_gold_payment_intent_id = str(pi_id)
+    if isinstance(amount_total, int) and amount_total > 0:
+        ad.last_gold_payment_cents = amount_total
+    ad.last_gold_window_start = base
+    ad.last_gold_window_end = window_end
     db.add(ad)
     db.commit()
     log.info("Gold activated: ad=%s until=%s (session=%s)", ad_id, ad.gold_until, session_id)
     return ad_id
+
+
+def refund_prorated_gold_for_platform_removal(ad: ClassifiedAd) -> dict[str, Any]:
+    """Issue a best-effort **partial** refund for unused gold time after the marketplace
+    auto-removes a listing (e.g. repeated reports). Sellers who delete their own ads do
+    not hit this helper — see footer policy page.
+
+    Returns a small dict suitable for structured logging (attempted, refund cents, refund
+    id, error string). Stripe failures never raise — callers still delete the ad so an
+    abusive listing does not linger; ops can reconcile from logs / Dashboard."""
+
+    outcome: dict[str, Any] = {
+        "attempted": False,
+        "eligible": False,
+        "refund_cents": 0,
+        "stripe_refund_id": None,
+        "error": None,
+    }
+
+    if not stripe_enabled():
+        return outcome
+
+    pi = getattr(ad, "last_gold_payment_intent_id", None) or ""
+    cents_paid = getattr(ad, "last_gold_payment_cents", None)
+    ws = getattr(ad, "last_gold_window_start", None)
+    we = getattr(ad, "last_gold_window_end", None)
+
+    if not pi:
+        log.info(
+            "Gold refund skipped — no PaymentIntent snapshot (legacy ad?): ad=%s", ad.id
+        )
+        return outcome
+
+    if not isinstance(cents_paid, int) or cents_paid <= 0:
+        log.warning("Gold refund skipped — bad cents snapshot=%r ad=%s", cents_paid, ad.id)
+        return outcome
+
+    if ws is None or we is None or we <= ws:
+        log.warning(
+            "Gold refund skipped — bad window start=%s end=%s ad=%s", ws, we, ad.id
+        )
+        return outcome
+
+    now = datetime.utcnow()
+    if now >= we:
+        log.info(
+            "Gold refund skipped — listing removed after gold expiry (no unused time): ad=%s",
+            ad.id,
+        )
+        return outcome
+
+    total_sec = (we - ws).total_seconds()
+    unused_sec = (we - now).total_seconds()
+    if total_sec <= 0 or unused_sec <= 0:
+        return outcome
+
+    outcome["eligible"] = True
+
+    refund_cents = int((cents_paid * unused_sec) / total_sec)
+    # Never refund less than one cent unless rounding killed it; never more than captured.
+    if refund_cents < 1:
+        log.info(
+            "Gold refund skipped — prorated rounded to zero (ad=%s paid_cents=%d unused_sec=%s)",
+            ad.id,
+            cents_paid,
+            unused_sec,
+        )
+        return outcome
+    if refund_cents > cents_paid:
+        refund_cents = cents_paid
+
+    try:
+        stripe = _stripe_client()
+        outcome["attempted"] = True
+        # Stable idempotency key so Stripe replays don't double-refund during rare retries.
+        idem = f"t1-auto-remove-{ad.id}-{pi}"[:245]
+        rf = stripe.Refund.create(
+            payment_intent=pi,
+            amount=refund_cents,
+            metadata={
+                "t1classifieds_reason": "auto_removed_reports_pro_rata",
+                "ad_id": str(ad.id),
+            },
+            idempotency_key=idem,
+        )
+        rf_id = _safe_get(rf, "id")
+        outcome["stripe_refund_id"] = rf_id or None
+        outcome["refund_cents"] = refund_cents
+        log.info(
+            "Gold pro-rata refund ok: ad=%s refund_cents=%s stripe_refund=%s",
+            ad.id,
+            refund_cents,
+            outcome["stripe_refund_id"],
+        )
+    except Exception as exc:
+        outcome["attempted"] = True
+        outcome["error"] = repr(exc)
+        log.exception(
+            "Gold pro-rata refund FAILED (ad removed anyway): ad=%s exc=%s", ad.id, exc
+        )
+
+    return outcome

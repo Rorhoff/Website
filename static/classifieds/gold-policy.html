@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<!--
+  Gold “featured listing” purchase & refund summary. Static page linked from the
+  classifieds footer alongside Terms / Privacy. Not a substitute for the full Terms
+  PDF — highlights the Stripe-backed refund posture only.
+-->
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Gold featured listings — payments & refunds</title>
+  <link rel="stylesheet" href="/classifieds/styles.css?v=2026-05-18n" />
+  <style>
+    body { background: #f1f5f9; }
+    .safety-shell {
+      max-width: 760px;
+      margin: 0 auto;
+      padding: 24px 20px 48px;
+      font-family: "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+      color: #1e293b;
+      line-height: 1.55;
+    }
+    .safety-shell h1 { font-size: 1.85rem; margin: 0 0 4px; }
+    .safety-shell .lede {
+      color: #475569;
+      margin: 0 0 24px;
+      font-size: 1.02rem;
+    }
+    .safety-card {
+      background: #fff;
+      border: 1px solid #d1dae6;
+      border-radius: 10px;
+      padding: 18px 22px;
+      margin-bottom: 16px;
+      box-shadow: 0 2px 6px rgba(15, 23, 42, 0.04);
+    }
+    .safety-card h2 {
+      margin: 0 0 8px;
+      font-size: 1.15rem;
+      color: #0f172a;
+    }
+    .safety-card p { margin: 0 0 10px; color: #334155; }
+    .safety-card p:last-child { margin-bottom: 0; }
+    .safety-card ul {
+      margin: 8px 0 0;
+      padding-left: 1.15rem;
+      color: #334155;
+    }
+    .safety-card li { margin: 4px 0; }
+    .safety-disclaimer {
+      margin-top: 28px;
+      padding: 14px 18px;
+      background: #e0f2fe;
+      border: 1px solid #38bdf8;
+      border-radius: 8px;
+      color: #0c4a6e;
+      font-size: 0.92rem;
+    }
+    .safety-back {
+      display: inline-block;
+      margin-bottom: 18px;
+      color: #1d4ed8;
+      text-decoration: none;
+      font-weight: 600;
+    }
+    .safety-back:hover { text-decoration: underline; }
+    .safety-footer {
+      margin-top: 32px;
+      padding-top: 14px;
+      border-top: 1px solid #d1dae6;
+      color: #64748b;
+      font-size: 0.85rem;
+      text-align: center;
+    }
+    .safety-footer a {
+      color: #1d4ed8;
+      text-decoration: none;
+      margin: 0 6px;
+    }
+    .safety-footer a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <main class="safety-shell">
+    <a href="/classifieds/" class="safety-back">&larr; Back to listings</a>
+    <h1>Gold featured listings</h1>
+    <p class="lede">
+      Gold boosts are delivered through Stripe Checkout. Your card issuer may describe the charge using the merchant name Stripe shows after checkout&mdash;this page summarizes how refunds work when listings are removed before Gold time runs out.
+    </p>
+
+    <section class="safety-card">
+      <h2>What you&apos;re paying for</h2>
+      <p>
+        A Gold purchase moves your listing toward the top of results in its category for a set number of days, subject to surge pricing and site rules described at checkout.
+      </p>
+    </section>
+
+    <section class="safety-card">
+      <h2>If <em>you</em> delete the listing early</h2>
+      <p>
+        <strong>No automatic refund.</strong> When you voluntarily remove your ad (including from My Ads), unused Gold time is forfeited &mdash; the same way you don&apos;t get a rebate for cancelling a billboard early after it already ran most of its term.
+      </p>
+    </section>
+
+    <section class="safety-card">
+      <h2>If we auto-remove your listing before Gold expires</h2>
+      <p>
+        When multiple independent users report your listing and it hits our automated removal threshold, we consider that a marketplace safety action beyond your control. In that scenario we initiate a <strong>prorated partial refund</strong> through Stripe on the payment that funded your <strong>most recent Gold purchase</strong> for that listing, based only on unused time left in <em>that</em> purchased window &mdash; not earlier stacked renewals paid on the same listing.
+      </p>
+      <p>
+        Stripe posts the payout per their timing; Stripe&apos;s retained processing fees aren&apos;t always returned in full, which mirrors how card networks behave industry-wide for partial refunds.
+      </p>
+    </section>
+
+    <section class="safety-card">
+      <h2>When no refund fires</h2>
+      <ul>
+        <li>Gold expired before removal (nothing unused).</li>
+        <li>Legacy boosts purchased before our system stored Stripe payment snapshots &mdash; we still remove bad listings but can&apos;t auto-refund programmatically.</li>
+        <li>Proration rounds below one cent.</li>
+        <li>If Stripe rejects the payout for any technical reason &mdash; the listing comes down anyway because it tripped removals; retain your confirmation email so support can escalate with Stripe Dashboard evidence.</li>
+      </ul>
+    </section>
+
+    <div class="safety-disclaimer">
+      <strong>Not legal advice:</strong> This overview explains how the site behaves today so users know what to expect. The binding contract is still your current Terms of Service and Privacy Policy (PDF links below). Policies may tighten or loosen within those documents as the product evolves.
+    </div>
+
+    <footer class="safety-footer">
+      <a href="/classifieds/">Browse listings</a> &middot;
+      <a href="/classifieds/safety.html">Buyer &amp; Seller Safety</a> &middot;
+      <a href="/classifieds/legal/terms.pdf" target="_blank" rel="noopener">Terms of Service</a> &middot;
+      <a href="/classifieds/legal/privacy.pdf" target="_blank" rel="noopener">Privacy Policy</a>
+      <p style="margin-top: 6px;">&copy; t1Classifieds</p>
+    </footer>
+  </main>
+</body>
+</html>

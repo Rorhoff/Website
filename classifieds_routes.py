@@ -825,7 +825,21 @@ def classifieds_report_ad(
             report_count,
             seller_id,
         )
-        db.delete(ad)
+        # Re-load the row in case IntegrityError rollback expired the cached
+        # instance — we still need Stripe snapshot columns intact.
+        ad_for_refund = db.get(ClassifiedAd, ad_id)
+        if ad_for_refund is not None:
+            rf_log = stripe_service.refund_prorated_gold_for_platform_removal(ad_for_refund)
+            if rf_log.get("attempted"):
+                log.info(
+                    "gold refund after auto-remove: ad=%s eligible=%s refund_cents=%s stripe_ref=%s err=%s",
+                    ad_id,
+                    rf_log.get("eligible"),
+                    rf_log.get("refund_cents"),
+                    rf_log.get("stripe_refund_id"),
+                    rf_log.get("error"),
+                )
+            db.delete(ad_for_refund)
         db.commit()
         return {"ok": True, "removed": True}
 

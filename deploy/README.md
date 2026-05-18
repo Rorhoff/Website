@@ -103,6 +103,21 @@ UPDATE classified_ad
  WHERE contact_name IS NULL OR contact_name = '';
 ```
 
+#### prod-v1.16 (Gold pro-rata refunds when auto-removed)
+
+Run **before** deploying code that calls `Refund.create` — the new columns hold
+the Stripe payment snapshot from the fulfilled Checkout webhook.
+
+```sql
+ALTER TABLE classified_ad ADD COLUMN IF NOT EXISTS last_gold_payment_intent_id VARCHAR(255);
+ALTER TABLE classified_ad ADD COLUMN IF NOT EXISTS last_gold_payment_cents INTEGER;
+ALTER TABLE classified_ad ADD COLUMN IF NOT EXISTS last_gold_window_start TIMESTAMP WITHOUT TIME ZONE;
+ALTER TABLE classified_ad ADD COLUMN IF NOT EXISTS last_gold_window_end TIMESTAMP WITHOUT TIME ZONE;
+```
+
+No backfill needed: ads boosted before prod-v1.16 simply won't auto-refund
+programmatically (documented publicly on `/classifieds/gold-policy.html`).
+
 ## 2. Create the R2 bucket and API token
 
 In the Cloudflare dashboard:

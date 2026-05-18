@@ -481,6 +481,7 @@ def sitemap_xml() -> Response:
 
     add_url(f"{host}/", priority="1.0")
     add_url(f"{host}/classifieds/safety.html", priority="0.4")
+    add_url(f"{host}/classifieds/gold-policy.html", priority="0.35")
 
     if SessionLocal is not None and ClassifiedAd is not None:
         try:
