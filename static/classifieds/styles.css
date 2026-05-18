@@ -262,16 +262,45 @@ body {
   padding-top: 10px;
 }
 
+/* My Ads action buttons — all three share the same compact size so they line
+   up neatly on one row inside .my-ad-actions. Override the generic
+   `button { padding: 10px 12px; margin-top: 6px; ... }` rules above so the
+   gold-boost button doesn't blow up to full width on shorter cards. */
+.my-ad-boost,
+.my-ad-repost,
 .my-ad-delete {
   appearance: none;
-  background: #fff;
-  color: #b91c1c;
-  border: 1px solid #fca5a5;
-  border-radius: 6px;
+  margin: 0;
   padding: 0.4rem 0.85rem;
+  border-radius: 6px;
   font-size: 0.85rem;
   font-weight: 600;
   cursor: pointer;
+}
+
+.my-ad-boost {
+  background: #f4c430;
+  color: #4a3a00;
+  border: 1px solid #c79b1a;
+}
+.my-ad-boost:hover { background: #e6b620; }
+.my-ad-boost:disabled { opacity: 0.55; cursor: progress; }
+
+/* Repost is rendered with aria-disabled instead of the real `disabled`
+   attribute (see renderMyAds), so we style it as visually-disabled here. */
+.my-ad-repost {
+  background: #e2e8f0;
+  color: #64748b;
+  border: 1px solid #cbd5e1;
+  cursor: not-allowed;
+  position: relative;
+}
+.my-ad-repost:hover { background: #cbd5e1; color: #475569; }
+
+.my-ad-delete {
+  background: #fff;
+  color: #b91c1c;
+  border: 1px solid #fca5a5;
 }
 .my-ad-delete:hover { background: #fee2e2; }
 .my-ad-delete:disabled { opacity: 0.55; cursor: progress; }

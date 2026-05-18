@@ -448,10 +448,16 @@ async function renderMyAds() {
       .map((ad) => {
         const gold = isGoldActive(ad);
         const goldClass = gold ? " my-ad-card--gold" : "";
-        const boostLabel = gold ? "Extend Gold" : "Boost to Gold ★";
+        const boostLabel = gold ? "Extend Gold" : "Gold ★";
         const boostBtn = goldConfig?.enabled
           ? `<button type="button" class="my-ad-boost" data-boost-ad-id="${escapeHTML(ad.id)}">${boostLabel}</button>`
           : "";
+        // Repost button is intentionally rendered as a disabled-looking stub
+        // until the $3/month re-list subscription ships. We deliberately do not
+        // set the `disabled` attribute so the click handler can still fire on
+        // mobile (where there is no hover tooltip) and surface a toast that
+        // explains how to unlock the feature.
+        const repostBtn = `<button type="button" class="my-ad-repost" data-repost-ad-id="${escapeHTML(ad.id)}" aria-disabled="true" title="Reposting unlocks with the $3/month Pro Re-list subscription (coming soon).">Repost</button>`;
         const firstImage = (ad.images || []).find(Boolean) || "";
         const thumbHtml = firstImage
           ? `<img class="my-ad-thumb" src="${escapeHTML(firstImage)}" alt="${escapeHTML(ad.title || "Ad image")}" loading="lazy" />`
@@ -469,6 +475,7 @@ async function renderMyAds() {
         <p class="meta">Posted ${new Date(ad.createdAt).toLocaleString()}</p>
         <div class="my-ad-actions">
           ${boostBtn}
+          ${repostBtn}
           <button type="button" class="my-ad-delete" data-ad-id="${escapeHTML(ad.id)}">Delete</button>
         </div>
       </article>
@@ -485,6 +492,16 @@ async function renderMyAds() {
 
 if (myAdsList) {
   myAdsList.addEventListener("click", async (event) => {
+    // Repost stub — surface a toast so mobile users (no hover tooltips) still
+    // understand why nothing happens. Wired before the delete handler so the
+    // event doesn't fall through to the card-click detail modal.
+    const repostBtn = event.target.closest(".my-ad-repost");
+    if (repostBtn) {
+      event.stopPropagation();
+      showToast("Reposting unlocks with the $3/mo Pro Re-list subscription (coming soon).");
+      return;
+    }
+
     const btn = event.target.closest(".my-ad-delete");
     if (!btn) return;
     const adId = btn.dataset.adId;
