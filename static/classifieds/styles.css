@@ -934,9 +934,14 @@ button.secondary:hover {
 
 /* Terms-of-Service checkbox row in the registration form. Layout uses the
    checkbox + label pattern so the entire link-rich label remains clickable
-   without flipping the checkbox when a link is tapped. */
+   without flipping the checkbox when a link is tapped.
+
+   Important: the global `input { width: 100%; padding: 8px }` rule above
+   would otherwise stretch the checkbox across the row and push the label
+   onto a new line, so we explicitly reset width/padding here. */
 .tos-checkbox {
   display: flex;
+  flex-direction: row;
   align-items: flex-start;
   gap: 8px;
   margin: 12px 0 8px;
@@ -945,17 +950,22 @@ button.secondary:hover {
 }
 
 .tos-checkbox input[type="checkbox"] {
-  margin: 3px 0 0;
-  flex: 0 0 auto;
+  flex: 0 0 16px;
   width: 16px;
+  min-width: 16px;
+  max-width: 16px;
   height: 16px;
+  margin: 3px 0 0;
+  padding: 0;
   cursor: pointer;
 }
 
 .tos-checkbox label {
+  flex: 1 1 auto;
   margin: 0;
   cursor: pointer;
   color: #334155;
+  text-align: left;
 }
 
 .tos-checkbox a {
@@ -968,7 +978,9 @@ button.secondary:hover {
 }
 
 /* Site footer — appears on every screen of the SPA. Sits inside .page-shell
-   so it inherits the centered max-width layout. */
+   so it inherits the centered max-width layout. Both rows are centered
+   explicitly so the alignment cannot regress if `.site-footer-links` ever
+   drops its flex container (e.g. older browsers without flex support). */
 .site-footer {
   margin-top: 24px;
   padding: 16px;
@@ -981,12 +993,13 @@ button.secondary:hover {
 }
 
 .site-footer-links {
-  margin: 0 0 6px;
+  margin: 0 auto 6px;
   display: flex;
   justify-content: center;
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
+  text-align: center;
 }
 
 .site-footer-links a {
@@ -1003,6 +1016,7 @@ button.secondary:hover {
 }
 
 .site-footer-copy {
-  margin: 0;
+  margin: 0 auto;
+  text-align: center;
   color: #64748b;
 }
