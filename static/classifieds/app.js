@@ -448,7 +448,7 @@ async function renderMyAds() {
       .map((ad) => {
         const gold = isGoldActive(ad);
         const goldClass = gold ? " my-ad-card--gold" : "";
-        const boostLabel = gold ? "Extend Gold" : "Gold ★";
+        const boostLabel = gold ? "Extend ★" : "Gold ★";
         const boostBtn = goldConfig?.enabled
           ? `<button type="button" class="my-ad-boost" data-boost-ad-id="${escapeHTML(ad.id)}">${boostLabel}</button>`
           : "";

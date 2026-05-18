@@ -252,12 +252,14 @@ body {
 
 /* Pin to bottom-right: margin-top:auto pushes this row to the bottom of the
    card regardless of how much content sits above; justify-content:flex-end
-   right-aligns the buttons. flex-wrap keeps the row sane on narrow widths. */
+   right-aligns the buttons. flex-wrap is a safety net for very narrow
+   viewports, but with the compact button sizing below all three buttons
+   (Gold ★ / Repost / Delete) fit on one row on the typical mobile width. */
 .my-ad-actions {
   display: flex;
   justify-content: flex-end;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 6px;
   margin-top: auto;
   padding-top: 10px;
 }
@@ -265,16 +267,20 @@ body {
 /* My Ads action buttons — all three share the same compact size so they line
    up neatly on one row inside .my-ad-actions. Override the generic
    `button { padding: 10px 12px; margin-top: 6px; ... }` rules above so the
-   gold-boost button doesn't blow up to full width on shorter cards. */
+   gold-boost button doesn't blow up to full width on shorter cards.
+   white-space:nowrap keeps "Gold ★" / "Extend ★" / "Repost" / "Delete" on
+   a single line each rather than splitting across lines when space is tight. */
 .my-ad-boost,
 .my-ad-repost,
 .my-ad-delete {
   appearance: none;
   margin: 0;
-  padding: 0.4rem 0.85rem;
+  padding: 0.3rem 0.55rem;
   border-radius: 6px;
-  font-size: 0.85rem;
+  font-size: 0.78rem;
   font-weight: 600;
+  line-height: 1.15;
+  white-space: nowrap;
   cursor: pointer;
 }
 
