@@ -1,10 +1,15 @@
 #!/usr/bin/env bash
-# migrate-prod-v1.13.sh — one-shot DB migration for the prod-v1.13 deploy.
+# migrate-prod-v1.13.sh — cumulative DB migration through prod-v1.13.
 #
-# Adds the new `city` column to classified_ad on both classifieds
-# databases, and backfills `contact_name` from `author_username` on
-# legacy rows so the new "no fallback to login username" rule has
-# something to render. Idempotent — safe to re-run.
+# Applies BOTH outstanding column migrations to both classifieds DBs:
+#   - prod-v1.12: ADD COLUMN contact_name (seller-chosen display name)
+#   - prod-v1.13: ADD COLUMN city         (city picked at ad creation)
+#   - prod-v1.13: backfill contact_name = author_username on legacy rows
+#
+# All statements use IF NOT EXISTS / narrow WHERE clauses so the script is
+# safe to re-run, and it works whether you skipped the v1.12 SQL or already
+# applied it. Wrapped in BEGIN/COMMIT per DB so a partial failure on one
+# database doesn't half-apply on the other.
 #
 # Run this BEFORE `commitprod.sh prod-v1.13`. If you deploy first by
 # mistake, run this immediately after and then
@@ -50,6 +55,11 @@ command -v psql >/dev/null 2>&1 || die "psql not found on PATH. Install postgres
 # the narrow WHERE on the UPDATE both make this safe to run twice.
 read -r -d '' MIGRATION_SQL <<'SQL' || true
 BEGIN;
+
+-- prod-v1.12: seller-chosen display name shown in the ad detail modal.
+-- Idempotent ALTER so this is fine to run even on DBs where v1.12 was
+-- already applied (no-op).
+ALTER TABLE classified_ad ADD COLUMN IF NOT EXISTS contact_name VARCHAR(120);
 
 -- prod-v1.13: city picked at ad-creation time; powers per-ad SEO.
 ALTER TABLE classified_ad ADD COLUMN IF NOT EXISTS city VARCHAR(120);
