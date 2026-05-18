@@ -87,10 +87,19 @@ class ClassifiedAd(Base):
     description: Mapped[str] = mapped_column(Text())
     images: Mapped[list[Any]] = mapped_column(JSONB)
     author_username: Mapped[str] = mapped_column(String(64))
-    # Optional public-facing display name chosen at ad-creation time. Lets a
-    # seller go by "Mark" or "Mark's Garage" in the listing instead of their
-    # login username. Falls back to author_username on render when NULL/empty.
+    # Required public-facing seller name chosen at ad-creation time. Legacy
+    # rows (created before prod-v1.12) get backfilled with the user's
+    # username via a one-time UPDATE in the prod-v1.13 deploy notes — after
+    # that the application layer requires this field on every new ad, so
+    # there is no runtime "fall back to username" path.
     contact_name: Mapped[str | None] = mapped_column(String(120), nullable=True, default=None)
+    # City picked at ad-creation time (or freely typed when the user chose
+    # "Other..." in the dropdown). Used in the detail modal's location row
+    # and in the per-ad SEO title/description so search engines see
+    # "Honda Civic in Salt Lake City, Utah" rather than just the state.
+    # Nullable so the column can be added to existing rows without a
+    # blocking backfill — new ads always provide it via the API.
+    city: Mapped[str | None] = mapped_column(String(120), nullable=True, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     # Gold-frame paywall. gold_until is the UTC expiry timestamp (or NULL if never boosted /
     # expired). The composite index lets _surge_count() in stripe_service.py compute "how

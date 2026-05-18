@@ -26,7 +26,7 @@
   <meta name="twitter:title" content="t1Classifieds — Buy & sell locally by state and category" />
   <meta name="twitter:description" content="Local classifieds board. Browse and post listings by state and category." />
   <link rel="canonical" href="https://t1classifieds.com/" />
-  <link rel="stylesheet" href="/classifieds/styles.css?v=2026-05-18j" />
+  <link rel="stylesheet" href="/classifieds/styles.css?v=2026-05-18k" />
   <style>
     :root {
       --surface: #ffffff;
@@ -313,8 +313,8 @@
           <label for="adTitle">Title</label>
           <input id="adTitle" name="title" required />
 
-          <label for="adContactName">Display name <span class="hint-inline">(optional — shown to buyers; defaults to your username)</span></label>
-          <input id="adContactName" name="contactName" maxlength="120" placeholder="e.g. Mark or Mark's Garage" />
+          <label for="adContactName">Display name <span class="hint-inline">(required — shown to buyers as the seller name)</span></label>
+          <input id="adContactName" name="contactName" maxlength="120" required placeholder="e.g. Mark or Mark's Garage" />
 
           <label for="adState">State</label>
           <select id="adState" name="state" required>
@@ -337,6 +337,12 @@
             <option value="Washington">Washington</option><option value="West Virginia">West Virginia</option><option value="Wisconsin">Wisconsin</option>
             <option value="Wyoming">Wyoming</option>
           </select>
+
+          <label for="adCity">City</label>
+          <select id="adCity" name="city" required disabled>
+            <option value="">Select a state first</option>
+          </select>
+          <input id="adCityOther" name="cityOther" type="text" maxlength="120" placeholder="Enter city name" hidden />
 
           <label for="adCategory">Category</label>
           <select id="adCategory" name="category" required>
@@ -488,7 +494,8 @@
   </div>
 
   <div id="toast" class="toast" hidden></div>
-  <script src="/classifieds/app.js?v=2026-05-18j"></script>
+  <script src="/classifieds/cities.js?v=2026-05-18k"></script>
+  <script src="/classifieds/app.js?v=2026-05-18k"></script>
   <script src="/assets/nav-mobile.js"></script>
 </body>
 </html>

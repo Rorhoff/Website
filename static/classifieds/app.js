@@ -35,6 +35,9 @@ const profileStateSelect = document.getElementById("profileState");
 const profileEmailInput = document.getElementById("profileEmail");
 const profilePhoneInput = document.getElementById("profilePhone");
 const adStateSelect = document.getElementById("adState");
+const adCitySelect = document.getElementById("adCity");
+const adCityOtherInput = document.getElementById("adCityOther");
+const adContactNameInput = document.getElementById("adContactName");
 const adImagesInput = document.getElementById("adImages");
 const adsList = document.getElementById("adsList");
 const adsBrowseSection = document.getElementById("adsBrowseSection");
@@ -151,6 +154,65 @@ function wireAdSubCategorySelect() {
   repopulate();
 }
 wireAdSubCategorySelect();
+
+// Cascading state -> city dropdown on the Post Ad form. Data lives in
+// window.CITIES_BY_STATE (loaded from cities.js). When the state changes we
+// repopulate the city dropdown with that state's curated city list plus an
+// "Other (type city)..." sentinel — selecting it reveals a free-text input
+// so smaller towns aren't locked out. We DO NOT mark the free-text input
+// `required` in HTML; instead the form-submit handler enforces "city must
+// be non-empty" so the user only fails validation when they actually try
+// to post.
+const AD_CITY_OTHER_SENTINEL = "__other__";
+
+function wireAdCitySelect() {
+  if (!adStateSelect || !adCitySelect || !adCityOtherInput) return;
+  const cityMap = window.CITIES_BY_STATE || {};
+
+  function repopulate() {
+    const state = adStateSelect.value;
+    const list = cityMap[state] || [];
+    if (!state || !list.length) {
+      adCitySelect.innerHTML = '<option value="">Select a state first</option>';
+      adCitySelect.disabled = true;
+      adCityOtherInput.hidden = true;
+      adCityOtherInput.value = "";
+      adCityOtherInput.required = false;
+      return;
+    }
+    adCitySelect.disabled = false;
+    // Alpha-sort here so the source data in cities.js can stay in
+    // population order (easier to maintain) without surprising users.
+    const sorted = [...list].sort((a, b) => a.localeCompare(b));
+    adCitySelect.innerHTML =
+      '<option value="">Select a city</option>' +
+      sorted
+        .map((c) => `<option value="${escapeHTML(c)}">${escapeHTML(c)}</option>`)
+        .join("") +
+      `<option value="${AD_CITY_OTHER_SENTINEL}">Other (type city)…</option>`;
+    // Hide the free-text input by default; it shows only when the user
+    // explicitly chooses "Other…".
+    adCityOtherInput.hidden = true;
+    adCityOtherInput.value = "";
+    adCityOtherInput.required = false;
+  }
+
+  function onCityChange() {
+    const isOther = adCitySelect.value === AD_CITY_OTHER_SENTINEL;
+    adCityOtherInput.hidden = !isOther;
+    adCityOtherInput.required = isOther;
+    if (isOther) {
+      adCityOtherInput.focus();
+    } else {
+      adCityOtherInput.value = "";
+    }
+  }
+
+  adStateSelect.addEventListener("change", repopulate);
+  adCitySelect.addEventListener("change", onCityChange);
+  repopulate();
+}
+wireAdCitySelect();
 
 // Auto-format the price field as soon as the user tabs/clicks away. Calling
 // formatPrice on input would fight the user mid-typing (e.g. eating digits
@@ -342,6 +404,11 @@ function updateAuthUI() {
     profileHint.textContent = "Use the top-right menu to enter your profile.";
     profileStateSelect.value = userRecord.state;
     adStateSelect.value = userRecord.state;
+    // Programmatic assignment of a <select>'s .value does NOT fire a
+    // "change" event, so the cascading city dropdown stays empty until
+    // the user touches the state field. Fire it manually so the city
+    // list is ready immediately after the profile loads.
+    adStateSelect.dispatchEvent(new Event("change"));
     if (profileEmailInput) profileEmailInput.value = userRecord.email || "";
     if (profilePhoneInput) profilePhoneInput.value = userRecord.phone || "";
   } else {
@@ -501,7 +568,7 @@ async function renderMyAds() {
         </div>
         ${thumbHtml}
         <p class="meta">
-          ${escapeHTML(ad.category)} / ${escapeHTML(ad.subCategory)} in ${escapeHTML(ad.state)}
+          ${escapeHTML(ad.category)} / ${escapeHTML(ad.subCategory)} in ${escapeHTML([ad.city, ad.state].filter(Boolean).join(", "))}
         </p>
         <p class="meta">Posted ${new Date(ad.createdAt).toLocaleString()}</p>
         <div class="my-ad-actions">
@@ -960,13 +1027,28 @@ adForm.addEventListener("submit", async (event) => {
   // "$100" on their freshly-posted tile.
   const price = formatPrice(formData.get("price"));
   const description = String(formData.get("description")).trim();
-  // Optional public-facing seller name. Blank string sent as null so the
-  // server falls back to the poster's username on render.
-  const contactName = String(formData.get("contactName") || "").trim() || null;
+  // Required public-facing seller name (prod-v1.13). No fallback to the
+  // login username — we reject the submission and prompt the user instead.
+  const contactName = String(formData.get("contactName") || "").trim();
+  // City: from the dropdown unless the user selected "Other…", in which
+  // case the free-text input has the value. Both paths normalize to a
+  // single trimmed string the API will accept.
+  let city = String(formData.get("city") || "").trim();
+  if (city === AD_CITY_OTHER_SENTINEL) {
+    city = String(formData.get("cityOther") || "").trim();
+  }
   const files = adImagesInput.files ? Array.from(adImagesInput.files) : [];
 
   if (!state || !category || !subCategory) {
     showToast("State, category, and sub category are required.");
+    return;
+  }
+  if (!city) {
+    showToast("City is required.");
+    return;
+  }
+  if (!contactName) {
+    showToast("Display name is required.");
     return;
   }
   if (files.length < 1 || files.length > 10) {
@@ -981,6 +1063,7 @@ adForm.addEventListener("submit", async (event) => {
       jsonBody: {
         title,
         state,
+        city,
         category,
         subCategory,
         price,
@@ -991,6 +1074,11 @@ adForm.addEventListener("submit", async (event) => {
     });
     adForm.reset();
     adStateSelect.value = getCurrentUserRecord()?.state || "";
+    // adForm.reset() clears the city dropdown but leaves it disabled with
+    // the placeholder; re-fire the cascade so it repopulates against the
+    // restored state value (or stays "Select a state first" if the user has
+    // no saved state on their profile).
+    adStateSelect.dispatchEvent(new Event("change"));
     await renderAds();
     // Keep the My Ads tab in sync even when the user posts from the Post Ad tab.
     await renderMyAds().catch(() => {});
@@ -1396,7 +1484,12 @@ async function openAdDetail(adId) {
   if (detailMetaEl) {
     const metaBits = [];
     const taxonomy = [ad.category, ad.subCategory].filter(Boolean).join(" / ");
-    const where = ad.state ? `in ${ad.state}` : "";
+    // Show "City, State" when both are present (new ads), or just the
+    // state for legacy ads that pre-date the city field.
+    const locParts = [];
+    if (ad.city) locParts.push(ad.city);
+    if (ad.state) locParts.push(ad.state);
+    const where = locParts.length ? `in ${locParts.join(", ")}` : "";
     if (taxonomy || where) metaBits.push(`${taxonomy}${where ? " " + where : ""}`.trim());
     if (ad.createdAt) metaBits.push(`Posted ${new Date(ad.createdAt).toLocaleString()}`);
     detailMetaEl.innerHTML = metaBits
@@ -1490,7 +1583,15 @@ function setMetaContent(selector, value) {
 
 function applySeoForAd(ad) {
   if (!ad) return;
-  const where = ad.state ? ` in ${ad.state}` : "";
+  // Location string used in both the SERP title and the meta description.
+  // Prefer "City, State" when we have both — that's the form Google
+  // associates with local-intent searches like "honda civic salt lake city".
+  // Fall back to state-only for legacy ads that pre-date the city field.
+  const locParts = [];
+  if (ad.city) locParts.push(ad.city);
+  if (ad.state) locParts.push(ad.state);
+  const location = locParts.join(", ");
+  const where = location ? ` in ${location}` : "";
   const price = ad.price ? ` — ${ad.price}` : "";
   // Keep titles under ~60 characters where possible so SERP doesn't truncate.
   const title = `${ad.title}${where}${price} | t1Classifieds`;
@@ -1502,7 +1603,7 @@ function applySeoForAd(ad) {
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 160);
-  const desc = `${taxonomy ? taxonomy + " " : ""}${where ? where.trim() : ""}. ${bodyLine}`.slice(
+  const desc = `${taxonomy ? taxonomy + " " : ""}${location ? "in " + location : ""}. ${bodyLine}`.slice(
     0,
     300
   );

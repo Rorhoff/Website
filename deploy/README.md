@@ -62,11 +62,24 @@ service restart, but altering existing columns still requires a manual `ALTER TA
 ### Column migrations (run before / right after deploying the matching tag)
 
 Run these once against **each** classifieds database (dev `RoryPorfolioDB` and
-prod `Classifieds_Prod`). They're idempotent thanks to `IF NOT EXISTS`.
+prod `Classifieds_Prod`). They're idempotent thanks to `IF NOT EXISTS` and
+narrow `WHERE` clauses.
 
 ```sql
 -- prod-v1.12: seller-chosen display name shown in the ad detail modal.
 ALTER TABLE classified_ad ADD COLUMN IF NOT EXISTS contact_name VARCHAR(120);
+
+-- prod-v1.13: city picked at ad-creation time; powers per-ad SEO.
+ALTER TABLE classified_ad ADD COLUMN IF NOT EXISTS city VARCHAR(120);
+
+-- prod-v1.13 backfill: legacy ads created before the display-name field
+-- existed have contact_name = NULL. The application no longer falls back
+-- to the login username at render time, so we set contact_name to the
+-- author's username once as a one-time backfill. New ads will always
+-- provide their own non-empty contact_name via the API.
+UPDATE classified_ad
+   SET contact_name = author_username
+ WHERE contact_name IS NULL OR contact_name = '';
 ```
 
 ## 2. Create the R2 bucket and API token

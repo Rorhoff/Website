@@ -130,15 +130,18 @@ def _ad_out(row: ClassifiedAd) -> dict[str, Any]:
     gold_until_ms: int | None = None
     if row.gold_until is not None:
         gold_until_ms = int(row.gold_until.timestamp() * 1000)
-    # Public-facing seller name: prefer the contact_name picked at ad-creation
-    # time, fall back to the login username so older ads (without a contact
-    # name) still attribute correctly.
-    contact_name = (row.contact_name or "").strip() if hasattr(row, "contact_name") else ""
-    display_name = contact_name or row.author_username
+    # Seller name. New ads always have a non-empty contact_name (API enforces
+    # it) and the prod-v1.13 deploy backfills legacy rows. The `or ""`
+    # below is a belt-and-suspenders guard for the (unexpected) case of a
+    # NULL slipping through after migration — we'd rather render nothing than
+    # leak the login username, per the prod-v1.13 product requirement.
+    display_name = (row.contact_name or "").strip() if hasattr(row, "contact_name") else ""
+    city_value = (row.city or "").strip() if hasattr(row, "city") else ""
     return {
         "id": row.id,
         "title": row.title,
         "state": row.state,
+        "city": city_value,
         "category": row.category,
         "subCategory": row.sub_category,
         # Normalized on the way out too so legacy rows saved before _normalize_price
@@ -268,15 +271,18 @@ class ProfilePatchBody(BaseModel):
 class CreateAdBody(BaseModel):
     title: str = Field(min_length=1, max_length=500)
     state: str = Field(min_length=1, max_length=64)
+    city: str = Field(min_length=1, max_length=120)
     category: str = Field(min_length=1, max_length=200)
     subCategory: str = Field(min_length=1, max_length=200)
     price: str = Field(min_length=1, max_length=100)
     description: str = Field(min_length=1, max_length=50_000)
     images: list[str] = Field(min_length=1, max_length=10)
-    # Optional: the public-facing seller name shown in the detail modal. Blank
-    # / missing falls back to the poster's username on render. Capped at 120
-    # chars to keep the layout sane and prevent abuse via giant names.
-    contactName: str | None = Field(default=None, max_length=120)
+    # Required public-facing seller name shown in the detail modal. We do
+    # NOT silently fall back to the login username — if a poster leaves
+    # this blank we'd rather reject the request and prompt them, so a
+    # username like "throwaway_42" never accidentally becomes the buyer's
+    # only contact point.
+    contactName: str = Field(min_length=1, max_length=120)
 
 
 # --- In-memory reset tokens: token -> (user_id, expires_at) ---
@@ -638,12 +644,28 @@ def classifieds_create_ad(
             ),
         )
 
-    contact_name = (body.contactName or "").strip() or None
+    # contactName & city are required by the schema, but the schema only
+    # enforces min_length=1 on the raw value — strip whitespace here so
+    # something like "   " gets rejected with a 400 instead of being saved
+    # as effectively-empty.
+    contact_name = (body.contactName or "").strip()
+    if not contact_name:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Display name is required.",
+        )
+    city_value = (body.city or "").strip()
+    if not city_value:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="City is required.",
+        )
     ad = ClassifiedAd(
         id=str(uuid.uuid4()),
         user_id=user.id,
         title=title,
         state=body.state.strip(),
+        city=city_value,
         category=body.category.strip(),
         sub_category=body.subCategory.strip(),
         price=_normalize_price(body.price),
