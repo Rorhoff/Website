@@ -669,16 +669,21 @@ def classifieds_get_ad(
 ):
     """Single-ad detail view — accessible to anyone with the share URL.
 
-    Logged-in viewers receive the seller's contact info (email/phone); anonymous
-    viewers see only the public ad payload. This lets sellers share an ad with
+    Logged-in viewers receive the seller's phone number; anonymous viewers
+    see only the public ad payload. This lets sellers share an ad with
     friends/family who don't yet have an account, while still preventing
-    drive-by scrapers from harvesting seller PII via direct ad IDs. The browse
-    list endpoint (``GET /ads``) remains auth-gated, so anonymous visitors can
-    only see ads they were explicitly linked to.
+    drive-by scrapers from harvesting seller PII via direct ad IDs. The
+    browse list endpoint (``GET /ads``) remains auth-gated, so anonymous
+    visitors can only see ads they were explicitly linked to.
 
-    If the seller's account was deleted (``user_id`` is NULL), contact fields
-    come back empty so the buyer just sees the listing without a way to contact
-    a defunct seller.
+    Seller email is intentionally **not** included in the response, even
+    for authenticated viewers — buyers contact sellers via phone, which is
+    a required field at registration. Keeping email server-side reduces
+    the PII footprint exposed by the SPA.
+
+    If the seller's account was deleted (``user_id`` is NULL), contact
+    fields come back empty so the buyer just sees the listing without a
+    way to contact a defunct seller.
     """
     ad = db.get(ClassifiedAd, ad_id)
     if ad is None:
@@ -689,7 +694,6 @@ def classifieds_get_ad(
         # Seller contact pulled live so a profile change shows up immediately
         # on the next view.
         seller = db.get(ClassifiedUser, ad.user_id) if ad.user_id is not None else None
-        payload["authorEmail"] = seller.email if seller else ""
         payload["authorPhone"] = (seller.phone or "") if seller else ""
     return payload
 

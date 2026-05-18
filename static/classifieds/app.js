@@ -975,7 +975,6 @@ const detailPriceEl = document.getElementById("detailPrice");
 const detailMetaEl = document.getElementById("detailPhone"); // legacy id, repurposed for meta
 const detailContactEl = document.getElementById("detailContact");
 const detailDescriptionEl = document.getElementById("detailDescription");
-const detailGoldBannerEl = document.getElementById("detailGoldBanner");
 const closeAdDetailBtn = document.getElementById("closeAdDetailBtn");
 const shareAdBtn = document.getElementById("shareAdBtn");
 const detailAnonCta = document.getElementById("detailAnonCta");
@@ -1116,7 +1115,6 @@ function closeAdDetail() {
     detailContactEl.innerHTML = "";
   }
   if (detailAnonCta) detailAnonCta.hidden = true;
-  if (detailGoldBannerEl) detailGoldBannerEl.hidden = true;
   detailModalCard?.classList.remove("gold-frame-active");
   currentDetailAdId = null;
   currentDetailAd = null;
@@ -1130,8 +1128,11 @@ function closeAdDetail() {
 }
 
 function renderDetailContact(ad) {
+  // Contact block intentionally surfaces only username + phone. Email was
+  // dropped in prod-v1.8 to keep seller PII to a minimum (also, every seller
+  // already provides a required phone number at registration, so this never
+  // leaves the buyer without a way to reach them).
   if (!detailContactEl) return;
-  const email = (ad.authorEmail || "").trim();
   const phone = (ad.authorPhone || "").trim();
   // Build a tel: link by stripping non-digits but preserving a leading + for intl numbers.
   const telHref = phone ? phone.replace(/(?!^\+)[^\d]/g, "") : "";
@@ -1139,18 +1140,12 @@ function renderDetailContact(ad) {
   rows.push(
     `<div class="contact-row"><span class="contact-label">Seller</span><span>${escapeHTML(ad.author || "(unknown)")}</span></div>`
   );
-  if (email) {
-    rows.push(
-      `<div class="contact-row"><span class="contact-label">Email</span><a class="contact-link" href="mailto:${encodeURIComponent(email)}">${escapeHTML(email)}</a></div>`
-    );
-  }
   if (phone) {
     rows.push(
       `<div class="contact-row"><span class="contact-label">Phone</span><a class="contact-link" href="tel:${escapeHTML(telHref)}">${escapeHTML(phone)}</a></div>`
     );
-  }
-  if (!email && !phone) {
-    rows.push(`<p class="contact-empty">Seller has not shared contact info.</p>`);
+  } else {
+    rows.push(`<p class="contact-empty">Seller has not shared a phone number.</p>`);
   }
   detailContactEl.innerHTML = rows.join("");
   detailContactEl.hidden = false;
@@ -1185,7 +1180,6 @@ async function openAdDetail(adId) {
     detailContactEl.innerHTML = "";
   }
   if (detailAnonCta) detailAnonCta.hidden = true;
-  if (detailGoldBannerEl) detailGoldBannerEl.hidden = true;
   detailModalCard?.classList.remove("gold-frame-active");
   // Scroll the modal back to top in case the previous detail left it scrolled.
   if (detailModalCard) detailModalCard.scrollTop = 0;
@@ -1271,9 +1265,12 @@ async function openAdDetail(adId) {
     }
   }
 
-  if (isGoldActive(ad) && detailGoldBannerEl) {
-    detailGoldBannerEl.hidden = false;
-    detailGoldBannerEl.textContent = `★ Gold listing — featured until ${new Date(ad.goldUntil).toLocaleString()}`;
+  // Gold ads keep their visual treatment (gold border + price badge) via
+  // .gold-frame-active and goldBadgeHTML; the explicit "Gold listing —
+  // featured until …" banner was removed for prod-v1.8 because it duplicated
+  // information the buyer doesn't really care about and ate vertical space
+  // above the hero image.
+  if (isGoldActive(ad)) {
     detailModalCard?.classList.add("gold-frame-active");
   }
 }
