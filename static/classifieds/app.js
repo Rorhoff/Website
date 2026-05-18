@@ -367,7 +367,11 @@ async function renderAds() {
 
   try {
     const ads = await classifiedsApi("/ads");
-    ads.sort((a, b) => b.createdAt - a.createdAt);
+    // NOTE: do NOT resort here. The server already returns ads in the right
+    // order — active gold ads first (sorted by gold_until DESC so the freshest
+    // boost wins), then non-gold ads newest-first. A client-side sort by
+    // createdAt alone (which we used to do here) blew away the gold-first
+    // ordering, so a gold ad created before a non-gold one ended up below it.
 
     // Reveal the category filter only when there's something to filter; the dropdown is
     // pre-populated at module load, so we just toggle the wrapping container here.
