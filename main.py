@@ -390,6 +390,32 @@ app.mount(
     name="classifieds",
 )
 
+_LEGAL_TERMS_PDF = STATIC_DIR / "classifieds" / "legal" / "terms.pdf"
+_LEGAL_PRIVACY_PDF = STATIC_DIR / "classifieds" / "legal" / "privacy.pdf"
+
+
+@app.get("/terms", include_in_schema=False)
+def legal_terms_pdf() -> FileResponse:
+    """Short URL for ToS PDF (signup links and footer on t1classifieds.com)."""
+    if not _LEGAL_TERMS_PDF.is_file():
+        raise HTTPException(status_code=404, detail="Terms of Service not found")
+    return FileResponse(
+        _LEGAL_TERMS_PDF,
+        media_type="application/pdf",
+        filename="t1Classifieds_Terms_of_Service.pdf",
+    )
+
+
+@app.get("/privacy", include_in_schema=False)
+def legal_privacy_pdf() -> FileResponse:
+    if not _LEGAL_PRIVACY_PDF.is_file():
+        raise HTTPException(status_code=404, detail="Privacy Policy not found")
+    return FileResponse(
+        _LEGAL_PRIVACY_PDF,
+        media_type="application/pdf",
+        filename="t1Classifieds_Privacy_Policy.pdf",
+    )
+
 
 # --- SEO surfaces: robots.txt + sitemap.xml -------------------------------
 #
@@ -482,6 +508,8 @@ def sitemap_xml() -> Response:
     add_url(f"{host}/", priority="1.0")
     add_url(f"{host}/classifieds/safety.html", priority="0.4")
     add_url(f"{host}/classifieds/gold-policy.html", priority="0.35")
+    add_url(f"{host}/terms", priority="0.3")
+    add_url(f"{host}/privacy", priority="0.3")
 
     if SessionLocal is not None and ClassifiedAd is not None:
         try:

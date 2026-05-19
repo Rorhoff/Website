@@ -1032,13 +1032,20 @@ button.secondary:hover {
    would otherwise stretch the checkbox across the row and push the label
    onto a new line, so we explicitly reset width/padding here. */
 .tos-checkbox {
+  margin: 12px 0 8px;
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.tos-checkbox label {
   display: flex;
   flex-direction: row;
   align-items: flex-start;
   gap: 8px;
-  margin: 12px 0 8px;
-  font-size: 0.9rem;
-  line-height: 1.4;
+  margin: 0;
+  cursor: pointer;
+  color: #334155;
+  text-align: left;
 }
 
 .tos-checkbox input[type="checkbox"] {
@@ -1052,12 +1059,8 @@ button.secondary:hover {
   cursor: pointer;
 }
 
-.tos-checkbox label {
+.tos-checkbox-text {
   flex: 1 1 auto;
-  margin: 0;
-  cursor: pointer;
-  color: #334155;
-  text-align: left;
 }
 
 .tos-checkbox a {
@@ -1157,21 +1160,15 @@ button.secondary:hover {
   box-shadow: 0 0 0 2px #fff;
 }
 
-/* T1Classifieds brand button in the topbar — looks like a heading but is
-   actually a button. Clicking it re-renders the ads list (gold-first
-   server-side ordering, then newest), so it behaves like the standard
-   "click the site name to go home / refresh" affordance users expect. */
-.topbar-brand-btn {
-  appearance: none;
-  /* Override global `button { background: #2563eb; color: #fff; … }` — without
-     these, the site title looks like a primary CTA and hover paints a solid
-     dark-blue block with unreadable text (button:hover only changes background). */
+/* T1Classifieds brand in the topbar — a <span role="button">, not <button>, so
+   global `button { background: #2563eb }` never paints the title solid blue. */
+.topbar h1 .topbar-brand-btn {
+  display: inline-block;
   background: transparent;
   border: none;
   border-radius: 6px;
   padding: 4px 8px;
   margin: 0;
-  margin-top: 0;
   font: inherit;
   font-size: inherit;
   font-weight: 700;
@@ -1179,14 +1176,15 @@ button.secondary:hover {
   cursor: pointer;
   letter-spacing: -0.01em;
   transition: background 0.15s ease, color 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
 }
-.topbar-brand-btn:hover,
-.topbar-brand-btn:focus-visible {
+.topbar h1 .topbar-brand-btn:hover,
+.topbar h1 .topbar-brand-btn:focus-visible {
   color: #1d4ed8;
   background: #e8eef8;
   outline: none;
 }
-.topbar-brand-btn:focus-visible {
+.topbar h1 .topbar-brand-btn:focus-visible {
   text-decoration: underline;
   text-underline-offset: 4px;
 }

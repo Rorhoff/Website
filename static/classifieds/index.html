@@ -28,7 +28,7 @@
   <meta name="twitter:title" content="t1Classifieds — Buy & sell locally by state and category" />
   <meta name="twitter:description" content="Local classifieds board. Browse and post listings by state and category." />
   <link rel="canonical" href="https://t1classifieds.com/" />
-  <link rel="stylesheet" href="/classifieds/styles.css?v=2026-05-18q" />
+  <link rel="stylesheet" href="/classifieds/styles.css?v=2026-05-19-tos" />
   <style>
     :root {
       --surface: #ffffff;
@@ -127,6 +127,28 @@
     .boost-tier-label { font-weight: 600; color: #422006; }
     .boost-tier-price { font-weight: 700; color: #1e293b; }
 
+    /* Site title — not a <button> so global primary-button styles cannot paint it blue. */
+    .topbar h1 .topbar-brand-btn {
+      display: inline-block;
+      background: transparent;
+      border: none;
+      border-radius: 6px;
+      padding: 4px 8px;
+      margin: 0;
+      font: inherit;
+      font-size: inherit;
+      font-weight: 700;
+      color: #0f172a;
+      cursor: pointer;
+      letter-spacing: -0.01em;
+    }
+    .topbar h1 .topbar-brand-btn:hover,
+    .topbar h1 .topbar-brand-btn:focus-visible {
+      color: #1d4ed8;
+      background: #e8eef8;
+      outline: none;
+    }
+
     .delete-modal-backdrop {
       position: fixed;
       inset: 0;
@@ -224,7 +246,7 @@
   <div class="page-shell">
   <header class="topbar">
     <h1>
-      <button id="topbarBrandBtn" type="button" class="topbar-brand-btn" aria-label="T1Classifieds — refresh listings">T1Classifieds</button>
+      <span id="topbarBrandBtn" class="topbar-brand-btn" role="button" tabindex="0" aria-label="T1Classifieds — refresh listings">T1Classifieds</span>
     </h1>
     <div class="topbar-actions">
       <div id="authStatus"></div>
@@ -306,12 +328,16 @@
           <input id="registerPassword" name="password" type="password" required minlength="4" autocomplete="new-password" />
 
           <div class="tos-checkbox">
-            <input id="registerTosAccepted" name="tosAccepted" type="checkbox" required />
             <label for="registerTosAccepted">
-              I have read and agree to the
-              <a href="/classifieds/legal/terms.pdf" target="_blank" rel="noopener">Terms of Service</a>
-              and
-              <a href="/classifieds/legal/privacy.pdf" target="_blank" rel="noopener">Privacy Policy</a>.
+              <input id="registerTosAccepted" name="tosAccepted" type="checkbox" required />
+              <span class="tos-checkbox-text">
+                I have read and agree to the
+                <a href="/terms" target="_blank" rel="noopener">Terms of Service</a>
+                (including Section 11 Refund Policy and Section 13 Arbitration Agreement)
+                and the
+                <a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a>.
+                I confirm that any photos I upload belong to me or that I have permission to use them.
+              </span>
             </label>
           </div>
 
@@ -477,9 +503,9 @@
       <span aria-hidden="true">·</span>
       <a href="/classifieds/gold-policy.html">Gold &amp; refunds</a>
       <span aria-hidden="true">·</span>
-      <a href="/classifieds/legal/terms.pdf" target="_blank" rel="noopener">Terms of Service</a>
+      <a href="/terms" target="_blank" rel="noopener">Terms of Service</a>
       <span aria-hidden="true">·</span>
-      <a href="/classifieds/legal/privacy.pdf" target="_blank" rel="noopener">Privacy Policy</a>
+      <a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a>
     </p>
     <p class="site-footer-copy">&copy; t1Classifieds</p>
   </footer>
@@ -568,7 +594,7 @@
 
   <div id="toast" class="toast" hidden></div>
   <script src="/classifieds/cities.js?v=2026-05-18n"></script>
-  <script src="/classifieds/app.js?v=2026-05-19-refund-v2"></script>
+  <script src="/classifieds/app.js?v=2026-05-19-tos"></script>
   <script src="/assets/nav-mobile.js"></script>
 </body>
 </html>

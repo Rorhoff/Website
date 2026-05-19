@@ -844,10 +844,17 @@ if (topbarFilterBtn) {
 // selectedSubCategory. Gold-first ordering is preserved because that's
 // done server-side.
 if (topbarBrandBtn) {
-  topbarBrandBtn.addEventListener("click", () => {
+  const refreshListingsFromBrand = () => {
     closeAdDetail();
     closeFilterModal();
     renderAds().catch(() => {});
+  };
+  topbarBrandBtn.addEventListener("click", refreshListingsFromBrand);
+  topbarBrandBtn.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      refreshListingsFromBrand();
+    }
   });
 }
 
@@ -982,7 +989,9 @@ registerForm.addEventListener("submit", async (event) => {
     return;
   }
   if (!tosAccepted) {
-    showToast("Please confirm you have read the Terms of Service and Privacy Policy.");
+    showToast(
+      "Please confirm the Terms of Service (including refund and arbitration sections), Privacy Policy, and photo ownership."
+    );
     return;
   }
 
