@@ -517,6 +517,66 @@ button.secondary:hover {
   box-shadow: 0 0 0 1px rgba(212, 175, 55, 0.5), 0 6px 18px rgba(180, 140, 40, 0.35);
 }
 
+.ad-tile--ksl {
+  border-color: #7c9ab8;
+}
+
+.ad-ksl-badge {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 2;
+  background: #1e3a5f;
+  color: #f8fafc;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  padding: 4px 8px;
+  border-radius: 6px;
+  pointer-events: none;
+}
+
+.detail-ksl-block {
+  margin: 1rem 0 0;
+  padding: 1rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.detail-ksl-note {
+  margin: 0 0 0.75rem;
+  color: #475569;
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+.detail-ksl-btn {
+  display: inline-block;
+  background: #0284c7;
+  color: #fff;
+  font-weight: 700;
+  text-decoration: none;
+  padding: 0.65rem 1.1rem;
+  border-radius: 8px;
+}
+
+.detail-ksl-btn:hover,
+.detail-ksl-btn:focus-visible {
+  background: #0369a1;
+}
+
+.site-footer-ksl {
+  margin: 0.5rem 0 0;
+  max-width: 42rem;
+  margin-left: auto;
+  margin-right: auto;
+  text-align: center;
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
+
 .ad-tile-image {
   display: block;
   width: 100%;

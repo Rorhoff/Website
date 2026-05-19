@@ -461,17 +461,26 @@ function browseAdsQueryString(offset) {
   return qs.toString();
 }
 
+function isImportedAd(ad) {
+  return Boolean(ad && (ad.isImported || ad.listingSource === "ksl"));
+}
+
 function renderBrowseTileMarkup(ad) {
   const firstImage = (ad.images || []).find(Boolean) || "";
-  const goldClass = isGoldActive(ad) ? " ad-tile--gold" : "";
+  const goldClass = isGoldActive(ad) && !isImportedAd(ad) ? " ad-tile--gold" : "";
+  const kslClass = isImportedAd(ad) ? " ad-tile--ksl" : "";
   const imageHtml = firstImage
     ? `<img class="ad-tile-image" src="${escapeHTML(firstImage)}" alt="${escapeHTML(ad.title || "Ad")}" loading="lazy" />`
     : `<div class="ad-tile-empty">${escapeHTML(ad.title || "No image")}</div>`;
   const priceLabel = formatPrice(ad.price);
   const aria = `${ad.title || "Ad"} — ${priceLabel}`;
+  const kslBadge = isImportedAd(ad)
+    ? `<span class="ad-ksl-badge" aria-label="Via KSL">Via KSL</span>`
+    : "";
   return `
-      <button type="button" class="ad-tile${goldClass}" data-detail-ad-id="${escapeHTML(ad.id)}" aria-label="${escapeHTML(aria)}">
+      <button type="button" class="ad-tile${goldClass}${kslClass}" data-detail-ad-id="${escapeHTML(ad.id)}" aria-label="${escapeHTML(aria)}">
         ${imageHtml}
+        ${kslBadge}
         <span class="ad-tile-price">${escapeHTML(priceLabel)}</span>
       </button>
     `;
@@ -1548,6 +1557,8 @@ const detailAnonCta = document.getElementById("detailAnonCta");
 const detailAnonCtaBtn = document.getElementById("detailAnonCtaBtn");
 const detailModalActions = document.getElementById("detailModalActions");
 const detailReportBtn = document.getElementById("detailReportBtn");
+const detailKslBlock = document.getElementById("detailKslBlock");
+const detailKslLink = document.getElementById("detailKslLink");
 
 // Tracks which ad the modal is currently rendering, so the Share button and
 // the post-login modal-refresh hook know which ID to act on.
@@ -1701,6 +1712,8 @@ function closeAdDetail() {
     detailContactEl.innerHTML = "";
   }
   if (detailAnonCta) detailAnonCta.hidden = true;
+  if (detailKslBlock) detailKslBlock.hidden = true;
+  if (detailKslLink) detailKslLink.removeAttribute("href");
   detailModalCard?.classList.remove("gold-frame-active");
   currentDetailAdId = null;
   currentDetailAd = null;
@@ -1786,6 +1799,7 @@ async function openAdDetail(adId, navList = null) {
     detailContactEl.innerHTML = "";
   }
   if (detailAnonCta) detailAnonCta.hidden = true;
+  if (detailKslBlock) detailKslBlock.hidden = true;
   detailModalCard?.classList.remove("gold-frame-active");
   // Scroll the modal back to top in case the previous detail left it scrolled.
   if (detailModalCard) detailModalCard.scrollTop = 0;
@@ -1802,9 +1816,20 @@ async function openAdDetail(adId, navList = null) {
   }
 
   currentDetailAd = ad;
+  const imported = isImportedAd(ad);
   if (detailTitleEl) detailTitleEl.textContent = ad.title || "";
   if (detailPriceEl) detailPriceEl.textContent = formatPrice(ad.price);
   if (detailDescriptionEl) detailDescriptionEl.textContent = ad.description || "";
+
+  if (detailKslBlock && detailKslLink) {
+    if (imported && ad.sourceUrl) {
+      detailKslBlock.hidden = false;
+      detailKslLink.href = ad.sourceUrl;
+    } else {
+      detailKslBlock.hidden = true;
+      detailKslLink.removeAttribute("href");
+    }
+  }
 
   if (detailMetaEl) {
     const metaBits = [];
@@ -1815,8 +1840,9 @@ async function openAdDetail(adId, navList = null) {
     if (ad.city) locParts.push(ad.city);
     if (ad.state) locParts.push(ad.state);
     const where = locParts.length ? `in ${locParts.join(", ")}` : "";
+    if (imported) metaBits.push("Via KSL Classifieds");
     if (taxonomy || where) metaBits.push(`${taxonomy}${where ? " " + where : ""}`.trim());
-    if (ad.createdAt) metaBits.push(`Posted ${new Date(ad.createdAt).toLocaleString()}`);
+    if (ad.createdAt && !imported) metaBits.push(`Posted ${new Date(ad.createdAt).toLocaleString()}`);
     detailMetaEl.innerHTML = metaBits
       .map((bit) => `<span class="detail-meta-row">${escapeHTML(bit)}</span>`)
       .join("");
@@ -1828,7 +1854,13 @@ async function openAdDetail(adId, navList = null) {
   // can't trick the UI into showing contact info that the server didn't send.
   const viewerAuthed = ad.viewerAuthenticated !== false && Boolean(getCurrentUserRecord());
   const isOwnAd = viewerAuthed && getCurrentUserRecord()?.username === ad.author;
-  if (viewerAuthed) {
+  if (imported) {
+    if (detailContactEl) {
+      detailContactEl.hidden = true;
+      detailContactEl.innerHTML = "";
+    }
+    if (detailAnonCta) detailAnonCta.hidden = true;
+  } else if (viewerAuthed) {
     renderDetailContact(ad);
     if (detailAnonCta) detailAnonCta.hidden = true;
   } else {
@@ -1845,7 +1877,7 @@ async function openAdDetail(adId, navList = null) {
   // sign-up CTA instead — the report system requires accounts so we have a
   // reasonable abuse signal.
   if (detailModalActions) {
-    detailModalActions.hidden = !(viewerAuthed && !isOwnAd);
+    detailModalActions.hidden = imported || !(viewerAuthed && !isOwnAd);
   }
   if (detailReportBtn) {
     detailReportBtn.disabled = false;
@@ -1881,7 +1913,7 @@ async function openAdDetail(adId, navList = null) {
   // featured until …" banner was removed for prod-v1.8 because it duplicated
   // information the buyer doesn't really care about and ate vertical space
   // above the hero image.
-  if (isGoldActive(ad)) {
+  if (isGoldActive(ad) && !imported) {
     detailModalCard?.classList.add("gold-frame-active");
   }
 

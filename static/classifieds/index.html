@@ -42,7 +42,7 @@
     }
   }
   </script>
-  <link rel="stylesheet" href="/classifieds/styles.css?v=2026-05-20" />
+  <link rel="stylesheet" href="/classifieds/styles.css?v=2026-05-19-ksl" />
   <style>
     :root {
       --surface: #ffffff;
@@ -521,6 +521,11 @@
       <span aria-hidden="true">·</span>
       <a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a>
     </p>
+    <p class="site-footer-ksl hint">
+      Some Utah listings are aggregated from
+      <a href="https://classifieds.ksl.com/" target="_blank" rel="noopener noreferrer">KSL Classifieds</a>
+      with links to the originals. We do not claim ownership of those listings.
+    </p>
     <p class="site-footer-copy">&copy; t1Classifieds</p>
   </footer>
   </div><!-- /.page-shell -->
@@ -540,6 +545,12 @@
       <p id="detailPhone" class="detail-phone"></p>
       <div id="detailContact" class="detail-contact-block" hidden></div>
       <p id="detailDescription" class="detail-description"></p>
+      <div id="detailKslBlock" class="detail-ksl-block" hidden>
+        <p class="detail-ksl-note">
+          Preview from KSL Classifieds. Full details and seller contact are on KSL.
+        </p>
+        <a id="detailKslLink" class="detail-ksl-btn" href="#" target="_blank" rel="noopener noreferrer">View on KSL</a>
+      </div>
       <!-- Shown only when the viewer is not logged in: a CTA telling them they
            can see this ad because they got the link, but they need an account
            to browse more or to contact the seller. -->
@@ -608,7 +619,7 @@
 
   <div id="toast" class="toast" hidden></div>
   <script src="/classifieds/cities.js?v=2026-05-18n"></script>
-  <script src="/classifieds/app.js?v=2026-05-20"></script>
+  <script src="/classifieds/app.js?v=2026-05-19-ksl"></script>
   <script src="/assets/nav-mobile.js"></script>
 </body>
 </html>

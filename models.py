@@ -126,9 +126,28 @@ class ClassifiedAd(Base):
     last_gold_window_end: Mapped[datetime | None] = mapped_column(
         DateTime, nullable=True, default=None
     )
+    # Aggregated listings (e.g. daily KSL import). ``user`` = native seller post.
+    listing_source: Mapped[str] = mapped_column(
+        String(32), default="user", server_default="user", index=True
+    )
+    source_listing_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    source_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    source_last_seen_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True, default=None
+    )
+    imported_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True, default=None
+    )
 
     __table_args__ = (
         Index("ix_classified_ad_state_gold", "state", "gold_until"),
+        Index(
+            "uq_classified_ad_source_listing",
+            "listing_source",
+            "source_listing_id",
+            unique=True,
+            postgresql_where=(source_listing_id.isnot(None)),
+        ),
     )
 
 

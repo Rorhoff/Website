@@ -129,6 +129,41 @@ ALTER TABLE classified_ad ADD COLUMN IF NOT EXISTS last_gold_window_end TIMESTAM
 No backfill needed: ads boosted before prod-v1.16 simply won't auto-refund
 programmatically (documented publicly on `/classifieds/gold-policy.html`).
 
+#### prod-v1.22 (KSL aggregator import columns)
+
+Run **before** deploying code that reads `listing_source` / `source_*` on `classified_ad`.
+
+```bash
+cd /home/ubuntu/Website && git pull
+cp deploy/migrate-prod-v1.22.sh ~/migrate-prod-v1.22.sh
+chmod +x ~/migrate-prod-v1.22.sh
+PGPASSWORD='your-real-password' ~/migrate-prod-v1.22.sh
+```
+
+After deploy, run the sync once manually from the prod checkout:
+
+```bash
+cd /home/ubuntu/website-prod
+ENV_FILE=/home/ubuntu/website-prod/.env.prod .venv/bin/python -m tools.sync_ksl_classifieds
+```
+
+**Daily cron** (example 4:00 AM UTC on the EC2 host):
+
+```cron
+0 4 * * * cd /home/ubuntu/website-prod && ENV_FILE=/home/ubuntu/website-prod/.env.prod .venv/bin/python -m tools.sync_ksl_classifieds >> /var/log/ksl-import.log 2>&1
+```
+
+**Kill switch:** set `KSL_IMPORT_ENABLED=0` in `.env.prod` and restart `webapi-prod` (sync script exits immediately; existing imported rows stay until pruned on the next enabled run).
+
+Optional env vars:
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `KSL_IMPORT_ENABLED` | `1` | `0` disables the sync job |
+| `KSL_IMPORT_MAX_LISTINGS` | `500` | Cap listings fetched per run |
+| `KSL_REQUEST_DELAY_SEC` | `0.45` | Pause between HTTP requests |
+| `KSL_IMPORT_CONTACT_EMAIL` | `support@t1classifieds.com` | Shown in User-Agent for KSL |
+
 ## 2. Create the R2 bucket and API token
 
 In the Cloudflare dashboard:
