@@ -164,6 +164,10 @@ Optional env vars:
 | `KSL_REQUEST_DELAY_SEC` | `0.45` | Pause between HTTP requests |
 | `KSL_IMPORT_CONTACT_EMAIL` | `support@t1classifieds.com` | Shown in User-Agent for KSL |
 | `KSL_IMPORT_USE_BOT_UA` | `0` | Set `1` to use the strict bot User-Agent (often 403 from EC2) |
+| `KSL_IMPORT_USE_HTTPX` | `0` | Set `1` to force httpx instead of curl_cffi |
+| `KSL_IMPORT_IMPERSONATE` | `chrome124` | curl_cffi browser impersonation profile |
+
+Requires `curl_cffi` from `requirements.txt` (installed on `commitprod` when that file changes). If EC2 is still blocked after deploy, run the sync once from a residential network with prod `ENV_FILE` — see comment in `tools/sync_ksl_classifieds.py`.
 
 ## 2. Create the R2 bucket and API token
 

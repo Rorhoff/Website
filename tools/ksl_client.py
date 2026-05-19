@@ -26,7 +26,22 @@ from urllib.parse import urlencode
 
 import httpx
 
+try:
+    from curl_cffi.requests import Session as CurlSession
+except ImportError:  # pragma: no cover
+    CurlSession = None  # type: ignore[misc, assignment]
+
 log = logging.getLogger("ksl-client")
+
+
+class _HttpResponse:
+    """Minimal response wrapper shared by httpx and curl_cffi backends."""
+
+    __slots__ = ("status_code", "text")
+
+    def __init__(self, status_code: int, text: str) -> None:
+        self.status_code = status_code
+        self.text = text
 
 LISTING_ID_RE = re.compile(r"/listing/(\d+)")
 CITY_UT_RE = re.compile(r"\sin\s+(.+?),\s*UT\s+on\s+KSL", re.IGNORECASE)
@@ -94,6 +109,29 @@ def _use_bot_user_agent() -> bool:
         "true",
         "yes",
     )
+
+
+def _use_httpx_backend() -> bool:
+    return os.environ.get("KSL_IMPORT_USE_HTTPX", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+
+
+def _curl_impersonate() -> str:
+    return os.environ.get("KSL_IMPORT_IMPERSONATE", "chrome124").strip() or "chrome124"
+
+
+def _identifying_headers() -> dict[str, str]:
+    contact = os.environ.get("KSL_IMPORT_CONTACT_EMAIL", "support@t1classifieds.com")
+    return {"X-T1Classifieds-Contact": contact}
+
+
+def _prefer_curl_cffi() -> bool:
+    if _use_httpx_backend():
+        return False
+    return CurlSession is not None
 
 
 def _request_headers() -> dict[str, str]:
@@ -266,23 +304,42 @@ class KslClient:
         )
         self._timeout = timeout_sec
         self._last_request_at = 0.0
-        self._http: httpx.Client | None = None
+        self._httpx: httpx.Client | None = None
+        self._curl: Any = None
         self._session_warmed = False
+        self._backend = "curl_cffi" if _prefer_curl_cffi() else "httpx"
+        if self._backend == "curl_cffi":
+            log.info("KSL HTTP backend: curl_cffi impersonate=%s", _curl_impersonate())
+        else:
+            if not _use_httpx_backend() and CurlSession is None:
+                log.warning(
+                    "curl_cffi not installed; falling back to httpx (may 403 from cloud IPs)"
+                )
+            log.info("KSL HTTP backend: httpx")
 
     def close(self) -> None:
-        if self._http is not None:
-            self._http.close()
-            self._http = None
+        if self._httpx is not None:
+            self._httpx.close()
+            self._httpx = None
+        if self._curl is not None:
+            self._curl.close()
+            self._curl = None
         self._session_warmed = False
 
-    def _client(self) -> httpx.Client:
-        if self._http is None:
-            self._http = httpx.Client(
+    def _httpx_client(self) -> httpx.Client:
+        if self._httpx is None:
+            self._httpx = httpx.Client(
                 headers=_request_headers(),
                 timeout=self._timeout,
                 follow_redirects=True,
             )
-        return self._http
+        return self._httpx
+
+    def _curl_client(self) -> Any:
+        if self._curl is None:
+            assert CurlSession is not None
+            self._curl = CurlSession(impersonate=_curl_impersonate())
+        return self._curl
 
     def _sleep_polite(self) -> None:
         if self._delay <= 0:
@@ -300,14 +357,26 @@ class KslClient:
         else:
             log.warning("KSL homepage warm-up returned %s", resp.status_code)
 
-    def _get(self, url: str, *, retries: int = 4) -> httpx.Response:
+    def _fetch_once(self, url: str) -> _HttpResponse:
+        if self._backend == "curl_cffi":
+            raw = self._curl_client().get(
+                url,
+                timeout=self._timeout,
+                headers=_identifying_headers(),
+                allow_redirects=True,
+            )
+            return _HttpResponse(raw.status_code, raw.text)
+        raw = self._httpx_client().get(url)
+        return _HttpResponse(raw.status_code, raw.text)
+
+    def _get(self, url: str, *, retries: int = 4) -> _HttpResponse:
         last_err: Exception | None = None
         for attempt in range(retries):
             self._sleep_polite()
             try:
-                resp = self._client().get(url)
+                resp = self._fetch_once(url)
                 self._last_request_at = time.monotonic()
-            except httpx.HTTPError as exc:
+            except Exception as exc:  # httpx + curl_cffi
                 last_err = exc
                 time.sleep(1.5 * (attempt + 1))
                 continue
