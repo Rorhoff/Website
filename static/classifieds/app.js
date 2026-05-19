@@ -477,6 +477,23 @@ function importViewOnLabel(ad) {
   return `View on ${importSourceShortLabel(ad)}`;
 }
 
+const IMPORT_AGGREGATION_DISCLAIMER =
+  "Some Utah listings are aggregated from KSL and Craigslist with links to the originals. We do not claim ownership of those listings.";
+
+function descriptionForImportedAd(ad) {
+  const base = (ad?.description || "").trim();
+  if (!isImportedAd(ad)) return base;
+  const viaLine = `Via ${importSourceShortLabel(ad)}.`;
+  let text = base;
+  if (!/^via\s/i.test(text)) {
+    text = text ? `${viaLine}\n\n${text}` : viaLine;
+  }
+  if (!text.includes("do not claim ownership")) {
+    text = `${text}\n\n${IMPORT_AGGREGATION_DISCLAIMER}`;
+  }
+  return text.trim();
+}
+
 function renderBrowseTileMarkup(ad) {
   const firstImage = (ad.images || []).find(Boolean) || "";
   const goldClass = isGoldActive(ad) && !isImportedAd(ad) ? " ad-tile--gold" : "";
@@ -485,14 +502,11 @@ function renderBrowseTileMarkup(ad) {
     ? `<img class="ad-tile-image" src="${escapeHTML(firstImage)}" alt="${escapeHTML(ad.title || "Ad")}" loading="lazy" />`
     : `<div class="ad-tile-empty">${escapeHTML(ad.title || "No image")}</div>`;
   const priceLabel = formatPrice(ad.price);
-  const aria = `${ad.title || "Ad"} — ${priceLabel}`;
-  const importBadge = isImportedAd(ad)
-    ? `<span class="ad-import-badge" aria-label="Via ${escapeHTML(importSourceShortLabel(ad))}">Via ${escapeHTML(importSourceShortLabel(ad))}</span>`
-    : "";
+  const viaNote = isImportedAd(ad) ? ` — Via ${importSourceShortLabel(ad)}` : "";
+  const aria = `${ad.title || "Ad"} — ${priceLabel}${viaNote}`;
   return `
       <button type="button" class="ad-tile${goldClass}${kslClass}" data-detail-ad-id="${escapeHTML(ad.id)}" aria-label="${escapeHTML(aria)}">
         ${imageHtml}
-        ${importBadge}
         <span class="ad-tile-price">${escapeHTML(priceLabel)}</span>
       </button>
     `;
@@ -1861,7 +1875,6 @@ async function openAdDetail(adId, navList = null) {
     if (ad.city) locParts.push(ad.city);
     if (ad.state) locParts.push(ad.state);
     const where = locParts.length ? `in ${locParts.join(", ")}` : "";
-    if (imported) metaBits.push(`Via ${importSourceShortLabel(ad)}`);
     if (taxonomy || where) metaBits.push(`${taxonomy}${where ? " " + where : ""}`.trim());
     if (ad.createdAt && !imported) metaBits.push(`Posted ${new Date(ad.createdAt).toLocaleString()}`);
     detailMetaEl.innerHTML = metaBits
