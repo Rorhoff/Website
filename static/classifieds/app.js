@@ -429,38 +429,182 @@ function updateAuthUI() {
   if (filterBtn) filterBtn.hidden = !showAdsBrowse;
 }
 
+// --- Browse list pagination (server + infinite scroll) -----------------
+// Backend returns `{ ads, hasMore }` keyed off OFFSET — fine until a state's
+// total catalog balloons into millions of concurrent rows per state at which point
+// we'd graduate to composite keyset paging (see classifieds_list_ads docstring).
+const ADS_PAGE_SIZE = 48;
+let browseNextOffset = 0;
+let browseHasMorePages = false;
+let browseInfiniteLoading = false;
+let adsInfiniteObserver = null;
+
+function getBrowseFilterSelections() {
+  return {
+    category: homeCategoryFilter ? homeCategoryFilter.value.trim() : "",
+    subCategory: homeSubCategoryFilter ? homeSubCategoryFilter.value.trim() : "",
+  };
+}
+
+function browseAdsQueryString(offset) {
+  const { category, subCategory } = getBrowseFilterSelections();
+  const qs = new URLSearchParams();
+  qs.set("limit", String(ADS_PAGE_SIZE));
+  qs.set("offset", String(offset));
+  if (category) qs.set("category", category);
+  if (subCategory) qs.set("subCategory", subCategory);
+  return qs.toString();
+}
+
+function renderBrowseTileMarkup(ad) {
+  const firstImage = (ad.images || []).find(Boolean) || "";
+  const goldClass = isGoldActive(ad) ? " ad-tile--gold" : "";
+  const imageHtml = firstImage
+    ? `<img class="ad-tile-image" src="${escapeHTML(firstImage)}" alt="${escapeHTML(ad.title || "Ad")}" loading="lazy" />`
+    : `<div class="ad-tile-empty">${escapeHTML(ad.title || "No image")}</div>`;
+  const priceLabel = formatPrice(ad.price);
+  const aria = `${ad.title || "Ad"} — ${priceLabel}`;
+  return `
+      <button type="button" class="ad-tile${goldClass}" data-detail-ad-id="${escapeHTML(ad.id)}" aria-label="${escapeHTML(aria)}">
+        ${imageHtml}
+        <span class="ad-tile-price">${escapeHTML(priceLabel)}</span>
+      </button>
+    `;
+}
+
+function teardownAdsInfiniteScroll() {
+  if (adsInfiniteObserver) {
+    adsInfiniteObserver.disconnect();
+    adsInfiniteObserver = null;
+  }
+}
+
+function attachAdsInfiniteScroll() {
+  const sentinel = document.getElementById("adsInfiniteSentinel");
+  if (!sentinel) return;
+  teardownAdsInfiniteScroll();
+  if (!browseHasMorePages || !sessionToken || isProfileActive()) return;
+  adsInfiniteObserver = new IntersectionObserver(
+    (entries) => {
+      for (const e of entries) {
+        if (!e.isIntersecting) continue;
+        if (!browseHasMorePages || browseInfiniteLoading) continue;
+        if (isProfileActive() || !getCurrentUserRecord()) continue;
+        loadMoreBrowseAds();
+      }
+    },
+    /* Begin loading shortly before the user hits the sentinel so mobile scroll
+       feels continuous; root:null → viewport-relative. */
+    { root: null, rootMargin: "480px 0px", threshold: 0 },
+  );
+  adsInfiniteObserver.observe(sentinel);
+}
+
+function setInfiniteStatusUi() {
+  const el = document.getElementById("adsInfiniteStatus");
+  if (!el) return;
+  if (!getCurrentUserRecord() || isProfileActive()) {
+    el.hidden = true;
+    el.textContent = "";
+    return;
+  }
+  if (browseInfiniteLoading) {
+    el.hidden = false;
+    el.textContent = "Loading more listings…";
+    return;
+  }
+  if (!browseHasMorePages && browseNextOffset > 0 && lastRenderedBrowseList.length > 0) {
+    /* optional — don't nag if only one tiny page existed */
+    el.hidden = false;
+    el.textContent =
+      browseNextOffset >= ADS_PAGE_SIZE ? "You've reached the end of the listings." : "";
+    if (!el.textContent) el.hidden = true;
+    return;
+  }
+  el.hidden = true;
+  el.textContent = "";
+}
+
+async function loadMoreBrowseAds() {
+  if (
+    browseInfiniteLoading ||
+    !browseHasMorePages ||
+    !getCurrentUserRecord() ||
+    isProfileActive()
+  ) {
+    return;
+  }
+  browseInfiniteLoading = true;
+  setInfiniteStatusUi();
+  try {
+    const qs = browseAdsQueryString(browseNextOffset);
+    const payload = await classifiedsApi(`/ads?${qs}`);
+    const pageAds =
+      payload && typeof payload === "object" && !Array.isArray(payload)
+        ? payload.ads || []
+        : Array.isArray(payload)
+          ? payload
+          : [];
+    const hasMore = Boolean(payload && typeof payload === "object" && payload.hasMore);
+    browseHasMorePages = hasMore;
+    lastRenderedBrowseList = lastRenderedBrowseList.concat(pageAds);
+    browseNextOffset += pageAds.length;
+    adsList.insertAdjacentHTML("beforeend", pageAds.map((a) => renderBrowseTileMarkup(a)).join(""));
+  } catch {
+    showToast("Could not load more listings.");
+  } finally {
+    browseInfiniteLoading = false;
+    setInfiniteStatusUi();
+    teardownAdsInfiniteScroll();
+    attachAdsInfiniteScroll();
+  }
+}
+
 async function renderAds() {
   const userRecord = getCurrentUserRecord();
   if (!userRecord || isProfileActive()) {
     adsList.innerHTML = "";
+    teardownAdsInfiniteScroll();
+    browseHasMorePages = false;
+    browseNextOffset = 0;
+    lastRenderedBrowseList = [];
+    const st = document.getElementById("adsInfiniteStatus");
+    if (st) {
+      st.hidden = true;
+      st.textContent = "";
+    }
     if (adsActiveFilterEl) adsActiveFilterEl.hidden = true;
     return;
   }
 
+  teardownAdsInfiniteScroll();
+  browseInfiniteLoading = false;
+  browseHasMorePages = false;
+  browseNextOffset = 0;
+  lastRenderedBrowseList = [];
+
   try {
     if (adsSectionTitle) adsSectionTitle.textContent = userRecord.state;
-    const ads = await classifiedsApi("/ads");
-    // NOTE: do NOT resort here. The server already returns ads in the right
-    // order — active gold ads first (sorted by gold_until DESC so the freshest
-    // boost wins), then non-gold ads newest-first. A client-side sort by
-    // createdAt alone (which we used to do here) blew away the gold-first
-    // ordering, so a gold ad created before a non-gold one ended up below it.
+    browseInfiniteLoading = true;
+    setInfiniteStatusUi();
 
-    const selectedCategory = homeCategoryFilter ? homeCategoryFilter.value : "";
-    const selectedSubCategory = homeSubCategoryFilter ? homeSubCategoryFilter.value : "";
-    const filtered = ads.filter((ad) => {
-      if (selectedCategory && ad.category !== selectedCategory) return false;
-      if (selectedSubCategory && ad.subCategory !== selectedSubCategory) return false;
-      return true;
-    });
-    // Cache the filtered list so the modal's swipe / arrow-key
-    // navigation can walk through the same ads the user sees on the
-    // browse grid (gold-first, then newest, then any active filter).
-    lastRenderedBrowseList = filtered;
+    const qs = browseAdsQueryString(0);
+    const payload = await classifiedsApi(`/ads?${qs}`);
+    const ads =
+      payload && typeof payload === "object" && !Array.isArray(payload)
+        ? payload.ads || []
+        : Array.isArray(payload)
+          ? payload
+          : [];
+    const hasMore = Boolean(payload && typeof payload === "object" && payload.hasMore);
 
-    // Active-filter summary line ("Filtered: Vehicles / Cars  •  Clear") so the
-    // user always sees what they've narrowed down to without having to reopen
-    // the modal.
+    lastRenderedBrowseList = [...ads];
+    browseNextOffset = ads.length;
+    browseHasMorePages = hasMore;
+
+    const selectedCategory = getBrowseFilterSelections().category;
+    const selectedSubCategory = getBrowseFilterSelections().subCategory;
+
     if (adsActiveFilterEl) {
       if (selectedCategory || selectedSubCategory) {
         const bits = [];
@@ -477,40 +621,27 @@ async function renderAds() {
     }
 
     if (!ads.length) {
-      adsList.innerHTML = `<p>No ads posted yet for ${escapeHTML(userRecord.state)}.</p>`;
-      return;
-    }
-    if (!filtered.length) {
-      const label =
-        [selectedCategory, selectedSubCategory].filter(Boolean).join(" / ") || "matching";
-      adsList.innerHTML = `<p>No ${escapeHTML(label)} ads in ${escapeHTML(userRecord.state)} right now.</p>`;
+      adsList.innerHTML = `<p>${
+        selectedCategory || selectedSubCategory
+          ? `No matching ads in ${escapeHTML(userRecord.state)} right now.`
+          : `No ads posted yet for ${escapeHTML(userRecord.state)}.`
+      }</p>`;
+      browseHasMorePages = false;
+      teardownAdsInfiniteScroll();
       return;
     }
 
-    // Compact image-first tile. The whole tile is a <button> so it's keyboard-focusable
-    // and click-delegated via [data-detail-ad-id] in the global handler. Title/category/
-    // contact info live in the detail modal that opens on tap to keep tiles scannable.
-    // Gold ads are signalled by the gold border alone — no overlay badge, since the
-    // border + soft glow already make them obvious without crowding the photo.
-    adsList.innerHTML = filtered
-      .map((ad) => {
-        const firstImage = (ad.images || []).find(Boolean) || "";
-        const goldClass = isGoldActive(ad) ? " ad-tile--gold" : "";
-        const imageHtml = firstImage
-          ? `<img class="ad-tile-image" src="${escapeHTML(firstImage)}" alt="${escapeHTML(ad.title || "Ad")}" loading="lazy" />`
-          : `<div class="ad-tile-empty">${escapeHTML(ad.title || "No image")}</div>`;
-        const priceLabel = formatPrice(ad.price);
-        const aria = `${ad.title || "Ad"} — ${priceLabel}`;
-        return `
-      <button type="button" class="ad-tile${goldClass}" data-detail-ad-id="${escapeHTML(ad.id)}" aria-label="${escapeHTML(aria)}">
-        ${imageHtml}
-        <span class="ad-tile-price">${escapeHTML(priceLabel)}</span>
-      </button>
-    `;
-      })
-      .join("");
+    adsList.innerHTML = ads.map((ad) => renderBrowseTileMarkup(ad)).join("");
+    attachAdsInfiniteScroll();
   } catch (error) {
     adsList.innerHTML = `<p class="hint">Could not load ads: ${escapeHTML(error.message)}</p>`;
+    teardownAdsInfiniteScroll();
+    browseHasMorePages = false;
+    browseNextOffset = 0;
+    lastRenderedBrowseList = [];
+  } finally {
+    browseInfiniteLoading = false;
+    setInfiniteStatusUi();
   }
 }
 

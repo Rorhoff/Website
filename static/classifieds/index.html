@@ -26,7 +26,7 @@
   <meta name="twitter:title" content="t1Classifieds — Buy & sell locally by state and category" />
   <meta name="twitter:description" content="Local classifieds board. Browse and post listings by state and category." />
   <link rel="canonical" href="https://t1classifieds.com/" />
-  <link rel="stylesheet" href="/classifieds/styles.css?v=2026-05-18n" />
+  <link rel="stylesheet" href="/classifieds/styles.css?v=2026-05-18p" />
   <style>
     :root {
       --surface: #ffffff;
@@ -376,8 +376,7 @@
 
           <button type="submit">Post Ad</button>
         </form>
-        <p class="hint">Profile mode is required for posting. Once your ad is live, you can boost it
-        to gold from the My Ads tab.</p>
+        <p class="hint">Boost your ad in the My Ads tab!</p>
       </section>
     </section>
 
@@ -401,7 +400,11 @@
         The selects below stay hidden but in the DOM so existing JS that reads
         their .value keeps working without a refactor.
       -->
-      <div id="adsList" class="ads-list"></div>
+      <div class="ads-browse-stack">
+        <div id="adsList" class="ads-list"></div>
+        <p id="adsInfiniteStatus" class="ads-infinite-status hint" aria-live="polite" hidden></p>
+        <div id="adsInfiniteSentinel" class="ads-infinite-sentinel" aria-hidden="true"></div>
+      </div>
     </section>
 
     <section id="adminDashboardSection" class="card full admin-dashboard" hidden>
@@ -497,7 +500,7 @@
 
   <div id="toast" class="toast" hidden></div>
   <script src="/classifieds/cities.js?v=2026-05-18n"></script>
-  <script src="/classifieds/app.js?v=2026-05-18o"></script>
+  <script src="/classifieds/app.js?v=2026-05-18p"></script>
   <script src="/assets/nav-mobile.js"></script>
 </body>
 </html>

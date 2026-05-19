@@ -442,6 +442,28 @@ button.secondary:hover {
   margin-top: 0;
 }
 
+.ads-browse-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ads-infinite-status {
+  text-align: center;
+  margin: 4px 0 0;
+  min-height: 1rem;
+}
+
+/* Intersection observer target sits just beneath the tile grid — loads the next page
+ * before it becomes visible (`rootMargin` in app.js boosts prefetch distance). */
+.ads-infinite-sentinel {
+  height: 4px;
+  margin: 0;
+  padding: 0;
+  pointer-events: none;
+  visibility: hidden;
+}
+
 .ads-list {
   display: grid;
   /* Public browse list: tile-style cards. auto-fill keeps tiles sized ≥200px on

@@ -21,7 +21,7 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, File, Header, HTTPException, Request, UploadFile, status
+from fastapi import APIRouter, Depends, File, Header, HTTPException, Query, Request, UploadFile, status
 from passlib.hash import bcrypt as bcrypt_hasher
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, select
@@ -583,24 +583,57 @@ async def classifieds_gold_webhook(
 def classifieds_list_ads(
     user: ClassifiedUser = Depends(get_current_classified_user),
     db: Session = Depends(classifieds_db),
+    limit: int = Query(default=48, ge=1, le=120),
+    offset: int = Query(default=0, ge=0),
+    category: str | None = Query(default=None, max_length=200),
+    sub_category: Annotated[
+        str | None,
+        Query(
+            alias="subCategory",
+            max_length=200,
+            description="Optional sub-category; must accompany category.",
+        ),
+    ] = None,
 ):
+    """Return listings in the authenticated user's saved state (*not* tied to posting form).
+
+    ``limit`` plus ``offset`` enable paginated fetching for infinite-scroll UIs — the SPA
+    requests pages of ~48 ads at a time. Optional ``category`` / ``subCategory`` narrow
+    the server-side dataset so pagination stays correct across filters.
+
+    Responses are shaped as JSON objects ``{\"ads\":[...],\"hasMore\":bool}``.
+    Pagination uses SQL ``OFFSET``: fine for statewide volumes in the tens of thousands per
+    state; beyond that we'd switch to stable keyset cursors keyed off the composite sort."""
+
     state_key = user.state.strip().lower()
     now = datetime.utcnow()
-    # Sort active gold ads to the top within the buyer's state (any category): a gold ad
-    # is "active" when gold_until > now. Among golds, the freshest expiry wins (so a 14-day
-    # boost stays above a 3-day boost purchased earlier). Non-gold ads fall through to
-    # newest-first.
     is_active_gold = (ClassifiedAd.gold_until.is_not(None)) & (ClassifiedAd.gold_until > now)
-    rows = db.scalars(
-        select(ClassifiedAd)
-        .where(func.lower(ClassifiedAd.state) == state_key)
-        .order_by(
+
+    stmt = select(ClassifiedAd).where(func.lower(ClassifiedAd.state) == state_key)
+
+    cat = (category or "").strip() or None
+    sub_cat = (sub_category or "").strip() or None
+    if cat:
+        stmt = stmt.where(ClassifiedAd.category == cat)
+    if sub_cat:
+        stmt = stmt.where(ClassifiedAd.sub_category == sub_cat)
+
+    stmt = (
+        stmt.order_by(
             is_active_gold.desc(),
             ClassifiedAd.gold_until.desc().nullslast(),
             ClassifiedAd.created_at.desc(),
         )
-    ).all()
-    return [_ad_out(r) for r in rows]
+        .offset(offset)
+        # Fetch one extra row so we know whether another page exists without a COUNT(*).
+        .limit(limit + 1)
+    )
+    rows = list(db.scalars(stmt).all())
+    has_more = len(rows) > limit
+    if has_more:
+        rows = rows[:limit]
+
+    return {"ads": [_ad_out(r) for r in rows], "hasMore": has_more}
 
 
 def _ad_signature(title: str, description: str) -> str:
