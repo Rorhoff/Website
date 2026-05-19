@@ -521,6 +521,7 @@ button.secondary:hover {
   border-color: #7c9ab8;
 }
 
+.ad-import-badge,
 .ad-ksl-badge {
   position: absolute;
   top: 8px;
@@ -537,6 +538,7 @@ button.secondary:hover {
   pointer-events: none;
 }
 
+.detail-import-block,
 .detail-ksl-block {
   margin: 1rem 0 0;
   padding: 1rem;
@@ -545,6 +547,7 @@ button.secondary:hover {
   background: #f8fafc;
 }
 
+.detail-import-note,
 .detail-ksl-note {
   margin: 0 0 0.75rem;
   color: #475569;
@@ -552,6 +555,7 @@ button.secondary:hover {
   line-height: 1.5;
 }
 
+.detail-import-btn,
 .detail-ksl-btn {
   display: inline-block;
   background: #0284c7;
@@ -562,11 +566,14 @@ button.secondary:hover {
   border-radius: 8px;
 }
 
+.detail-import-btn:hover,
+.detail-import-btn:focus-visible,
 .detail-ksl-btn:hover,
 .detail-ksl-btn:focus-visible {
   background: #0369a1;
 }
 
+.site-footer-imports,
 .site-footer-ksl {
   margin: 0.5rem 0 0;
   max-width: 42rem;

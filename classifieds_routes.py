@@ -124,10 +124,24 @@ def _normalize_price(raw: str | None) -> str:
 
 LISTING_SOURCE_USER = "user"
 LISTING_SOURCE_KSL = "ksl"
+LISTING_SOURCE_CRAIGSLIST = "craigslist"
+AGGREGATED_LISTING_SOURCES = frozenset({LISTING_SOURCE_KSL, LISTING_SOURCE_CRAIGSLIST})
 
 
-def _is_ksl_import(row: ClassifiedAd) -> bool:
-    return (getattr(row, "listing_source", None) or LISTING_SOURCE_USER) == LISTING_SOURCE_KSL
+def _listing_source(row: ClassifiedAd) -> str:
+    return getattr(row, "listing_source", None) or LISTING_SOURCE_USER
+
+
+def _is_aggregated_import(row: ClassifiedAd) -> bool:
+    return _listing_source(row) in AGGREGATED_LISTING_SOURCES
+
+
+def _aggregated_source_label(source: str) -> str:
+    if source == LISTING_SOURCE_KSL:
+        return "KSL Classifieds"
+    if source == LISTING_SOURCE_CRAIGSLIST:
+        return "Craigslist"
+    return "External site"
 
 
 def _ad_out(row: ClassifiedAd) -> dict[str, Any]:
@@ -145,7 +159,7 @@ def _ad_out(row: ClassifiedAd) -> dict[str, Any]:
     # leak the login username, per the prod-v1.13 product requirement.
     display_name = (row.contact_name or "").strip() if hasattr(row, "contact_name") else ""
     city_value = (row.city or "").strip() if hasattr(row, "city") else ""
-    imported = _is_ksl_import(row)
+    imported = _is_aggregated_import(row)
     source_url = (row.source_url or "").strip() if hasattr(row, "source_url") else ""
     return {
         "id": row.id,
@@ -498,7 +512,7 @@ def classifieds_gold_quote(
         raise HTTPException(status_code=404, detail="Ad not found")
     if ad.user_id != user.id:
         raise HTTPException(status_code=403, detail="You can only boost your own ads")
-    if _is_ksl_import(ad):
+    if _is_aggregated_import(ad):
         raise HTTPException(status_code=403, detail="Imported listings cannot be boosted")
     tiers = []
     for (tier_id, _label, _days, _base) in stripe_service.GOLD_TIERS:
@@ -549,7 +563,7 @@ def classifieds_gold_checkout(
         raise HTTPException(status_code=404, detail="Ad not found")
     if ad.user_id != user.id:
         raise HTTPException(status_code=403, detail="You can only boost your own ads")
-    if _is_ksl_import(ad):
+    if _is_aggregated_import(ad):
         raise HTTPException(status_code=403, detail="Imported listings cannot be boosted")
     try:
         _session_id, url = stripe_service.create_checkout_session(
@@ -630,10 +644,10 @@ def classifieds_list_ads(
     state_key = user.state.strip().lower()
     now = datetime.utcnow()
     is_active_gold = (ClassifiedAd.gold_until.is_not(None)) & (ClassifiedAd.gold_until > now)
-    is_ksl = ClassifiedAd.listing_source == LISTING_SOURCE_KSL
+    is_aggregated = ClassifiedAd.listing_source.in_(tuple(AGGREGATED_LISTING_SOURCES))
 
     stmt = select(ClassifiedAd).where(func.lower(ClassifiedAd.state) == state_key)
-    # KSL imports are Utah-only; other states see native listings only.
+    # Aggregated imports are Utah-only; other states see native listings only.
     if state_key != "utah":
         stmt = stmt.where(
             or_(
@@ -649,9 +663,9 @@ def classifieds_list_ads(
     if sub_cat:
         stmt = stmt.where(ClassifiedAd.sub_category == sub_cat)
 
-    # Native gold first, then native by created_at, then KSL by imported_at.
+    # Native gold first, then native by created_at, then imports by imported_at.
     sort_rank = case(
-        (is_ksl, 2),
+        (is_aggregated, 2),
         (is_active_gold, 0),
         else_=1,
     )
@@ -794,13 +808,14 @@ def classifieds_get_ad(
         raise HTTPException(status_code=404, detail="Ad not found")
     payload = _ad_out(ad)
     payload["viewerAuthenticated"] = user is not None
-    if _is_ksl_import(ad):
+    if _is_aggregated_import(ad):
         payload["authorPhone"] = ""
+        label = _aggregated_source_label(_listing_source(ad))
         if payload.get("sourceUrl"):
             payload["description"] = (
                 f"{(ad.description or '').strip()}\n\n"
-                "This listing is aggregated from KSL Classifieds. "
-                "View the original on KSL for full details."
+                f"This listing is aggregated from {label}. "
+                f"View the original for full details."
             ).strip()
     elif user is not None:
         # Seller contact pulled live so a profile change shows up immediately
@@ -822,7 +837,7 @@ def classifieds_gold_refund_preview(
         raise HTTPException(status_code=404, detail="Ad not found")
     if ad.user_id != user.id:
         raise HTTPException(status_code=403, detail="You can only preview refunds for your own ads")
-    if _is_ksl_import(ad):
+    if _is_aggregated_import(ad):
         raise HTTPException(status_code=403, detail="Imported listings cannot be deleted here")
     quote = stripe_service.compute_gold_refund_quote(
         ad, reason=stripe_service.GOLD_REFUND_REASON_SELLER_DELETE
@@ -853,7 +868,7 @@ def classifieds_delete_my_ad(
     ad = db.get(ClassifiedAd, ad_id)
     if ad is None:
         raise HTTPException(status_code=404, detail="Ad not found")
-    if _is_ksl_import(ad):
+    if _is_aggregated_import(ad):
         raise HTTPException(status_code=403, detail="Imported listings cannot be deleted here")
     if ad.user_id != user.id:
         raise HTTPException(status_code=403, detail="You can only delete your own ads")
@@ -905,10 +920,11 @@ def classifieds_report_ad(
     ad = db.get(ClassifiedAd, ad_id)
     if ad is None:
         raise HTTPException(status_code=404, detail="Ad not found")
-    if _is_ksl_import(ad):
+    if _is_aggregated_import(ad):
+        label = _aggregated_source_label(_listing_source(ad))
         raise HTTPException(
             status_code=403,
-            detail="Imported listings are hosted on KSL — use View on KSL to contact the seller",
+            detail=f"Imported listings are hosted on {label} — open the original link to contact the seller",
         )
     if ad.user_id == user.id:
         raise HTTPException(status_code=400, detail="You cannot report your own ad")

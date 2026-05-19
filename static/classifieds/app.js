@@ -462,7 +462,19 @@ function browseAdsQueryString(offset) {
 }
 
 function isImportedAd(ad) {
-  return Boolean(ad && (ad.isImported || ad.listingSource === "ksl"));
+  const src = ad && ad.listingSource;
+  return Boolean(ad && (ad.isImported || (src && src !== "user")));
+}
+
+function importSourceShortLabel(ad) {
+  if (!ad) return "External";
+  if (ad.listingSource === "ksl") return "KSL";
+  if (ad.listingSource === "craigslist") return "Craigslist";
+  return "External";
+}
+
+function importViewOnLabel(ad) {
+  return `View on ${importSourceShortLabel(ad)}`;
 }
 
 function renderBrowseTileMarkup(ad) {
@@ -474,8 +486,8 @@ function renderBrowseTileMarkup(ad) {
     : `<div class="ad-tile-empty">${escapeHTML(ad.title || "No image")}</div>`;
   const priceLabel = formatPrice(ad.price);
   const aria = `${ad.title || "Ad"} — ${priceLabel}`;
-  const kslBadge = isImportedAd(ad)
-    ? `<span class="ad-ksl-badge" aria-label="Via KSL">Via KSL</span>`
+  const importBadge = isImportedAd(ad)
+    ? `<span class="ad-import-badge" aria-label="Via ${escapeHTML(importSourceShortLabel(ad))}">Via ${escapeHTML(importSourceShortLabel(ad))}</span>`
     : "";
   return `
       <button type="button" class="ad-tile${goldClass}${kslClass}" data-detail-ad-id="${escapeHTML(ad.id)}" aria-label="${escapeHTML(aria)}">
@@ -1825,6 +1837,11 @@ async function openAdDetail(adId, navList = null) {
     if (imported && ad.sourceUrl) {
       detailKslBlock.hidden = false;
       detailKslLink.href = ad.sourceUrl;
+      detailKslLink.textContent = importViewOnLabel(ad);
+      const note = detailKslBlock.querySelector(".detail-import-note");
+      if (note) {
+        note.textContent = `Preview from ${importSourceShortLabel(ad)}. Full details and seller contact are on the original site.`;
+      }
     } else {
       detailKslBlock.hidden = true;
       detailKslLink.removeAttribute("href");
@@ -1840,7 +1857,7 @@ async function openAdDetail(adId, navList = null) {
     if (ad.city) locParts.push(ad.city);
     if (ad.state) locParts.push(ad.state);
     const where = locParts.length ? `in ${locParts.join(", ")}` : "";
-    if (imported) metaBits.push("Via KSL Classifieds");
+    if (imported) metaBits.push(`Via ${importSourceShortLabel(ad)}`);
     if (taxonomy || where) metaBits.push(`${taxonomy}${where ? " " + where : ""}`.trim());
     if (ad.createdAt && !imported) metaBits.push(`Posted ${new Date(ad.createdAt).toLocaleString()}`);
     detailMetaEl.innerHTML = metaBits

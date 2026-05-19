@@ -169,6 +169,21 @@ Optional env vars:
 
 Requires `curl_cffi` from `requirements.txt` (installed on `commitprod` when that file changes). If EC2 is still blocked after deploy, run the sync once from a residential network with prod `ENV_FILE` — see comment in `tools/sync_ksl_classifieds.py`.
 
+#### Craigslist import (10 listings, Salt Lake)
+
+KSL is often blocked from AWS IPs. Craigslist HTML search usually works with `curl_cffi` on EC2:
+
+```bash
+cd /home/ubuntu/website-prod
+# optional: disable KSL cron while testing
+# KSL_IMPORT_ENABLED=0 in .env.prod
+
+ENV_FILE=/home/ubuntu/website-prod/.env.prod .venv/bin/python -m tools.sync_craigslist_classifieds
+```
+
+Defaults: `CRAIGSLIST_IMPORT_MAX_LISTINGS=10`, site `saltlakecity.craigslist.org`, path `/search/sss`.
+Kill switch: `CRAIGSLIST_IMPORT_ENABLED=0`.
+
 ## 2. Create the R2 bucket and API token
 
 In the Cloudflare dashboard:
