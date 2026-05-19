@@ -7,9 +7,9 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <link rel="icon" type="image/png" href="/classifieds/favicon.png" />
-  <link rel="apple-touch-icon" href="/classifieds/favicon.png" />
-  <title>t1Classifieds — Buy & sell locally by state and category</title>
+  <link rel="icon" type="image/png" href="/favicon.png" />
+  <link rel="apple-touch-icon" href="/favicon.png" />
+  <title>t1Classifieds — Buy &amp; sell locally by state and category</title>
   <!-- Baseline SEO + social-card metadata. These are the defaults used for
        the home page and any pages we don't override at runtime. When a user
        opens a specific ad via /classifieds?ad=<id>, app.js overwrites
@@ -28,7 +28,21 @@
   <meta name="twitter:title" content="t1Classifieds — Buy & sell locally by state and category" />
   <meta name="twitter:description" content="Local classifieds board. Browse and post listings by state and category." />
   <link rel="canonical" href="https://t1classifieds.com/" />
-  <link rel="stylesheet" href="/classifieds/styles.css?v=2026-05-19-tos" />
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    "name": "t1Classifieds",
+    "url": "https://t1classifieds.com/",
+    "description": "Local classifieds board to buy and sell by US state and category.",
+    "publisher": {
+      "@type": "Organization",
+      "name": "RedA1, LLC",
+      "url": "https://t1classifieds.com/"
+    }
+  }
+  </script>
+  <link rel="stylesheet" href="/classifieds/styles.css?v=2026-05-19-seo" />
   <style>
     :root {
       --surface: #ffffff;
@@ -267,7 +281,16 @@
   </header>
 
   <main class="container">
-    <section id="authSection" class="auth-grid">
+    <!-- Crawlable homepage copy for search snippets (forms below are data-nosnippet). -->
+    <div class="seo-home-intro">
+      <h2 class="seo-home-intro__title">t1Classifieds — local buy &amp; sell classifieds</h2>
+      <p class="seo-home-intro__text">
+        Browse listings by state and category, contact sellers directly, and post your own ads for free.
+        Optional Gold boosts help your listing stand out.
+      </p>
+    </div>
+
+    <section id="authSection" class="auth-grid" data-nosnippet>
       <section class="card">
         <h2>Login</h2>
         <!-- autocomplete hints below are what trigger Chrome / Safari / 1Password
@@ -389,7 +412,7 @@
       </section>
     </section>
 
-    <section id="postAdSection" class="profile-pane" hidden>
+    <section id="postAdSection" class="profile-pane" hidden data-nosnippet>
       <section class="card">
         <h2>Post an Ad</h2>
         <form id="adForm">
@@ -462,7 +485,7 @@
       </section>
     </section>
 
-    <section id="myAdsSection" class="profile-pane" hidden>
+    <section id="myAdsSection" class="profile-pane" hidden data-nosnippet>
       <section class="card">
         <div class="my-ads-header">
           <h2>My Ads</h2>
@@ -594,7 +617,7 @@
 
   <div id="toast" class="toast" hidden></div>
   <script src="/classifieds/cities.js?v=2026-05-18n"></script>
-  <script src="/classifieds/app.js?v=2026-05-19-tos"></script>
+  <script src="/classifieds/app.js?v=2026-05-19-seo"></script>
   <script src="/assets/nav-mobile.js"></script>
 </body>
 </html>
