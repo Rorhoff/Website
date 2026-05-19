@@ -810,13 +810,7 @@ def classifieds_get_ad(
     payload["viewerAuthenticated"] = user is not None
     if _is_aggregated_import(ad):
         payload["authorPhone"] = ""
-        label = _aggregated_source_label(_listing_source(ad))
-        if payload.get("sourceUrl"):
-            payload["description"] = (
-                f"{(ad.description or '').strip()}\n\n"
-                f"This listing is aggregated from {label}. "
-                f"View the original for full details."
-            ).strip()
+        # Aggregation disclaimer is shown in the SPA on imported detail views only.
     elif user is not None:
         # Seller contact pulled live so a profile change shows up immediately
         # on the next view.

@@ -492,7 +492,7 @@ function renderBrowseTileMarkup(ad) {
   return `
       <button type="button" class="ad-tile${goldClass}${kslClass}" data-detail-ad-id="${escapeHTML(ad.id)}" aria-label="${escapeHTML(aria)}">
         ${imageHtml}
-        ${kslBadge}
+        ${importBadge}
         <span class="ad-tile-price">${escapeHTML(priceLabel)}</span>
       </button>
     `;
@@ -1831,7 +1831,11 @@ async function openAdDetail(adId, navList = null) {
   const imported = isImportedAd(ad);
   if (detailTitleEl) detailTitleEl.textContent = ad.title || "";
   if (detailPriceEl) detailPriceEl.textContent = formatPrice(ad.price);
-  if (detailDescriptionEl) detailDescriptionEl.textContent = ad.description || "";
+  if (detailDescriptionEl) {
+    detailDescriptionEl.textContent = imported
+      ? descriptionForImportedAd(ad)
+      : ad.description || "";
+  }
 
   if (detailKslBlock && detailKslLink) {
     if (imported && ad.sourceUrl) {
