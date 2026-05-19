@@ -163,6 +163,7 @@ Optional env vars:
 | `KSL_IMPORT_MAX_LISTINGS` | `500` | Cap listings fetched per run |
 | `KSL_REQUEST_DELAY_SEC` | `0.45` | Pause between HTTP requests |
 | `KSL_IMPORT_CONTACT_EMAIL` | `support@t1classifieds.com` | Shown in User-Agent for KSL |
+| `KSL_IMPORT_USE_BOT_UA` | `0` | Set `1` to use the strict bot User-Agent (often 403 from EC2) |
 
 ## 2. Create the R2 bucket and API token
 

@@ -19,7 +19,7 @@ import logging
 import os
 import sys
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -118,11 +118,14 @@ def main() -> int:
         return 1
 
     cap = _max_listings()
-    sync_start = datetime.utcnow()
+    sync_start = datetime.now(UTC).replace(tzinfo=None)
     client = KslClient()
 
     log.info("Fetching KSL search listing IDs (cap=%d)…", cap)
-    listing_ids = client.fetch_search_listing_ids()[: cap]
+    try:
+        listing_ids = client.fetch_search_listing_ids()[:cap]
+    finally:
+        client.close()
     log.info("Found %d listing IDs to process", len(listing_ids))
 
     stats = {"fetched": 0, "inserted": 0, "updated": 0, "skipped": 0, "errors": 0, "pruned": 0}
@@ -141,7 +144,9 @@ def main() -> int:
                 stats["skipped"] += 1
                 continue
             try:
-                action = _upsert(db, listing, seen_at=datetime.utcnow())
+                action = _upsert(
+                    db, listing, seen_at=datetime.now(UTC).replace(tzinfo=None)
+                )
                 stats[action] += 1
                 if (stats["inserted"] + stats["updated"]) % 25 == 0:
                     db.commit()
