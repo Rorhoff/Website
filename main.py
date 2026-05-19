@@ -383,6 +383,22 @@ def _static(name: str) -> FileResponse:
     return FileResponse(STATIC_DIR / name)
 
 
+# Prod SPA is served from `/` with data-service-mode injected. The `/classifieds/`
+# StaticFiles mount would otherwise serve raw index.html (portfolio test nav visible).
+if _CLASSIFIEDS_ONLY:
+    _CLASSIFIEDS_INDEX_PROD = (STATIC_DIR / "classifieds" / "index.html").read_text(
+        encoding="utf-8"
+    ).replace('<html lang="en">', '<html lang="en" data-service-mode="classifieds">', 1)
+    _CLASSIFIEDS_FAVICON = STATIC_DIR / "classifieds" / "favicon.png"
+
+    @app.get("/classifieds", include_in_schema=False)
+    @app.get("/classifieds/", include_in_schema=False)
+    @app.get("/classifieds/index.html", include_in_schema=False)
+    def classifieds_spa_path_redirect_to_root(request: Request) -> RedirectResponse:
+        q = request.url.query
+        return RedirectResponse("/" + (f"?{q}" if q else ""), status_code=301)
+
+
 app.mount("/assets", StaticFiles(directory=str(STATIC_DIR)), name="assets")
 app.mount(
     "/classifieds",
@@ -538,12 +554,7 @@ def sitemap_xml() -> Response:
 if _CLASSIFIEDS_ONLY:
     # Prod (t1classifieds.com): "/" serves the classifieds SPA directly. Auxiliary SPAs
     # and the portfolio root are not registered, so prod is lean and "/" is unambiguous.
-    # We inject data-service-mode="classifieds" on <html> so the SPA's CSS can hide the
-    # cross-site portfolio nav (LinkedIn/About/etc.) — those links 404 in this mode.
-    _CLASSIFIEDS_INDEX_PROD = (STATIC_DIR / "classifieds" / "index.html").read_text(
-        encoding="utf-8"
-    ).replace('<html lang="en">', '<html lang="en" data-service-mode="classifieds">', 1)
-    _CLASSIFIEDS_FAVICON = STATIC_DIR / "classifieds" / "favicon.png"
+    # _CLASSIFIEDS_INDEX_PROD + redirect routes are defined above, before the static mount.
 
     @app.get("/favicon.ico", include_in_schema=False)
     @app.get("/favicon.png", include_in_schema=False)
