@@ -123,9 +123,8 @@ def _normalize_price(raw: str | None) -> str:
 
 
 LISTING_SOURCE_USER = "user"
-LISTING_SOURCE_KSL = "ksl"
 LISTING_SOURCE_CRAIGSLIST = "craigslist"
-AGGREGATED_LISTING_SOURCES = frozenset({LISTING_SOURCE_KSL, LISTING_SOURCE_CRAIGSLIST})
+AGGREGATED_LISTING_SOURCES = frozenset({LISTING_SOURCE_CRAIGSLIST})
 
 
 def _listing_source(row: ClassifiedAd) -> str:
@@ -137,8 +136,6 @@ def _is_aggregated_import(row: ClassifiedAd) -> bool:
 
 
 def _aggregated_source_label(source: str) -> str:
-    if source == LISTING_SOURCE_KSL:
-        return "KSL Classifieds"
     if source == LISTING_SOURCE_CRAIGSLIST:
         return "Craigslist"
     return "External site"

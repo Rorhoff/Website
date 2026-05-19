@@ -126,7 +126,7 @@ class ClassifiedAd(Base):
     last_gold_window_end: Mapped[datetime | None] = mapped_column(
         DateTime, nullable=True, default=None
     )
-    # Aggregated listings (e.g. daily KSL import). ``user`` = native seller post.
+    # Aggregated listings (e.g. Craigslist import). ``user`` = native seller post.
     listing_source: Mapped[str] = mapped_column(
         String(32), default="user", server_default="user", index=True
     )

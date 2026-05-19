@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" \"http://127.0.0.1:8000/sss/index.html\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" \"http://127.0.0.1:8000/assets/sss/index.html\")",
+      "Bash(curl -s -o /dev/null -w \"classifieds: %{http_code}\\\\n\" \"http://127.0.0.1:8000/classifieds/\")",
+      "Bash(curl -s -o /dev/null -w \"airevolution: %{http_code}\\\\n\" \"http://127.0.0.1:8000/airevolution/\")",
+      "Bash(curl -s -o /dev/null -w \"no slash: %{http_code}\\\\n\" \"http://127.0.0.1:8000/sss\")",
+      "Bash(curl -sv \"http://127.0.0.1:8000/sss/index.html\")",
+      "Bash(curl -sv \"http://127.0.0.1:8000/sss/\")",
+      "Bash(curl -s -o /dev/null -w \"sss/: %{http_code}\\\\n\" \"http://127.0.0.1:8000/sss/\")",
+      "Bash(curl -s -o /dev/null -w \"sss/index.html: %{http_code}\\\\n\" \"http://127.0.0.1:8000/sss/index.html\")",
+      "Bash(curl -s -o /dev/null -w \"sss/app.js: %{http_code}\\\\n\" \"http://127.0.0.1:8000/sss/app.js\")",
+      "Bash(curl -s \"http://127.0.0.1:8000/health\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('main.py'\\).read\\(\\)\\); print\\('syntax OK'\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('main.py', encoding='utf-8'\\).read\\(\\)\\); print\\('syntax OK'\\)\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" \"http://127.0.0.1:8000/sss-ping-check\")",
+      "Bash(curl -s \"http://127.0.0.1:8000/_sss_reload_check\")"
+    ]
+  }
+}

@@ -129,7 +129,7 @@ ALTER TABLE classified_ad ADD COLUMN IF NOT EXISTS last_gold_window_end TIMESTAM
 No backfill needed: ads boosted before prod-v1.16 simply won't auto-refund
 programmatically (documented publicly on `/classifieds/gold-policy.html`).
 
-#### prod-v1.22 (KSL aggregator import columns)
+#### prod-v1.22 (aggregator import columns)
 
 Run **before** deploying code that reads `listing_source` / `source_*` on `classified_ad`.
 
@@ -140,50 +140,24 @@ chmod +x ~/migrate-prod-v1.22.sh
 PGPASSWORD='your-real-password' ~/migrate-prod-v1.22.sh
 ```
 
-After deploy, run the sync once manually from the prod checkout:
-
-```bash
-cd /home/ubuntu/website-prod
-ENV_FILE=/home/ubuntu/website-prod/.env.prod .venv/bin/python -m tools.sync_ksl_classifieds
-```
-
-**Daily cron** (example 4:00 AM UTC on the EC2 host):
-
-```cron
-0 4 * * * cd /home/ubuntu/website-prod && ENV_FILE=/home/ubuntu/website-prod/.env.prod .venv/bin/python -m tools.sync_ksl_classifieds >> /var/log/ksl-import.log 2>&1
-```
-
-**Kill switch:** set `KSL_IMPORT_ENABLED=0` in `.env.prod` and restart `webapi-prod` (sync script exits immediately; existing imported rows stay until pruned on the next enabled run).
-
-Optional env vars:
-
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `KSL_IMPORT_ENABLED` | `1` | `0` disables the sync job |
-| `KSL_IMPORT_MAX_LISTINGS` | `500` | Cap listings fetched per run |
-| `KSL_REQUEST_DELAY_SEC` | `0.45` | Pause between HTTP requests |
-| `KSL_IMPORT_CONTACT_EMAIL` | `support@t1classifieds.com` | Shown in User-Agent for KSL |
-| `KSL_IMPORT_USE_BOT_UA` | `0` | Set `1` to use the strict bot User-Agent (often 403 from EC2) |
-| `KSL_IMPORT_USE_HTTPX` | `0` | Set `1` to force httpx instead of curl_cffi |
-| `KSL_IMPORT_IMPERSONATE` | `chrome124` | curl_cffi browser impersonation profile |
-
-Requires `curl_cffi` from `requirements.txt` (installed on `commitprod` when that file changes). If EC2 is still blocked after deploy, run the sync once from a residential network with prod `ENV_FILE` — see comment in `tools/sync_ksl_classifieds.py`.
-
 #### Craigslist import (10 listings, Salt Lake)
 
-KSL is often blocked from AWS IPs. Craigslist HTML search usually works with `curl_cffi` on EC2:
-
 ```bash
 cd /home/ubuntu/website-prod
-# optional: disable KSL cron while testing
-# KSL_IMPORT_ENABLED=0 in .env.prod
-
 ENV_FILE=/home/ubuntu/website-prod/.env.prod .venv/bin/python -m tools.sync_craigslist_classifieds
+```
+
+**Daily cron** (example 4:15 AM UTC):
+
+```cron
+15 4 * * * cd /home/ubuntu/website-prod && ENV_FILE=/home/ubuntu/website-prod/.env.prod .venv/bin/python -m tools.sync_craigslist_classifieds >> /var/log/craigslist-import.log 2>&1
 ```
 
 Defaults: `CRAIGSLIST_IMPORT_MAX_LISTINGS=10`, site `saltlakecity.craigslist.org`, path `/search/sss`.
 Fetches one thumbnail per listing from the detail page (`CRAIGSLIST_FETCH_IMAGES=1`, default on).
 Kill switch: `CRAIGSLIST_IMPORT_ENABLED=0`.
+
+Requires `curl_cffi` from `requirements.txt` (installed on `commitprod` when that file changes).
 
 ## 2. Create the R2 bucket and API token
 

@@ -517,29 +517,11 @@ button.secondary:hover {
   box-shadow: 0 0 0 1px rgba(212, 175, 55, 0.5), 0 6px 18px rgba(180, 140, 40, 0.35);
 }
 
-.ad-tile--ksl {
+.ad-tile--imported {
   border-color: #7c9ab8;
 }
 
-.ad-import-badge,
-.ad-ksl-badge {
-  position: absolute;
-  top: 8px;
-  left: 8px;
-  z-index: 2;
-  background: #1e3a5f;
-  color: #f8fafc;
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
-  padding: 4px 8px;
-  border-radius: 6px;
-  pointer-events: none;
-}
-
-.detail-import-block,
-.detail-ksl-block {
+.detail-import-block {
   margin: 1rem 0 0;
   padding: 1rem;
   border: 1px solid #cbd5e1;
@@ -547,16 +529,14 @@ button.secondary:hover {
   background: #f8fafc;
 }
 
-.detail-import-note,
-.detail-ksl-note {
+.detail-import-note {
   margin: 0 0 0.75rem;
   color: #475569;
   font-size: 0.95rem;
   line-height: 1.5;
 }
 
-.detail-import-btn,
-.detail-ksl-btn {
+.detail-import-btn {
   display: inline-block;
   background: #0284c7;
   color: #fff;
@@ -567,21 +547,8 @@ button.secondary:hover {
 }
 
 .detail-import-btn:hover,
-.detail-import-btn:focus-visible,
-.detail-ksl-btn:hover,
-.detail-ksl-btn:focus-visible {
+.detail-import-btn:focus-visible {
   background: #0369a1;
-}
-
-.site-footer-imports,
-.site-footer-ksl {
-  margin: 0.5rem 0 0;
-  max-width: 42rem;
-  margin-left: auto;
-  margin-right: auto;
-  text-align: center;
-  font-size: 0.85rem;
-  line-height: 1.45;
 }
 
 .ad-tile-image {

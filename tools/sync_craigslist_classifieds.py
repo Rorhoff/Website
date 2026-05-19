@@ -113,6 +113,12 @@ def main() -> int:
 
     db = SessionLocal()
     try:
+        legacy = db.execute(
+            delete(ClassifiedAd).where(ClassifiedAd.listing_source == "ksl")
+        )
+        if legacy.rowcount:
+            log.info("Removed %d legacy import rows (listing_source=ksl)", legacy.rowcount)
+
         for listing in listings:
             stats["fetched"] += 1
             try:

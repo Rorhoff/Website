@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# migrate-prod-v1.22.sh — KSL aggregator import columns on classified_ad
+# migrate-prod-v1.22.sh — Aggregator import columns on classified_ad
 #
 # Run BEFORE deploying code that reads/writes listing_source / source_* fields.
 #

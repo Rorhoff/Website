@@ -1,7 +1,7 @@
 """
 Fetch recent Salt Lake Craigslist for-sale listings (HTML search page).
 
-Uses curl_cffi when available (same approach as KSL). Parses ``cl-static-search-result``
+Uses curl_cffi when available. Parses ``cl-static-search-result``
 rows from search HTML, then loads each listing page for a thumbnail (``images.craigslist.org``).
 Listings with no photos stay image-less.
 """

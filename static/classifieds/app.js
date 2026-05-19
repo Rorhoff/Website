@@ -468,7 +468,6 @@ function isImportedAd(ad) {
 
 function importSourceShortLabel(ad) {
   if (!ad) return "External";
-  if (ad.listingSource === "ksl") return "KSL";
   if (ad.listingSource === "craigslist") return "Craigslist";
   return "External";
 }
@@ -478,7 +477,7 @@ function importViewOnLabel(ad) {
 }
 
 const IMPORT_AGGREGATION_DISCLAIMER =
-  "Some Utah listings are aggregated from KSL and Craigslist with links to the originals. We do not claim ownership of those listings.";
+  "Some Utah listings are aggregated from Craigslist with links to the originals. We do not claim ownership of those listings.";
 
 function descriptionForImportedAd(ad) {
   const base = (ad?.description || "").trim();
@@ -497,7 +496,7 @@ function descriptionForImportedAd(ad) {
 function renderBrowseTileMarkup(ad) {
   const firstImage = (ad.images || []).find(Boolean) || "";
   const goldClass = isGoldActive(ad) && !isImportedAd(ad) ? " ad-tile--gold" : "";
-  const kslClass = isImportedAd(ad) ? " ad-tile--ksl" : "";
+  const importClass = isImportedAd(ad) ? " ad-tile--imported" : "";
   const imageHtml = firstImage
     ? `<img class="ad-tile-image" src="${escapeHTML(firstImage)}" alt="${escapeHTML(ad.title || "Ad")}" loading="lazy" referrerpolicy="no-referrer" />`
     : `<div class="ad-tile-empty">${escapeHTML(ad.title || "No image")}</div>`;
@@ -505,7 +504,7 @@ function renderBrowseTileMarkup(ad) {
   const viaNote = isImportedAd(ad) ? ` — Via ${importSourceShortLabel(ad)}` : "";
   const aria = `${ad.title || "Ad"} — ${priceLabel}${viaNote}`;
   return `
-      <button type="button" class="ad-tile${goldClass}${kslClass}" data-detail-ad-id="${escapeHTML(ad.id)}" aria-label="${escapeHTML(aria)}">
+      <button type="button" class="ad-tile${goldClass}${importClass}" data-detail-ad-id="${escapeHTML(ad.id)}" aria-label="${escapeHTML(aria)}">
         ${imageHtml}
         <span class="ad-tile-price">${escapeHTML(priceLabel)}</span>
       </button>
@@ -1583,8 +1582,8 @@ const detailAnonCta = document.getElementById("detailAnonCta");
 const detailAnonCtaBtn = document.getElementById("detailAnonCtaBtn");
 const detailModalActions = document.getElementById("detailModalActions");
 const detailReportBtn = document.getElementById("detailReportBtn");
-const detailKslBlock = document.getElementById("detailKslBlock");
-const detailKslLink = document.getElementById("detailKslLink");
+const detailImportBlock = document.getElementById("detailImportBlock");
+const detailImportLink = document.getElementById("detailImportLink");
 
 // Tracks which ad the modal is currently rendering, so the Share button and
 // the post-login modal-refresh hook know which ID to act on.
@@ -1738,8 +1737,8 @@ function closeAdDetail() {
     detailContactEl.innerHTML = "";
   }
   if (detailAnonCta) detailAnonCta.hidden = true;
-  if (detailKslBlock) detailKslBlock.hidden = true;
-  if (detailKslLink) detailKslLink.removeAttribute("href");
+  if (detailImportBlock) detailImportBlock.hidden = true;
+  if (detailImportLink) detailImportLink.removeAttribute("href");
   detailModalCard?.classList.remove("gold-frame-active");
   currentDetailAdId = null;
   currentDetailAd = null;
@@ -1825,7 +1824,7 @@ async function openAdDetail(adId, navList = null) {
     detailContactEl.innerHTML = "";
   }
   if (detailAnonCta) detailAnonCta.hidden = true;
-  if (detailKslBlock) detailKslBlock.hidden = true;
+  if (detailImportBlock) detailImportBlock.hidden = true;
   detailModalCard?.classList.remove("gold-frame-active");
   // Scroll the modal back to top in case the previous detail left it scrolled.
   if (detailModalCard) detailModalCard.scrollTop = 0;
@@ -1851,18 +1850,18 @@ async function openAdDetail(adId, navList = null) {
       : ad.description || "";
   }
 
-  if (detailKslBlock && detailKslLink) {
+  if (detailImportBlock && detailImportLink) {
     if (imported && ad.sourceUrl) {
-      detailKslBlock.hidden = false;
-      detailKslLink.href = ad.sourceUrl;
-      detailKslLink.textContent = importViewOnLabel(ad);
-      const note = detailKslBlock.querySelector(".detail-import-note");
+      detailImportBlock.hidden = false;
+      detailImportLink.href = ad.sourceUrl;
+      detailImportLink.textContent = importViewOnLabel(ad);
+      const note = detailImportBlock.querySelector(".detail-import-note");
       if (note) {
         note.textContent = `Preview from ${importSourceShortLabel(ad)}. Full details and seller contact are on the original site.`;
       }
     } else {
-      detailKslBlock.hidden = true;
-      detailKslLink.removeAttribute("href");
+      detailImportBlock.hidden = true;
+      detailImportLink.removeAttribute("href");
     }
   }
 
