@@ -837,23 +837,33 @@ if (topbarFilterBtn) {
   topbarFilterBtn.addEventListener("click", () => openFilterModal());
 }
 
-// Clicking the "T1Classifieds" brand re-fetches the ad list and bounces
-// the user back to the browse view. We keep the active filters in place
-// — the user's intent is "show me the newest stuff", not "wipe my
-// filters" — so renderAds() runs against current selectedCategory /
-// selectedSubCategory. Gold-first ordering is preserved because that's
-// done server-side.
+// Clicking "T1Classifieds" is the home affordance: leave profile mode and show
+// the browse grid for the user's state (same listings as Exit Profile).
+// Active category filters are kept; only profile UI is dismissed.
 if (topbarBrandBtn) {
-  const refreshListingsFromBrand = () => {
+  const goToBrowseFromBrand = async () => {
     closeAdDetail();
     closeFilterModal();
-    renderAds().catch(() => {});
+    closeMenu();
+    if (isProfileActive()) {
+      setProfileActive(false);
+      updateAuthUI();
+    }
+    try {
+      await renderAds();
+    } catch {
+      showToast("Could not load listings.");
+      return;
+    }
+    adsBrowseSection?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
-  topbarBrandBtn.addEventListener("click", refreshListingsFromBrand);
+  topbarBrandBtn.addEventListener("click", () => {
+    goToBrowseFromBrand().catch(() => {});
+  });
   topbarBrandBtn.addEventListener("keydown", (e) => {
     if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
-      refreshListingsFromBrand();
+      goToBrowseFromBrand().catch(() => {});
     }
   });
 }
