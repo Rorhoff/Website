@@ -43,37 +43,97 @@ CL_IMAGE_RE = re.compile(
     r"(https://images\.craigslist\.org/[0-9a-zA-Z]+_[0-9a-zA-Z]+_[0-9a-zA-Z]+_\d+x\d+\.(?:jpg|webp))"
 )
 
-# First path segment after domain → our browse category.
+# Craigslist URL prefix → our browse category (for-sale merchandise on SLC site).
 CL_PREFIX_CATEGORY: dict[str, str] = {
     "ctd": "Vehicles",
+    "cta": "Vehicles",
     "mcy": "Vehicles",
+    "mca": "Vehicles",
     "boa": "Vehicles",
+    "boo": "Vehicles",
     "gra": "Vehicles",
+    "grd": "Home and Garden",
     "rvs": "Vehicles",
-    "atq": "Collectibles",
-    "clt": "Collectibles",
+    "rva": "Vehicles",
+    "tra": "Vehicles",
+    "sna": "Vehicles",
+    "snw": "Vehicles",
     "elc": "Electronics",
+    "ele": "Electronics",
+    "ela": "Electronics",
+    "sya": "Electronics",
     "cmp": "Electronics",
     "syp": "Electronics",
-    "grd": "Home and Garden",
+    "moa": "Electronics",
+    "vga": "Electronics",
     "for": "Home and Garden",
+    "foa": "Home and Garden",
     "fua": "Home and Garden",
+    "fuo": "Home and Garden",
     "hsh": "Home and Garden",
-    "apa": "Real Estate",
-    "reo": "Real Estate",
-    "reb": "Real Estate",
-    "lbd": "Jobs",
-    "jjj": "Jobs",
-    "ofc": "Jobs",
-    "biz": "Services",
-    "cfs": "Services",
-    "lbs": "Pets",
-    "pta": "Pets",
+    "hsa": "Home and Garden",
+    "hvo": "Home and Garden",
+    "hvd": "Home and Garden",
     "clo": "Clothing and Fashion",
-    "sgl": "Sports and Outdoors",
+    "cla": "Clothing and Fashion",
+    "clt": "Collectibles",
+    "cba": "Collectibles",
+    "ata": "Collectibles",
+    "art": "Collectibles",
+    "ara": "Collectibles",
     "spo": "Sports and Outdoors",
+    "sga": "Sports and Outdoors",
+    "sgl": "Sports and Outdoors",
     "bik": "Sports and Outdoors",
+    "bia": "Sports and Outdoors",
+    "tla": "Home and Garden",
+    "tro": "Home and Garden",
+    "maa": "Home and Garden",
+    "bfd": "Home and Garden",
+    "jwl": "Clothing and Fashion",
+    "jwa": "Clothing and Fashion",
+    "msa": "Electronics",
+    "pha": "Electronics",
+    "pta": "Vehicles",
+    "pts": "Vehicles",
+    "bka": "Collectibles",
+    "baa": "Clothing and Fashion",
+    "tia": "Other",
+    "taa": "Other",
+    "zip": "Other",
+    "bar": "Other",
+    "gms": "Other",
 }
+
+# Non–for-sale sections (community, personals, housing, jobs, services, gigs, wanted).
+DENIED_CL_PREFIXES = frozenset({
+    "act", "ats", "atq", "kid", "cls", "eve", "com", "grp", "vnn", "laf", "mis",
+    "muc", "pet", "pol", "rnr", "rid", "vol",
+    "cas", "m4w", "w4m", "w4w", "m4m", "m4c", "w4c", "msw", "wsw", "str",
+    "apa", "swp", "off", "prk", "rea", "reb", "roo", "sub", "vac", "hou", "rew",
+    "sha", "sbw",
+    "acc", "ofc", "egr", "med", "bus", "csr", "edu", "etc", "fbh", "lab", "gov",
+    "hea", "hum", "lgl", "mnu", "mar", "npo", "rej", "ret", "sls", "spa", "sci",
+    "sec", "trd", "sof", "sad", "tch", "trp", "tfr", "web", "wri", "res",
+    "cpg", "crg", "cwg", "dmg", "evg", "lbg", "tlg", "wrg",
+    "aos", "bts", "cms", "cps", "crs", "cys", "evs", "fgs", "fns", "hss", "lbs",
+    "lgs", "lss", "mas", "pas", "rts", "sks", "biz", "trv", "wet", "cfs",
+    "wan", "waa",
+})
+
+BLOCKED_TITLE_RE = re.compile(
+    r"\b(?:"
+    r"escort|hookup|sugar\s*dadd|friends with benefits|fwb|"
+    r"ready to play|looking for (?:a )?(?:man|woman|men|women|guys|gals)|"
+    r"chubby\s+girl|bbw|busty|massage(?:\s+special)?|"
+    r"activity partners?|seeking (?:a )?(?:man|woman)|"
+    r"\d{1,2}\s*[- ]?year\s*[- ]?old|"
+    r"single\s+(?:man|woman|mom|dad)|"
+    r"submissive|dominatrix|"
+    r"romantic|dating|boyfriend|girlfriend"
+    r")\b",
+    re.IGNORECASE,
+)
 
 
 def _site_base() -> str:
@@ -93,9 +153,22 @@ def _max_default() -> int:
         return 10
 
 
-def _category_from_url(url: str) -> tuple[str, str]:
+def _url_prefix(url: str) -> str:
     m = re.search(r"\.craigslist\.org/([a-z]+)/d/", url)
-    prefix = m.group(1) if m else ""
+    return m.group(1) if m else ""
+
+
+def _is_physical_product_listing(source_url: str, title: str) -> bool:
+    prefix = _url_prefix(source_url)
+    if prefix in DENIED_CL_PREFIXES:
+        return False
+    if BLOCKED_TITLE_RE.search(title or ""):
+        return False
+    return True
+
+
+def _category_from_url(url: str) -> tuple[str, str]:
+    prefix = _url_prefix(url)
     cat = CL_PREFIX_CATEGORY.get(prefix, "Other")
     return cat, prefix.upper() if prefix else "Other"
 
@@ -227,14 +300,20 @@ class CraigslistClient:
             return []
         out: list[AggregatedListing] = []
         seen: set[str] = set()
+        skipped = 0
         for chunk in RESULT_RE.findall(html):
             row = _parse_result_html(chunk, base=base)
             if row is None or row.source_listing_id in seen:
                 continue
             seen.add(row.source_listing_id)
+            if not _is_physical_product_listing(row.source_url, row.title):
+                skipped += 1
+                continue
             out.append(row)
             if len(out) >= cap:
                 break
+        if skipped:
+            log.info("Craigslist skipped %d non-product listings", skipped)
 
         if _fetch_images_enabled() and out:
             with_images = 0
