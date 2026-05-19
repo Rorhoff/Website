@@ -515,6 +515,14 @@ if _CLASSIFIEDS_ONLY:
     _CLASSIFIEDS_INDEX_PROD = (STATIC_DIR / "classifieds" / "index.html").read_text(
         encoding="utf-8"
     ).replace('<html lang="en">', '<html lang="en" data-service-mode="classifieds">', 1)
+    _CLASSIFIEDS_FAVICON = STATIC_DIR / "classifieds" / "favicon.png"
+
+    @app.get("/favicon.ico", include_in_schema=False)
+    @app.get("/favicon.png", include_in_schema=False)
+    def classifieds_favicon_root() -> FileResponse:
+        """Browsers request /favicon.ico at the site root; prod serves the SPA from `/`
+        without a `/classifieds/` prefix, so expose the icon here as well."""
+        return FileResponse(_CLASSIFIEDS_FAVICON, media_type="image/png")
 
     @app.get("/", include_in_schema=False)
     @app.get("/index.html", include_in_schema=False)
