@@ -41,7 +41,7 @@ const adContactNameInput = document.getElementById("adContactName");
 const adImagesInput = document.getElementById("adImages");
 const adsList = document.getElementById("adsList");
 const adsBrowseSection = document.getElementById("adsBrowseSection");
-const adsScopeHint = document.getElementById("adsScopeHint");
+const adsSectionTitle = document.getElementById("adsSectionTitle");
 // (adsFiltersWrap removed in prod-v1.11 — the filter controls moved into
 // #filterModal opened from the topbar filter button.)
 const homeCategoryFilter = document.getElementById("homeCategoryFilter");
@@ -433,12 +433,12 @@ async function renderAds() {
   const userRecord = getCurrentUserRecord();
   if (!userRecord || isProfileActive()) {
     adsList.innerHTML = "";
-    if (adsScopeHint) adsScopeHint.textContent = "";
     if (adsActiveFilterEl) adsActiveFilterEl.hidden = true;
     return;
   }
 
   try {
+    if (adsSectionTitle) adsSectionTitle.textContent = userRecord.state;
     const ads = await classifiedsApi("/ads");
     // NOTE: do NOT resort here. The server already returns ads in the right
     // order — active gold ads first (sorted by gold_until DESC so the freshest
@@ -477,14 +477,9 @@ async function renderAds() {
     }
 
     if (!ads.length) {
-      adsScopeHint.textContent = `Showing newest ads for ${userRecord.state}.`;
       adsList.innerHTML = `<p>No ads posted yet for ${escapeHTML(userRecord.state)}.</p>`;
       return;
     }
-    adsScopeHint.textContent =
-      selectedCategory || selectedSubCategory
-        ? `Showing ${filtered.length} ad${filtered.length === 1 ? "" : "s"} for ${userRecord.state}.`
-        : `Showing newest ads for ${userRecord.state}.`;
     if (!filtered.length) {
       const label =
         [selectedCategory, selectedSubCategory].filter(Boolean).join(" / ") || "matching";
@@ -516,7 +511,6 @@ async function renderAds() {
       .join("");
   } catch (error) {
     adsList.innerHTML = `<p class="hint">Could not load ads: ${escapeHTML(error.message)}</p>`;
-    if (adsScopeHint) adsScopeHint.textContent = "";
   }
 }
 
