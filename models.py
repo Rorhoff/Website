@@ -14,7 +14,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -114,9 +114,8 @@ class ClassifiedAd(Base):
         String(200), nullable=True, default=None
     )
     # Last gold Checkout payment snapshot (updated every successful webhook). Used to
-    # issue a partial Stripe refund only when we auto-remove the listing (report
-    # threshold) — not when the seller deletes voluntarily. Tracks the purchased
-    # time window for *that payment* only (stacked renewals overwrite this row).
+    # compute prorated card refunds when the listing is removed early (seller delete or
+    # report auto-remove). Tracks the purchased time window for *that payment* only.
     last_gold_payment_intent_id: Mapped[str | None] = mapped_column(
         String(255), nullable=True, default=None
     )
@@ -160,6 +159,33 @@ class ClassifiedAdReport(Base):
 
     __table_args__ = (
         UniqueConstraint("ad_id", "reporter_user_id", name="uq_ad_report_per_user"),
+    )
+
+
+class ClassifiedGoldRefundEvent(Base):
+    """Audit log for every Gold refund attempt (eligible, blocked, or failed).
+
+    Powers anti-abuse rate limits and support lookups. One row per attempt; Stripe
+  idempotency keys prevent double charges on retries."""
+
+    __tablename__ = "classified_gold_refund_event"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("classified_user.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    ad_id: Mapped[str] = mapped_column(String(36), index=True)
+    payment_intent_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    reason: Mapped[str] = mapped_column(String(64))
+    eligible: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    refund_cents: Mapped[int] = mapped_column(Integer, default=0)
+    blocked_reason: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    breakdown: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    stripe_refund_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    __table_args__ = (
+        Index("ix_gold_refund_user_created", "user_id", "created_at"),
     )
 
 

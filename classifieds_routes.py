@@ -536,9 +536,12 @@ def classifieds_gold_checkout(
         _session_id, url = stripe_service.create_checkout_session(
             db, ad, body.tierId, user.id
         )
-    except Exception:
-        log.exception("Stripe checkout creation failed for ad=%s tier=%s", body.adId, body.tierId)
-        raise HTTPException(status_code=500, detail="Could not start checkout.")
+    except Exception as exc:
+        log.exception(
+            "Stripe checkout creation failed for ad=%s tier=%s", body.adId, body.tierId
+        )
+        detail = stripe_service.checkout_error_detail(exc)
+        raise HTTPException(status_code=502, detail=detail) from exc
     return {"url": url}
 
 
@@ -764,6 +767,37 @@ def classifieds_get_ad(
     return payload
 
 
+@router.get("/ads/{ad_id}/gold-refund-preview")
+def classifieds_gold_refund_preview(
+    ad_id: str,
+    user: ClassifiedUser = Depends(get_current_classified_user),
+    db: Session = Depends(classifieds_db),
+):
+    """Refund breakdown shown in the delete-confirmation modal (seller delete only)."""
+    ad = db.get(ClassifiedAd, ad_id)
+    if ad is None:
+        raise HTTPException(status_code=404, detail="Ad not found")
+    if ad.user_id != user.id:
+        raise HTTPException(status_code=403, detail="You can only preview refunds for your own ads")
+    quote = stripe_service.compute_gold_refund_quote(
+        ad, reason=stripe_service.GOLD_REFUND_REASON_SELLER_DELETE
+    )
+    abuse = stripe_service.assess_gold_refund_abuse(
+        db, user.id, ad, reason=stripe_service.GOLD_REFUND_REASON_SELLER_DELETE, quote=quote
+    )
+    if abuse:
+        quote["eligible"] = False
+        quote["blocked_reason"] = abuse
+        log.info(
+            "gold_refund_preview blocked: ad=%s user=%s reason=%s abuse=%s",
+            ad_id,
+            user.id,
+            abuse,
+            quote.get("breakdown"),
+        )
+    return stripe_service.refund_quote_to_api(quote)
+
+
 @router.delete("/ads/{ad_id}")
 def classifieds_delete_my_ad(
     ad_id: str,
@@ -776,9 +810,25 @@ def classifieds_delete_my_ad(
         raise HTTPException(status_code=404, detail="Ad not found")
     if ad.user_id != user.id:
         raise HTTPException(status_code=403, detail="You can only delete your own ads")
+    rf_log = stripe_service.refund_prorated_gold_for_seller_delete(ad, db, user.id)
+    log.info(
+        "gold refund after seller delete: ad=%s eligible=%s refund_cents=%s blocked=%s stripe_ref=%s err=%s breakdown=%s",
+        ad_id,
+        rf_log.get("eligible"),
+        rf_log.get("refund_cents"),
+        rf_log.get("blocked_reason"),
+        rf_log.get("stripe_refund_id"),
+        rf_log.get("error"),
+        rf_log.get("breakdown"),
+    )
     db.delete(ad)
     db.commit()
-    return {"ok": True, "id": ad_id}
+    out: dict[str, Any] = {"ok": True, "id": ad_id}
+    if rf_log.get("refund_cents"):
+        out["goldRefundCents"] = rf_log["refund_cents"]
+    if rf_log.get("blocked_reason"):
+        out["goldRefundBlocked"] = rf_log["blocked_reason"]
+    return out
 
 
 @router.post("/ads/{ad_id}/report")
@@ -862,7 +912,9 @@ def classifieds_report_ad(
         # instance — we still need Stripe snapshot columns intact.
         ad_for_refund = db.get(ClassifiedAd, ad_id)
         if ad_for_refund is not None:
-            rf_log = stripe_service.refund_prorated_gold_for_platform_removal(ad_for_refund)
+            rf_log = stripe_service.refund_prorated_gold_for_platform_removal(
+                ad_for_refund, db
+            )
             if rf_log.get("attempted"):
                 log.info(
                     "gold refund after auto-remove: ad=%s eligible=%s refund_cents=%s stripe_ref=%s err=%s",

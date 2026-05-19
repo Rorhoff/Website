@@ -126,6 +126,60 @@
     .boost-tier-btn.is-loading { opacity: 0.6; cursor: progress; transform: none; }
     .boost-tier-label { font-weight: 600; color: #422006; }
     .boost-tier-price { font-weight: 700; color: #1e293b; }
+
+    .delete-modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.55);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 210;
+      padding: 1rem;
+    }
+    .delete-modal-backdrop[hidden] { display: none; }
+    .delete-modal {
+      background: #fff;
+      border-radius: 12px;
+      max-width: 440px;
+      width: 100%;
+      padding: 1.25rem 1.5rem 1.5rem;
+      box-shadow: 0 20px 50px rgba(15, 23, 42, 0.25);
+      font-family: "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+    }
+    .delete-modal h3 { margin: 0 0 0.35rem; color: #1e293b; }
+    .delete-refund-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.9rem;
+      margin: 0.75rem 0 0.5rem;
+    }
+    .delete-refund-table td {
+      padding: 0.35rem 0;
+      border-bottom: 1px solid #e8eef4;
+    }
+    .delete-refund-table td:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+    .delete-refund-total td {
+      font-weight: 700;
+      border-bottom: 0;
+      padding-top: 0.5rem;
+      color: #166534;
+    }
+    .delete-refund-blocked {
+      margin: 0.75rem 0 0;
+      padding: 0.65rem 0.75rem;
+      background: #fef3c7;
+      border-radius: 8px;
+      font-size: 0.88rem;
+      color: #92400e;
+    }
+    .delete-modal-actions {
+      display: flex;
+      gap: 0.5rem;
+      justify-content: flex-end;
+      margin-top: 1rem;
+    }
+    .delete-modal-actions .my-ad-delete { margin: 0; }
     .site-nav a {
       color: #64748b;
       text-decoration: none;
@@ -487,6 +541,18 @@
     </div>
   </div>
 
+  <div id="deleteAdModal" class="delete-modal-backdrop" hidden>
+    <div class="delete-modal" role="dialog" aria-labelledby="deleteAdModalTitle">
+      <h3 id="deleteAdModalTitle">Delete this ad?</h3>
+      <p class="hint">This cannot be undone.</p>
+      <div id="deleteAdRefundBreakdown" hidden></div>
+      <div class="delete-modal-actions">
+        <button id="deleteAdCancelBtn" type="button" class="secondary">Cancel</button>
+        <button id="deleteAdConfirmBtn" type="button" class="my-ad-delete">Delete permanently</button>
+      </div>
+    </div>
+  </div>
+
   <div id="resetModal" class="modal-backdrop" hidden>
     <div class="modal-card">
       <h3>Reset Password</h3>
@@ -502,7 +568,7 @@
 
   <div id="toast" class="toast" hidden></div>
   <script src="/classifieds/cities.js?v=2026-05-18n"></script>
-  <script src="/classifieds/app.js?v=2026-05-18p"></script>
+  <script src="/classifieds/app.js?v=2026-05-19-refund-v2"></script>
   <script src="/assets/nav-mobile.js"></script>
 </body>
 </html>

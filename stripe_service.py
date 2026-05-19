@@ -12,7 +12,8 @@ Endpoints (in classifieds_routes.py):
 - POST /api/classifieds/gold/checkout  → creates a Stripe Checkout session
 - POST /api/classifieds/gold/webhook   → activates gold on payment confirmation
 
-Prorated partial refunds after platform auto-removals (report threshold): see `refund_prorated_gold_for_platform_removal`.
+Gold refunds on early removal (seller delete or report auto-remove): see
+`compute_gold_refund_quote` and `refund_prorated_gold_for_ad_removal`.
 
 Env vars (set in .env.prod; never log or commit):
 - STRIPE_SECRET_KEY:       sk_test_... or sk_live_...
@@ -25,6 +26,7 @@ Test mode: use card 4242 4242 4242 4242, any future expiry, any CVC.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from dataclasses import dataclass
@@ -34,7 +36,7 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from models import ClassifiedAd
+from models import ClassifiedAd, ClassifiedGoldRefundEvent
 
 log = logging.getLogger("webapi-testing")
 
@@ -48,6 +50,24 @@ GOLD_TIERS: tuple[tuple[str, str, int, int], ...] = (
 )
 _TIERS_BY_ID = {t[0]: t for t in GOLD_TIERS}
 
+# --- Gold refund policy (card refunds) ------------------------------------------------
+
+STRIPE_CARD_FEE_RATE = 0.029
+STRIPE_CARD_FEE_FIXED_CENTS = 30
+STRIPE_CARD_FEE_LABEL = "2.9% + $0.30"
+MIN_REFUND_CENTS = 100  # $1.00 — do not issue smaller card refunds
+
+# Seller-delete anti-abuse (violation auto-remove uses looser rules).
+SELLER_REFUND_MIN_GOLD_AGE = timedelta(minutes=15)
+SELLER_REFUND_MAX_PER_24H = 5
+
+# Stripe metadata / idempotency reason tokens (stable — do not rename casually).
+_GOLD_REFUND_REASON_SELLER_DELETE = "seller_delete_pro_rata"
+_GOLD_REFUND_REASON_AUTO_REMOVE = "auto_removed_reports_pro_rata"
+
+GOLD_REFUND_REASON_SELLER_DELETE = _GOLD_REFUND_REASON_SELLER_DELETE
+GOLD_REFUND_REASON_AUTO_REMOVE = _GOLD_REFUND_REASON_AUTO_REMOVE
+
 
 def tier_info(tier_id: str) -> tuple[str, int, int] | None:
     """Return (label, days, base_price_usd) or None if tier_id is unknown."""
@@ -59,16 +79,6 @@ def tier_info(tier_id: str) -> tuple[str, int, int] | None:
 
 
 # --- Surge pricing -------------------------------------------------------------------
-
-# (max_active_inclusive, multiplier). Looked up by walking the list; first hit wins.
-# Tune freely — only affects new checkouts; existing gold ads keep what they paid.
-_SURGE_TIERS: tuple[tuple[int, float], ...] = (
-    (1, 1.0),
-    (3, 1.5),
-    (6, 2.0),
-    (10, 3.0),
-)
-_SURGE_OVER_CAP = 5.0  # applied to anything beyond the last tier's max
 
 
 def _surge_multiplier(active_count: int) -> float:
@@ -127,6 +137,16 @@ def quote_gold(db: Session, ad: ClassifiedAd, tier_id: str) -> GoldQuote:
     )
 
 
+# (max_active_inclusive, multiplier). Looked up by walking the list; first hit wins.
+_SURGE_TIERS: tuple[tuple[int, float], ...] = (
+    (1, 1.0),
+    (3, 1.5),
+    (6, 2.0),
+    (10, 3.0),
+)
+_SURGE_OVER_CAP = 5.0  # applied to anything beyond the last tier's max
+
+
 # --- Stripe SDK glue (lazy import so the app boots without the package in dev) -------
 
 
@@ -148,6 +168,20 @@ def _stripe_client() -> Any:
 def publishable_key() -> str | None:
     """Safe to expose to the browser. Returns None if not configured."""
     return os.getenv("STRIPE_PUBLISHABLE_KEY") or None
+
+
+def checkout_error_detail(exc: BaseException) -> str:
+    """User-facing message for checkout failures (Stripe errors are usually actionable)."""
+    try:
+        import stripe  # type: ignore[import-not-found]
+
+        if isinstance(exc, stripe.error.StripeError):
+            msg = getattr(exc, "user_message", None) or str(exc)
+            if msg:
+                return msg
+    except ImportError:
+        pass
+    return "Could not start checkout."
 
 
 def create_checkout_session(
@@ -190,7 +224,6 @@ def create_checkout_session(
             "user_id": str(user_id),
             "days": str(quote.days),
         },
-        # Surfaces in the Stripe Dashboard listing.
         client_reference_id=f"ad:{ad.id}:tier:{tier_id}",
     )
     return (session.id, session.url)
@@ -198,70 +231,48 @@ def create_checkout_session(
 
 def verify_webhook(payload: bytes, signature_header: str) -> Any:
     """Validate the Stripe webhook signature and return the parsed event. Raises
-    stripe.error.SignatureVerificationError on tampering — let it propagate to a 400."""
+    stripe.error.SignatureVerificationError on failure."""
     if not stripe_enabled():
         raise RuntimeError("Stripe is not configured.")
     stripe = _stripe_client()
-    secret = os.environ["STRIPE_WEBHOOK_SECRET"]
-    return stripe.Webhook.construct_event(payload, signature_header, secret)
+    return stripe.Webhook.construct_event(
+        payload, signature_header, os.environ["STRIPE_WEBHOOK_SECRET"]
+    )
 
 
 def _safe_get(obj: Any, key: str) -> Any:
-    """Stripe-python's StripeObject overrides __getattr__ such that .get(...) is treated as
-    a dict-key lookup ('get') rather than a method, raising AttributeError. Always use
-    bracket-style access via this helper, which catches KeyError so optional keys don't
-    crash the webhook handler."""
-    try:
-        return obj[key]
-    except (KeyError, TypeError):
+    if obj is None:
         return None
+    if isinstance(obj, dict):
+        return obj.get(key)
+    return getattr(obj, key, None)
 
 
-def apply_completed_checkout(db: Session, event: Any) -> str | None:
-    """Webhook handler: marks the ad gold for `days` after now. Idempotent — replaying
-    the same event is a no-op. Returns the ad_id on success, None if the event isn't a
-    successful checkout we care about."""
-    if _safe_get(event, "type") != "checkout.session.completed":
+def apply_completed_checkout(db: Session, session: Any) -> str | None:
+    """Activate gold on a paid Checkout session. Returns ad_id or None."""
+    ad_id = _safe_get(_safe_get(session, "metadata"), "ad_id")
+    if not ad_id:
         return None
-    session = event["data"]["object"]
-    session_id = _safe_get(session, "id") or ""
-    # Only fully-paid sessions activate gold — skip async unpaid ones (e.g. ACH pending).
-    if _safe_get(session, "payment_status") != "paid":
-        log.info(
-            "Stripe checkout %s not yet paid (status=%s); skipping",
-            session_id,
-            _safe_get(session, "payment_status"),
-        )
-        return None
-    meta = _safe_get(session, "metadata") or {}
-    ad_id = _safe_get(meta, "ad_id")
-    days_str = _safe_get(meta, "days")
-    if not ad_id or not days_str:
-        log.warning("Stripe checkout %s missing metadata: %r", session_id, dict(meta) if meta else {})
-        return None
+    session_id = _safe_get(session, "id")
+    days_raw = _safe_get(_safe_get(session, "metadata"), "days")
     try:
-        days = int(days_str)
-    except ValueError:
-        log.warning("Stripe checkout %s bad days metadata: %r", session_id, days_str)
+        days = int(days_raw) if days_raw is not None else 0
+    except (TypeError, ValueError):
+        days = 0
+    if days <= 0:
         return None
     ad = db.get(ClassifiedAd, ad_id)
     if ad is None:
         log.warning("Stripe checkout %s referenced missing ad %s", session_id, ad_id)
         return None
-    # Idempotency: same session id replayed → no-op.
     if ad.stripe_session_id == session_id:
         log.info("Stripe checkout %s already applied to ad %s", session_id, ad_id)
         return ad_id
-    # Extend from now (or from current gold_until if still active, so back-to-back boosts
-    # stack instead of overlap).
     now = datetime.utcnow()
     base = ad.gold_until if ad.gold_until and ad.gold_until > now else now
     window_end = base + timedelta(days=days)
     ad.gold_until = window_end
     ad.stripe_session_id = session_id
-    # Snapshot the paid window + charge for automated prorated refunds if we ever
-    # auto-remove this listing before window_end (report threshold). Seller-initiated
-    # deletes deliberately do NOT trigger this path — see classify gold-policy.html.
     pi_raw = _safe_get(session, "payment_intent")
     pi_id: str | None = None
     if isinstance(pi_raw, dict):
@@ -281,25 +292,47 @@ def apply_completed_checkout(db: Session, event: Any) -> str | None:
     return ad_id
 
 
-def refund_prorated_gold_for_platform_removal(ad: ClassifiedAd) -> dict[str, Any]:
-    """Issue a best-effort **partial** refund for unused gold time after the marketplace
-    auto-removes a listing (e.g. repeated reports). Sellers who delete their own ads do
-    not hit this helper — see footer policy page.
+# --- Gold refund math + abuse ---------------------------------------------------------
 
-    Returns a small dict suitable for structured logging (attempted, refund cents, refund
-    id, error string). Stripe failures never raise — callers still delete the ad so an
-    abusive listing does not linger; ops can reconcile from logs / Dashboard."""
 
-    outcome: dict[str, Any] = {
-        "attempted": False,
+def _stripe_fee_cents(gross_paid_cents: int) -> int:
+    """Full original card processing fee (2.9% + $0.30), rounded to nearest cent."""
+    return int(round(gross_paid_cents * STRIPE_CARD_FEE_RATE + STRIPE_CARD_FEE_FIXED_CENTS))
+
+
+def _day_fractions(
+    window_start: datetime, window_end: datetime, now: datetime
+) -> tuple[float, float, float]:
+    """Return (total_days, days_used, days_remaining) as fractional days from UTC window."""
+    total_sec = max((window_end - window_start).total_seconds(), 0.0)
+    if total_sec <= 0:
+        return (0.0, 0.0, 0.0)
+    used_sec = max(min((now - window_start).total_seconds(), total_sec), 0.0)
+    remaining_sec = max(total_sec - used_sec, 0.0)
+    sec_per_day = 86400.0
+    return (
+        total_sec / sec_per_day,
+        used_sec / sec_per_day,
+        remaining_sec / sec_per_day,
+    )
+
+
+def compute_gold_refund_quote(ad: ClassifiedAd, *, reason: str) -> dict[str, Any]:
+    """Compute refund eligibility and a full fee breakdown (no Stripe API call).
+
+    Seller delete: prorate net-after-fee by **days remaining**.
+    Violation auto-remove: prorate by **days used** (subtract used-day value from net pool).
+
+    The full original Stripe fee is always deducted from the gross payment before proration.
+    """
+
+    quote: dict[str, Any] = {
         "eligible": False,
         "refund_cents": 0,
-        "stripe_refund_id": None,
-        "error": None,
+        "blocked_reason": None,
+        "reason": reason,
+        "breakdown": None,
     }
-
-    if not stripe_enabled():
-        return outcome
 
     pi = getattr(ad, "last_gold_payment_intent_id", None) or ""
     cents_paid = getattr(ad, "last_gold_payment_cents", None)
@@ -307,60 +340,282 @@ def refund_prorated_gold_for_platform_removal(ad: ClassifiedAd) -> dict[str, Any
     we = getattr(ad, "last_gold_window_end", None)
 
     if not pi:
+        quote["blocked_reason"] = "no_payment_snapshot"
         log.info(
-            "Gold refund skipped — no PaymentIntent snapshot (legacy ad?): ad=%s", ad.id
+            "gold_refund_quote: ad=%s reason=%s blocked=no_payment_snapshot",
+            ad.id,
+            reason,
         )
-        return outcome
+        return quote
 
     if not isinstance(cents_paid, int) or cents_paid <= 0:
-        log.warning("Gold refund skipped — bad cents snapshot=%r ad=%s", cents_paid, ad.id)
-        return outcome
+        quote["blocked_reason"] = "invalid_payment_amount"
+        log.warning(
+            "gold_refund_quote: ad=%s reason=%s blocked=invalid_payment_amount cents=%r",
+            ad.id,
+            reason,
+            cents_paid,
+        )
+        return quote
 
     if ws is None or we is None or we <= ws:
+        quote["blocked_reason"] = "invalid_gold_window"
         log.warning(
-            "Gold refund skipped — bad window start=%s end=%s ad=%s", ws, we, ad.id
+            "gold_refund_quote: ad=%s reason=%s blocked=invalid_gold_window ws=%s we=%s",
+            ad.id,
+            reason,
+            ws,
+            we,
         )
-        return outcome
+        return quote
 
     now = datetime.utcnow()
     if now >= we:
+        quote["blocked_reason"] = "gold_expired"
         log.info(
-            "Gold refund skipped — listing removed after gold expiry (no unused time): ad=%s",
+            "gold_refund_quote: ad=%s reason=%s blocked=gold_expired",
             ad.id,
+            reason,
+        )
+        return quote
+
+    total_days, days_used, days_remaining = _day_fractions(ws, we, now)
+    if total_days <= 0:
+        quote["blocked_reason"] = "zero_window"
+        return quote
+
+    gross_paid_cents = cents_paid
+    stripe_fee_cents = _stripe_fee_cents(gross_paid_cents)
+    net_after_fee_cents = max(gross_paid_cents - stripe_fee_cents, 0)
+
+    if reason == _GOLD_REFUND_REASON_SELLER_DELETE:
+        proration_basis = "days_remaining"
+        ratio = days_remaining / total_days
+        prorated_cents = int(round(net_after_fee_cents * ratio))
+    elif reason == _GOLD_REFUND_REASON_AUTO_REMOVE:
+        proration_basis = "days_used"
+        used_value_cents = int(round(net_after_fee_cents * (days_used / total_days)))
+        prorated_cents = max(net_after_fee_cents - used_value_cents, 0)
+        ratio = prorated_cents / net_after_fee_cents if net_after_fee_cents else 0.0
+    else:
+        quote["blocked_reason"] = "unknown_reason"
+        return quote
+
+    prorated_cents = min(prorated_cents, net_after_fee_cents)
+    refund_cents = prorated_cents
+
+    breakdown = {
+        "gross_paid_cents": gross_paid_cents,
+        "stripe_fee_cents": stripe_fee_cents,
+        "stripe_fee_label": STRIPE_CARD_FEE_LABEL,
+        "net_after_fee_cents": net_after_fee_cents,
+        "total_days": round(total_days, 2),
+        "days_used": round(days_used, 2),
+        "days_remaining": round(days_remaining, 2),
+        "proration_basis": proration_basis,
+        "proration_ratio": round(ratio, 4),
+        "prorated_refund_cents": prorated_cents,
+        "minimum_refund_cents": MIN_REFUND_CENTS,
+    }
+    quote["breakdown"] = breakdown
+
+    if refund_cents < MIN_REFUND_CENTS:
+        quote["blocked_reason"] = "below_minimum_refund"
+        log.info(
+            "gold_refund_quote: ad=%s reason=%s blocked=below_minimum refund_cents=%s breakdown=%s",
+            ad.id,
+            reason,
+            refund_cents,
+            json.dumps(breakdown, default=str),
+        )
+        return quote
+
+    quote["eligible"] = True
+    quote["refund_cents"] = refund_cents
+    log.info(
+        "gold_refund_quote: ad=%s reason=%s eligible refund_cents=%s breakdown=%s",
+        ad.id,
+        reason,
+        refund_cents,
+        json.dumps(breakdown, default=str),
+    )
+    return quote
+
+
+def assess_gold_refund_abuse(
+    db: Session,
+    user_id: int,
+    ad: ClassifiedAd,
+    *,
+    reason: str,
+    quote: dict[str, Any],
+) -> str | None:
+    """Return a blocked_reason token if anti-abuse rules fail, else None."""
+
+    if not quote.get("eligible"):
+        return None
+
+    if reason == _GOLD_REFUND_REASON_SELLER_DELETE:
+        ws = ad.last_gold_window_start
+        if ws is not None:
+            age = datetime.utcnow() - ws
+            if age < SELLER_REFUND_MIN_GOLD_AGE:
+                log.warning(
+                    "gold_refund_abuse: user=%s ad=%s blocked=gold_too_new age_sec=%.0f",
+                    user_id,
+                    ad.id,
+                    age.total_seconds(),
+                )
+                return "gold_purchase_too_recent"
+
+        since = datetime.utcnow() - timedelta(hours=24)
+        recent = db.scalar(
+            select(func.count())
+            .select_from(ClassifiedGoldRefundEvent)
+            .where(
+                ClassifiedGoldRefundEvent.user_id == user_id,
+                ClassifiedGoldRefundEvent.reason == _GOLD_REFUND_REASON_SELLER_DELETE,
+                ClassifiedGoldRefundEvent.refund_cents > 0,
+                ClassifiedGoldRefundEvent.created_at >= since,
+            )
+        )
+        if recent and int(recent) >= SELLER_REFUND_MAX_PER_24H:
+            log.warning(
+                "gold_refund_abuse: user=%s ad=%s blocked=rate_limit count_24h=%s",
+                user_id,
+                ad.id,
+                recent,
+            )
+            return "refund_rate_limit"
+
+        dup = db.scalar(
+            select(func.count())
+            .select_from(ClassifiedGoldRefundEvent)
+            .where(
+                ClassifiedGoldRefundEvent.ad_id == ad.id,
+                ClassifiedGoldRefundEvent.payment_intent_id
+                == (ad.last_gold_payment_intent_id or ""),
+                ClassifiedGoldRefundEvent.refund_cents > 0,
+            )
+        )
+        if dup and int(dup) > 0:
+            log.warning(
+                "gold_refund_abuse: user=%s ad=%s blocked=duplicate_refund pi=%s",
+                user_id,
+                ad.id,
+                ad.last_gold_payment_intent_id,
+            )
+            return "already_refunded"
+
+    return None
+
+
+def record_gold_refund_event(
+    db: Session,
+    *,
+    user_id: int | None,
+    ad_id: str,
+    payment_intent_id: str | None,
+    reason: str,
+    quote: dict[str, Any],
+    stripe_refund_id: str | None = None,
+    abuse_blocked: str | None = None,
+) -> None:
+    """Persist an audit row for every refund attempt (eligible or blocked)."""
+    blocked = abuse_blocked or quote.get("blocked_reason")
+    row = ClassifiedGoldRefundEvent(
+        user_id=user_id,
+        ad_id=ad_id,
+        payment_intent_id=payment_intent_id,
+        reason=reason,
+        eligible=bool(quote.get("eligible") and not abuse_blocked),
+        refund_cents=int(quote.get("refund_cents") or 0),
+        blocked_reason=blocked,
+        breakdown=quote.get("breakdown"),
+        stripe_refund_id=stripe_refund_id,
+    )
+    db.add(row)
+    log.info(
+        "gold_refund_event: user=%s ad=%s reason=%s eligible=%s refund_cents=%s blocked=%s stripe_refund=%s",
+        user_id,
+        ad_id,
+        reason,
+        row.eligible,
+        row.refund_cents,
+        blocked,
+        stripe_refund_id,
+    )
+
+
+def refund_prorated_gold_for_ad_removal(
+    ad: ClassifiedAd, *, reason: str, db: Session, user_id: int | None = None
+) -> dict[str, Any]:
+    """Issue a best-effort partial refund when a listing is removed before gold expires."""
+
+    outcome: dict[str, Any] = {
+        "attempted": False,
+        "eligible": False,
+        "refund_cents": 0,
+        "stripe_refund_id": None,
+        "error": None,
+        "reason": reason,
+        "blocked_reason": None,
+        "breakdown": None,
+    }
+
+    if not stripe_enabled():
+        log.info("gold_refund_skip: ad=%s reason=%s stripe_disabled", ad.id, reason)
+        return outcome
+
+    quote = compute_gold_refund_quote(ad, reason=reason)
+    outcome["breakdown"] = quote.get("breakdown")
+    outcome["blocked_reason"] = quote.get("blocked_reason")
+
+    uid = user_id if user_id is not None else ad.user_id
+    abuse = None
+    if uid is not None:
+        abuse = assess_gold_refund_abuse(db, uid, ad, reason=reason, quote=quote)
+    if abuse:
+        outcome["blocked_reason"] = abuse
+        record_gold_refund_event(
+            db,
+            user_id=uid,
+            ad_id=ad.id,
+            payment_intent_id=ad.last_gold_payment_intent_id,
+            reason=reason,
+            quote=quote,
+            abuse_blocked=abuse,
         )
         return outcome
 
-    total_sec = (we - ws).total_seconds()
-    unused_sec = (we - now).total_seconds()
-    if total_sec <= 0 or unused_sec <= 0:
+    if not quote.get("eligible"):
+        record_gold_refund_event(
+            db,
+            user_id=uid,
+            ad_id=ad.id,
+            payment_intent_id=ad.last_gold_payment_intent_id,
+            reason=reason,
+            quote=quote,
+        )
         return outcome
 
+    refund_cents = int(quote["refund_cents"])
+    pi = ad.last_gold_payment_intent_id or ""
     outcome["eligible"] = True
-
-    refund_cents = int((cents_paid * unused_sec) / total_sec)
-    # Never refund less than one cent unless rounding killed it; never more than captured.
-    if refund_cents < 1:
-        log.info(
-            "Gold refund skipped — prorated rounded to zero (ad=%s paid_cents=%d unused_sec=%s)",
-            ad.id,
-            cents_paid,
-            unused_sec,
-        )
-        return outcome
-    if refund_cents > cents_paid:
-        refund_cents = cents_paid
 
     try:
         stripe = _stripe_client()
         outcome["attempted"] = True
-        # Stable idempotency key so Stripe replays don't double-refund during rare retries.
-        idem = f"t1-auto-remove-{ad.id}-{pi}"[:245]
+        idem = f"t1-gold-refund-{reason}-{ad.id}-{pi}"[:245]
+        bd = quote.get("breakdown") or {}
         rf = stripe.Refund.create(
             payment_intent=pi,
             amount=refund_cents,
             metadata={
-                "t1classifieds_reason": "auto_removed_reports_pro_rata",
+                "t1classifieds_reason": reason,
                 "ad_id": str(ad.id),
+                "proration_basis": str(bd.get("proration_basis", "")),
+                "stripe_fee_cents": str(bd.get("stripe_fee_cents", "")),
             },
             idempotency_key=idem,
         )
@@ -368,16 +623,81 @@ def refund_prorated_gold_for_platform_removal(ad: ClassifiedAd) -> dict[str, Any
         outcome["stripe_refund_id"] = rf_id or None
         outcome["refund_cents"] = refund_cents
         log.info(
-            "Gold pro-rata refund ok: ad=%s refund_cents=%s stripe_refund=%s",
+            "gold_refund_stripe_ok: ad=%s reason=%s refund_cents=%s stripe_refund=%s breakdown=%s",
             ad.id,
+            reason,
             refund_cents,
             outcome["stripe_refund_id"],
+            json.dumps(bd, default=str),
+        )
+        record_gold_refund_event(
+            db,
+            user_id=uid,
+            ad_id=ad.id,
+            payment_intent_id=pi,
+            reason=reason,
+            quote=quote,
+            stripe_refund_id=outcome["stripe_refund_id"],
         )
     except Exception as exc:
         outcome["attempted"] = True
         outcome["error"] = repr(exc)
         log.exception(
-            "Gold pro-rata refund FAILED (ad removed anyway): ad=%s exc=%s", ad.id, exc
+            "gold_refund_stripe_fail: ad=%s reason=%s refund_cents=%s",
+            ad.id,
+            reason,
+            refund_cents,
+        )
+        record_gold_refund_event(
+            db,
+            user_id=uid,
+            ad_id=ad.id,
+            payment_intent_id=pi,
+            reason=reason,
+            quote=quote,
         )
 
     return outcome
+
+
+def refund_prorated_gold_for_platform_removal(
+    ad: ClassifiedAd, db: Session
+) -> dict[str, Any]:
+    return refund_prorated_gold_for_ad_removal(
+        ad, reason=_GOLD_REFUND_REASON_AUTO_REMOVE, db=db, user_id=ad.user_id
+    )
+
+
+def refund_prorated_gold_for_seller_delete(
+    ad: ClassifiedAd, db: Session, user_id: int
+) -> dict[str, Any]:
+    return refund_prorated_gold_for_ad_removal(
+        ad, reason=_GOLD_REFUND_REASON_SELLER_DELETE, db=db, user_id=user_id
+    )
+
+
+def refund_quote_to_api(quote: dict[str, Any]) -> dict[str, Any]:
+    """CamelCase refund preview payload for the SPA."""
+    bd = quote.get("breakdown")
+    out: dict[str, Any] = {
+        "eligible": bool(quote.get("eligible")),
+        "refundCents": int(quote.get("refund_cents") or 0),
+        "blockedReason": quote.get("blocked_reason"),
+        "reason": quote.get("reason"),
+    }
+    if not bd:
+        return out
+    out["breakdown"] = {
+        "grossPaidCents": bd["gross_paid_cents"],
+        "stripeFeeCents": bd["stripe_fee_cents"],
+        "stripeFeeLabel": bd["stripe_fee_label"],
+        "netAfterFeeCents": bd["net_after_fee_cents"],
+        "totalDays": bd["total_days"],
+        "daysUsed": bd["days_used"],
+        "daysRemaining": bd["days_remaining"],
+        "prorationBasis": bd["proration_basis"],
+        "prorationRatio": bd["proration_ratio"],
+        "proratedRefundCents": bd["prorated_refund_cents"],
+        "minimumRefundCents": bd["minimum_refund_cents"],
+    }
+    return out

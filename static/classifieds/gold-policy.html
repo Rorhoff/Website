@@ -97,19 +97,19 @@
     </section>
 
     <section class="safety-card">
-      <h2>If <em>you</em> delete the listing early</h2>
+      <h2>If your listing is removed before Gold expires</h2>
       <p>
-        <strong>No automatic refund.</strong> When you voluntarily remove your ad (including from My Ads), unused Gold time is forfeited &mdash; the same way you don&apos;t get a rebate for cancelling a billboard early after it already ran most of its term.
+        Whether <strong>you</strong> delete the ad from My Ads or we <strong>auto-remove</strong> it after repeated reports, we may issue a <strong>prorated partial refund</strong> through Stripe on your <strong>most recent Gold purchase</strong> for that listing.
       </p>
-    </section>
-
-    <section class="safety-card">
-      <h2>If we auto-remove your listing before Gold expires</h2>
+      <ul>
+        <li><strong>You delete:</strong> refund is based on <strong>days remaining</strong> in the active Gold window.</li>
+        <li><strong>We auto-remove (reports):</strong> refund is based on <strong>days already used</strong> &mdash; we subtract the value of time you consumed from the refundable pool.</li>
+      </ul>
       <p>
-        When multiple independent users report your listing and it hits our automated removal threshold, we consider that a marketplace safety action beyond your control. In that scenario we initiate a <strong>prorated partial refund</strong> through Stripe on the payment that funded your <strong>most recent Gold purchase</strong> for that listing, based only on unused time left in <em>that</em> purchased window &mdash; not earlier stacked renewals paid on the same listing.
+        In both cases we first deduct the <strong>full original card processing fee</strong> (2.9% + $0.30) from what you paid, then prorate the remainder. We do not issue refunds below <strong>$1.00</strong>. The delete confirmation modal shows the full breakdown before you confirm.
       </p>
       <p>
-        Stripe posts the payout per their timing; Stripe&apos;s retained processing fees aren&apos;t always returned in full, which mirrors how card networks behave industry-wide for partial refunds.
+        Stripe posts the payout per their timing; processing fees are not returned on partial refunds.
       </p>
     </section>
 
@@ -117,9 +117,10 @@
       <h2>When no refund fires</h2>
       <ul>
         <li>Gold expired before removal (nothing unused).</li>
-        <li>Legacy boosts purchased before our system stored Stripe payment snapshots &mdash; we still remove bad listings but can&apos;t auto-refund programmatically.</li>
-        <li>Proration rounds below one cent.</li>
-        <li>If Stripe rejects the payout for any technical reason &mdash; the listing comes down anyway because it tripped removals; retain your confirmation email so support can escalate with Stripe Dashboard evidence.</li>
+        <li>Legacy boosts purchased before our system stored Stripe payment snapshots.</li>
+        <li>Prorated amount is below the $1.00 minimum.</li>
+        <li>Seller delete within 15 minutes of Gold activation, more than five seller refunds in 24 hours, or other anti-abuse limits.</li>
+        <li>Stripe rejects the payout for a technical reason &mdash; retain your confirmation email for support.</li>
       </ul>
     </section>
 

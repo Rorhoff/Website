@@ -20,6 +20,11 @@ const postAdSection = document.getElementById("postAdSection");
 const myAdsSection = document.getElementById("myAdsSection");
 const myAdsList = document.getElementById("myAdsList");
 const myAdsHint = document.getElementById("myAdsHint");
+const deleteAdModal = document.getElementById("deleteAdModal");
+const deleteAdRefundBreakdown = document.getElementById("deleteAdRefundBreakdown");
+const deleteAdCancelBtn = document.getElementById("deleteAdCancelBtn");
+const deleteAdConfirmBtn = document.getElementById("deleteAdConfirmBtn");
+let pendingDeleteAdId = null;
 const refreshMyAdsBtn = document.getElementById("refreshMyAdsBtn");
 const profileTabsNav = document.getElementById("profileTabs");
 const profileTabButtons = profileTabsNav
@@ -735,19 +740,10 @@ if (myAdsList) {
     if (!btn) return;
     const adId = btn.dataset.adId;
     if (!adId) return;
-    if (!window.confirm("Delete this ad? This cannot be undone.")) return;
-    btn.disabled = true;
-    btn.textContent = "Deleting…";
-    try {
-      await classifiedsApi(`/ads/${encodeURIComponent(adId)}`, { method: "DELETE" });
-      await renderMyAds();
-      await renderAds(); // browse list may have included this ad too
-      showToast("Ad deleted.");
-    } catch (error) {
-      btn.disabled = false;
-      btn.textContent = "Delete";
-      showToast(error.message || "Could not delete ad.");
-    }
+    event.stopPropagation();
+    openDeleteAdModal(adId).catch(() => {
+      showToast("Could not open delete dialog.");
+    });
   });
 }
 
@@ -1263,6 +1259,135 @@ function goldBadgeHTML(ad) {
 
 function formatUSD(cents) {
   return `$${(cents / 100).toFixed(2)}`;
+}
+
+const GOLD_REFUND_BLOCK_MESSAGES = {
+  below_minimum_refund: "The prorated refund would be under $1.00, so no card refund is issued.",
+  gold_purchase_too_recent:
+    "Gold was activated recently. Wait at least 15 minutes after boosting before a refund-eligible delete.",
+  refund_rate_limit: "Too many Gold refunds on your account in the last 24 hours.",
+  already_refunded: "This Gold purchase was already refunded.",
+  no_payment_snapshot: "No refundable Gold payment is on file for this ad.",
+  gold_expired: "Gold has already expired on this ad.",
+};
+
+function goldRefundBlockedMessage(code) {
+  if (!code) return "No Gold refund applies to this deletion.";
+  return GOLD_REFUND_BLOCK_MESSAGES[code] || `No refund: ${code}`;
+}
+
+function renderDeleteRefundBreakdown(preview) {
+  if (!deleteAdRefundBreakdown) return;
+  const bd = preview?.breakdown;
+  if (!bd) {
+    deleteAdRefundBreakdown.hidden = true;
+    deleteAdRefundBreakdown.innerHTML = "";
+    return;
+  }
+  if (!preview.eligible) {
+    deleteAdRefundBreakdown.hidden = false;
+    deleteAdRefundBreakdown.innerHTML = `<p class="delete-refund-blocked">${escapeHTML(
+      goldRefundBlockedMessage(preview.blockedReason)
+    )}</p>`;
+    return;
+  }
+  const basisLabel =
+    bd.prorationBasis === "days_remaining"
+      ? `Prorated by ${bd.daysRemaining} of ${bd.totalDays} days remaining`
+      : `Prorated excluding ${bd.daysUsed} of ${bd.totalDays} days used`;
+  deleteAdRefundBreakdown.hidden = false;
+  deleteAdRefundBreakdown.innerHTML = `
+    <p class="hint" style="margin:0.5rem 0 0;">Gold refund estimate (card):</p>
+    <table class="delete-refund-table" aria-label="Gold refund breakdown">
+      <tbody>
+        <tr><td>Gold payment</td><td>${formatUSD(bd.grossPaidCents)}</td></tr>
+        <tr><td>Stripe processing fee (${escapeHTML(bd.stripeFeeLabel)})</td><td>−${formatUSD(bd.stripeFeeCents)}</td></tr>
+        <tr><td>Refundable pool</td><td>${formatUSD(bd.netAfterFeeCents)}</td></tr>
+        <tr><td>${escapeHTML(basisLabel)}</td><td></td></tr>
+        <tr class="delete-refund-total"><td>Estimated refund</td><td>${formatUSD(preview.refundCents)}</td></tr>
+      </tbody>
+    </table>
+    <p class="hint" style="margin:0.35rem 0 0;font-size:0.82rem;">Minimum refund is ${formatUSD(bd.minimumRefundCents)}. Final amount posts via Stripe in a few business days.</p>
+  `;
+}
+
+function closeDeleteAdModal() {
+  pendingDeleteAdId = null;
+  if (deleteAdModal) deleteAdModal.hidden = true;
+  if (deleteAdRefundBreakdown) {
+    deleteAdRefundBreakdown.hidden = true;
+    deleteAdRefundBreakdown.innerHTML = "";
+  }
+  if (deleteAdConfirmBtn) {
+    deleteAdConfirmBtn.disabled = false;
+    deleteAdConfirmBtn.textContent = "Delete permanently";
+  }
+}
+
+async function openDeleteAdModal(adId) {
+  pendingDeleteAdId = adId;
+  const ad = lastRenderedMyAdsList.find((a) => a.id === adId);
+  const goldActive = ad && isGoldActive(ad);
+  renderDeleteRefundBreakdown(null);
+  if (deleteAdModal) deleteAdModal.hidden = false;
+  if (goldActive && goldConfig?.enabled) {
+    try {
+      const preview = await classifiedsApi(
+        `/ads/${encodeURIComponent(adId)}/gold-refund-preview`
+      );
+      renderDeleteRefundBreakdown(preview);
+    } catch (err) {
+      if (deleteAdRefundBreakdown) {
+        deleteAdRefundBreakdown.hidden = false;
+        deleteAdRefundBreakdown.innerHTML = `<p class="delete-refund-blocked">${escapeHTML(
+          err.message || "Could not load refund estimate."
+        )}</p>`;
+      }
+    }
+  } else if (deleteAdRefundBreakdown) {
+    deleteAdRefundBreakdown.hidden = true;
+  }
+}
+
+async function confirmDeleteAd() {
+  const adId = pendingDeleteAdId;
+  if (!adId || !deleteAdConfirmBtn) return;
+  deleteAdConfirmBtn.disabled = true;
+  deleteAdConfirmBtn.textContent = "Deleting…";
+  try {
+    const result = await classifiedsApi(`/ads/${encodeURIComponent(adId)}`, {
+      method: "DELETE",
+    });
+    closeDeleteAdModal();
+    await renderMyAds();
+    await renderAds();
+    const refundCents = result?.goldRefundCents;
+    if (typeof refundCents === "number" && refundCents > 0) {
+      showToast(
+        `Ad deleted. ${formatUSD(refundCents)} refund for unused Gold time is processing on your card.`
+      );
+    } else {
+      showToast("Ad deleted.");
+    }
+  } catch (error) {
+    deleteAdConfirmBtn.disabled = false;
+    deleteAdConfirmBtn.textContent = "Delete permanently";
+    showToast(error.message || "Could not delete ad.");
+  }
+}
+
+if (deleteAdCancelBtn) {
+  deleteAdCancelBtn.addEventListener("click", closeDeleteAdModal);
+}
+if (deleteAdConfirmBtn) {
+  deleteAdConfirmBtn.addEventListener("click", () => {
+    confirmDeleteAd().catch(() => {});
+  });
+}
+if (deleteAdModal) {
+  deleteAdModal.addEventListener("click", (e) => {
+    if (e.target === deleteAdModal) closeDeleteAdModal();
+  });
 }
 
 // Builds (and caches) the boost modal DOM. Returns the root <div>.
