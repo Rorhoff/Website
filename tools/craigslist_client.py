@@ -2,7 +2,8 @@
 Fetch recent Salt Lake Craigslist for-sale listings (HTML search page).
 
 Uses curl_cffi when available (same approach as KSL). Parses ``cl-static-search-result``
-rows — no per-listing detail fetch in v1 (title + price from search are enough for teasers).
+rows from search HTML, then loads each listing page for a thumbnail (``images.craigslist.org``).
+Listings with no photos stay image-less.
 """
 
 from __future__ import annotations
@@ -37,6 +38,9 @@ PRICE_RE = re.compile(r'class="price"[^>]*>([^<]+)', re.IGNORECASE)
 # Optional neighborhood in a dedicated element (not title parentheses).
 NEIGHBORHOOD_RE = re.compile(
     r'class="location"[^>]*>([^<]+)', re.IGNORECASE
+)
+CL_IMAGE_RE = re.compile(
+    r"(https://images\.craigslist\.org/[0-9a-zA-Z]+_[0-9a-zA-Z]+_[0-9a-zA-Z]+_\d+x\d+\.(?:jpg|webp))"
 )
 
 # First path segment after domain → our browse category.
@@ -94,6 +98,25 @@ def _category_from_url(url: str) -> tuple[str, str]:
     prefix = m.group(1) if m else ""
     cat = CL_PREFIX_CATEGORY.get(prefix, "Other")
     return cat, prefix.upper() if prefix else "Other"
+
+
+def _fetch_images_enabled() -> bool:
+    return os.environ.get("CRAIGSLIST_FETCH_IMAGES", "1").strip().lower() not in (
+        "0",
+        "false",
+        "no",
+        "off",
+    )
+
+
+def _extract_image_url(html: str) -> str | None:
+    matches = CL_IMAGE_RE.findall(html)
+    if not matches:
+        return None
+    for url in matches:
+        if "600x450" in url:
+            return url
+    return matches[0]
 
 
 def _teaser(title: str, price: str, *, max_len: int = 280) -> str:
@@ -187,6 +210,13 @@ class CraigslistClient:
         self._last = time.monotonic()
         return raw.status_code, raw.text
 
+    def fetch_listing_image(self, source_url: str) -> str | None:
+        status, html = self._get(source_url)
+        if status != 200:
+            log.warning("Craigslist listing %s returned HTTP %s", source_url, status)
+            return None
+        return _extract_image_url(html)
+
     def fetch_listings(self, *, limit: int | None = None) -> list[AggregatedListing]:
         cap = limit if limit is not None else _max_default()
         base = _site_base()
@@ -205,5 +235,27 @@ class CraigslistClient:
             out.append(row)
             if len(out) >= cap:
                 break
+
+        if _fetch_images_enabled() and out:
+            with_images = 0
+            for i, row in enumerate(out):
+                img = self.fetch_listing_image(row.source_url)
+                if img:
+                    out[i] = AggregatedListing(
+                        source=row.source,
+                        source_listing_id=row.source_listing_id,
+                        source_url=row.source_url,
+                        title=row.title,
+                        price=row.price,
+                        description=row.description,
+                        city=row.city,
+                        state=row.state,
+                        category=row.category,
+                        sub_category=row.sub_category,
+                        image_url=img,
+                    )
+                    with_images += 1
+            log.info("Craigslist images: %d/%d listings have a thumbnail", with_images, len(out))
+
         log.info("Craigslist parsed %d listings (cap=%d)", len(out), cap)
         return out

@@ -499,7 +499,7 @@ function renderBrowseTileMarkup(ad) {
   const goldClass = isGoldActive(ad) && !isImportedAd(ad) ? " ad-tile--gold" : "";
   const kslClass = isImportedAd(ad) ? " ad-tile--ksl" : "";
   const imageHtml = firstImage
-    ? `<img class="ad-tile-image" src="${escapeHTML(firstImage)}" alt="${escapeHTML(ad.title || "Ad")}" loading="lazy" />`
+    ? `<img class="ad-tile-image" src="${escapeHTML(firstImage)}" alt="${escapeHTML(ad.title || "Ad")}" loading="lazy" referrerpolicy="no-referrer" />`
     : `<div class="ad-tile-empty">${escapeHTML(ad.title || "No image")}</div>`;
   const priceLabel = formatPrice(ad.price);
   const viaNote = isImportedAd(ad) ? ` — Via ${importSourceShortLabel(ad)}` : "";

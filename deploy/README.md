@@ -182,6 +182,7 @@ ENV_FILE=/home/ubuntu/website-prod/.env.prod .venv/bin/python -m tools.sync_crai
 ```
 
 Defaults: `CRAIGSLIST_IMPORT_MAX_LISTINGS=10`, site `saltlakecity.craigslist.org`, path `/search/sss`.
+Fetches one thumbnail per listing from the detail page (`CRAIGSLIST_FETCH_IMAGES=1`, default on).
 Kill switch: `CRAIGSLIST_IMPORT_ENABLED=0`.
 
 ## 2. Create the R2 bucket and API token
