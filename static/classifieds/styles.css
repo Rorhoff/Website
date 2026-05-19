@@ -1163,21 +1163,27 @@ button.secondary:hover {
    "click the site name to go home / refresh" affordance users expect. */
 .topbar-brand-btn {
   appearance: none;
-  background: none;
+  /* Override global `button { background: #2563eb; color: #fff; … }` — without
+     these, the site title looks like a primary CTA and hover paints a solid
+     dark-blue block with unreadable text (button:hover only changes background). */
+  background: transparent;
   border: none;
-  padding: 0;
+  border-radius: 6px;
+  padding: 4px 8px;
   margin: 0;
+  margin-top: 0;
   font: inherit;
-  /* Inherit the h1 font size so we don't have to maintain two clamp() values. */
   font-size: inherit;
   font-weight: 700;
-  color: inherit;
+  color: #0f172a;
   cursor: pointer;
   letter-spacing: -0.01em;
+  transition: background 0.15s ease, color 0.15s ease;
 }
 .topbar-brand-btn:hover,
 .topbar-brand-btn:focus-visible {
   color: #1d4ed8;
+  background: #e8eef8;
   outline: none;
 }
 .topbar-brand-btn:focus-visible {
