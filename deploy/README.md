@@ -108,6 +108,17 @@ UPDATE classified_ad
 Run **before** deploying code that calls `Refund.create` — the new columns hold
 the Stripe payment snapshot from the fulfilled Checkout webhook.
 
+```bash
+# One-time install on EC2:
+cd /home/ubuntu/Website && git pull
+cp deploy/migrate-prod-v1.16.sh ~/migrate-prod-v1.16.sh
+chmod +x ~/migrate-prod-v1.16.sh
+
+PGPASSWORD='your-real-password' ~/migrate-prod-v1.16.sh
+```
+
+Or run the SQL by hand:
+
 ```sql
 ALTER TABLE classified_ad ADD COLUMN IF NOT EXISTS last_gold_payment_intent_id VARCHAR(255);
 ALTER TABLE classified_ad ADD COLUMN IF NOT EXISTS last_gold_payment_cents INTEGER;
