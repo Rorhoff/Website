@@ -140,26 +140,19 @@ chmod +x ~/migrate-prod-v1.22.sh
 PGPASSWORD='your-real-password' ~/migrate-prod-v1.22.sh
 ```
 
-#### Craigslist import (10 listings per US state)
+#### Craigslist imports (disabled by default)
+
+Remove all imported Craigslist ads from the database:
 
 ```bash
 cd /home/ubuntu/website-prod
-ENV_FILE=/home/ubuntu/website-prod/.env.prod .venv/bin/python -m tools.sync_craigslist_classifieds
+ENV_FILE=/home/ubuntu/website-prod/.env.prod .venv/bin/python -m tools.purge_craigslist_classifieds
 ```
 
-Subset for testing: `CRAIGSLIST_IMPORT_STATES=Utah,Texas`.
+Remove any `craigslist-import` cron line from crontab so listings are not re-added.
 
-**Daily cron** (example 4:15 AM UTC; allow ~30–60 min for all states + images):
-
-```cron
-15 4 * * * cd /home/ubuntu/website-prod && ENV_FILE=/home/ubuntu/website-prod/.env.prod .venv/bin/python -m tools.sync_craigslist_classifieds >> /var/log/craigslist-import.log 2>&1
-```
-
-Defaults: `CRAIGSLIST_IMPORT_MAX_PER_STATE=10`, one regional site per state (`tools/craigslist_sites.py`), path `/search/sss`.
-Fetches one thumbnail per listing from the detail page (`CRAIGSLIST_FETCH_IMAGES=1`, default on).
-Kill switch: `CRAIGSLIST_IMPORT_ENABLED=0`.
-
-Requires `curl_cffi` from `requirements.txt` (installed on `commitprod` when that file changes).
+To re-enable imports (optional): set `CRAIGSLIST_IMPORT_ENABLED=1`, then run
+`python -m tools.sync_craigslist_classifieds` (10 per state; see `tools/craigslist_sites.py`).
 
 ## 2. Create the R2 bucket and API token
 

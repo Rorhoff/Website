@@ -11,7 +11,7 @@ Optional:
     CRAIGSLIST_IMPORT_STATES=Utah,Texas   # comma-separated subset
     CRAIGSLIST_IMPORT_MAX_PER_STATE=10
 
-Kill switch: CRAIGSLIST_IMPORT_ENABLED=0
+Import is off by default. Enable with CRAIGSLIST_IMPORT_ENABLED=1.
 """
 
 from __future__ import annotations
@@ -49,8 +49,8 @@ CONTACT = "Craigslist"
 
 
 def _enabled() -> bool:
-    raw = os.environ.get("CRAIGSLIST_IMPORT_ENABLED", "1").strip().lower()
-    return raw not in ("0", "false", "no", "off")
+    raw = os.environ.get("CRAIGSLIST_IMPORT_ENABLED", "0").strip().lower()
+    return raw in ("1", "true", "yes", "on")
 
 
 def _states_filter() -> list[tuple[str, str]]:
