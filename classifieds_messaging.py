@@ -469,3 +469,60 @@ def register_messaging_routes(
                         conversation_url=_conversation_url(conv.id),
                     )
         return {"messageId": msg.id}
+
+    @router.post("/messages/{conversation_id}/share-contact")
+    def share_contact_in_conversation(
+        conversation_id: str,
+        user: ClassifiedUser = Depends(get_current_classified_user),
+        db: Session = Depends(classifieds_db),
+    ):
+        conv = db.get(ClassifiedConversation, conversation_id)
+        if conv is None:
+            raise HTTPException(status_code=404, detail="Conversation not found.")
+        if user.id != conv.seller_user_id:
+            raise HTTPException(
+                status_code=403, detail="Only the seller can share contact info."
+            )
+        if conv.status != "active":
+            raise HTTPException(status_code=400, detail="Conversation is not active.")
+
+        buyer = db.get(ClassifiedUser, conv.buyer_user_id)
+        if buyer is None:
+            raise HTTPException(status_code=400, detail="Buyer account unavailable.")
+
+        phone = (user.phone or "").strip()
+        email_addr = (user.email or "").strip()
+        seller_name = seller_display_name(user)
+        body = (
+            f"{seller_name} shared contact info:\n"
+            f"Phone: {phone or '(not provided)'}\n"
+            f"Email: {email_addr or '(not provided)'}"
+        )
+
+        now = datetime.utcnow()
+        msg = ClassifiedMessage(
+            id=str(uuid.uuid4()),
+            conversation_id=conv.id,
+            sender_user_id=user.id,
+            message_type="contact_share",
+            preset_key=None,
+            body=body,
+            is_read=False,
+        )
+        conv.last_message_at = now
+        db.add(msg)
+        db.add(conv)
+        db.commit()
+
+        ad = db.get(ClassifiedAd, conv.listing_id)
+        listing_title = ad.title if ad else "your listing"
+        if getattr(buyer, "email_notifications_enabled", True):
+            email_service.send_contact_shared_to_buyer(
+                to=buyer.email,
+                seller_name=seller_name,
+                phone=phone,
+                email=email_addr,
+                listing_title=listing_title,
+                conversation_url=_conversation_url(conv.id),
+            )
+        return {"messageId": msg.id, "ok": True}

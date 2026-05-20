@@ -34,7 +34,9 @@
 
   let pendingContactAdId = null;
   let currentThreadId = null;
+  let currentThreadMeta = null;
   let unreadPollTimer = null;
+  const messagesShareContactBtn = document.getElementById("messagesShareContactBtn");
 
   function parseHashRoute() {
     const raw = (window.location.hash || "").replace(/^#\/?/, "").trim();
@@ -89,6 +91,7 @@
 
   function showThread(conversationId) {
     if (!messagesSection) return;
+    hideMainForMessages();
     messagesSection.hidden = false;
     if (messagesInboxView) messagesInboxView.hidden = true;
     if (messagesThreadView) messagesThreadView.hidden = false;
@@ -151,26 +154,32 @@
     if (messagesThreadBody) messagesThreadBody.innerHTML = "";
     try {
       const data = await core().classifiedsApi(`/messages/${encodeURIComponent(conversationId)}`);
+      currentThreadMeta = data;
       const thumb = data.listingThumb
         ? `<img src="${core().escapeHTML(data.listingThumb)}" alt="" class="messages-thread-thumb" />`
-        : "";
+        : `<div class="messages-thread-thumb messages-row-thumb--empty"></div>`;
       messagesThreadHeader.innerHTML = `
         ${thumb}
-        <div>
+        <div class="messages-thread-header-text">
           <strong>${core().escapeHTML(data.listingTitle || "Listing")}</strong>
           <p class="hint">With ${core().escapeHTML(data.otherPartyName || "user")}</p>
           <a href="/?ad=${encodeURIComponent(data.listingId || "")}" class="messages-thread-listing-link">View listing</a>
         </div>`;
       const msgs = data.messages || [];
       messagesThreadBody.innerHTML = msgs
-        .map(
-          (m) => `<div class="messages-bubble${m.isMine ? " messages-bubble--mine" : ""}">
+        .map((m) => {
+          const shareClass =
+            m.messageType === "contact_share" ? " messages-bubble--contact-share" : "";
+          return `<div class="messages-bubble${m.isMine ? " messages-bubble--mine" : ""}${shareClass}">
             <div class="messages-bubble-meta">${core().escapeHTML(m.senderLabel)} · ${new Date(m.createdAt).toLocaleString()}</div>
             <div class="messages-bubble-body">${core().escapeHTML(m.body)}</div>
-          </div>`
-        )
+          </div>`;
+        })
         .join("");
       messagesThreadBody.scrollTop = messagesThreadBody.scrollHeight;
+      if (messagesShareContactBtn) {
+        messagesShareContactBtn.hidden = data.viewerRole !== "seller";
+      }
       refreshUnread();
     } catch (err) {
       messagesThreadHeader.innerHTML = `<p class="hint">${core().escapeHTML(err.message || "Could not load conversation.")}</p>`;
@@ -324,6 +333,8 @@
     setHash,
     onRouteChange,
     updateUnreadBadge,
+    isMessagesRoute,
+    hideMessagesSection,
   };
 
   if (messagesNavBtn) {
@@ -361,6 +372,28 @@
       }
     });
   }
+  if (messagesShareContactBtn) {
+    messagesShareContactBtn.addEventListener("click", async () => {
+      if (!currentThreadId || !currentThreadMeta) return;
+      if (currentThreadMeta.viewerRole !== "seller") return;
+      const buyerName = currentThreadMeta.otherPartyName || "the buyer";
+      const ok = window.confirm(
+        `Share your phone number and email with ${buyerName}? They will see it in this conversation and get an email.`
+      );
+      if (!ok) return;
+      try {
+        await core().classifiedsApi(
+          `/messages/${encodeURIComponent(currentThreadId)}/share-contact`,
+          { method: "POST", jsonBody: {} }
+        );
+        core().showToast("Contact info shared.");
+        await loadThread(currentThreadId);
+      } catch (err) {
+        core().showToast(err.message || "Could not share contact info.");
+      }
+    });
+  }
+
   if (messagesReplyForm) {
     messagesReplyForm.addEventListener("submit", async (e) => {
       e.preventDefault();

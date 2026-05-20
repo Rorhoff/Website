@@ -42,7 +42,7 @@
     }
   }
   </script>
-  <link rel="stylesheet" href="/classifieds/styles.css?v=2026-05-19-cl" />
+  <link rel="stylesheet" href="/classifieds/styles.css?v=2026-05-20-inbox" />
   <style>
     :root {
       --surface: #ffffff;
@@ -521,7 +521,10 @@
         <form id="messagesReplyForm" class="messages-reply-form">
           <label for="messagesReplyInput">Your reply</label>
           <textarea id="messagesReplyInput" rows="3" maxlength="1000" required placeholder="Write a message…"></textarea>
-          <button type="submit">Send</button>
+          <div class="messages-reply-actions">
+            <button type="submit" class="messages-send-btn">Send</button>
+            <button type="button" id="messagesShareContactBtn" class="secondary messages-share-contact-btn" hidden>Share contact info</button>
+          </div>
         </form>
       </div>
     </section>
@@ -673,8 +676,8 @@
 
   <div id="toast" class="toast" hidden></div>
   <script src="/classifieds/cities.js?v=2026-05-18n"></script>
-  <script src="/classifieds/app.js?v=2026-05-20-messages-ui"></script>
-  <script src="/classifieds/messaging-ui.js?v=2026-05-20-messages-ui"></script>
+  <script src="/classifieds/app.js?v=2026-05-20-inbox"></script>
+  <script src="/classifieds/messaging-ui.js?v=2026-05-20-inbox"></script>
   <script src="/assets/nav-mobile.js"></script>
 </body>
 </html>

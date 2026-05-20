@@ -150,3 +150,32 @@ def send_seller_reply_to_buyer(
         f"{_button(conversation_url, 'View reply')}"
     )
     return send_email(to=to, subject=subject, html_body=html, text_body=text)
+
+
+def send_contact_shared_to_buyer(
+    *,
+    to: str,
+    seller_name: str,
+    phone: str,
+    email: str,
+    listing_title: str,
+    conversation_url: str,
+) -> bool:
+    subject = f"{seller_name} shared their contact info"
+    text = (
+        f"{seller_name} shared contact info for \"{listing_title}\":\n\n"
+        f"Phone: {phone or '(not provided)'}\n"
+        f"Email: {email}\n\n"
+        f"View conversation: {conversation_url}\n\n"
+        "Never share financial info or wire money."
+    )
+    html = (
+        f"<p><strong>{seller_name}</strong> shared contact info for "
+        f"<strong>{listing_title}</strong>:</p>"
+        f"<p>Phone: {phone or '(not provided)'}<br>Email: {email}</p>"
+        f"{_button(conversation_url, 'View conversation')}"
+        '<p style="color:#64748b;font-size:13px;">'
+        "Never share financial info or wire money."
+        "</p>"
+    )
+    return send_email(to=to, subject=subject, html_body=html, text_body=text)
