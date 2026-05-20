@@ -1352,3 +1352,150 @@ button.secondary:hover {
   cursor: pointer;
 }
 .detail-anon-cta-btn:hover { background: #1e40af; }
+
+.verified-seller-badge {
+  display: inline-block;
+  margin-left: 0.35rem;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  background: #dbeafe;
+  color: #1e40af;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.detail-contact-seller-btn {
+  margin-top: 0.75rem;
+  width: 100%;
+  padding: 0.65rem 1rem;
+  border: none;
+  border-radius: 8px;
+  background: #0284c7;
+  color: #fff;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.detail-contact-seller-btn:hover {
+  background: #0369a1;
+}
+
+.contact-privacy-note {
+  margin: 0.5rem 0 0;
+  font-size: 0.88rem;
+  color: #64748b;
+}
+
+.messages-nav-btn {
+  width: 100%;
+  text-align: left;
+}
+
+.messages-unread-badge {
+  display: inline-block;
+  min-width: 1.1rem;
+  padding: 0 0.35rem;
+  margin-left: 0.35rem;
+  border-radius: 999px;
+  background: #dc2626;
+  color: #fff;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.messages-section .messages-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+}
+
+.messages-inbox-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.messages-row {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-start;
+  width: 100%;
+  text-align: left;
+  padding: 0.75rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.messages-row-thumb {
+  width: 56px;
+  height: 56px;
+  object-fit: cover;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
+.messages-row-thumb--empty {
+  background: #e2e8f0;
+}
+
+.messages-row-unread {
+  background: #dc2626;
+  color: #fff;
+  border-radius: 999px;
+  padding: 0 0.4rem;
+  font-size: 0.75rem;
+}
+
+.messages-thread-header {
+  display: flex;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.messages-thread-thumb {
+  width: 72px;
+  height: 72px;
+  object-fit: cover;
+  border-radius: 8px;
+}
+
+.messages-thread-body {
+  max-height: 50vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  margin-bottom: 1rem;
+}
+
+.messages-bubble {
+  max-width: 85%;
+  padding: 0.65rem 0.85rem;
+  border-radius: 10px;
+  background: #f1f5f9;
+}
+
+.messages-bubble--mine {
+  align-self: flex-end;
+  background: #dbeafe;
+}
+
+.messages-bubble-meta {
+  font-size: 0.75rem;
+  color: #64748b;
+  margin-bottom: 0.25rem;
+}
+
+.messages-reply-form textarea {
+  width: 100%;
+  margin-bottom: 0.5rem;
+}
+
+.contact-seller-card select,
+.contact-seller-card textarea {
+  width: 100%;
+  margin-bottom: 0.65rem;
+}

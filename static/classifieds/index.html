@@ -272,6 +272,9 @@
         <button id="menuToggleBtn" class="hamburger-btn" type="button" aria-label="Open profile menu">☰</button>
         <div id="menuPanel" class="menu-panel" hidden>
           <p id="menuProfileDetails" class="hint"></p>
+          <button id="messagesNavBtn" type="button" class="messages-nav-btn" hidden>
+            Messages <span id="messagesUnreadBadge" class="messages-unread-badge" hidden></span>
+          </button>
           <button id="enterProfileBtn" type="button">Enter Profile</button>
           <button id="exitProfileBtn" type="button">Exit Profile</button>
           <button id="logoutBtn" class="secondary" type="button">Logout</button>
@@ -503,6 +506,26 @@
       </div>
     </section>
 
+    <section id="messagesSection" class="card full messages-section" hidden>
+      <div class="messages-header">
+        <h2>Messages</h2>
+        <button type="button" id="messagesBackBtn" class="secondary" hidden>Back to listings</button>
+      </div>
+      <div id="messagesInboxView">
+        <p id="messagesInboxHint" class="hint">Conversations about your listings and inquiries you sent.</p>
+        <div id="messagesInboxList" class="messages-inbox-list"></div>
+      </div>
+      <div id="messagesThreadView" hidden>
+        <div id="messagesThreadHeader" class="messages-thread-header"></div>
+        <div id="messagesThreadBody" class="messages-thread-body"></div>
+        <form id="messagesReplyForm" class="messages-reply-form">
+          <label for="messagesReplyInput">Your reply</label>
+          <textarea id="messagesReplyInput" rows="3" maxlength="1000" required placeholder="Write a message…"></textarea>
+          <button type="submit">Send</button>
+        </form>
+      </div>
+    </section>
+
     <section id="adminDashboardSection" class="card full admin-dashboard" hidden>
       <h2>Admin analytics</h2>
       <p class="hint admin-dashboard-hint">QA account: <code>qa_admin</code> / <code>qa_admin_demo</code></p>
@@ -599,6 +622,42 @@
     </div>
   </div>
 
+  <div id="contactSellerModal" class="modal-backdrop" hidden>
+    <div class="modal-card contact-seller-card">
+      <h3 id="contactSellerTitle">Contact Seller</h3>
+      <p id="contactSellerListing" class="hint"></p>
+      <div id="contactSellerGuestStep" hidden>
+        <p class="hint">Enter your email. We will send a one-time sign-in link so you can message the seller.</p>
+        <form id="contactSellerGuestForm">
+          <label for="contactSellerEmail">Your email</label>
+          <input id="contactSellerEmail" type="email" required autocomplete="email" />
+          <button type="submit">Email me a sign-in link</button>
+        </form>
+      </div>
+      <div id="contactSellerComposeStep" hidden>
+        <label for="contactSellerPreset">Choose a message</label>
+        <select id="contactSellerPreset" required>
+          <option value="">Select a preset…</option>
+          <option value="is_available">Is this still available?</option>
+          <option value="lowest_price">What's your lowest price?</option>
+          <option value="more_photos">Can you send more photos?</option>
+          <option value="location_area">Where are you located? (general area)</option>
+          <option value="come_see">When can I come see it?</option>
+          <option value="original_owner">Are you the original owner?</option>
+          <option value="everything_shown">Does it come with everything shown in the photos?</option>
+          <option value="will_ship">Will you ship?</option>
+          <option value="buy_at_asking">I'd like to buy this at asking price</option>
+          <option value="other">Other (write your own)</option>
+        </select>
+        <label for="contactSellerCustom">Or write your own</label>
+        <textarea id="contactSellerCustom" rows="4" maxlength="500" placeholder="Your message (optional if you picked a preset above)"></textarea>
+        <button type="button" id="contactSellerSendBtn">Send message</button>
+      </div>
+      <p class="contact-privacy-note">Your privacy is protected — we never share your contact info on the listing.</p>
+      <button type="button" id="contactSellerCloseBtn" class="secondary">Cancel</button>
+    </div>
+  </div>
+
   <div id="resetModal" class="modal-backdrop" hidden>
     <div class="modal-card">
       <h3>Reset Password</h3>
@@ -614,7 +673,8 @@
 
   <div id="toast" class="toast" hidden></div>
   <script src="/classifieds/cities.js?v=2026-05-18n"></script>
-  <script src="/classifieds/app.js?v=2026-05-19-per-state"></script>
+  <script src="/classifieds/app.js?v=2026-05-19-messaging"></script>
+  <script src="/classifieds/messaging-ui.js?v=2026-05-19-messaging"></script>
   <script src="/assets/nav-mobile.js"></script>
 </body>
 </html>

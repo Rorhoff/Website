@@ -49,10 +49,23 @@ class ClassifiedUser(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     username: Mapped[str] = mapped_column(String(64), unique=True, index=True)
-    email: Mapped[str] = mapped_column(String(255))
+    email: Mapped[str] = mapped_column(String(255), index=True)
     phone: Mapped[str] = mapped_column(String(64), default="")
     state: Mapped[str] = mapped_column(String(64))
-    password_hash: Mapped[str] = mapped_column(String(255))
+    password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    first_name: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    display_preference: Mapped[str] = mapped_column(
+        String(16), default="first_name", server_default="first_name"
+    )
+    is_admin: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    is_verified: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    is_lightweight: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false"
+    )
+    email_verified_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    email_notifications_enabled: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default="true"
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     # Paper trail for Terms of Service / Privacy Policy acceptance. Nullable so
     # accounts that existed before the checkbox was added don't need a backfill —
@@ -234,4 +247,66 @@ class ClassifiedBlockedSignature(Base):
 
     __table_args__ = (
         UniqueConstraint("user_id", "signature", name="uq_blocked_sig_per_user"),
+    )
+
+
+class ClassifiedConversation(Base):
+    __tablename__ = "classified_conversation"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    listing_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("classified_ad.id", ondelete="CASCADE"), index=True
+    )
+    buyer_user_id: Mapped[int] = mapped_column(
+        ForeignKey("classified_user.id", ondelete="CASCADE"), index=True
+    )
+    seller_user_id: Mapped[int] = mapped_column(
+        ForeignKey("classified_user.id", ondelete="CASCADE"), index=True
+    )
+    status: Mapped[str] = mapped_column(String(16), default="active", server_default="active")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    last_message_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("listing_id", "buyer_user_id", name="uq_conversation_listing_buyer"),
+        Index("ix_conversation_buyer_last", "buyer_user_id", "last_message_at"),
+        Index("ix_conversation_seller_last", "seller_user_id", "last_message_at"),
+    )
+
+
+class ClassifiedMessage(Base):
+    __tablename__ = "classified_message"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    conversation_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("classified_conversation.id", ondelete="CASCADE"), index=True
+    )
+    sender_user_id: Mapped[int] = mapped_column(
+        ForeignKey("classified_user.id", ondelete="CASCADE"), index=True
+    )
+    message_type: Mapped[str] = mapped_column(String(16))
+    preset_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    body: Mapped[str] = mapped_column(Text())
+    is_read: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    __table_args__ = (
+        Index("ix_message_conversation_created", "conversation_id", "created_at"),
+    )
+
+
+class ClassifiedMagicLinkToken(Base):
+    __tablename__ = "classified_magic_link_token"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    email: Mapped[str] = mapped_column(String(255))
+    token_hash: Mapped[str] = mapped_column(String(64), index=True)
+    redirect_path: Mapped[str] = mapped_column(String(500), default="/")
+    expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    ip_address: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    __table_args__ = (
+        Index("ix_magic_link_email_created", "email", "created_at"),
     )

@@ -31,6 +31,7 @@ from sqlalchemy.orm import Session
 import credential_service
 import image_storage
 import stripe_service
+from classifieds_privacy import scrub_public_description, seller_verified_badge
 from credential_service import truncate_for_bcrypt
 from database import SessionLocal
 from models import (
@@ -86,6 +87,9 @@ def _user_out(user: ClassifiedUser) -> dict[str, Any]:
         "email": user.email,
         "phone": user.phone or "",
         "state": user.state,
+        "isAdmin": bool(getattr(user, "is_admin", False)),
+        "isLightweight": bool(getattr(user, "is_lightweight", False)),
+        "firstName": (getattr(user, "first_name", None) or "").strip() or None,
     }
 
 
@@ -141,7 +145,12 @@ def _aggregated_source_label(source: str) -> str:
     return "External site"
 
 
-def _ad_out(row: ClassifiedAd) -> dict[str, Any]:
+def _ad_out(
+    row: ClassifiedAd,
+    *,
+    include_raw_description: bool = False,
+    seller_verified: bool = False,
+) -> dict[str, Any]:
     created_ms = int(row.created_at.timestamp() * 1000)
     # goldUntil is an epoch-ms timestamp when active, or None when never boosted / expired.
     # The frontend treats anything > Date.now() as "currently gold" — no need to filter
@@ -158,6 +167,10 @@ def _ad_out(row: ClassifiedAd) -> dict[str, Any]:
     city_value = (row.city or "").strip() if hasattr(row, "city") else ""
     imported = _is_aggregated_import(row)
     source_url = (row.source_url or "").strip() if hasattr(row, "source_url") else ""
+    description = row.description
+    description_scrubbed = False
+    if not include_raw_description:
+        description, description_scrubbed = scrub_public_description(description)
     return {
         "id": row.id,
         "title": row.title,
@@ -168,7 +181,9 @@ def _ad_out(row: ClassifiedAd) -> dict[str, Any]:
         # Normalized on the way out too so legacy rows saved before _normalize_price
         # existed still render canonically without a one-off DB migration.
         "price": _normalize_price(row.price),
-        "description": row.description,
+        "description": description,
+        "descriptionScrubbed": description_scrubbed,
+        "sellerVerified": seller_verified,
         "images": list(row.images) if row.images is not None else [],
         "author": display_name,
         "createdAt": created_ms,
@@ -357,7 +372,12 @@ def classifieds_login(body: LoginBody, db: Session = Depends(classifieds_db)):
     user = db.scalars(
         select(ClassifiedUser).where(ClassifiedUser.username == username)
     ).first()
-    if user is None or not _verify_password(body.password, user.password_hash):
+    if user is None or not user.password_hash:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid username or password.",
+        )
+    if not _verify_password(body.password, user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid username or password.",
@@ -674,7 +694,18 @@ def classifieds_list_ads(
     if has_more:
         rows = rows[:limit]
 
-    return {"ads": [_ad_out(r) for r in rows], "hasMore": has_more}
+    def _out(row: ClassifiedAd) -> dict[str, Any]:
+        verified = False
+        if row.user_id:
+            seller = db.get(ClassifiedUser, row.user_id)
+            verified = seller_verified_badge(seller)
+        return _ad_out(
+            row,
+            include_raw_description=bool(getattr(user, "is_admin", False)),
+            seller_verified=verified,
+        )
+
+    return {"ads": [_out(r) for r in rows], "hasMore": has_more}
 
 
 def _ad_signature(title: str, description: str) -> str:
@@ -751,7 +782,7 @@ def classifieds_create_ad(
     db.add(ad)
     db.commit()
     db.refresh(ad)
-    return _ad_out(ad)
+    return _ad_out(ad, include_raw_description=True, seller_verified=seller_verified_badge(user))
 
 
 @router.get("/me/ads")
@@ -765,7 +796,7 @@ def classifieds_list_my_ads(
         .where(ClassifiedAd.user_id == user.id)
         .order_by(ClassifiedAd.created_at.desc())
     ).all()
-    return [_ad_out(r) for r in rows]
+    return [_ad_out(r, include_raw_description=True) for r in rows]
 
 
 @router.get("/ads/{ad_id}")
@@ -774,37 +805,25 @@ def classifieds_get_ad(
     user: ClassifiedUser | None = Depends(get_current_classified_user_optional),
     db: Session = Depends(classifieds_db),
 ):
-    """Single-ad detail view — accessible to anyone with the share URL.
-
-    Logged-in viewers receive the seller's phone number; anonymous viewers
-    see only the public ad payload. This lets sellers share an ad with
-    friends/family who don't yet have an account, while still preventing
-    drive-by scrapers from harvesting seller PII via direct ad IDs. The
-    browse list endpoint (``GET /ads``) remains auth-gated, so anonymous
-    visitors can only see ads they were explicitly linked to.
-
-    Seller email is intentionally **not** included in the response, even
-    for authenticated viewers — buyers contact sellers via phone, which is
-    a required field at registration. Keeping email server-side reduces
-    the PII footprint exposed by the SPA.
-
-    If the seller's account was deleted (``user_id`` is NULL), contact
-    fields come back empty so the buyer just sees the listing without a
-    way to contact a defunct seller.
-    """
+    """Single-ad detail — public; contact via in-app messaging only (Sprint 1)."""
     ad = db.get(ClassifiedAd, ad_id)
     if ad is None:
         raise HTTPException(status_code=404, detail="Ad not found")
-    payload = _ad_out(ad)
+    seller = db.get(ClassifiedUser, ad.user_id) if ad.user_id is not None else None
+    is_owner = user is not None and ad.user_id == user.id
+    is_admin = user is not None and bool(getattr(user, "is_admin", False))
+    payload = _ad_out(
+        ad,
+        include_raw_description=is_owner or is_admin,
+        seller_verified=seller_verified_badge(seller),
+    )
     payload["viewerAuthenticated"] = user is not None
-    if _is_aggregated_import(ad):
-        payload["authorPhone"] = ""
-        # Aggregation disclaimer is shown in the SPA on imported detail views only.
-    elif user is not None:
-        # Seller contact pulled live so a profile change shows up immediately
-        # on the next view.
-        seller = db.get(ClassifiedUser, ad.user_id) if ad.user_id is not None else None
-        payload["authorPhone"] = (seller.phone or "") if seller else ""
+    payload["isOwner"] = user is not None and ad.user_id == user.id
+    payload["canContact"] = (
+        not _is_aggregated_import(ad)
+        and ad.user_id is not None
+        and not payload["isOwner"]
+    )
     return payload
 
 
@@ -980,3 +999,15 @@ def classifieds_report_ad(
         return {"ok": True, "removed": True}
 
     return {"ok": True, "removed": False}
+
+
+import classifieds_messaging  # noqa: E402
+
+classifieds_messaging.register_messaging_routes(
+    router,
+    classifieds_db=classifieds_db,
+    get_current_classified_user=get_current_classified_user,
+    create_session=_create_session,
+    user_out=_user_out,
+    is_aggregated_import=_is_aggregated_import,
+)

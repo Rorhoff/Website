@@ -404,6 +404,12 @@ function updateAuthUI() {
   exitProfileBtn.hidden = !profileActive;
   logoutBtn.hidden = !userRecord;
 
+  const messagesNavBtn = document.getElementById("messagesNavBtn");
+  if (messagesNavBtn) messagesNavBtn.hidden = !userRecord;
+  if (userRecord && window.t1Messaging) {
+    window.t1Messaging.refreshUnread();
+  }
+
   if (userRecord) {
     authStatus.textContent = `${userRecord.username} (${userRecord.state})`;
     profileHint.textContent = "Use the top-right menu to enter your profile.";
@@ -1758,27 +1764,24 @@ function closeAdDetail() {
 }
 
 function renderDetailContact(ad) {
-  // Contact block intentionally surfaces only username + phone. Email was
-  // dropped in prod-v1.8 to keep seller PII to a minimum (also, every seller
-  // already provides a required phone number at registration, so this never
-  // leaves the buyer without a way to reach them).
   if (!detailContactEl) return;
-  const phone = (ad.authorPhone || "").trim();
-  // Build a tel: link by stripping non-digits but preserving a leading + for intl numbers.
-  const telHref = phone ? phone.replace(/(?!^\+)[^\d]/g, "") : "";
-  const rows = [];
-  rows.push(
-    `<div class="contact-row"><span class="contact-label">Seller</span><span>${escapeHTML(ad.author || "(unknown)")}</span></div>`
-  );
-  if (phone) {
-    rows.push(
-      `<div class="contact-row"><span class="contact-label">Phone</span><a class="contact-link" href="tel:${escapeHTML(telHref)}">${escapeHTML(phone)}</a></div>`
-    );
-  } else {
-    rows.push(`<p class="contact-empty">Seller has not shared a phone number.</p>`);
-  }
-  detailContactEl.innerHTML = rows.join("");
+  const verified = ad.sellerVerified
+    ? '<span class="verified-seller-badge">Verified Seller</span>'
+    : "";
+  const scrubNote = ad.descriptionScrubbed
+    ? '<p class="contact-privacy-note">Contact info hidden in description — use the button below to reach the seller.</p>'
+    : '<p class="contact-privacy-note">Your privacy is protected — we never share your contact info on the listing.</p>';
+  detailContactEl.innerHTML = `
+    <div class="contact-row"><span class="contact-label">Seller</span><span>${escapeHTML(ad.author || "(unknown)")} ${verified}</span></div>
+    ${scrubNote}
+    <button type="button" id="detailContactSellerBtn" class="detail-contact-seller-btn">Contact Seller</button>`;
   detailContactEl.hidden = false;
+  const btn = document.getElementById("detailContactSellerBtn");
+  if (btn) {
+    btn.addEventListener("click", () => {
+      if (window.t1Messaging) window.t1Messaging.openContactSellerModal(ad);
+    });
+  }
 }
 
 async function openAdDetail(adId, navList = null) {
@@ -1881,27 +1884,23 @@ async function openAdDetail(adId, navList = null) {
       .join("");
   }
 
-  // Anonymous viewers (shared link, no session): hide the contact block
-  // (server already strips PII for them) and show the sign-up CTA instead.
-  // viewerAuthenticated comes from the backend so client-side session state
-  // can't trick the UI into showing contact info that the server didn't send.
-  const viewerAuthed = ad.viewerAuthenticated !== false && Boolean(getCurrentUserRecord());
-  const isOwnAd = viewerAuthed && getCurrentUserRecord()?.username === ad.author;
+  const viewerAuthed = Boolean(getCurrentUserRecord());
+  const isOwnAd = Boolean(ad.isOwner);
   if (imported) {
     if (detailContactEl) {
       detailContactEl.hidden = true;
       detailContactEl.innerHTML = "";
     }
     if (detailAnonCta) detailAnonCta.hidden = true;
-  } else if (viewerAuthed) {
+  } else if (ad.canContact && !isOwnAd) {
     renderDetailContact(ad);
-    if (detailAnonCta) detailAnonCta.hidden = true;
+    if (detailAnonCta) detailAnonCta.hidden = viewerAuthed;
   } else {
     if (detailContactEl) {
       detailContactEl.hidden = true;
       detailContactEl.innerHTML = "";
     }
-    if (detailAnonCta) detailAnonCta.hidden = false;
+    if (detailAnonCta) detailAnonCta.hidden = viewerAuthed;
   }
 
   // Report button is only useful for logged-in viewers who don't own the ad.
@@ -2190,10 +2189,29 @@ function handleAdShareDeepLink() {
   }
 }
 
+window.t1ClassifiedsCore = {
+  classifiedsApi,
+  setSessionToken,
+  refreshMe,
+  updateAuthUI,
+  showToast,
+  escapeHTML,
+  openAdDetail,
+  getCurrentUserRecord,
+  getCurrentDetailAd: () => currentDetailAd,
+  isProfileActive,
+};
+
 (async function initClassifieds() {
+  if (window.t1Messaging) {
+    await window.t1Messaging.handleMagicLinkQuery();
+  }
   await Promise.all([refreshMe(), loadGoldConfig()]);
   updateAuthUI();
   handleGoldReturnParams();
   await renderAds();
   handleAdShareDeepLink();
+  if (window.t1Messaging) {
+    window.t1Messaging.onRouteChange();
+  }
 })();
