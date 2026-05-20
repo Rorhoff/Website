@@ -37,13 +37,29 @@
   let unreadPollTimer = null;
 
   function parseHashRoute() {
-    const raw = (window.location.hash || "").replace(/^#\/?/, "");
-    if (!raw || raw === "messages") return { view: "inbox" };
+    const raw = (window.location.hash || "").replace(/^#\/?/, "").trim();
+    if (raw === "messages") return { view: "inbox" };
     if (raw.startsWith("messages/")) {
       const id = raw.slice("messages/".length).split("/")[0];
       if (id) return { view: "thread", conversationId: id };
     }
     return { view: "home" };
+  }
+
+  function isMessagesRoute() {
+    const v = parseHashRoute().view;
+    return v === "inbox" || v === "thread";
+  }
+
+  function hideMainForMessages() {
+    ["authSection", "profileSection", "postAdSection", "myAdsSection", "adsBrowseSection"].forEach(
+      (id) => {
+        const el = document.getElementById(id);
+        if (el) el.hidden = true;
+      }
+    );
+    const tabs = document.getElementById("profileTabs");
+    if (tabs) tabs.hidden = true;
   }
 
   function setHash(path) {
@@ -61,6 +77,7 @@
 
   function showInbox() {
     if (!messagesSection) return;
+    hideMainForMessages();
     messagesSection.hidden = false;
     if (messagesInboxView) messagesInboxView.hidden = false;
     if (messagesThreadView) messagesThreadView.hidden = true;

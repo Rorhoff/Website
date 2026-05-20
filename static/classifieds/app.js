@@ -1765,16 +1765,7 @@ function closeAdDetail() {
 
 function renderDetailContact(ad) {
   if (!detailContactEl) return;
-  const verified = ad.sellerVerified
-    ? '<span class="verified-seller-badge">Verified Seller</span>'
-    : "";
-  const scrubNote = ad.descriptionScrubbed
-    ? '<p class="contact-privacy-note">Contact info hidden in description — use the button below to reach the seller.</p>'
-    : '<p class="contact-privacy-note">Your privacy is protected — we never share your contact info on the listing.</p>';
-  detailContactEl.innerHTML = `
-    <div class="contact-row"><span class="contact-label">Seller</span><span>${escapeHTML(ad.author || "(unknown)")} ${verified}</span></div>
-    ${scrubNote}
-    <button type="button" id="detailContactSellerBtn" class="detail-contact-seller-btn">Contact Seller</button>`;
+  detailContactEl.innerHTML = `<button type="button" id="detailContactSellerBtn" class="detail-contact-seller-btn">Contact Seller</button>`;
   detailContactEl.hidden = false;
   const btn = document.getElementById("detailContactSellerBtn");
   if (btn) {
