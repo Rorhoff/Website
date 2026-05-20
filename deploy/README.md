@@ -168,14 +168,17 @@ UPDATE classified_user SET is_verified = TRUE WHERE username = 'rorhoff';
 Env (prod `website-prod/.env.prod`, dev `.env.dev`):
 
 ```bash
-CLASSIFIEDS_PUBLIC_URL=https://t1classifieds.com   # dev: https://rorhoff.com/classifieds
-AWS_SES_REGION=us-west-1
-CLASSIFIEDS_EMAIL_FROM=noreply@t1classifieds.com
-EMAIL_DEV_LOG_ONLY=1   # dev only — log emails instead of sending
-MAGIC_LINK_TTL_HOURS=24
+# On EC2 (backs up .env.prod, sets vars, restarts webapi-prod):
+cd ~/website-prod && git pull
+bash deploy/set-messaging-env-prod.sh              # live SES
+bash deploy/set-messaging-env-prod.sh --dev-log-only   # test: log emails only
 ```
 
-Verify SES domain + `noreply@t1classifieds.com` before disabling `EMAIL_DEV_LOG_ONLY`.
+Manual equivalents: `CLASSIFIEDS_PUBLIC_URL`, `AWS_SES_REGION=us-west-1`,
+`CLASSIFIEDS_EMAIL_FROM=noreply@t1classifieds.com`, `MAGIC_LINK_TTL_HOURS=24`,
+`EMAIL_DEV_LOG_ONLY=0` (prod) or `1` (dev test).
+
+Verify SES domain + `noreply@t1classifieds.com` before running without `--dev-log-only`.
 
 #### Craigslist imports (disabled by default)
 
