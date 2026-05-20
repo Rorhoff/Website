@@ -22,6 +22,17 @@ SES_REGION="${AWS_SES_REGION:-us-west-1}"
 EMAIL_FROM="${CLASSIFIEDS_EMAIL_FROM:-noreply@t1classifieds.com}"
 MAGIC_TTL="${MAGIC_LINK_TTL_HOURS:-24}"
 DEV_LOG_ONLY="0"
+NO_RESTART=0
+
+if [[ -t 1 ]]; then
+  GREEN=$'\e[32m'; YELLOW=$'\e[33m'; RED=$'\e[31m'; BLUE=$'\e[34m'; RESET=$'\e[0m'
+else
+  GREEN=""; YELLOW=""; RED=""; BLUE=""; RESET=""
+fi
+log()  { echo "${BLUE}==>${RESET} $*"; }
+ok()   { echo "${GREEN}OK${RESET}  $*"; }
+warn() { echo "${YELLOW}WARN${RESET} $*"; }
+die()  { echo "${RED}ERR${RESET} $*" >&2; exit 1; }
 
 usage() {
   cat <<'EOF'
@@ -47,16 +58,6 @@ while [[ $# -gt 0 ]]; do
   esac
   shift
 done
-
-if [[ -t 1 ]]; then
-  GREEN=$'\e[32m'; YELLOW=$'\e[33m'; RED=$'\e[31m'; BLUE=$'\e[34m'; RESET=$'\e[0m'
-else
-  GREEN=""; YELLOW=""; RED=""; BLUE=""; RESET=""
-fi
-log()  { echo "${BLUE}==>${RESET} $*"; }
-ok()   { echo "${GREEN}OK${RESET}  $*"; }
-warn() { echo "${YELLOW}WARN${RESET} $*"; }
-die()  { echo "${RED}ERR${RESET} $*" >&2; exit 1; }
 
 [[ -f "$ENV_FILE" ]] || die "Missing $ENV_FILE — deploy website-prod first."
 
