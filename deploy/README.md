@@ -148,6 +148,16 @@ Run migration before deploy:
 PGPASSWORD='your-real-password' ~/migrate-prod-v1.33.sh
 ```
 
+If the unique email index fails on duplicates, pull the latest script (it auto-suffixes
+duplicate rows as `email.legacy.<id>` keeping `rorhoff` when present). Inspect first:
+
+```sql
+SELECT id, username, email FROM classified_user
+WHERE LOWER(email) IN (
+  SELECT LOWER(email) FROM classified_user GROUP BY LOWER(email) HAVING COUNT(*) > 1
+);
+```
+
 Grant admin (adjust usernames):
 
 ```sql

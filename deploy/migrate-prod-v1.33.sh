@@ -57,6 +57,26 @@ ALTER TABLE classified_user
 ALTER TABLE classified_user
     ALTER COLUMN password_hash DROP NOT NULL;
 
+-- Magic-link login requires one row per email (case-insensitive). Legacy data
+-- may have duplicates — keep the primary account (username rorhoff if present,
+-- else oldest id) and suffix others so the unique index can be created.
+WITH ranked AS (
+    SELECT
+        id,
+        ROW_NUMBER() OVER (
+            PARTITION BY LOWER(TRIM(email))
+            ORDER BY
+                CASE WHEN LOWER(username) = 'rorhoff' THEN 0 ELSE 1 END,
+                id ASC
+        ) AS rn
+    FROM classified_user
+    WHERE TRIM(email) <> ''
+)
+UPDATE classified_user u
+SET email = u.email || '.legacy.' || u.id::text
+FROM ranked r
+WHERE u.id = r.id AND r.rn > 1;
+
 CREATE UNIQUE INDEX IF NOT EXISTS uq_classified_user_email_lower
     ON classified_user (LOWER(email));
 
