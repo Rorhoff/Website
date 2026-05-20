@@ -140,20 +140,22 @@ chmod +x ~/migrate-prod-v1.22.sh
 PGPASSWORD='your-real-password' ~/migrate-prod-v1.22.sh
 ```
 
-#### Craigslist import (10 listings, Salt Lake)
+#### Craigslist import (10 listings per US state)
 
 ```bash
 cd /home/ubuntu/website-prod
 ENV_FILE=/home/ubuntu/website-prod/.env.prod .venv/bin/python -m tools.sync_craigslist_classifieds
 ```
 
-**Daily cron** (example 4:15 AM UTC):
+Subset for testing: `CRAIGSLIST_IMPORT_STATES=Utah,Texas`.
+
+**Daily cron** (example 4:15 AM UTC; allow ~30–60 min for all states + images):
 
 ```cron
 15 4 * * * cd /home/ubuntu/website-prod && ENV_FILE=/home/ubuntu/website-prod/.env.prod .venv/bin/python -m tools.sync_craigslist_classifieds >> /var/log/craigslist-import.log 2>&1
 ```
 
-Defaults: `CRAIGSLIST_IMPORT_MAX_LISTINGS=10`, site `saltlakecity.craigslist.org`, path `/search/sss`.
+Defaults: `CRAIGSLIST_IMPORT_MAX_PER_STATE=10`, one regional site per state (`tools/craigslist_sites.py`), path `/search/sss`.
 Fetches one thumbnail per listing from the detail page (`CRAIGSLIST_FETCH_IMAGES=1`, default on).
 Kill switch: `CRAIGSLIST_IMPORT_ENABLED=0`.
 

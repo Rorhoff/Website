@@ -24,7 +24,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, File, Header, HTTPException, Query, Request, UploadFile, status
 from passlib.hash import bcrypt as bcrypt_hasher
 from pydantic import BaseModel, Field
-from sqlalchemy import case, delete, func, or_, select
+from sqlalchemy import case, delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -644,14 +644,6 @@ def classifieds_list_ads(
     is_aggregated = ClassifiedAd.listing_source.in_(tuple(AGGREGATED_LISTING_SOURCES))
 
     stmt = select(ClassifiedAd).where(func.lower(ClassifiedAd.state) == state_key)
-    # Aggregated imports are Utah-only; other states see native listings only.
-    if state_key != "utah":
-        stmt = stmt.where(
-            or_(
-                ClassifiedAd.listing_source.is_(None),
-                ClassifiedAd.listing_source == LISTING_SOURCE_USER,
-            )
-        )
 
     cat = (category or "").strip() or None
     sub_cat = (sub_category or "").strip() or None

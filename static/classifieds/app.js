@@ -477,7 +477,7 @@ function importViewOnLabel(ad) {
 }
 
 const IMPORT_AGGREGATION_DISCLAIMER =
-  "Some Utah listings are aggregated from Craigslist with links to the originals. We do not claim ownership of those listings.";
+  "Some listings in your state are aggregated from Craigslist with links to the originals. We do not claim ownership of those listings.";
 
 function descriptionForImportedAd(ad) {
   const base = (ad?.description || "").trim();

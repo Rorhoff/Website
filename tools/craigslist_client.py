@@ -1,5 +1,5 @@
 """
-Fetch recent Salt Lake Craigslist for-sale listings (HTML search page).
+Fetch recent Craigslist for-sale listings (HTML search page) per regional site.
 
 Uses curl_cffi when available. Parses ``cl-static-search-result``
 rows from search HTML, then loads each listing page for a thumbnail (``images.craigslist.org``).
@@ -136,21 +136,19 @@ BLOCKED_TITLE_RE = re.compile(
 )
 
 
-def _site_base() -> str:
-    return os.environ.get(
-        "CRAIGSLIST_SITE", "https://saltlakecity.craigslist.org"
-    ).rstrip("/")
-
-
 def _search_path() -> str:
     return os.environ.get("CRAIGSLIST_SEARCH_PATH", "/search/sss")
 
 
-def _max_default() -> int:
-    try:
-        return max(1, int(os.environ.get("CRAIGSLIST_IMPORT_MAX_LISTINGS", "10")))
-    except ValueError:
-        return 10
+def per_state_cap() -> int:
+    for key in ("CRAIGSLIST_IMPORT_MAX_PER_STATE", "CRAIGSLIST_IMPORT_MAX_LISTINGS"):
+        raw = os.environ.get(key, "").strip()
+        if raw:
+            try:
+                return max(1, int(raw))
+            except ValueError:
+                pass
+    return 10
 
 
 def _url_prefix(url: str) -> str:
@@ -200,7 +198,9 @@ def _teaser(title: str, price: str, *, max_len: int = 280) -> str:
     return text[: max_len - 1].rstrip() + "…"
 
 
-def _parse_result_html(chunk: str, *, base: str) -> AggregatedListing | None:
+def _parse_result_html(
+    chunk: str, *, base: str, state: str
+) -> AggregatedListing | None:
     link_m = LINK_RE.search(chunk)
     if not link_m:
         return None
@@ -223,7 +223,7 @@ def _parse_result_html(chunk: str, *, base: str) -> AggregatedListing | None:
         price=price[:100],
         description=_teaser(title, price),
         city=city[:120],
-        state="Utah",
+        state=state,
         category=category,
         sub_category=sub[:200],
         image_url=None,
@@ -290,19 +290,27 @@ class CraigslistClient:
             return None
         return _extract_image_url(html)
 
-    def fetch_listings(self, *, limit: int | None = None) -> list[AggregatedListing]:
-        cap = limit if limit is not None else _max_default()
-        base = _site_base()
+    def fetch_listings(
+        self,
+        *,
+        site_base: str,
+        state: str,
+        limit: int | None = None,
+    ) -> list[AggregatedListing]:
+        cap = limit if limit is not None else per_state_cap()
+        base = site_base.rstrip("/")
         url = urljoin(base + "/", _search_path().lstrip("/"))
         status, html = self._get(url)
         if status != 200:
-            log.warning("Craigslist search returned HTTP %s for %s", status, url)
+            log.warning(
+                "Craigslist search returned HTTP %s for %s (%s)", status, url, state
+            )
             return []
         out: list[AggregatedListing] = []
         seen: set[str] = set()
         skipped = 0
         for chunk in RESULT_RE.findall(html):
-            row = _parse_result_html(chunk, base=base)
+            row = _parse_result_html(chunk, base=base, state=state)
             if row is None or row.source_listing_id in seen:
                 continue
             seen.add(row.source_listing_id)
@@ -313,7 +321,7 @@ class CraigslistClient:
             if len(out) >= cap:
                 break
         if skipped:
-            log.info("Craigslist skipped %d non-product listings", skipped)
+            log.info("Craigslist %s: skipped %d non-product listings", state, skipped)
 
         if _fetch_images_enabled() and out:
             with_images = 0
@@ -334,7 +342,12 @@ class CraigslistClient:
                         image_url=img,
                     )
                     with_images += 1
-            log.info("Craigslist images: %d/%d listings have a thumbnail", with_images, len(out))
+            log.info(
+                "Craigslist %s images: %d/%d listings have a thumbnail",
+                state,
+                with_images,
+                len(out),
+            )
 
-        log.info("Craigslist parsed %d listings (cap=%d)", len(out), cap)
+        log.info("Craigslist %s: parsed %d listings (cap=%d)", state, len(out), cap)
         return out
