@@ -19,9 +19,12 @@ Developer notes (manual edits):
 
 from __future__ import annotations
 
+import html as html_module
 import logging
 import os
+import re
 import time
+from urllib.parse import quote
 from collections import Counter, deque
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -462,6 +465,88 @@ def _canonical_host() -> str:
     return "https://t1classifieds.com" if _CLASSIFIEDS_ONLY else "https://rorhoff.com"
 
 
+def _inject_prod_listing_seo(page_html: str, ad_id: str) -> str:
+    """Inject per-listing title/description/canonical into the prod SPA shell.
+
+    Without this, every ``/?ad=<id>`` URL ships with the homepage canonical in
+    static HTML. Google then reports "Alternate page with proper canonical tag"
+    for sitemap ad URLs. app.js still updates tags after load; crawlers that
+    only parse the initial HTML need the correct values here.
+    """
+    host = _canonical_host()
+    canonical_url = f"{host}/?ad={quote(ad_id, safe='')}"
+    try:
+        from classifieds_privacy import scrub_public_description
+        from database import SessionLocal
+        from models import ClassifiedAd
+    except Exception:
+        return page_html
+
+    db = SessionLocal()
+    try:
+        row = db.get(ClassifiedAd, ad_id)
+        if row is None:
+            return page_html
+        desc, _ = scrub_public_description(row.description)
+        body_line = (desc or "").replace("\n", " ").strip()[:120]
+        taxonomy = f"{row.category or ''} {row.sub_category or ''}".strip()
+        location = (row.state or "").strip()
+        if location:
+            title = f"{row.title} — {location} | t1Classifieds"
+        else:
+            title = f"{row.title} | t1Classifieds"
+        meta_desc = (
+            f"{taxonomy + ' ' if taxonomy else ''}"
+            f"{('in ' + location + '. ') if location else ''}"
+            f"{body_line}"
+        ).strip()[:300]
+    finally:
+        db.close()
+
+    esc = html_module.escape
+
+    def sub_one(pattern: str, repl: str, text: str) -> str:
+        return re.sub(pattern, repl, text, count=1)
+
+    page_html = sub_one(r"<title>[^<]*</title>", f"<title>{esc(title)}</title>", page_html)
+    page_html = sub_one(
+        r'(<meta name="description" content=")[^"]*(")',
+        rf"\1{esc(meta_desc)}\2",
+        page_html,
+    )
+    page_html = sub_one(
+        r'(<link rel="canonical" href=")[^"]*(")',
+        rf"\1{canonical_url}\2",
+        page_html,
+    )
+    page_html = sub_one(
+        r'(<meta property="og:title" content=")[^"]*(")',
+        rf"\1{esc(title)}\2",
+        page_html,
+    )
+    page_html = sub_one(
+        r'(<meta property="og:description" content=")[^"]*(")',
+        rf"\1{esc(meta_desc)}\2",
+        page_html,
+    )
+    page_html = sub_one(
+        r'(<meta property="og:url" content=")[^"]*(")',
+        rf"\1{canonical_url}\2",
+        page_html,
+    )
+    page_html = sub_one(
+        r'(<meta name="twitter:title" content=")[^"]*(")',
+        rf"\1{esc(title)}\2",
+        page_html,
+    )
+    page_html = sub_one(
+        r'(<meta name="twitter:description" content=")[^"]*(")',
+        rf"\1{esc(meta_desc)}\2",
+        page_html,
+    )
+    return page_html
+
+
 @app.get("/robots.txt", include_in_schema=False)
 def robots_txt() -> PlainTextResponse:
     host = _canonical_host()
@@ -565,8 +650,12 @@ if _CLASSIFIEDS_ONLY:
 
     @app.get("/", include_in_schema=False)
     @app.get("/index.html", include_in_schema=False)
-    def root_classifieds() -> HTMLResponse:
-        return HTMLResponse(_CLASSIFIEDS_INDEX_PROD)
+    def root_classifieds(request: Request) -> HTMLResponse:
+        html = _CLASSIFIEDS_INDEX_PROD
+        ad_id = (request.query_params.get("ad") or "").strip()
+        if ad_id:
+            html = _inject_prod_listing_seo(html, ad_id)
+        return HTMLResponse(html)
 else:
     # Dev / full mode (rorhoff.com): keep the portfolio + every other SPA reachable.
     app.mount(

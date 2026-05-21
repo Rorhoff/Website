@@ -42,7 +42,7 @@
     }
   }
   </script>
-  <link rel="stylesheet" href="/classifieds/styles.css?v=2026-05-20-inbox" />
+  <link rel="stylesheet" href="/classifieds/styles.css?v=2026-05-19-messages-ui" />
   <style>
     :root {
       --surface: #ffffff;
@@ -269,11 +269,15 @@
         <span id="topbarFilterDot" class="topbar-filter-dot" hidden aria-hidden="true"></span>
       </button>
       <div id="menuWrapper" class="menu-wrapper" hidden>
-        <button id="menuToggleBtn" class="hamburger-btn" type="button" aria-label="Open profile menu">☰</button>
+        <button id="menuToggleBtn" class="hamburger-btn" type="button" aria-label="Open profile menu">
+          ☰
+          <span id="menuUnreadBadge" class="menu-unread-badge" hidden aria-label="Unread messages"></span>
+        </button>
         <div id="menuPanel" class="menu-panel" hidden>
           <p id="menuProfileDetails" class="hint"></p>
           <button id="messagesNavBtn" type="button" class="messages-nav-btn" hidden>
-            Messages <span id="messagesUnreadBadge" class="messages-unread-badge" hidden></span>
+            Messages
+            <span id="messagesUnreadBadge" class="messages-unread-badge" hidden aria-label="Unread messages"></span>
           </button>
           <button id="enterProfileBtn" type="button">Enter Profile</button>
           <button id="exitProfileBtn" type="button">Exit Profile</button>
@@ -676,8 +680,8 @@
 
   <div id="toast" class="toast" hidden></div>
   <script src="/classifieds/cities.js?v=2026-05-18n"></script>
-  <script src="/classifieds/app.js?v=2026-05-20-inbox"></script>
-  <script src="/classifieds/messaging-ui.js?v=2026-05-20-inbox"></script>
+  <script src="/classifieds/app.js?v=2026-05-19-messages-ui"></script>
+  <script src="/classifieds/messaging-ui.js?v=2026-05-19-messages-ui"></script>
   <script src="/assets/nav-mobile.js"></script>
 </body>
 </html>

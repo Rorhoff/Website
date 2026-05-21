@@ -408,6 +408,11 @@ function updateAuthUI() {
   if (messagesNavBtn) messagesNavBtn.hidden = !userRecord;
   if (userRecord && window.t1Messaging) {
     window.t1Messaging.refreshUnread();
+    if (window.t1Messaging.startUnreadPolling) {
+      window.t1Messaging.startUnreadPolling();
+    }
+  } else if (window.t1Messaging && window.t1Messaging.updateUnreadBadge) {
+    window.t1Messaging.updateUnreadBadge(0);
   }
 
   if (userRecord) {
@@ -428,7 +433,17 @@ function updateAuthUI() {
     closeMenu();
   }
 
-  const showAdsBrowse = Boolean(userRecord) && !isProfileActive();
+  const onMessages =
+    window.t1Messaging && typeof window.t1Messaging.isMessagesRoute === "function"
+      ? window.t1Messaging.isMessagesRoute()
+      : false;
+  if (onMessages && window.t1Messaging.hideMessagesSection) {
+    /* messages view owns the main area */
+  } else if (window.t1Messaging) {
+    window.t1Messaging.hideMessagesSection();
+  }
+
+  const showAdsBrowse = Boolean(userRecord) && !isProfileActive() && !onMessages;
   if (adsBrowseSection) {
     adsBrowseSection.hidden = !showAdsBrowse;
     adsBrowseSection.style.display = showAdsBrowse ? "" : "none";
@@ -1132,7 +1147,11 @@ function reopenSharedAdIfAny() {
 }
 
 menuToggleBtn.addEventListener("click", () => {
+  const opening = menuPanel.hidden;
   menuPanel.hidden = !menuPanel.hidden;
+  if (opening && window.t1Messaging && window.t1Messaging.refreshUnread) {
+    window.t1Messaging.refreshUnread();
+  }
 });
 
 profileTabButtons.forEach((btn) => {

@@ -19,6 +19,7 @@
   const messagesBackBtn = document.getElementById("messagesBackBtn");
   const messagesNavBtn = document.getElementById("messagesNavBtn");
   const messagesUnreadBadge = document.getElementById("messagesUnreadBadge");
+  const menuUnreadBadge = document.getElementById("menuUnreadBadge");
 
   const contactSellerModal = document.getElementById("contactSellerModal");
   const contactSellerTitle = document.getElementById("contactSellerTitle");
@@ -200,12 +201,15 @@
   }
 
   function updateUnreadBadge(count) {
-    if (!messagesUnreadBadge || !messagesNavBtn) return;
-    if (count > 0) {
-      messagesUnreadBadge.hidden = false;
-      messagesUnreadBadge.textContent = count > 99 ? "99+" : String(count);
-    } else {
-      messagesUnreadBadge.hidden = true;
+    const label = count > 99 ? "99+" : String(count);
+    const show = count > 0;
+    if (messagesUnreadBadge) {
+      messagesUnreadBadge.hidden = !show;
+      messagesUnreadBadge.textContent = show ? label : "";
+    }
+    if (menuUnreadBadge) {
+      menuUnreadBadge.hidden = !show;
+      menuUnreadBadge.textContent = show ? label : "";
     }
   }
 
@@ -330,6 +334,7 @@
     closeContactSellerModal,
     handleMagicLinkQuery,
     refreshUnread,
+    startUnreadPolling,
     setHash,
     onRouteChange,
     updateUnreadBadge,
@@ -416,9 +421,20 @@
 
   window.addEventListener("hashchange", onRouteChange);
 
+  function startUnreadPolling() {
+    if (unreadPollTimer) window.clearInterval(unreadPollTimer);
+    if (!core().getCurrentUserRecord()) return;
+    refreshUnread();
+    unreadPollTimer = window.setInterval(refreshUnread, 15000);
+  }
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") refreshUnread();
+  });
+  window.addEventListener("focus", refreshUnread);
+
   document.addEventListener("DOMContentLoaded", () => {
     onRouteChange();
-    if (core().getCurrentUserRecord()) refreshUnread();
-    unreadPollTimer = window.setInterval(refreshUnread, 60000);
+    startUnreadPolling();
   });
 })();

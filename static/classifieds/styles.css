@@ -80,6 +80,7 @@ body {
 }
 
 .hamburger-btn {
+  position: relative;
   margin-top: 0;
   background: #e2e8f0;
   color: #1e293b;
@@ -87,6 +88,24 @@ body {
   padding: 10px 12px;
   min-width: 44px;
   min-height: 44px;
+}
+
+.menu-unread-badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  min-width: 1.1rem;
+  height: 1.1rem;
+  padding: 0 0.3rem;
+  border-radius: 999px;
+  background: #dc2626;
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 700;
+  line-height: 1.1rem;
+  text-align: center;
+  box-shadow: 0 0 0 2px #f0f4f9;
+  pointer-events: none;
 }
 
 .menu-panel {
@@ -1386,21 +1405,44 @@ button.secondary:hover {
   color: #64748b;
 }
 
+.messages-section {
+  display: flex;
+  flex-direction: column;
+  max-width: 720px;
+  margin-left: auto;
+  margin-right: auto;
+  width: 100%;
+}
+
+#messagesThreadView {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
 .messages-nav-btn {
+  position: relative;
   width: 100%;
   text-align: left;
+  padding-right: 2.25rem;
 }
 
 .messages-unread-badge {
-  display: inline-block;
-  min-width: 1.1rem;
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  min-width: 1.15rem;
+  height: 1.15rem;
   padding: 0 0.35rem;
-  margin-left: 0.35rem;
   border-radius: 999px;
   background: #dc2626;
   color: #fff;
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   font-weight: 700;
+  line-height: 1.15rem;
+  text-align: center;
+  box-shadow: 0 0 0 2px #fff;
+  pointer-events: none;
 }
 
 .messages-section .messages-header {
@@ -1503,6 +1545,9 @@ button.secondary:hover {
   align-items: center;
   gap: 0.85rem;
   margin-bottom: 1rem;
+  width: 100%;
+  padding-bottom: 0.85rem;
+  border-bottom: 1px solid #e2e8f0;
 }
 
 .messages-thread-header .messages-thread-thumb {
@@ -1522,19 +1567,23 @@ button.secondary:hover {
 }
 
 .messages-thread-body {
+  width: 100%;
+  max-width: 560px;
+  margin: 0 auto 1rem;
   max-height: 50vh;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 0.65rem;
-  margin-bottom: 1rem;
+  padding: 0.25rem 0;
 }
 
 .messages-bubble {
-  max-width: 85%;
+  max-width: min(88%, 420px);
   padding: 0.65rem 0.85rem;
   border-radius: 10px;
   background: #f1f5f9;
+  align-self: flex-start;
 }
 
 .messages-bubble--mine {
@@ -1546,6 +1595,12 @@ button.secondary:hover {
   font-size: 0.75rem;
   color: #64748b;
   margin-bottom: 0.25rem;
+}
+
+.messages-reply-form {
+  width: 100%;
+  max-width: 560px;
+  margin: 0 auto;
 }
 
 .messages-reply-form textarea {
@@ -1563,7 +1618,8 @@ button.secondary:hover {
 .messages-reply-actions .messages-send-btn,
 .messages-reply-actions .messages-share-contact-btn {
   margin-top: 0;
-  flex: 1 1 auto;
+  flex: 0 0 auto;
+  width: auto;
   min-width: 8rem;
 }
 
