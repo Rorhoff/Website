@@ -15,8 +15,7 @@ _FOOTER_HTML = (
     "<p style=\"color:#64748b;font-size:12px;line-height:1.5;\">"
     "t1Classifieds, operated by RedA1, LLC<br>"
     "12760 S Park Ave, Ste 1127, Riverton, UT 84065<br><br>"
-    "Replies to this email are not monitored. Respond in the t1Classifieds app.<br>"
-    "Questions? Email legal@reda1.com."
+    "Replies to this email are not monitored. Respond in the t1Classifieds app."
     "</p>"
 )
 

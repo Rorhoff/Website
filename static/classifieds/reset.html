@@ -112,7 +112,8 @@
       <h2>Set New Password</h2>
       <form id="confirmForm">
         <label for="newPassword">New password</label>
-        <input id="newPassword" type="password" required minlength="4" autocomplete="new-password" placeholder="At least 4 characters" />
+        <input id="newPassword" type="password" required minlength="8" autocomplete="new-password" placeholder="8+ chars, number &amp; special" title="At least 8 characters with one number and one special character" />
+        <p class="hint">At least 8 characters, including one number and one special character.</p>
         <button type="submit">Update Password</button>
       </form>
       <div id="confirmResult" hidden></div>
@@ -184,6 +185,31 @@
       const password = document.getElementById('newPassword').value;
       const resultEl = document.getElementById('confirmResult');
       resultEl.hidden = true;
+
+      if (password.length < 8) {
+        resultEl.className = 'error-msg';
+        resultEl.textContent = 'Password must be at least 8 characters.';
+        resultEl.hidden = false;
+        btn.disabled = false;
+        btn.textContent = 'Update Password';
+        return;
+      }
+      if (!/\d/.test(password)) {
+        resultEl.className = 'error-msg';
+        resultEl.textContent = 'Password must include at least one number.';
+        resultEl.hidden = false;
+        btn.disabled = false;
+        btn.textContent = 'Update Password';
+        return;
+      }
+      if (!/[^A-Za-z0-9]/.test(password)) {
+        resultEl.className = 'error-msg';
+        resultEl.textContent = 'Password must include at least one special character.';
+        resultEl.hidden = false;
+        btn.disabled = false;
+        btn.textContent = 'Update Password';
+        return;
+      }
 
       try {
         const res = await fetch('/api/classifieds/reset-confirm', {

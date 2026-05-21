@@ -126,6 +126,7 @@ body {
 
 .menu-panel button {
   margin-top: 0;
+  text-align: center;
 }
 
 .container {
@@ -1408,10 +1409,11 @@ button.secondary:hover {
 .messages-section {
   display: flex;
   flex-direction: column;
+  width: min(100%, 720px);
   max-width: 720px;
   margin-left: auto;
   margin-right: auto;
-  width: 100%;
+  justify-self: center;
 }
 
 #messagesThreadView {
@@ -1423,8 +1425,9 @@ button.secondary:hover {
 .messages-nav-btn {
   position: relative;
   width: 100%;
-  text-align: left;
+  text-align: center;
   padding-right: 2.25rem;
+  padding-left: 2.25rem;
 }
 
 .messages-unread-badge {

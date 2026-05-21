@@ -71,6 +71,25 @@ def _verify_password(plain: str, password_hash: str) -> bool:
         return False
 
 
+def _validate_password_strength(password: str) -> None:
+    """Require 8+ chars with at least one digit and one special character."""
+    if len(password) < 8:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password must be at least 8 characters.",
+        )
+    if not re.search(r"\d", password):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password must include at least one number.",
+        )
+    if not re.search(r"[^A-Za-z0-9]", password):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password must include at least one special character.",
+        )
+
+
 def classifieds_db() -> Any:
     if not credential_service.database_enabled() or SessionLocal is None:
         raise HTTPException(
@@ -286,7 +305,7 @@ class RegisterBody(BaseModel):
     email: str = Field(min_length=3, max_length=255)
     phone: str = Field(default="", max_length=64)
     state: str = Field(min_length=1, max_length=64)
-    password: str = Field(min_length=4, max_length=256)
+    password: str = Field(min_length=8, max_length=256)
     # Must be True — the frontend checkbox is `required`, and we re-enforce
     # server-side so a curl/Postman call can't bypass acceptance.
     tosAccepted: bool = Field(default=False)
@@ -303,7 +322,7 @@ class ResetRequestBody(BaseModel):
 
 class ResetConfirmBody(BaseModel):
     token: str = Field(min_length=1, max_length=200)
-    password: str = Field(min_length=4, max_length=256)
+    password: str = Field(min_length=8, max_length=256)
 
 
 class ProfilePatchBody(BaseModel):
@@ -348,6 +367,7 @@ def _reset_demo_response_allowed() -> bool:
 
 @router.post("/register")
 def classifieds_register(body: RegisterBody, db: Session = Depends(classifieds_db)):
+    _validate_password_strength(body.password)
     if not body.tosAccepted:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -468,6 +488,7 @@ def classifieds_reset_confirm(body: ResetConfirmBody, db: Session = Depends(clas
     user = db.get(ClassifiedUser, row.user_id)
     if user is None:
         raise HTTPException(status_code=400, detail="User not found.")
+    _validate_password_strength(body.password)
     user.password_hash = _hash_password(body.password)
     row.used_at = datetime.utcnow()
     db.execute(delete(ClassifiedSession).where(ClassifiedSession.user_id == user.id))

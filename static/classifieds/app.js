@@ -311,6 +311,19 @@ function escapeHTML(value) {
     .replaceAll("'", "&#39;");
 }
 
+function validatePasswordStrength(password) {
+  if (password.length < 8) {
+    return "Password must be at least 8 characters.";
+  }
+  if (!/\d/.test(password)) {
+    return "Password must include at least one number.";
+  }
+  if (!/[^A-Za-z0-9]/.test(password)) {
+    return "Password must include at least one special character.";
+  }
+  return null;
+}
+
 // Canonicalize prices to "$<value>". Mirrors classifieds_routes._normalize_price
 // so the field looks the same whether the value is freshly typed (formatted on
 // blur), freshly saved (server-side), or read back from a legacy row (server-
@@ -1057,6 +1070,11 @@ registerForm.addEventListener("submit", async (event) => {
     showToast(
       "Please confirm the Terms of Service (including refund and arbitration sections), Privacy Policy, and photo ownership."
     );
+    return;
+  }
+  const passwordError = validatePasswordStrength(password);
+  if (passwordError) {
+    showToast(passwordError);
     return;
   }
 
