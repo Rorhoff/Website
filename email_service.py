@@ -85,6 +85,23 @@ def send_email(*, to: str, subject: str, html_body: str, text_body: str) -> bool
         return False
 
 
+def send_password_reset_email(*, to: str, reset_url: str) -> bool:
+    subject = "Reset your t1Classifieds password"
+    text = (
+        "Use the link below to choose a new password (expires in 1 hour):\n\n"
+        f"{reset_url}\n\n"
+        "If you did not request this, ignore this email. Your password will not change."
+    )
+    html = (
+        "<p>Use the button below to choose a new password.</p>"
+        f"{_button(reset_url, 'Reset password')}"
+        '<p style="color:#64748b;font-size:14px;">'
+        "This link expires in 1 hour and works once."
+        "</p>"
+    )
+    return send_email(to=to, subject=subject, html_body=html, text_body=text)
+
+
 def send_magic_link_email(*, to: str, sign_in_url: str, seller_first_name: str | None) -> bool:
     seller = (seller_first_name or "the seller").strip()
     subject = f"Sign in to t1Classifieds to message {seller}"

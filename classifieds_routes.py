@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 import re
 import secrets
 import uuid
@@ -29,6 +30,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 import credential_service
+import email_service
 import image_storage
 import stripe_service
 from classifieds_privacy import scrub_public_description, seller_verified_badge
@@ -38,6 +40,7 @@ from models import (
     ClassifiedAd,
     ClassifiedAdReport,
     ClassifiedBlockedSignature,
+    ClassifiedPasswordResetToken,
     ClassifiedSession,
     ClassifiedUser,
 )
@@ -326,9 +329,18 @@ class CreateAdBody(BaseModel):
     contactName: str = Field(min_length=1, max_length=120)
 
 
-# --- In-memory reset tokens: token -> (user_id, expires_at) ---
-_reset_tokens: dict[str, tuple[int, datetime]] = {}
 _RESET_TOKEN_TTL = timedelta(hours=1)
+_RESET_RATE_PER_HOUR = 5
+
+
+def _reset_token_hash(raw: str) -> str:
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _reset_demo_response_allowed() -> bool:
+    """Only non-production may return reset_url in JSON (local dev without SES)."""
+    env = os.getenv("APP_ENV", "").strip().lower()
+    return env not in ("production", "prod")
 
 
 # --- Auth: register, login, logout, profile ---
@@ -400,34 +412,68 @@ def classifieds_logout(
 
 
 @router.post("/reset-request")
-def classifieds_reset_request(body: ResetRequestBody, db: Session = Depends(classifieds_db)):
+def classifieds_reset_request(
+    body: ResetRequestBody,
+    request: Request,
+    db: Session = Depends(classifieds_db),
+):
+    email = body.email.strip().lower()
     user = db.scalars(
-        select(ClassifiedUser).where(
-            func.lower(ClassifiedUser.email) == body.email.strip().lower()
-        )
+        select(ClassifiedUser).where(func.lower(ClassifiedUser.email) == email)
     ).first()
-    if user is None:
+    if user is None or not user.password_hash:
         return {"ok": True}  # don't reveal whether the email exists
-    token = secrets.token_urlsafe(32)
-    _reset_tokens[token] = (user.id, datetime.utcnow() + _RESET_TOKEN_TTL)
-    reset_url = f"/classifieds/reset.html?token={token}"
-    return {"ok": True, "reset_url": reset_url}
+
+    since = datetime.utcnow() - timedelta(hours=1)
+    recent = db.scalar(
+        select(func.count())
+        .select_from(ClassifiedPasswordResetToken)
+        .where(
+            ClassifiedPasswordResetToken.user_id == user.id,
+            ClassifiedPasswordResetToken.created_at >= since,
+        )
+    )
+    if int(recent or 0) >= _RESET_RATE_PER_HOUR:
+        return {"ok": True}  # same response shape; slows abuse
+
+    raw = secrets.token_urlsafe(32)
+    row = ClassifiedPasswordResetToken(
+        id=str(uuid.uuid4()),
+        user_id=user.id,
+        token_hash=_reset_token_hash(raw),
+        expires_at=datetime.utcnow() + _RESET_TOKEN_TTL,
+        ip_address=(request.client.host if request.client else None),
+    )
+    db.add(row)
+    db.commit()
+
+    reset_path = f"/classifieds/reset.html?token={raw}"
+    reset_url = f"{email_service.public_base_url()}{reset_path}"
+    email_service.send_password_reset_email(to=user.email, reset_url=reset_url)
+
+    out: dict[str, Any] = {"ok": True}
+    if _reset_demo_response_allowed() and not email_service.email_enabled():
+        out["reset_url"] = reset_path
+    return out
 
 
 @router.post("/reset-confirm")
 def classifieds_reset_confirm(body: ResetConfirmBody, db: Session = Depends(classifieds_db)):
-    entry = _reset_tokens.get(body.token)
-    if entry is None or datetime.utcnow() > entry[1]:
-        _reset_tokens.pop(body.token, None)
+    th = _reset_token_hash(body.token.strip())
+    row = db.scalars(
+        select(ClassifiedPasswordResetToken).where(ClassifiedPasswordResetToken.token_hash == th)
+    ).first()
+    if row is None or row.used_at is not None or row.expires_at < datetime.utcnow():
         raise HTTPException(status_code=400, detail="Invalid or expired reset token.")
-    user_id, _ = entry
-    user = db.get(ClassifiedUser, user_id)
+    user = db.get(ClassifiedUser, row.user_id)
     if user is None:
         raise HTTPException(status_code=400, detail="User not found.")
     user.password_hash = _hash_password(body.password)
+    row.used_at = datetime.utcnow()
+    db.execute(delete(ClassifiedSession).where(ClassifiedSession.user_id == user.id))
+    db.add(row)
     db.add(user)
     db.commit()
-    del _reset_tokens[body.token]
     return {"ok": True}
 
 

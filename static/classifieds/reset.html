@@ -152,7 +152,15 @@
         if (data.reset_url) {
           const fullUrl = location.origin + data.reset_url;
           resultEl.className = 'dev-notice';
-          resultEl.innerHTML = `<strong>Demo mode</strong> — no email is sent. Use this link to reset:<br/><a href="${data.reset_url}">${fullUrl}</a>`;
+          resultEl.textContent = '';
+          const strong = document.createElement('strong');
+          strong.textContent = 'Dev mode';
+          resultEl.appendChild(strong);
+          resultEl.appendChild(document.createTextNode(' — no email is sent. Use this link to reset: '));
+          const link = document.createElement('a');
+          link.href = data.reset_url;
+          link.textContent = fullUrl;
+          resultEl.appendChild(link);
         } else {
           resultEl.className = 'success-msg';
           resultEl.textContent = 'If that email is on file, a reset link has been sent.';

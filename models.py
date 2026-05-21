@@ -310,3 +310,21 @@ class ClassifiedMagicLinkToken(Base):
     __table_args__ = (
         Index("ix_magic_link_email_created", "email", "created_at"),
     )
+
+
+class ClassifiedPasswordResetToken(Base):
+    __tablename__ = "classified_password_reset_token"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("classified_user.id", ondelete="CASCADE"), index=True
+    )
+    token_hash: Mapped[str] = mapped_column(String(64), index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    ip_address: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    __table_args__ = (
+        Index("ix_password_reset_user_created", "user_id", "created_at"),
+    )
