@@ -62,8 +62,9 @@ git -C "$DEV_DIR" checkout main >/dev/null
 git -C "$DEV_DIR" pull --ff-only origin main
 
 if [[ -f "$DEV_DIR/deploy/pull-t1-referral.sh" ]]; then
-  log "Syncing T1Referral static app…"
-  bash "$DEV_DIR/deploy/pull-t1-referral.sh" || warn "T1Referral pull failed — dev nav may show placeholder"
+  log "Syncing T1Referral static app (optional)…"
+  # Non-fatal; never prompts for GitHub credentials (see pull-t1-referral.sh).
+  bash "$DEV_DIR/deploy/pull-t1-referral.sh" || warn "T1Referral pull skipped — using placeholder from Website git"
 fi
 
 after=$(git -C "$DEV_DIR" rev-parse --short HEAD)

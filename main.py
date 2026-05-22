@@ -697,6 +697,10 @@ else:
     def lost_in_space_legacy():
         return RedirectResponse(url="/lost-in-space/", status_code=301)
 
+    @app.get("/t1-referral", include_in_schema=False)
+    def t1_referral_redirect() -> RedirectResponse:
+        return RedirectResponse(url="/t1-referral/", status_code=301)
+
     @app.get("/sss")
     @app.get("/sss/")
     def sss_root():
