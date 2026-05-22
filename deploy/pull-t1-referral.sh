@@ -10,7 +10,8 @@
 # Optional SSH URL for a private repo:
 #   T1REFERRAL_REPO_URL=git@github.com:Rorhoff/T1Referral.git bash deploy/pull-t1-referral.sh
 #
-# Requires: git, node (>=18), npm
+# Requires: git, node (>=18), npm, and .env.t1-referral at Website repo root
+# (see deploy/.env.t1-referral.example — Vite bakes these in at build time).
 
 set -euo pipefail
 
@@ -18,6 +19,7 @@ REPO_URL="${T1REFERRAL_REPO_URL:-https://github.com/Rorhoff/T1Referral.git}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TARGET="$ROOT/static/t1-referral"
 VITE_BASE="/t1-referral/"
+ENV_FILE="${T1REFERRAL_ENV_FILE:-$ROOT/.env.t1-referral}"
 
 if [[ -t 1 ]]; then
   GREEN=$'\e[32m'; YELLOW=$'\e[33m'; RED=$'\e[31m'; BLUE=$'\e[34m'; RESET=$'\e[0m'
@@ -49,10 +51,18 @@ if [[ ! -f "$TMP/repo/package.json" ]]; then
   exit 0
 fi
 
+if [[ ! -f "$ENV_FILE" ]]; then
+  die "Missing $ENV_FILE — copy deploy/.env.t1-referral.example and add your Supabase URL + anon key."
+fi
+if ! grep -qE '^VITE_SUPABASE_URL=.+' "$ENV_FILE" || ! grep -qE '^VITE_SUPABASE_ANON_KEY=.+' "$ENV_FILE"; then
+  die "$ENV_FILE must set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY (non-empty)."
+fi
+
 log "Installing dependencies…"
 (cd "$TMP/repo" && npm ci)
 
-log "Building for ${VITE_BASE}…"
+log "Building for ${VITE_BASE} (with Supabase env)…"
+cp "$ENV_FILE" "$TMP/repo/.env"
 (cd "$TMP/repo" && npm run build -- --base="${VITE_BASE}")
 
 [[ -d "$TMP/repo/dist" ]] || die "Build did not produce dist/ — check T1Referral vite build."

@@ -2,6 +2,7 @@
 .env.dev
 .env.prod
 .env.local
+.env.t1-referral
 key.pem
 *.pem
 .venv/
