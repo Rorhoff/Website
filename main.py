@@ -674,6 +674,11 @@ else:
         name="airevolution",
     )
     app.mount(
+        "/t1-referral",
+        StaticFiles(directory=str(STATIC_DIR / "t1-referral"), html=True),
+        name="t1_referral",
+    )
+    app.mount(
         "/t1-prod",
         StaticFiles(directory=str(STATIC_DIR / "t1-prod"), html=True),
         name="t1_prod",

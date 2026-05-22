@@ -61,6 +61,11 @@ git -C "$DEV_DIR" checkout main >/dev/null
 # be sorted out by hand, not by a deploy script.
 git -C "$DEV_DIR" pull --ff-only origin main
 
+if [[ -f "$DEV_DIR/deploy/pull-t1-referral.sh" ]]; then
+  log "Syncing T1Referral static app…"
+  bash "$DEV_DIR/deploy/pull-t1-referral.sh" || warn "T1Referral pull failed — dev nav may show placeholder"
+fi
+
 after=$(git -C "$DEV_DIR" rev-parse --short HEAD)
 if [[ "$before" == "$after" ]]; then
   log "No code change — restarting anyway in case env/config moved."
