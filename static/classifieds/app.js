@@ -446,17 +446,25 @@ function updateAuthUI() {
     closeMenu();
   }
 
-  const onMessages =
+  let onMessages =
     window.t1Messaging && typeof window.t1Messaging.isMessagesRoute === "function"
       ? window.t1Messaging.isMessagesRoute()
       : false;
-  if (onMessages && window.t1Messaging.hideMessagesSection) {
-    /* messages view owns the main area */
+  if (onMessages && !userRecord && window.t1Messaging.leaveMessagesRoute) {
+    window.t1Messaging.leaveMessagesRoute(false);
+    onMessages = false;
+  } else if (onMessages && userRecord && profileActive && window.t1Messaging.clearMessagesRoute) {
+    /* Profile mode and #/messages cannot both be active */
+    window.t1Messaging.clearMessagesRoute();
+    onMessages = false;
+  } else if (onMessages && userRecord) {
+    /* messages view owns the main area — layout handled by onRouteChange */
   } else if (window.t1Messaging) {
     window.t1Messaging.hideMessagesSection();
+    if (window.t1Messaging.clearMessagesUI) window.t1Messaging.clearMessagesUI();
   }
 
-  const showAdsBrowse = Boolean(userRecord) && !isProfileActive() && !onMessages;
+  const showAdsBrowse = Boolean(userRecord) && !profileActive && !onMessages;
   if (adsBrowseSection) {
     adsBrowseSection.hidden = !showAdsBrowse;
     adsBrowseSection.style.display = showAdsBrowse ? "" : "none";
@@ -1191,6 +1199,9 @@ enterProfileBtn.addEventListener("click", async () => {
     showToast("Log in first.");
     return;
   }
+  if (window.t1Messaging?.isMessagesRoute?.() && window.t1Messaging.clearMessagesRoute) {
+    window.t1Messaging.clearMessagesRoute();
+  }
   setProfileActive(true);
   closeMenu();
   updateAuthUI();
@@ -1201,7 +1212,11 @@ enterProfileBtn.addEventListener("click", async () => {
 exitProfileBtn.addEventListener("click", async () => {
   setProfileActive(false);
   closeMenu();
-  updateAuthUI();
+  if (window.t1Messaging?.isMessagesRoute?.() && window.t1Messaging.showHomeFromMessages) {
+    window.t1Messaging.showHomeFromMessages();
+  } else {
+    updateAuthUI();
+  }
   await renderAds();
   showToast("Exited profile mode.");
 });
@@ -1216,6 +1231,9 @@ logoutBtn.addEventListener("click", async () => {
   cachedUser = null;
   setProfileActive(false);
   closeMenu();
+  if (window.t1Messaging?.leaveMessagesRoute) {
+    window.t1Messaging.leaveMessagesRoute(false);
+  }
   updateAuthUI();
   await renderAds();
   showToast("Logged out.");

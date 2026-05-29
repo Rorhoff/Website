@@ -78,6 +78,34 @@
     if (messagesSection) messagesSection.hidden = true;
   }
 
+  function clearMessagesUI() {
+    currentThreadId = null;
+    currentThreadMeta = null;
+    if (messagesInboxList) messagesInboxList.innerHTML = "";
+    if (messagesThreadHeader) messagesThreadHeader.innerHTML = "";
+    if (messagesThreadBody) messagesThreadBody.innerHTML = "";
+    if (messagesReplyInput) messagesReplyInput.value = "";
+    if (messagesInboxView) messagesInboxView.hidden = false;
+    if (messagesThreadView) messagesThreadView.hidden = true;
+  }
+
+  /** Clear #/messages and hide the panel (caller runs updateAuthUI). */
+  function clearMessagesRoute() {
+    hideMessagesSection();
+    clearMessagesUI();
+    const base = window.location.pathname + window.location.search;
+    if (window.location.hash) {
+      window.history.replaceState(null, "", base);
+    }
+  }
+
+  /** Leave #/messages without leaving stale inbox HTML on screen. */
+  function leaveMessagesRoute(showLoginToast) {
+    clearMessagesRoute();
+    core().updateAuthUI();
+    if (showLoginToast) core().showToast("Log in to view messages.");
+  }
+
   function showInbox() {
     if (!messagesSection) return;
     hideMainForMessages();
@@ -104,12 +132,7 @@
   }
 
   function showHomeFromMessages() {
-    hideMessagesSection();
-    setHash("");
-    if (core().getCurrentUserRecord() && !core().isProfileActive()) {
-      const browse = document.getElementById("adsBrowseSection");
-      if (browse) browse.hidden = false;
-    }
+    clearMessagesRoute();
     core().updateAuthUI();
   }
 
@@ -217,8 +240,7 @@
     const route = parseHashRoute();
     if (route.view === "inbox") {
       if (!core().getCurrentUserRecord()) {
-        setHash("");
-        core().showToast("Log in to view messages.");
+        leaveMessagesRoute(true);
         return;
       }
       showInbox();
@@ -226,13 +248,14 @@
     }
     if (route.view === "thread" && route.conversationId) {
       if (!core().getCurrentUserRecord()) {
-        setHash("");
+        leaveMessagesRoute(true);
         return;
       }
       showThread(route.conversationId);
       return;
     }
     hideMessagesSection();
+    clearMessagesUI();
   }
 
   function openContactSellerModal(ad) {
@@ -340,17 +363,17 @@
     updateUnreadBadge,
     isMessagesRoute,
     hideMessagesSection,
+    clearMessagesUI,
+    clearMessagesRoute,
+    showHomeFromMessages,
+    leaveMessagesRoute,
   };
 
   if (messagesNavBtn) {
     messagesNavBtn.addEventListener("click", () => setHash("messages"));
   }
   if (messagesBackBtn) {
-    messagesBackBtn.addEventListener("click", () => {
-      const route = parseHashRoute();
-      if (route.view === "thread") setHash("messages");
-      else showHomeFromMessages();
-    });
+    messagesBackBtn.addEventListener("click", () => showHomeFromMessages());
   }
   if (contactSellerCloseBtn) {
     contactSellerCloseBtn.addEventListener("click", closeContactSellerModal);

@@ -320,6 +320,7 @@
     <button class="btn-pause" id="btn-pause" disabled>&#9646;&#9646; Pause</button>
     <button class="btn-step" id="btn-step-back" disabled>⏮ Back</button>
     <button class="btn-step" id="btn-step-fwd"  disabled>Step &#9654;</button>
+    <button class="btn-ghost" id="btn-download-moves" disabled title="Export all moves sent by test players">⬇ Download moves</button>
     <div class="pill"><span class="pill-label">Code</span><span class="pill-val" id="info-code">—</span></div>
     <div class="pill"><span class="pill-label">Phase</span><span class="pill-val" id="info-phase">—</span></div>
     <div class="pill"><span class="pill-label">Round</span><span class="pill-val" id="info-round">—</span></div>
@@ -438,6 +439,8 @@
   let _statInvasions  = 0;  // total invasions resolved
   let _statCombats    = 0;  // total ship combats resolved
   let _statFinalRound = 0;  // last round reached
+  /** Outbound WebSocket actions (one entry per `send()`). */
+  let moveLog = [];
   // (per-panel lastEndTurnSeq tracks last seq at which we sent end_turn)
 
   // ── Mini-board zoom slider ────────────────────────────────────────────────
@@ -676,11 +679,66 @@
     el.scrollTop = el.scrollHeight;
   }
 
+  // ── Move log / download ───────────────────────────────────────────────────
+  function updateDownloadMovesBtn() {
+    const btn = document.getElementById("btn-download-moves");
+    if (btn) btn.disabled = moveLog.length === 0;
+  }
+
+  function recordMove(idx, obj) {
+    const p = panels[idx];
+    const round = p?.lastState?.round ?? null;
+    const phase = p?.lastState?.phase ?? null;
+    moveLog.push({
+      seq: moveLog.length + 1,
+      at: new Date().toISOString(),
+      player: p?.name ?? `P${idx}`,
+      role: p?.role ?? null,
+      round,
+      phase,
+      type: obj.type ?? "?",
+      summary: summarizeMsg(obj, "out"),
+      payload: obj,
+    });
+    updateDownloadMovesBtn();
+  }
+
+  function downloadMoves() {
+    if (!moveLog.length) return;
+    const exportedAt = new Date().toISOString();
+    const lines = moveLog.map(m =>
+      `${m.at}  #${m.seq}  ${m.player}  R${m.round ?? "?"}  ${m.phase ?? "?"}  ${m.summary}`
+    );
+    const blob = {
+      exported_at: exportedAt,
+      game_code: gameCode,
+      player_count: playerCount,
+      move_count: moveLog.length,
+      stats: {
+        turns: _statTurns,
+        invasions: _statInvasions,
+        combats: _statCombats,
+        final_round: _statFinalRound,
+      },
+      moves: moveLog,
+      transcript: lines.join("\n"),
+    };
+    const stamp = exportedAt.slice(0, 19).replace(/[:T]/g, "-");
+    const code = (gameCode || "session").replace(/[^\w-]/g, "");
+    const json = JSON.stringify(blob, null, 2);
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([json], { type: "application/json" }));
+    a.download = `sss-moves-${code}-${stamp}.json`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
   // ── Send ──────────────────────────────────────────────────────────────────
   function send(idx, obj) {
     const p = panels[idx];
     if (!p.ws || p.ws.readyState !== WebSocket.OPEN) { log(idx,"err","Not connected"); return; }
     log(idx, "out", obj);
+    recordMove(idx, obj);
     if (obj.type === "end_turn") _statTurns++;
     p.ws.send(JSON.stringify(obj));
   }
@@ -2043,6 +2101,8 @@
     _statInvasions    = 0;
     _statCombats      = 0;
     _statFinalRound   = 0;
+    moveLog           = [];
+    updateDownloadMovesBtn();
     document.getElementById("btn-step-back").disabled = true;
     document.getElementById("btn-step-fwd").disabled  = true;
     const pauseBtn = document.getElementById("btn-pause");
@@ -2084,6 +2144,7 @@
   });
   document.getElementById("btn-step-back").addEventListener("click", stepBack);
   document.getElementById("btn-step-fwd").addEventListener("click", stepForward);
+  document.getElementById("btn-download-moves").addEventListener("click", downloadMoves);
 
   document.addEventListener("keydown", e => {
     if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;

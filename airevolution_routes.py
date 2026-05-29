@@ -450,8 +450,101 @@ def _call_claude(system: str, user_text: str, max_tokens: int = 4096) -> str:
     return f"(Claude unavailable — {last_err}. Please try again in a moment.)"
 
 
+MAX_INQUIRY_IMAGES = 4
+MAX_INQUIRY_IMAGE_CHARS = 5_000_000
+
+
+def _call_claude_vision(
+    system: str,
+    user_text: str,
+    image_data_urls: list[str],
+    max_tokens: int = 4096,
+) -> str:
+    key = os.getenv("ANTHROPIC_API_KEY", "").strip()
+    if not key:
+        return ""
+    model = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
+    content: list[dict[str, Any]] = [{"type": "text", "text": user_text}]
+    for data_url in image_data_urls:
+        try:
+            header, _, b64data = data_url.partition(",")
+            if not b64data:
+                continue
+            media_type = header.split(":")[1].split(";")[0] if ":" in header else "image/jpeg"
+            if media_type not in ("image/jpeg", "image/png", "image/gif", "image/webp"):
+                media_type = "image/jpeg"
+            content.append({
+                "type": "image",
+                "source": {"type": "base64", "media_type": media_type, "data": b64data},
+            })
+        except Exception:
+            continue
+    if len(content) < 2:
+        return _call_claude(system, user_text, max_tokens=max_tokens)
+    payload = {
+        "model": model,
+        "max_tokens": max_tokens,
+        "system": system,
+        "messages": [{"role": "user", "content": content}],
+    }
+    headers = {
+        "x-api-key": key,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+    }
+    last_err = ""
+    for attempt in range(3):
+        try:
+            r = httpx.post(
+                "https://api.anthropic.com/v1/messages",
+                headers=headers,
+                json=payload,
+                timeout=120.0,
+            )
+            if r.status_code == 529:
+                wait = 4 * (attempt + 1)
+                time.sleep(wait)
+                last_err = f"API overloaded (529), retried {attempt + 1}x"
+                continue
+            r.raise_for_status()
+            data = r.json()
+            out: list[str] = []
+            for block in data.get("content", []):
+                if block.get("type") == "text":
+                    out.append(block.get("text", ""))
+            return "\n".join(out).strip()
+        except httpx.HTTPStatusError as e:
+            body = ""
+            try:
+                detail = e.response.json()
+                body = detail.get("error", {}).get("message", "") or str(detail)
+            except Exception:
+                body = e.response.text[:300]
+            return f"(Claude request failed {e.response.status_code}: {body or str(e)})"
+        except httpx.HTTPError as e:
+            return f"(Claude request failed: {e})"
+        except Exception as e:  # noqa: BLE001
+            return f"(Claude error: {e})"
+    return f"(Claude unavailable — {last_err}. Please try again in a moment.)"
+
+
+def _sanitize_inquiry_images(raw: list[str] | None) -> list[str]:
+    if not raw:
+        return []
+    out: list[str] = []
+    for item in raw[:MAX_INQUIRY_IMAGES]:
+        s = (item or "").strip()
+        if not s.startswith("data:image/") or "," not in s:
+            continue
+        if len(s) > MAX_INQUIRY_IMAGE_CHARS:
+            continue
+        out.append(s)
+    return out
+
+
 class ChatIn(BaseModel):
     message: str = Field(min_length=1, max_length=32_000)
+    images: list[str] = Field(default_factory=list, max_length=MAX_INQUIRY_IMAGES)
     ticket_id: int | None = None
     # When true, creates or updates a ticket record for the portal audit trail.
     create_ticket: bool = False
@@ -630,6 +723,7 @@ def delete_image(image_id: int) -> dict[str, bool]:
 @router.post("/chat")
 def chat(body: ChatIn) -> dict[str, Any]:
     _ensure_storage()
+    inquiry_images = _sanitize_inquiry_images(body.images)
     ctx, hits, img_hits, broad = _build_context_for_query(body.message)
     has_kb = bool(ctx)
 
@@ -649,6 +743,13 @@ def chat(body: ChatIn) -> dict[str, Any]:
         "`filename=` value listed in the knowledge context. The UI will render that screenshot in "
         "place. Only reference images that appear in the listing; do not invent filenames."
     )
+    if inquiry_images:
+        system += (
+            " The user attached screenshot(s) of the customer's issue (error dialogs, UI states, "
+            "email captures). Read visible text in those images carefully — extract exact error "
+            "messages, codes, and UI labels — and use them in your triage. Do not ask the user to "
+            "re-type text that is already visible in an attached screenshot."
+        )
     if broad:
         system += (
             " IMPORTANT — enumerative request: the user is asking you to cover every/all/each item "
@@ -671,11 +772,15 @@ def chat(body: ChatIn) -> dict[str, Any]:
         f"{ctx or '(no documents matched; inform user and use STATUS: NEEDS_REVIEW unless trivial).'}"
     )
 
-    reply = (
-        _call_claude(system, user_block, max_tokens=(8192 if broad else 4096))
-        if os.getenv("ANTHROPIC_API_KEY", "").strip()
-        else ""
-    )
+    max_tok = 8192 if broad else 4096
+    api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
+    if api_key:
+        if inquiry_images:
+            reply = _call_claude_vision(system, user_block, inquiry_images, max_tokens=max_tok)
+        else:
+            reply = _call_claude(system, user_block, max_tokens=max_tok)
+    else:
+        reply = ""
 
     if not reply:
         if has_kb:
@@ -704,6 +809,7 @@ def chat(body: ChatIn) -> dict[str, Any]:
     audit_entry = {
         "at": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime()) + "Z",
         "inquiry": body.message,
+        "inquiry_images": len(inquiry_images),
         "retrieval_hits": len(hits),
         "ai_status": status_line,
     }
@@ -748,6 +854,7 @@ def chat(body: ChatIn) -> dict[str, Any]:
         "broad": broad,
         "anthropic_configured": bool(os.getenv("ANTHROPIC_API_KEY", "").strip()),
         "ticket_id": body.ticket_id or new_ticket_id,
+        "inquiry_images": len(inquiry_images),
     }
 
 

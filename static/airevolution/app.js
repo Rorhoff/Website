@@ -220,10 +220,106 @@ function buildQuickPrompts() {
   ).join("");
   host.querySelectorAll(".qp").forEach((b) => {
     b.addEventListener("click", () => {
-      const ta = el("chatInput");
-      if (ta) ta.value = decodeURIComponent(b.getAttribute("data-qp") || "");
-      ta?.focus();
+      const input = el("chatInput");
+      if (!input) return;
+      const text = decodeURIComponent(b.getAttribute("data-qp") || "");
+      input.textContent = text;
+      input.focus();
     });
+  });
+}
+
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => resolve(e.target.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function extractImages(container) {
+  const results = [];
+  for (const img of Array.from(container.querySelectorAll("img"))) {
+    const src = img.getAttribute("src") || "";
+    if (src.startsWith("data:image/")) {
+      results.push(src);
+    } else if (src.startsWith("blob:")) {
+      try {
+        results.push(await blobToDataUrl(await (await fetch(src)).blob()));
+      } catch {
+        /* inaccessible blob */
+      }
+    } else if (src) {
+      try {
+        const c = document.createElement("canvas");
+        c.width = img.naturalWidth || 400;
+        c.height = img.naturalHeight || 300;
+        c.getContext("2d").drawImage(img, 0, 0);
+        results.push(c.toDataURL("image/png"));
+      } catch {
+        /* CORS-blocked URL */
+      }
+    }
+  }
+  return results.slice(0, 4);
+}
+
+function getChatInquiryText(input) {
+  if (!input) return "";
+  return (input.innerText || input.textContent || "").trim();
+}
+
+function initChatPasteImages(chatInput) {
+  if (!chatInput) return;
+  chatInput.addEventListener("paste", (ev) => {
+    ev.preventDefault();
+    const cd = ev.clipboardData;
+    if (!cd) return;
+
+    const items = Array.from(cd.items || []);
+    const imgItem = items.find((i) => i.kind === "file" && (i.type || "").startsWith("image/"));
+    if (imgItem) {
+      const file = imgItem.getAsFile();
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const img = document.createElement("img");
+          img.src = e.target.result;
+          const sel = window.getSelection();
+          if (sel && sel.rangeCount) {
+            const range = sel.getRangeAt(0);
+            range.deleteContents();
+            range.insertNode(img);
+            range.setStartAfter(img);
+            range.collapse(true);
+            sel.removeAllRanges();
+            sel.addRange(range);
+          } else {
+            chatInput.appendChild(img);
+          }
+        };
+        reader.readAsDataURL(file);
+        return;
+      }
+    }
+
+    const text = cd.getData("text/plain");
+    if (text) document.execCommand("insertText", false, text);
+
+    const html = cd.getData("text/html");
+    if (html) {
+      const temp = document.createElement("div");
+      temp.innerHTML = html;
+      temp.querySelectorAll("img").forEach((srcImg) => {
+        const src = srcImg.getAttribute("src") || "";
+        if (src) {
+          const img = document.createElement("img");
+          img.src = src;
+          chatInput.appendChild(img);
+        }
+      });
+    }
   });
 }
 
@@ -295,6 +391,8 @@ function initChat() {
   const form = el("chatForm");
   if (!form) return;
   buildQuickPrompts();
+  const chatInput = el("chatInput");
+  initChatPasteImages(chatInput);
   const copyBtn = el("copyReply");
   if (copyBtn) {
     copyBtn.addEventListener("click", async () => {
@@ -319,7 +417,9 @@ function initChat() {
     const retrieval = el("retrieval");
     const aiImages = el("aiImages");
     const submitBtn = el("chatSubmit");
-    if (!input?.value.trim()) return;
+    const message = getChatInquiryText(input);
+    const images = input ? await extractImages(input) : [];
+    if (!message && !images.length) return;
     out.textContent = "Working on your request…";
     if (retrieval) retrieval.innerHTML = "";
     if (aiImages) {
@@ -339,7 +439,8 @@ function initChat() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          message: input.value,
+          message: message || "(screenshot inquiry — see attached image(s))",
+          images,
           create_ticket: !!(logTicket && logTicket.checked),
         }),
       });
@@ -349,10 +450,11 @@ function initChat() {
       renderAIImageGallery(images.filter((im) => !inlinedIds.has(im.id)));
       if (copyBtn) copyBtn.hidden = !res.reply?.trim();
       const broadTag = res.broad ? " · mode: enumerate-all" : "";
+      const imgTag = res.inquiry_images ? ` · ${res.inquiry_images} pasted screenshot${res.inquiry_images > 1 ? "s" : ""} analyzed` : "";
       if (res.ticket_id) {
-        setBanner("agentBanner", `Logged as ticket #${res.ticket_id} (status: ${res.status})${broadTag}`, "ok");
+        setBanner("agentBanner", `Logged as ticket #${res.ticket_id} (status: ${res.status})${broadTag}${imgTag}`, "ok");
       } else {
-        setBanner("agentBanner", `Status: ${res.status} · Claude: ${res.anthropic_configured ? "yes" : "no"}${broadTag}`, "info");
+        setBanner("agentBanner", `Status: ${res.status} · Claude: ${res.anthropic_configured ? "yes" : "no"}${broadTag}${imgTag}`, "info");
       }
       if (retrieval && res.retrieval && res.retrieval.length) {
         retrieval.innerHTML =
