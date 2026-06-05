@@ -651,7 +651,14 @@
           <form id="docUploadForm" class="form-grid" enctype="multipart/form-data">
             <div>
               <label for="docTitle">Title (optional)</label>
-              <input type="text" name="title" id="docTitle" placeholder="e.g. Software admin, queues" />
+              <input type="text" name="title" id="docTitle" placeholder="e.g. Data Dictionary" />
+            </div>
+            <div>
+              <label for="docKind">Document type</label>
+              <select name="doc_kind" id="docKind">
+                <option value="support">Support guide / runbook</option>
+                <option value="schema">Data dictionary / schema</option>
+              </select>
             </div>
             <div>
               <label for="docFile">PDF or text files</label>
@@ -670,7 +677,14 @@
           <form id="pasteDocForm" class="form-grid">
             <div>
               <label for="pasteTitle">Title (optional)</label>
-              <input type="text" name="title" id="pasteTitle" placeholder="e.g. Stuck job in queue" />
+              <input type="text" name="title" id="pasteTitle" placeholder="e.g. Data Dictionary" />
+            </div>
+            <div>
+              <label for="pasteKind">Document type</label>
+              <select name="doc_kind" id="pasteKind">
+                <option value="support">Support guide / runbook</option>
+                <option value="schema">Data dictionary / schema</option>
+              </select>
             </div>
             <div>
               <label for="pasteBody">Content</label>
@@ -861,7 +875,7 @@
   </main>
   </div>
 
-  <script src="app.js?v=2026-05-22-sql" defer></script>
+  <script src="app.js?v=2026-05-22-sql2" defer></script>
   <script src="/assets/nav-mobile.js"></script>
 </body>
 </html>

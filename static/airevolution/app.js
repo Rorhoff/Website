@@ -77,7 +77,7 @@ async function refreshStatus() {
     }
     const sub = el("statusSub");
     if (sub) {
-      sub.textContent = `${s.documents} docs · ${s.images} screenshots · ${s.tickets} tickets`;
+      sub.textContent = `${s.documents} docs (${s.schema_documents ?? 0} schema) · ${s.images} screenshots · ${s.tickets} tickets`;
     }
   } catch (e) {
     setBanner("agentBanner", String(e), "err");
@@ -91,7 +91,7 @@ async function loadDocuments() {
 
   let html = docs.length
     ? docs.map((d) =>
-        `<li class="kb-item"><div><strong>${escapeHtml(d.title)}</strong> <span class="muted">${d.chunk_count} chunks</span></div><button type="button" class="btn sm danger" data-del-doc="${d.id}">Remove</button></li>`
+        `<li class="kb-item"><div><strong>${escapeHtml(d.title)}</strong> <span class="pill ${d.kind === "schema" ? "ok" : ""}" style="font-size:0.75rem">${d.kind === "schema" ? "schema" : "support"}</span> <span class="muted">${d.chunk_count} chunks</span></div><button type="button" class="btn sm danger" data-del-doc="${d.id}">Remove</button></li>`
       ).join("")
     : '<li class="muted">No documents yet.</li>';
 
@@ -527,7 +527,7 @@ function initChat() {
       const sqlTag = res.sql
         ? (res.schema_docs?.length
           ? ` · schema: ${res.schema_docs.join(", ")}`
-          : " · no data dictionary matched — upload one titled Data Dictionary")
+          : " · no schema doc — re-upload as type Data dictionary / schema")
         : "";
       const imgTag = res.inquiry_images ? ` · ${res.inquiry_images} pasted screenshot${res.inquiry_images > 1 ? "s" : ""} analyzed` : "";
       if (res.ticket_id) {
@@ -676,6 +676,8 @@ function initDocUpload() {
           const fd = new FormData();
           fd.set("file", file);
           if (titleBase) fd.set("title", files.length === 1 ? titleBase : `${titleBase} — ${file.name}`);
+          const kind = el("docKind")?.value;
+          if (kind) fd.set("doc_kind", kind);
           await fetchJSON("/documents", { method: "POST", body: fd });
         }
         form.reset();
@@ -710,6 +712,8 @@ function initDocUpload() {
           const fd = new FormData();
           fd.set("text", bodyText);
           if (pt) fd.set("title", pt);
+          const kind = el("pasteKind")?.value;
+          if (kind) fd.set("doc_kind", kind);
           await fetchJSON("/documents", { method: "POST", body: fd });
         }
         pasteForm.reset();

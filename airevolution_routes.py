@@ -65,6 +65,7 @@ def _persist_kb_to_disk() -> None:
                         "id": d["id"],
                         "title": d["title"],
                         "filename": d.get("filename"),
+                        "kind": d.get("kind"),
                         "bytes": d.get("bytes", 0),
                         "created_at": d.get("created_at"),
                         "full_text": d.get("full_text") or "",
@@ -96,11 +97,14 @@ def _load_kb_from_disk() -> None:
             full_text = (raw.get("full_text") or "").strip()
             if not full_text:
                 continue
+            fname = raw.get("filename")
+            kind = _infer_doc_kind(title, fname, full_text, raw.get("kind"))
             loaded.append(
                 {
                     "id": doc_id,
                     "title": title,
-                    "filename": raw.get("filename"),
+                    "filename": fname,
+                    "kind": kind,
                     "bytes": raw.get("bytes") or len(full_text.encode("utf-8", errors="replace")),
                     "created_at": raw.get("created_at")
                     or time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime()) + "Z",
@@ -230,6 +234,53 @@ def _schema_doc_score(title: str, filename: str | None, full_text: str) -> int:
 
 def _doc_looks_like_schema(title: str, filename: str | None, full_text: str) -> bool:
     return _schema_doc_score(title, filename, full_text) >= 6
+
+
+def _infer_doc_kind(
+    title: str,
+    filename: str | None,
+    full_text: str,
+    stored: str | None = None,
+) -> str:
+    """Classify uploads so SQL mode never pulls AppEnhancer support guides."""
+    if stored in ("schema", "support"):
+        return stored
+    label = f"{title} {filename or ''}"
+    if SCHEMA_DOC_LABEL_RE.search(label):
+        return "schema"
+    if _schema_doc_score(title, filename, full_text) >= 10:
+        return "schema"
+    return "support"
+
+
+def _build_usrid_column_index(full_text: str, max_lines: int = 300) -> str:
+    """Surface every dictionary line that mentions usrid-like columns."""
+    hits: list[str] = []
+    for line in full_text.splitlines():
+        if re.search(r"\b(usrid|user_id|userid|user\s*id)\b", line, re.I):
+            stripped = line.strip()
+            if stripped and stripped not in hits:
+                hits.append(stripped)
+            if len(hits) >= max_lines:
+                break
+    if not hits:
+        return ""
+    return (
+        "Dictionary lines mentioning usrid / user_id (use these table and column names):\n"
+        + "\n".join(f"- {h}" for h in hits)
+    )
+
+
+_SQL_SYSTEM_PROMPT = (
+    "You write SQL for internal support staff using their uploaded DATA DICTIONARY. "
+    "This task is always in scope — never refuse, never say 'outside the knowledge base', "
+    "never escalate to a DBA, and never cite security risks as a reason to avoid read-only SELECT queries. "
+    "Scan the DATA DICTIONARY for every table that contains usrid, user_id, or userid columns. "
+    "Write runnable SQL (SELECT with LEFT JOIN or UNION ALL as appropriate) using exact table and "
+    "column names from the dictionary. Put the query in a fenced ```sql code block. "
+    "A short note after the query is fine. End with STATUS: RESOLVED when SQL is provided. "
+    "Only use STATUS: NEEDS_REVIEW if the DATA DICTIONARY section is literally empty."
+)
 
 
 def _sql_focus_terms(user_message: str) -> set[str]:
@@ -455,23 +506,29 @@ def _retrieve_schema_docs(
                 "id": d["id"],
                 "title": d.get("title") or f"Document {d['id']}",
                 "filename": d.get("filename") or "",
+                "kind": d.get("kind")
+                or _infer_doc_kind(
+                    d.get("title") or "",
+                    d.get("filename"),
+                    d.get("full_text") or "",
+                ),
                 "full_text": d.get("full_text") or "",
             }
             for d in _docs
         ]
-    ranked = sorted(
-        (
-            (_schema_doc_score(d["title"], d.get("filename"), d["full_text"]), d)
-            for d in docs_snapshot
-        ),
-        key=lambda x: -x[0],
-    )
-    schema_docs = [d for score, d in ranked if score >= 6]
-    if not schema_docs and len(docs_snapshot) == 1:
-        schema_docs = docs_snapshot
-    elif not schema_docs and ranked and ranked[0][0] > 0:
-        # Prefer the most schema-like upload over unrelated AppEnhancer guides.
-        schema_docs = [ranked[0][1]]
+    schema_docs = [d for d in docs_snapshot if d["kind"] == "schema"]
+    if not schema_docs:
+        ranked = sorted(
+            (
+                (_schema_doc_score(d["title"], d.get("filename"), d["full_text"]), d)
+                for d in docs_snapshot
+            ),
+            key=lambda x: -x[0],
+        )
+        if ranked and ranked[0][0] >= 8:
+            schema_docs = [ranked[0][1]]
+        elif len(docs_snapshot) == 1:
+            schema_docs = docs_snapshot
     if not schema_docs:
         return [], []
 
@@ -497,7 +554,13 @@ def _retrieve_schema_docs(
             truncated = True
         else:
             text = full_text
-        full_docs.append({"id": d["id"], "title": d["title"], "text": text, "truncated": truncated})
+        full_docs.append({
+            "id": d["id"],
+            "title": d["title"],
+            "text": text,
+            "full_text": full_text,
+            "truncated": truncated,
+        })
         hits.append({
             "title": d["title"],
             "source_id": d["id"],
@@ -588,11 +651,18 @@ def _build_context_for_query(
     if sql:
         full_docs, doc_hits = _retrieve_schema_docs(user_message)
         if full_docs:
+            wants_usrid = bool(
+                re.search(r"\b(usrid|user_id|userid|user\s*id)\b", user_message, re.I)
+            )
             for d in full_docs:
-                parts.append(f"Data dictionary / schema «{d['title']}»:\n{d['text']}\n")
+                block = f"DATA DICTIONARY «{d['title']}»:\n{d['text']}\n"
+                if wants_usrid:
+                    index = _build_usrid_column_index(d.get("full_text") or d["text"])
+                    if index:
+                        block = index + "\n\n" + block
+                parts.append(block)
             hits = list(doc_hits)
         else:
-            # Do not fall back to unrelated support guides — they cause false "no schema" answers.
             hits = []
     elif broad:
         full_docs, doc_hits = _retrieve_full_docs(user_message, max_docs=10)
@@ -788,9 +858,18 @@ def status() -> dict[str, Any]:
         nd = len(_docs)
         ni = len(_images)
         nt = len(_tickets)
+    with _lock:
+        schema_n = sum(
+            1
+            for d in _docs
+            if (d.get("kind") or _infer_doc_kind(d.get("title") or "", d.get("filename"), d.get("full_text") or ""))
+            == "schema"
+        )
     return {
         "anthropic_configured": bool(os.getenv("ANTHROPIC_API_KEY", "").strip()),
         "documents": nd,
+        "schema_documents": schema_n,
+        "kb_persisted": KB_STORE_PATH.is_file(),
         "images": ni,
         "tickets": nt,
     }
@@ -805,6 +884,8 @@ def list_documents() -> list[dict[str, Any]]:
                 "title": d["title"],
                 "bytes": d["bytes"],
                 "filename": d.get("filename"),
+                "kind": d.get("kind")
+                or _infer_doc_kind(d.get("title") or "", d.get("filename"), d.get("full_text") or ""),
                 "created_at": d["created_at"],
                 "chunk_count": len(d.get("chunks") or []),
             }
@@ -817,6 +898,7 @@ async def add_document(
     file: UploadFile | None = File(default=None),
     title: str | None = Form(default=None),
     text: str | None = Form(default=None),
+    doc_kind: str | None = Form(default=None),
 ):
     _ensure_storage()
     raw_text = ""
@@ -852,11 +934,17 @@ async def add_document(
 
     doc_id = _next_id()
     doc_title = (title or "").strip() or (fname or f"Document {doc_id}")
+    kind_raw = (doc_kind or "").strip().lower()
+    if kind_raw in ("schema", "support"):
+        kind = kind_raw
+    else:
+        kind = _infer_doc_kind(doc_title, fname, raw_text)
     chunks = _chunk_text(raw_text, doc_id, doc_title)
     entry = {
         "id": doc_id,
         "title": doc_title,
         "filename": fname,
+        "kind": kind,
         "bytes": len(raw_text.encode("utf-8", errors="replace")),
         "created_at": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime()) + "Z",
         "full_text": raw_text,
@@ -865,7 +953,7 @@ async def add_document(
     with _lock:
         _docs.append(entry)
     _persist_kb_to_disk()
-    return {"ok": True, "id": doc_id, "title": doc_title, "chunk_count": len(chunks)}
+    return {"ok": True, "id": doc_id, "title": doc_title, "kind": kind, "chunk_count": len(chunks)}
 
 
 @router.delete("/documents/{doc_id}")
@@ -955,38 +1043,24 @@ def chat(body: ChatIn) -> dict[str, Any]:
     ctx, hits, img_hits, broad, sql = _build_context_for_query(body.message)
     has_kb = bool(ctx)
 
-    system = (
-        "You are the T1 AI Support Agent for AIRevolution (t1airevolution.com), an expert software "
-        "support assistant. You help support staff move from classic Tier 1 to AI Tier 2 style work: "
-        "triage with the knowledge base first, then apply human judgment. "
-        "Answer using ONLY the provided knowledge context when it applies. If the context is empty "
-        "or insufficient, say so clearly, give safe general product-adjacent guidance, and end with "
-        "the line: STATUS: NEEDS_REVIEW. "
-        "If you can provide a complete resolution, end with: STATUS: RESOLVED. "
-        "If the issue is beyond Tier 1 or needs internal escalation, use: STATUS: ESCALATE. "
-        "Be concise, use numbered steps for fixes, name UI areas and settings panels when relevant, "
-        "and keep a professional, helpful tone. "
-        "When a screenshot from the knowledge base helps illustrate a step, embed it inline using "
-        "the marker `[[image: FILENAME]]` on its own line, where FILENAME exactly matches the "
-        "`filename=` value listed in the knowledge context. The UI will render that screenshot in "
-        "place. Only reference images that appear in the listing; do not invent filenames."
-    )
     if sql:
-        system += (
-            " SQL / DATA DICTIONARY MODE: The user wants a SQL query. Your primary job is to write "
-            "the query — not to explain that schema information is unavailable. "
-            "When data dictionary / schema sections appear in the knowledge context, use the actual "
-            "table names, column names, joins, and relationships shown there. Write a complete, "
-            "runnable SQL query (usually SELECT with LEFT JOIN as requested). Put the query in a "
-            "fenced ```sql code block. "
-            "Do NOT refuse with 'outside the scope of the knowledge base' when schema text is present. "
-            "Do NOT tell the user to 'use the data dictionary' instead of writing SQL yourself. "
-            "Do NOT ask support staff to identify the schema if the dictionary is already in context. "
-            "If you must assume a table or column, state the assumption briefly, then still provide "
-            "the best query you can. "
-            "Only if the context has NO data dictionary / schema sections at all, tell the user to "
-            "upload their data dictionary under Knowledge base (title it 'Data Dictionary') and end "
-            "with STATUS: NEEDS_REVIEW; otherwise end with STATUS: RESOLVED."
+        system = _SQL_SYSTEM_PROMPT
+    else:
+        system = (
+            "You are the T1 AI Support Agent for AIRevolution (t1airevolution.com), an expert software "
+            "support assistant. You help support staff move from classic Tier 1 to AI Tier 2 style work: "
+            "triage with the knowledge base first, then apply human judgment. "
+            "Answer using ONLY the provided knowledge context when it applies. If the context is empty "
+            "or insufficient, say so clearly, give safe general product-adjacent guidance, and end with "
+            "the line: STATUS: NEEDS_REVIEW. "
+            "If you can provide a complete resolution, end with: STATUS: RESOLVED. "
+            "If the issue is beyond Tier 1 or needs internal escalation, use: STATUS: ESCALATE. "
+            "Be concise, use numbered steps for fixes, name UI areas and settings panels when relevant, "
+            "and keep a professional, helpful tone. "
+            "When a screenshot from the knowledge base helps illustrate a step, embed it inline using "
+            "the marker `[[image: FILENAME]]` on its own line, where FILENAME exactly matches the "
+            "`filename=` value listed in the knowledge context. The UI will render that screenshot in "
+            "place. Only reference images that appear in the listing; do not invent filenames."
         )
     if inquiry_images:
         system += (
@@ -1011,13 +1085,20 @@ def chat(body: ChatIn) -> dict[str, Any]:
             "with STATUS: NEEDS_REVIEW."
         )
 
-    user_block = (
-        f"User inquiry:\n{body.message}\n\n"
-        f"Retrieved Software knowledge (may be empty):\n"
-        f"{ctx or '(no documents matched; inform user and use STATUS: NEEDS_REVIEW unless trivial).'}"
-    )
+    if sql:
+        user_block = (
+            f"Write SQL for this support request:\n{body.message}\n\n"
+            f"DATA DICTIONARY (required — use these table and column names only):\n"
+            f"{ctx or '[EMPTY — no data dictionary loaded. Tell user to upload under Knowledge base with document type Data dictionary / schema.]'}"
+        )
+    else:
+        user_block = (
+            f"User inquiry:\n{body.message}\n\n"
+            f"Retrieved Software knowledge (may be empty):\n"
+            f"{ctx or '(no documents matched; inform user and use STATUS: NEEDS_REVIEW unless trivial).'}"
+        )
 
-    max_tok = 8192 if broad else 4096
+    max_tok = 8192 if (broad or sql) else 4096
     api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
     if api_key:
         if inquiry_images:
