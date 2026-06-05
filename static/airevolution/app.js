@@ -524,11 +524,16 @@ function initChat() {
       renderAIImageGallery(images.filter((im) => !inlinedIds.has(im.id)));
       if (copyBtn) copyBtn.hidden = !res.reply?.trim();
       const broadTag = res.broad ? " · mode: enumerate-all" : "";
+      const sqlTag = res.sql
+        ? (res.schema_docs?.length
+          ? ` · schema: ${res.schema_docs.join(", ")}`
+          : " · no data dictionary matched — upload one titled Data Dictionary")
+        : "";
       const imgTag = res.inquiry_images ? ` · ${res.inquiry_images} pasted screenshot${res.inquiry_images > 1 ? "s" : ""} analyzed` : "";
       if (res.ticket_id) {
-        setBanner("agentBanner", `Logged as ticket #${res.ticket_id} (status: ${res.status})${broadTag}${imgTag}`, "ok");
+        setBanner("agentBanner", `Logged as ticket #${res.ticket_id} (status: ${res.status})${broadTag}${sqlTag}${imgTag}`, "ok");
       } else {
-        setBanner("agentBanner", `Status: ${res.status} · Claude: ${res.anthropic_configured ? "yes" : "no"}${broadTag}${imgTag}`, "info");
+        setBanner("agentBanner", `Status: ${res.status} · Claude: ${res.anthropic_configured ? "yes" : "no"}${broadTag}${sqlTag}${imgTag}`, res.sql && !res.schema_docs?.length ? "err" : "info");
       }
       if (retrieval && res.retrieval && res.retrieval.length) {
         retrieval.innerHTML =

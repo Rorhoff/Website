@@ -9,6 +9,8 @@ Env:
 from __future__ import annotations
 
 import io
+import json
+import logging
 import os
 import re
 import time
@@ -22,6 +24,7 @@ import httpx
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 
+log = logging.getLogger("airevolution")
 log_tag = "airevolution"
 
 router = APIRouter(prefix="/api/airevolution", tags=["airevolution"])
@@ -30,12 +33,14 @@ BASE_DIR = Path(__file__).resolve().parent
 UPLOAD_DIR = BASE_DIR / "static" / "airevolution" / "uploads"
 IMAGES_DIR = UPLOAD_DIR / "images"
 DOCS_DIR = UPLOAD_DIR / "documents"
+KB_STORE_PATH = UPLOAD_DIR / "kb_documents.json"
 
 _lock = Lock()
 _docs: list[dict[str, Any]] = []
 _images: list[dict[str, Any]] = []
 _tickets: list[dict[str, Any]] = []
 _id_seq = 0
+_kb_loaded = False
 
 CHUNK_SIZE = 650
 CHUNK_OVERLAP = 80
@@ -46,6 +51,69 @@ ALLOWED_IMAGE_EXT = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
 def _ensure_storage() -> None:
     IMAGES_DIR.mkdir(parents=True, exist_ok=True)
     DOCS_DIR.mkdir(parents=True, exist_ok=True)
+    _load_kb_from_disk()
+
+
+def _persist_kb_to_disk() -> None:
+    """Survive service restarts — uploaded dictionaries were previously in-memory only."""
+    try:
+        with _lock:
+            payload = {
+                "id_seq": _id_seq,
+                "docs": [
+                    {
+                        "id": d["id"],
+                        "title": d["title"],
+                        "filename": d.get("filename"),
+                        "bytes": d.get("bytes", 0),
+                        "created_at": d.get("created_at"),
+                        "full_text": d.get("full_text") or "",
+                    }
+                    for d in _docs
+                ],
+            }
+        KB_STORE_PATH.write_text(
+            json.dumps(payload, ensure_ascii=False),
+            encoding="utf-8",
+        )
+    except OSError as exc:
+        log.warning("Could not persist knowledge base: %s", exc)
+
+
+def _load_kb_from_disk() -> None:
+    global _docs, _id_seq, _kb_loaded
+    if _kb_loaded:
+        return
+    _kb_loaded = True
+    if not KB_STORE_PATH.is_file():
+        return
+    try:
+        payload = json.loads(KB_STORE_PATH.read_text(encoding="utf-8"))
+        loaded: list[dict[str, Any]] = []
+        for raw in payload.get("docs") or []:
+            doc_id = int(raw["id"])
+            title = (raw.get("title") or f"Document {doc_id}").strip()
+            full_text = (raw.get("full_text") or "").strip()
+            if not full_text:
+                continue
+            loaded.append(
+                {
+                    "id": doc_id,
+                    "title": title,
+                    "filename": raw.get("filename"),
+                    "bytes": raw.get("bytes") or len(full_text.encode("utf-8", errors="replace")),
+                    "created_at": raw.get("created_at")
+                    or time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime()) + "Z",
+                    "full_text": full_text,
+                    "chunks": _chunk_text(full_text, doc_id, title),
+                }
+            )
+        with _lock:
+            _docs = loaded
+            _id_seq = max(int(payload.get("id_seq") or 0), max((d["id"] for d in loaded), default=0))
+        log.info("Loaded %d knowledge-base document(s) from disk", len(loaded))
+    except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+        log.warning("Could not load knowledge base from disk: %s", exc)
 
 
 def _next_id() -> int:
@@ -107,13 +175,14 @@ BROAD_QUERY_RE = re.compile(
 
 SQL_QUERY_RE = re.compile(
     r"\b("
-    r"sql|query|queries|select|join|where|group\s+by|order\s+by|"
+    r"sql|query|queries|select|join|left\s+join|where|group\s+by|order\s+by|"
     r"data\s+dictionary|data\s+dict|schema|erd|"
     r"table|tables|column|columns|field|fields|"
-    r"write\s+(?:a|me|an)\s+(?:sql\s+)?query|"
-    r"generate\s+(?:a|me|an)\s+(?:sql\s+)?query|"
-    r"create\s+(?:a|me|an)\s+(?:sql\s+)?query|"
-    r"build\s+(?:a|me|an)\s+(?:sql\s+)?query"
+    r"usrid|user_id|userid|user\s+id|"
+    r"write\s+(?:me\s+)?(?:a\s+)?(?:sql\s+)?query|"
+    r"generate\s+(?:me\s+)?(?:a\s+)?(?:sql\s+)?query|"
+    r"create\s+(?:me\s+)?(?:a\s+)?(?:sql\s+)?query|"
+    r"build\s+(?:me\s+)?(?:a\s+)?(?:sql\s+)?query"
     r")\b",
     re.IGNORECASE,
 )
@@ -132,23 +201,58 @@ def _is_sql_query_request(text: str) -> bool:
     return bool(SQL_QUERY_RE.search(text or ""))
 
 
-def _doc_looks_like_schema(title: str, filename: str | None, full_text: str) -> bool:
-    """Heuristic: title/filename or opening content looks like a data dictionary."""
+def _schema_doc_score(title: str, filename: str | None, full_text: str) -> int:
+    """Higher score = more likely a data dictionary / schema document."""
+    score = 0
     label = f"{title} {filename or ''}"
     if SCHEMA_DOC_LABEL_RE.search(label):
-        return True
-    sample = (full_text or "")[:12_000].lower()
+        score += 25
+    sample = (full_text or "")[:80_000].lower()
     if "data dictionary" in sample or "data dict" in sample:
-        return True
-    markers = len(
+        score += 20
+    score += len(
         re.findall(
             r"\b(table|column|field|primary\s+key|foreign\s+key|varchar|integer|"
-            r"decimal|schema|datatype|data\s+type)\b",
+            r"nvarchar|decimal|schema|datatype|data\s+type|nullable)\b",
             sample,
             re.I,
         )
     )
-    return markers >= 8
+    score += len(
+        re.findall(
+            r"\b(usrid|user_id|userid|customer_id|account_id)\b",
+            sample,
+            re.I,
+        )
+    ) * 2
+    return score
+
+
+def _doc_looks_like_schema(title: str, filename: str | None, full_text: str) -> bool:
+    return _schema_doc_score(title, filename, full_text) >= 6
+
+
+def _sql_focus_terms(user_message: str) -> set[str]:
+    """Anchor large schema excerpts near user/table vocabulary, not arbitrary pages."""
+    terms = set(_tokenize(user_message))
+    terms.update(
+        {
+            "user",
+            "usr",
+            "usrid",
+            "user_id",
+            "userid",
+            "customer",
+            "account",
+            "table",
+            "column",
+            "join",
+            "primary",
+            "foreign",
+            "key",
+        }
+    )
+    return terms
 
 
 def _retrieve(
@@ -355,19 +459,26 @@ def _retrieve_schema_docs(
             }
             for d in _docs
         ]
-    schema_docs = [
-        d
-        for d in docs_snapshot
-        if _doc_looks_like_schema(d["title"], d.get("filename"), d["full_text"])
-    ]
+    ranked = sorted(
+        (
+            (_schema_doc_score(d["title"], d.get("filename"), d["full_text"]), d)
+            for d in docs_snapshot
+        ),
+        key=lambda x: -x[0],
+    )
+    schema_docs = [d for score, d in ranked if score >= 6]
     if not schema_docs and len(docs_snapshot) == 1:
         schema_docs = docs_snapshot
+    elif not schema_docs and ranked and ranked[0][0] > 0:
+        # Prefer the most schema-like upload over unrelated AppEnhancer guides.
+        schema_docs = [ranked[0][1]]
     if not schema_docs:
-        return _retrieve_full_docs(user_message, max_docs=5, per_doc_cap=per_doc_cap, char_cap=char_cap)
+        return [], []
 
     full_docs: list[dict[str, Any]] = []
     hits: list[dict[str, Any]] = []
     total_chars = 0
+    focus_terms = _sql_focus_terms(user_message)
     for d in schema_docs:
         if total_chars >= char_cap:
             break
@@ -376,8 +487,7 @@ def _retrieve_schema_docs(
         full_text = d["full_text"]
         truncated = False
         if len(full_text) > budget:
-            q_set = set(_tokenize(user_message))
-            start, end = _focused_window(full_text, q_set, budget)
+            start, end = _focused_window(full_text, focus_terms, budget)
             section = full_text[start:end].rstrip()
             leading = (
                 f"[Schema excerpt near char {start} of {len(full_text)}]\n\n" if start > 0 else ""
@@ -482,9 +592,8 @@ def _build_context_for_query(
                 parts.append(f"Data dictionary / schema «{d['title']}»:\n{d['text']}\n")
             hits = list(doc_hits)
         else:
-            hits = _retrieve(user_message, top_k=12, per_doc_limit=8)
-            for h in hits:
-                parts.append(f"From «{h['title']}» (excerpt {h.get('part', 1)}):\n{h['text']}\n")
+            # Do not fall back to unrelated support guides — they cause false "no schema" answers.
+            hits = []
     elif broad:
         full_docs, doc_hits = _retrieve_full_docs(user_message, max_docs=10)
         diverse_chunks = _retrieve(user_message, top_k=24, per_doc_limit=6)
@@ -755,6 +864,7 @@ async def add_document(
     }
     with _lock:
         _docs.append(entry)
+    _persist_kb_to_disk()
     return {"ok": True, "id": doc_id, "title": doc_title, "chunk_count": len(chunks)}
 
 
@@ -764,6 +874,8 @@ def delete_document(doc_id: int) -> dict[str, bool]:
         global _docs
         before = len(_docs)
         _docs = [d for d in _docs if d["id"] != doc_id]
+    if len(_docs) < before:
+        _persist_kb_to_disk()
     return {"ok": len(_docs) < before}
 
 
@@ -861,14 +973,19 @@ def chat(body: ChatIn) -> dict[str, Any]:
     )
     if sql:
         system += (
-            " SQL / DATA DICTIONARY MODE: The user wants a SQL query. The knowledge context includes "
-            "data dictionary or schema material — use the actual table names, column names, joins, "
-            "and relationships shown there. Write a complete, runnable SQL query (usually SELECT) "
-            "that answers their question. Put the query in a fenced ```sql code block. "
-            "Do NOT tell the user to 'use the data dictionary' or 'refer to the data dictionary' "
-            "instead of writing the query yourself. If you must assume a table or column, state the "
-            "assumption briefly, then still provide the best query you can from the dictionary. "
-            "If the dictionary truly lacks the needed tables/columns, name what is missing and end "
+            " SQL / DATA DICTIONARY MODE: The user wants a SQL query. Your primary job is to write "
+            "the query — not to explain that schema information is unavailable. "
+            "When data dictionary / schema sections appear in the knowledge context, use the actual "
+            "table names, column names, joins, and relationships shown there. Write a complete, "
+            "runnable SQL query (usually SELECT with LEFT JOIN as requested). Put the query in a "
+            "fenced ```sql code block. "
+            "Do NOT refuse with 'outside the scope of the knowledge base' when schema text is present. "
+            "Do NOT tell the user to 'use the data dictionary' instead of writing SQL yourself. "
+            "Do NOT ask support staff to identify the schema if the dictionary is already in context. "
+            "If you must assume a table or column, state the assumption briefly, then still provide "
+            "the best query you can. "
+            "Only if the context has NO data dictionary / schema sections at all, tell the user to "
+            "upload their data dictionary under Knowledge base (title it 'Data Dictionary') and end "
             "with STATUS: NEEDS_REVIEW; otherwise end with STATUS: RESOLVED."
         )
     if inquiry_images:
@@ -981,6 +1098,7 @@ def chat(body: ChatIn) -> dict[str, Any]:
         "status": status_line,
         "broad": broad,
         "sql": sql,
+        "schema_docs": [h["title"] for h in hits if h.get("part") == 0] if sql else [],
         "anthropic_configured": bool(os.getenv("ANTHROPIC_API_KEY", "").strip()),
         "ticket_id": body.ticket_id or new_ticket_id,
         "inquiry_images": len(inquiry_images),

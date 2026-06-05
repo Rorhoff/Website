@@ -16,3 +16,8 @@ __pycache__/
 
 # SSS per-game event recordings
 recordings/
+
+# T1AI knowledge base (persisted on server, not in git)
+static/airevolution/uploads/kb_documents.json
+static/airevolution/uploads/images/*
+!static/airevolution/uploads/images/.gitkeep
