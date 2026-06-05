@@ -79,8 +79,9 @@ def send_email(*, to: str, subject: str, html_body: str, text_body: str) -> bool
         )
         log.info("SES sent subject=%r to=%s", subject, to)
         return True
-    except Exception:
-        log.exception("SES send failed to=%s subject=%s", to, subject)
+    except Exception as exc:
+        log.error("SES send failed to=%s subject=%s: %s", to, subject, exc)
+        log.exception("SES send failed (full traceback)")
         return False
 
 

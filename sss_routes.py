@@ -182,6 +182,38 @@ _MOBILE_SHIPS = frozenset({"scout", "cruise_ship", "super_ship", "death_star"})
 # Ships that can initiate attacks and invasions (cruise_ship is defense-only)
 _ATTACK_SHIPS = frozenset({"scout", "super_ship", "death_star"})
 
+
+def _hex_has_enemy_mobile(hex_dict: dict, owner: str) -> bool:
+    """True if any opponent mobile ship occupies this hex."""
+    return any(
+        pc.get("type") in _MOBILE_SHIPS and pc.get("owner") not in (owner, None)
+        for pc in hex_dict.get("pieces", [])
+    )
+
+
+def _valid_landing_orbital(hex_dict: dict, owner: str) -> bool:
+    """Orbital hex where this player may land a mobile ship (capacity + no enemy stack)."""
+    if hex_dict.get("type") != "orbital":
+        return False
+    if sum(1 for pc in hex_dict["pieces"] if pc["type"] in _MOBILE_SHIPS) >= 3:
+        return False
+    if _hex_has_enemy_mobile(hex_dict, owner):
+        return False
+    return True
+
+
+def _pick_landing_orbital(board: list, dest_cluster: int, owner: str, req_id: int | None = None) -> dict | None:
+    """Choose landing orbital for flight_move / invasion_move (shared rules)."""
+    if req_id is not None and 0 <= req_id < len(board):
+        rh = board[req_id]
+        if rh["cluster"] == dest_cluster and _valid_landing_orbital(rh, owner):
+            return rh
+    return next(
+        (h for h in board if h["cluster"] == dest_cluster and _valid_landing_orbital(h, owner)),
+        None,
+    )
+
+
 _PLAYER_COLORS = [
     "#e74c3c",  # Red
     "#3b82f6",  # Blue
@@ -1431,12 +1463,7 @@ async def _ai_board_action(game: Game, ai_name: str) -> None:
         dest_cluster = dest_h["cluster"]
         if dest_cluster in seen_dest:
             continue
-        landing = next(
-            (dh for dh in game.board
-             if dh["cluster"] == dest_cluster and dh["type"] == "orbital"
-             and sum(1 for pc in dh["pieces"] if pc["type"] == "scout") < 3),
-            None
-        )
+        landing = _pick_landing_orbital(game.board, dest_cluster, ai_name)
         if landing:
             expand_routes.append({"from_wh": h["id"], "to_wh": h["wormhole_partner"], "dest_cluster": dest_cluster})
             seen_dest.add(dest_cluster)
@@ -1693,13 +1720,8 @@ def _ai_do_flight(game: Game, ai_name: str, from_wh: int, to_wh: int) -> bool:
     from_cluster = from_hex["cluster"]
     dest_cluster = to_hex["cluster"]
     moved = False
-    for _ in range(3):  # landing orbitals cap at 3 scouts each
-        landing = next(
-            (h for h in game.board
-             if h["cluster"] == dest_cluster and h["type"] == "orbital"
-             and sum(1 for pc in h["pieces"] if pc["type"] == "scout") < 3),
-            None
-        )
+    for _ in range(3):  # landing orbitals cap at 3 mobile ships each
+        landing = _pick_landing_orbital(game.board, dest_cluster, ai_name)
         if not landing:
             break
         moved_piece = None
@@ -2625,22 +2647,22 @@ async def sss_ws(ws: WebSocket, game_code: str):
                     continue
                 from_cluster = from_hex["cluster"]
                 dest_cluster = to_hex["cluster"]
-                # Prefer the specific orbital the player clicked, fall back to first available
                 req_id = raw.get("target_hex_id")
-                landing_hex = None
                 if req_id is not None and 0 <= req_id < len(game.board):
                     rh = game.board[req_id]
-                    if (rh["cluster"] == dest_cluster and rh["type"] == "orbital"
-                            and sum(1 for p in rh["pieces"] if p["type"] in _MOBILE_SHIPS) < 3):
-                        landing_hex = rh
+                    if rh["cluster"] == dest_cluster and rh["type"] == "orbital":
+                        if _hex_has_enemy_mobile(rh, player.name):
+                            await ws.send_json({"type": "error", "msg": "Enemy ships occupy that hex"})
+                            continue
+                        if sum(1 for p in rh["pieces"] if p["type"] in _MOBILE_SHIPS) >= 3:
+                            await ws.send_json({"type": "error", "msg": "That orbital tile is full"})
+                            continue
+                landing_hex = _pick_landing_orbital(game.board, dest_cluster, player.name, req_id)
                 if landing_hex is None:
-                    landing_hex = next(
-                        (h for h in game.board
-                         if h["cluster"] == dest_cluster and h["type"] == "orbital"
-                         and sum(1 for p in h["pieces"] if p["type"] in _MOBILE_SHIPS) < 3),
-                        None)
-                if landing_hex is None:
-                    await ws.send_json({"type": "error", "msg": "No available ship tiles in that system"})
+                    await ws.send_json({
+                        "type": "error",
+                        "msg": "No open ship tiles in that system (full or blocked by enemy ships)",
+                    })
                     continue
                 moved_piece = None
                 for h in game.board:
@@ -2874,20 +2896,25 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 # Find and move a ship from from_hex's cluster
                 from_cluster = from_hex["cluster"]
                 req_id = raw.get("target_hex_id")
-                landing_hex = None
                 if req_id is not None and 0 <= req_id < len(game.board):
                     rh = game.board[req_id]
-                    if (rh["cluster"] == dest_cluster and rh["type"] == "orbital"
-                            and sum(1 for p in rh["pieces"] if p["type"] in _MOBILE_SHIPS) < 3):
-                        landing_hex = rh
-                if landing_hex is None:
-                    landing_hex = next(
-                        (h for h in game.board
-                         if h["cluster"] == dest_cluster and h["type"] == "orbital"
-                         and sum(1 for p in h["pieces"] if p["type"] in _MOBILE_SHIPS) < 3),
-                        None)
+                    if rh["cluster"] == dest_cluster and rh["type"] == "orbital":
+                        if _hex_has_enemy_mobile(rh, player.name):
+                            await ws.send_json({"type": "error", "msg": "Enemy ships occupy that hex"})
+                            continue
+                        if sum(1 for p in rh["pieces"] if p["type"] in _MOBILE_SHIPS) >= 3:
+                            await ws.send_json({"type": "error", "msg": "That orbital tile is full"})
+                            continue
+                landing_hex = _pick_landing_orbital(game.board, dest_cluster, player.name, req_id)
                 # If all orbitals are full, land on the wormhole entry hex so invasion can still proceed
                 if landing_hex is None:
+                    wh_ships = sum(1 for p in to_hex["pieces"] if p["type"] in _MOBILE_SHIPS)
+                    if _hex_has_enemy_mobile(to_hex, player.name) or wh_ships >= 3:
+                        await ws.send_json({
+                            "type": "error",
+                            "msg": "No open ship tiles in that system (full or blocked by enemy ships)",
+                        })
+                        continue
                     landing_hex = to_hex
                 moved_piece = None
                 for h in game.board:
@@ -3024,9 +3051,11 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 if target_hex is None:
                     await ws.send_json({"type": "error", "msg": "Invalid target tile"})
                     continue
-                target_ships = sum(1 for p in target_hex["pieces"] if p["type"] in _MOBILE_SHIPS)
-                if target_ships >= 3:
-                    await ws.send_json({"type": "error", "msg": "That tile is full"})
+                if not _valid_landing_orbital(target_hex, player.name):
+                    if _hex_has_enemy_mobile(target_hex, player.name):
+                        await ws.send_json({"type": "error", "msg": "Enemy ships occupy that hex"})
+                    else:
+                        await ws.send_json({"type": "error", "msg": "That tile is full"})
                     continue
                 # Find a ship on a DIFFERENT orbital in the same cluster
                 moved_piece = None

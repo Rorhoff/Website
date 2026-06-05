@@ -25,7 +25,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, File, Header, HTTPException, Query, Request, UploadFile, status
 from passlib.hash import bcrypt as bcrypt_hasher
 from pydantic import BaseModel, Field
-from sqlalchemy import case, delete, func, select
+from sqlalchemy import case, delete, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -714,6 +714,7 @@ def classifieds_list_ads(
             description="Optional sub-category; must accompany category.",
         ),
     ] = None,
+    q: str | None = Query(default=None, max_length=120, description="Search title/description."),
 ):
     """Return listings in the authenticated user's saved state (*not* tied to posting form).
 
@@ -738,6 +739,16 @@ def classifieds_list_ads(
         stmt = stmt.where(ClassifiedAd.category == cat)
     if sub_cat:
         stmt = stmt.where(ClassifiedAd.sub_category == sub_cat)
+
+    search_q = (q or "").strip()
+    if search_q:
+        needle = f"%{search_q.lower()}%"
+        stmt = stmt.where(
+            or_(
+                func.lower(ClassifiedAd.title).like(needle),
+                func.lower(ClassifiedAd.description).like(needle),
+            )
+        )
 
     # Native gold first, then native by created_at, then imports by imported_at.
     sort_rank = case(

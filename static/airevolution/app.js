@@ -3,12 +3,16 @@
  */
 
 const API = "/api/airevolution";
+const MAX_CHAT_IMAGES = 4;
+const MAX_PASTE_IMAGE_DIM = 1600;
+const PASTE_JPEG_QUALITY = 0.82;
 
 const QUICK_PROMPTS = [
   { label: "Cannot log in", text: "The user says they cannot log in. They tried resetting password but did not get an email. What should we check first?" },
   { label: "Import failed", text: "Import job failed with a generic error. The customer attached a small CSV. What are the first troubleshooting steps?" },
   { label: "Page error", text: "The application shows a white screen or 500 error on one page only; other pages work. How should we triage?" },
   { label: "Slow performance", text: "The customer reports the system is very slow at peak times. No error message. What should we ask and suggest?" },
+  { label: "SQL query", text: "Write a SQL query using the data dictionary to list all active customers created in the last 30 days, including customer id, name, and email." },
 ];
 
 function el(id) {
@@ -94,7 +98,7 @@ async function loadDocuments() {
   if (imgs.length) {
     html += imgs.map((im) => `
       <li class="kb-item img-row" data-id="${im.id}">
-        <a href="${im.url_path}" target="_blank" rel="noopener"><img src="${im.url_path}" alt="" class="thumb" /></a>
+        <a href="${im.url_path}" target="_blank" rel="noopener"><img src="${im.url_path}" alt="" class="thumb" loading="lazy" decoding="async" /></a>
         <div class="grow">
           <div class="muted sm">${escapeHtml(im.filename)}</div>
           <input type="text" class="caption-in" data-cap="${im.id}" placeholder="What this screenshot shows (settings, error, …)" value="${escapeAttr(im.caption || "")}" />
@@ -238,6 +242,79 @@ function blobToDataUrl(blob) {
   });
 }
 
+function countChatImages(container) {
+  return container ? container.querySelectorAll("img").length : 0;
+}
+
+function clearChatInput(input) {
+  if (!input) return;
+  input.replaceChildren();
+}
+
+function insertNodeInChatInput(chatInput, node) {
+  const sel = window.getSelection();
+  if (sel && sel.rangeCount && chatInput.contains(sel.anchorNode)) {
+    const range = sel.getRangeAt(0);
+    range.deleteContents();
+    range.insertNode(node);
+    range.setStartAfter(node);
+    range.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(range);
+  } else {
+    chatInput.appendChild(node);
+  }
+}
+
+/** Downscale pasted screenshots so contenteditable + API payloads do not retain multi-MB base64. */
+function compressImageToDataUrl(file, maxDim = MAX_PASTE_IMAGE_DIM) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      let w = img.naturalWidth || 0;
+      let h = img.naturalHeight || 0;
+      if (!w || !h) {
+        reject(new Error("Invalid image dimensions"));
+        return;
+      }
+      const scale = Math.min(1, maxDim / Math.max(w, h));
+      w = Math.max(1, Math.round(w * scale));
+      h = Math.max(1, Math.round(h * scale));
+      const canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+      resolve(canvas.toDataURL("image/jpeg", PASTE_JPEG_QUALITY));
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("Could not load pasted image"));
+    };
+    img.src = url;
+  });
+}
+
+async function addCompressedImageToChat(chatInput, file) {
+  if (!chatInput || !file) return false;
+  if (countChatImages(chatInput) >= MAX_CHAT_IMAGES) {
+    setBanner("agentBanner", `Maximum ${MAX_CHAT_IMAGES} screenshots per inquiry.`, "info");
+    return false;
+  }
+  try {
+    const dataUrl = await compressImageToDataUrl(file);
+    const img = document.createElement("img");
+    img.src = dataUrl;
+    img.alt = "Pasted screenshot";
+    insertNodeInChatInput(chatInput, img);
+    return true;
+  } catch {
+    setBanner("agentBanner", "Could not process pasted image.", "err");
+    return false;
+  }
+}
+
 async function extractImages(container) {
   const results = [];
   for (const img of Array.from(container.querySelectorAll("img"))) {
@@ -272,53 +349,48 @@ function getChatInquiryText(input) {
 
 function initChatPasteImages(chatInput) {
   if (!chatInput) return;
-  chatInput.addEventListener("paste", (ev) => {
-    ev.preventDefault();
+  chatInput.addEventListener("paste", async (ev) => {
     const cd = ev.clipboardData;
     if (!cd) return;
 
     const items = Array.from(cd.items || []);
-    const imgItem = items.find((i) => i.kind === "file" && (i.type || "").startsWith("image/"));
-    if (imgItem) {
-      const file = imgItem.getAsFile();
-      if (file) {
-        const reader = new FileReader();
-        reader.onload = (e) => {
-          const img = document.createElement("img");
-          img.src = e.target.result;
-          const sel = window.getSelection();
-          if (sel && sel.rangeCount) {
-            const range = sel.getRangeAt(0);
-            range.deleteContents();
-            range.insertNode(img);
-            range.setStartAfter(img);
-            range.collapse(true);
-            sel.removeAllRanges();
-            sel.addRange(range);
-          } else {
-            chatInput.appendChild(img);
-          }
-        };
-        reader.readAsDataURL(file);
-        return;
+    const imgItems = items.filter((i) => i.kind === "file" && (i.type || "").startsWith("image/"));
+    if (imgItems.length) {
+      ev.preventDefault();
+      for (const imgItem of imgItems) {
+        if (countChatImages(chatInput) >= MAX_CHAT_IMAGES) break;
+        const file = imgItem.getAsFile();
+        if (file) await addCompressedImageToChat(chatInput, file);
       }
+      return;
     }
 
-    const text = cd.getData("text/plain");
-    if (text) document.execCommand("insertText", false, text);
-
     const html = cd.getData("text/html");
-    if (html) {
+    if (html && /<img\b/i.test(html)) {
+      ev.preventDefault();
       const temp = document.createElement("div");
       temp.innerHTML = html;
-      temp.querySelectorAll("img").forEach((srcImg) => {
+      for (const srcImg of Array.from(temp.querySelectorAll("img"))) {
+        if (countChatImages(chatInput) >= MAX_CHAT_IMAGES) break;
         const src = srcImg.getAttribute("src") || "";
-        if (src) {
+        if (!src) continue;
+        if (src.startsWith("data:image/")) {
           const img = document.createElement("img");
           img.src = src;
-          chatInput.appendChild(img);
+          img.alt = "Pasted screenshot";
+          insertNodeInChatInput(chatInput, img);
+          continue;
         }
-      });
+        try {
+          const blob = await (await fetch(src)).blob();
+          await addCompressedImageToChat(chatInput, blob);
+        } catch {
+          /* skip inaccessible remote image */
+        }
+      }
+      const text = cd.getData("text/plain");
+      if (text) document.execCommand("insertText", false, text);
+      return;
     }
   });
 }
@@ -379,7 +451,7 @@ function renderAIImageGallery(images) {
       const cap = im.caption || im.filename || "";
       return `<figure>
         <a href="${escapeAttr(im.url_path)}" target="_blank" rel="noopener">
-          <img src="${escapeAttr(im.url_path)}" alt="${escapeAttr(cap)}" />
+          <img src="${escapeAttr(im.url_path)}" alt="${escapeAttr(cap)}" loading="lazy" decoding="async" />
         </a>
         ${cap ? `<figcaption>${escapeHtml(cap)}</figcaption>` : ""}
       </figure>`;
@@ -420,6 +492,8 @@ function initChat() {
     const message = getChatInquiryText(input);
     const images = input ? await extractImages(input) : [];
     if (!message && !images.length) return;
+    // Release pasted screenshot bytes from the DOM once captured for the API request.
+    clearChatInput(input);
     out.textContent = "Working on your request…";
     if (retrieval) retrieval.innerHTML = "";
     if (aiImages) {
@@ -569,12 +643,14 @@ function initPasteImageCapture() {
     newFiles.forEach((f, k) => {
       const norm = _normalizePastedFile(f, _pastedImages.length + k);
       if (!norm) return;
-      const reader = new FileReader();
-      reader.onload = () => {
-        _pastedImages.push({ file: norm, dataUrl: reader.result });
-        renderPastedImages();
-      };
-      reader.readAsDataURL(norm);
+      compressImageToDataUrl(norm)
+        .then((dataUrl) => {
+          _pastedImages.push({ file: norm, dataUrl });
+          renderPastedImages();
+        })
+        .catch(() => {
+          setBanner("kbBanner", "Could not process pasted image.", "err");
+        });
     });
   });
 }

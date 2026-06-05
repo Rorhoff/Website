@@ -53,6 +53,7 @@ let _selectedRoutes  = [];    // routes from _selectedCluster
 let _constructionPiece = null; // { type, cost } when in construction placement mode
 let _pendingScienceHex = null; // hex_id of science tile clicked directly (skips general re-render)
 let _lastState       = null;  // most recent full state for re-renders
+let _revealedTech    = null;  // { tkey, tlvl } — expanded tech row; kept across state updates
 let _hexHandlers     = new Map();  // hex_id → click handler; populated each renderBoard
 let _hexPositions    = [];         // [{id,x,y}] for SVG-coordinate hit dispatch
 let _myOwnedClusters = new Set();  // clusters owned by myName; updated each renderBoard
@@ -798,7 +799,7 @@ function renderBoard(state, placementMode) {
       infoCard.querySelector("#btn-play-card")
         ?.addEventListener("click", () => showActionPicker());
 
-      renderFullPlayerCard(state);
+      if (viewMode === "card") renderFullPlayerCard(state);
     } else {
       infoCard.innerHTML = `<div class="hud-race-row"><span class="hud-race-name">${myName}</span></div>`;
     }
@@ -925,8 +926,7 @@ function renderBoard(state, placementMode) {
           } else if (_actionMode.type === "flight") {
             // No wormhole routes — allow intra-cluster repositioning if there's room
             const hasRoom = hexes.some(oh =>
-              oh.cluster === h.cluster && oh.type === "orbital"
-              && (oh.pieces ?? []).filter(p => MOBILE_SHIPS.has(p.type)).length < 3
+              oh.cluster === h.cluster && orbitalOpenForOwner(oh, myName)
             );
             if (hasRoom) {
               actionSourceClusters.add(h.cluster);
@@ -999,8 +999,7 @@ function renderBoard(state, placementMode) {
     // Intra-cluster reposition: orbital in the selected cluster with room for a ship
     const isIntraTarget = isActionTurn && _actionMode?.type === "flight"
       && _selectedCluster !== null && h.cluster === _selectedCluster
-      && h.type === "orbital"
-      && (h.pieces ?? []).filter(p => MOBILE_SHIPS.has(p.type)).length < 3;
+      && orbitalOpenForOwner(h, myName);
     const isAttackHexTarget = isActionTurn
       && _actionMode?.phase === "pick_hex"
       && h.cluster === _actionMode.dest_cluster
@@ -1575,8 +1574,10 @@ function renderFullPlayerCard(state) {
       const detailHtml = d
         ? `<span class="tech-name"><strong>${names[i]}</strong><br><span style="color:var(--muted);font-size:.55rem">${d.cost}</span><br>${d.effect}${isNext && !on ? `<br><button class="btn btn-primary btn-sm tech-unlock-btn" style="margin-top:.25rem;font-size:.6rem;padding:.1rem .4rem" data-tkey="${col.key}">Unlock</button>` : ""}</span>`
         : `<span class="tech-name">${names[i] ?? ""}</span>`;
+      const revealed =
+        _revealedTech && _revealedTech.tkey === col.key && _revealedTech.tlvl === i;
       return `
-      <div class="tech-level${on ? " unlocked" : ""}" data-tkey="${col.key}" data-tlvl="${i}">
+      <div class="tech-level${on ? " unlocked" : ""}${revealed ? " revealed" : ""}" data-tkey="${col.key}" data-tlvl="${i}">
         <span class="tech-lvl-label">Lv ${i + 1}</span>
         ${detailHtml}
       </div>`;
@@ -1631,13 +1632,23 @@ function renderFullPlayerCard(state) {
 
   cardEl.querySelector("#btn-card-close")?.addEventListener("click", () => setViewMode("map"));
 
-  // Tap to reveal tech detail (one open at a time)
+  // Tap to reveal tech detail (one open at a time; selection survives AI turn updates)
   cardEl.querySelectorAll(".tech-level").forEach(el => {
     el.addEventListener("click", e => {
       if (e.target.classList.contains("tech-unlock-btn")) return; // handled separately
       const open = el.classList.contains("revealed");
+      if (open) {
+        _revealedTech = null;
+      } else {
+        _revealedTech = { tkey: el.dataset.tkey, tlvl: Number(el.dataset.tlvl) };
+      }
       cardEl.querySelectorAll(".tech-level.revealed").forEach(r => r.classList.remove("revealed"));
-      if (!open) el.classList.add("revealed");
+      if (_revealedTech) {
+        const sel = cardEl.querySelector(
+          `.tech-level[data-tkey="${_revealedTech.tkey}"][data-tlvl="${_revealedTech.tlvl}"]`
+        );
+        if (sel) sel.classList.add("revealed");
+      }
     });
   });
 
@@ -1646,8 +1657,10 @@ function renderFullPlayerCard(state) {
     btn.addEventListener("click", e => {
       e.stopPropagation();
       const col = btn.dataset.tkey;
+      const row = btn.closest(".tech-level");
+      const tlvl = row ? Number(row.dataset.tlvl) : 0;
       send({ type: "research_skill", column: col });
-      cardEl.querySelectorAll(".tech-level.revealed").forEach(r => r.classList.remove("revealed"));
+      _revealedTech = { tkey: col, tlvl };
     });
   });
 
@@ -1674,14 +1687,20 @@ function computeFlightRoutes(hexes, fromCluster) {
   return routes;
 }
 
-// True if dest cluster has an orbital hex with fewer than 3 mobile ships
+// True if dest cluster has an orbital hex with room for your ship (no enemy stack).
 function hasFrigateSlot(hexes, cluster) {
   return hexes.some(h => h.cluster === cluster && h.type === "orbital"
-    && (h.pieces ?? []).filter(p => MOBILE_SHIPS.has(p.type)).length < 3);
+    && (h.pieces ?? []).filter(p => MOBILE_SHIPS.has(p.type)).length < 3
+    && !(h.pieces ?? []).some(p => MOBILE_SHIPS.has(p.type) && p.owner !== myName));
 }
 
-// Flight: any adjacent cluster with at least one open orbital slot.
-// Enemy frigates are allowed — the server triggers combat on landing.
+function orbitalOpenForOwner(h, owner) {
+  return h.type === "orbital"
+    && (h.pieces ?? []).filter(p => MOBILE_SHIPS.has(p.type)).length < 3
+    && !(h.pieces ?? []).some(p => MOBILE_SHIPS.has(p.type) && p.owner !== owner);
+}
+
+// Flight: wormhole routes into a cluster with at least one open orbital (no enemy on that hex).
 function computeFlightOnlyRoutes(hexes, fromCluster) {
   return computeFlightRoutes(hexes, fromCluster).filter(r =>
     hasFrigateSlot(hexes, r.dest_cluster)

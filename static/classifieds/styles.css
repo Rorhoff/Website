@@ -79,15 +79,40 @@ body {
   position: relative;
 }
 
-.hamburger-btn {
+/* Topbar icon buttons — filter, search, and profile menu share one tap target size. */
+.topbar-icon-btn {
   position: relative;
-  margin-top: 0;
+  margin: 0;
+  appearance: none;
   background: #e2e8f0;
   color: #1e293b;
   border: 1px solid #d1dae6;
   padding: 10px 12px;
   min-width: 44px;
   min-height: 44px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  font-size: 1.25rem;
+  font-weight: 600;
+  box-sizing: border-box;
+}
+.topbar-icon-btn:hover {
+  background: #cbd5e1;
+  border-color: #94a3b8;
+}
+.topbar-icon-svg {
+  width: 1.25rem;
+  height: 1.25rem;
+  display: block;
+  flex-shrink: 0;
+}
+
+.hamburger-btn {
+  margin-top: 0;
 }
 
 .menu-unread-badge {
@@ -1170,48 +1195,30 @@ button.secondary:hover {
   color: #64748b;
 }
 
-/* Topbar filter button — sits between authStatus and the hamburger. Compact
-   icon + label combo with a tiny red dot in the corner when any filter is
-   active so users always know whether the list they're seeing is narrowed. */
-.topbar-filter-btn {
-  position: relative;
-  appearance: none;
-  margin: 0;
-  /* Square-ish button so the lone gear icon looks balanced — we removed
-     the "Filter" label per prod-v1.14 design. The title attribute on the
-     <button> still surfaces "Filter listings" as a tooltip for keyboard /
-     mouse users; the aria-label keeps screen readers covered. */
-  padding: 6px 10px;
-  border-radius: 6px;
-  border: 1px solid #c7cce0;
-  background: #fff;
-  color: #1e293b;
-  font-weight: 600;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  line-height: 1.15;
-}
-.topbar-filter-btn:hover {
-  background: #f1f5f9;
-  border-color: #94a3b8;
-}
 .topbar-filter-icon {
-  /* Slightly larger than the surrounding text since this is now the only
-     thing inside the button. */
-  font-size: 1.15rem;
+  font-size: 1.25rem;
   line-height: 1;
 }
-.topbar-filter-dot {
+.topbar-active-dot {
   position: absolute;
-  top: 2px;
-  right: 2px;
+  top: 4px;
+  right: 4px;
   width: 8px;
   height: 8px;
   border-radius: 50%;
   background: #ef4444;
-  box-shadow: 0 0 0 2px #fff;
+  box-shadow: 0 0 0 2px #e2e8f0;
+  pointer-events: none;
+}
+
+.search-modal-card input[type="search"],
+.search-modal-card input[type="text"] {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  font-size: 1rem;
+  border: 1px solid #c7cce0;
+  border-radius: 8px;
 }
 
 /* T1Classifieds brand in the topbar — a <span role="button">, not <button>, so

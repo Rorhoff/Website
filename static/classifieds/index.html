@@ -42,7 +42,7 @@
     }
   }
   </script>
-  <link rel="stylesheet" href="/classifieds/styles.css?v=2026-05-21-ui" />
+  <link rel="stylesheet" href="/classifieds/styles.css?v=2026-05-22-topbar" />
   <style>
     :root {
       --surface: #ffffff;
@@ -265,12 +265,19 @@
     </h1>
     <div class="topbar-actions">
       <div id="authStatus"></div>
-      <button id="topbarFilterBtn" class="topbar-filter-btn" type="button" hidden aria-label="Filter listings" title="Filter listings">
+      <button id="topbarSearchBtn" class="topbar-icon-btn topbar-search-btn" type="button" hidden aria-label="Search listings" title="Search listings">
+        <svg class="topbar-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" aria-hidden="true">
+          <circle cx="11" cy="11" r="7"></circle>
+          <line x1="16.5" y1="16.5" x2="21" y2="21"></line>
+        </svg>
+        <span id="topbarSearchDot" class="topbar-active-dot" hidden aria-hidden="true"></span>
+      </button>
+      <button id="topbarFilterBtn" class="topbar-icon-btn topbar-filter-btn" type="button" hidden aria-label="Filter listings" title="Filter listings">
         <span class="topbar-filter-icon" aria-hidden="true">⚙</span>
-        <span id="topbarFilterDot" class="topbar-filter-dot" hidden aria-hidden="true"></span>
+        <span id="topbarFilterDot" class="topbar-active-dot" hidden aria-hidden="true"></span>
       </button>
       <div id="menuWrapper" class="menu-wrapper" hidden>
-        <button id="menuToggleBtn" class="hamburger-btn" type="button" aria-label="Open profile menu">
+        <button id="menuToggleBtn" class="topbar-icon-btn hamburger-btn" type="button" aria-label="Open profile menu">
           ☰
           <span id="menuUnreadBadge" class="menu-unread-badge" hidden aria-label="Unread messages"></span>
         </button>
@@ -599,6 +606,20 @@
   <!-- Filter modal opened by the topbar filter button. Holds the two cascading
        selects (category + sub-category) plus Apply / Clear / Cancel actions.
        Single entry point for filtering replaces the previous inline filter row. -->
+  <div id="searchModal" class="modal-backdrop" hidden>
+    <div class="modal-card filter-modal-card search-modal-card">
+      <h3>Search listings</h3>
+      <p class="hint">Find ads in your state by words in the title or description.</p>
+      <label for="homeSearchInput">Search</label>
+      <input type="search" id="homeSearchInput" autocomplete="off" placeholder="e.g. bike, couch, iPhone…" maxlength="120" />
+      <div class="filter-modal-actions">
+        <button id="searchApplyBtn" type="button">Search</button>
+        <button id="searchClearBtn" class="secondary" type="button">Clear search</button>
+        <button id="searchCloseBtn" class="secondary" type="button">Cancel</button>
+      </div>
+    </div>
+  </div>
+
   <div id="filterModal" class="modal-backdrop" hidden>
     <div class="modal-card filter-modal-card">
       <h3>Filter listings</h3>
@@ -682,7 +703,7 @@
 
   <div id="toast" class="toast" hidden></div>
   <script src="/classifieds/cities.js?v=2026-05-18n"></script>
-  <script src="/classifieds/app.js?v=2026-05-22-profile-msg"></script>
+  <script src="/classifieds/app.js?v=2026-05-22-topbar"></script>
   <script src="/classifieds/messaging-ui.js?v=2026-05-22-profile-msg"></script>
   <script src="/assets/nav-mobile.js"></script>
 </body>

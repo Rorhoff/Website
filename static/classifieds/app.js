@@ -51,6 +51,7 @@ const adsSectionTitle = document.getElementById("adsSectionTitle");
 // #filterModal opened from the topbar filter button.)
 const homeCategoryFilter = document.getElementById("homeCategoryFilter");
 const HOME_CATEGORY_FILTER_KEY = "classified_home_category_filter";
+const HOME_SEARCH_KEY = "classified_home_search";
 
 // Keep this in sync with the <select id="adCategory"> options in index.html — the browse
 // filter offers the same choices plus an "All categories" sentinel.
@@ -473,7 +474,9 @@ function updateAuthUI() {
   // is looking at. In profile mode (My Ads / Post Ad / Profile tabs), hide it so
   // it can't be tapped while it'd have no visible effect.
   const filterBtn = document.getElementById("topbarFilterBtn");
+  const searchBtn = document.getElementById("topbarSearchBtn");
   if (filterBtn) filterBtn.hidden = !showAdsBrowse;
+  if (searchBtn) searchBtn.hidden = !showAdsBrowse;
 }
 
 // --- Browse list pagination (server + infinite scroll) -----------------
@@ -486,20 +489,32 @@ let browseHasMorePages = false;
 let browseInfiniteLoading = false;
 let adsInfiniteObserver = null;
 
+function getBrowseSearchQuery() {
+  return (localStorage.getItem(HOME_SEARCH_KEY) || "").trim();
+}
+
+function setBrowseSearchQuery(value) {
+  const v = (value || "").trim();
+  if (v) localStorage.setItem(HOME_SEARCH_KEY, v);
+  else localStorage.removeItem(HOME_SEARCH_KEY);
+}
+
 function getBrowseFilterSelections() {
   return {
     category: homeCategoryFilter ? homeCategoryFilter.value.trim() : "",
     subCategory: homeSubCategoryFilter ? homeSubCategoryFilter.value.trim() : "",
+    search: getBrowseSearchQuery(),
   };
 }
 
 function browseAdsQueryString(offset) {
-  const { category, subCategory } = getBrowseFilterSelections();
+  const { category, subCategory, search } = getBrowseFilterSelections();
   const qs = new URLSearchParams();
   qs.set("limit", String(ADS_PAGE_SIZE));
   qs.set("offset", String(offset));
   if (category) qs.set("category", category);
   if (subCategory) qs.set("subCategory", subCategory);
+  if (search) qs.set("q", search);
   return qs.toString();
 }
 
@@ -683,16 +698,17 @@ async function renderAds() {
     browseNextOffset = ads.length;
     browseHasMorePages = hasMore;
 
-    const selectedCategory = getBrowseFilterSelections().category;
-    const selectedSubCategory = getBrowseFilterSelections().subCategory;
+    const { category: selectedCategory, subCategory: selectedSubCategory, search: selectedSearch } =
+      getBrowseFilterSelections();
 
     if (adsActiveFilterEl) {
-      if (selectedCategory || selectedSubCategory) {
-        const bits = [];
-        if (selectedCategory) bits.push(escapeHTML(selectedCategory));
-        if (selectedSubCategory) bits.push(escapeHTML(selectedSubCategory));
+      const bits = [];
+      if (selectedSearch) bits.push(`Search: “${escapeHTML(selectedSearch)}”`);
+      if (selectedCategory) bits.push(escapeHTML(selectedCategory));
+      if (selectedSubCategory) bits.push(escapeHTML(selectedSubCategory));
+      if (bits.length) {
         adsActiveFilterEl.innerHTML =
-          `Filtered: ${bits.join(" / ")}` +
+          `${bits.join(" / ")}` +
           ` &middot; <a href="#" id="adsClearFilterLink">Clear</a>`;
         adsActiveFilterEl.hidden = false;
       } else {
@@ -702,8 +718,9 @@ async function renderAds() {
     }
 
     if (!ads.length) {
+      const narrowed = selectedCategory || selectedSubCategory || selectedSearch;
       adsList.innerHTML = `<p>${
-        selectedCategory || selectedSubCategory
+        narrowed
           ? `No matching ads in ${escapeHTML(userRecord.state)} right now.`
           : `No ads posted yet for ${escapeHTML(userRecord.state)}.`
       }</p>`;
@@ -847,9 +864,16 @@ if (homeCategoryFilter) {
 const homeSubCategoryFilter = document.getElementById("homeSubCategoryFilter");
 const HOME_SUB_CATEGORY_FILTER_KEY = "classified_home_sub_category_filter";
 const filterModal = document.getElementById("filterModal");
+const searchModal = document.getElementById("searchModal");
+const homeSearchInput = document.getElementById("homeSearchInput");
 const topbarBrandBtn = document.getElementById("topbarBrandBtn");
+const topbarSearchBtn = document.getElementById("topbarSearchBtn");
+const topbarSearchDot = document.getElementById("topbarSearchDot");
 const topbarFilterBtn = document.getElementById("topbarFilterBtn");
 const topbarFilterDot = document.getElementById("topbarFilterDot");
+const searchApplyBtn = document.getElementById("searchApplyBtn");
+const searchClearBtn = document.getElementById("searchClearBtn");
+const searchCloseBtn = document.getElementById("searchCloseBtn");
 const filterApplyBtn = document.getElementById("filterApplyBtn");
 const filterClearBtn = document.getElementById("filterClearBtn");
 const filterCloseBtn = document.getElementById("filterCloseBtn");
@@ -885,16 +909,34 @@ function populateHomeSubCategoryFilter() {
 populateHomeSubCategoryFilter();
 
 function updateFilterBadge() {
-  // Show the red dot on the topbar filter button whenever any filter is active,
-  // so users have a visual reminder that the list they're seeing is narrowed
-  // down (and they're not just looking at an empty state).
-  const anyActive = Boolean(
+  const filterActive = Boolean(
     (homeCategoryFilter && homeCategoryFilter.value) ||
       (homeSubCategoryFilter && homeSubCategoryFilter.value)
   );
-  if (topbarFilterDot) topbarFilterDot.hidden = !anyActive;
+  const searchActive = Boolean(getBrowseSearchQuery());
+  if (topbarFilterDot) topbarFilterDot.hidden = !filterActive;
+  if (topbarSearchDot) topbarSearchDot.hidden = !searchActive;
 }
 updateFilterBadge();
+
+function openSearchModal() {
+  if (!searchModal) return;
+  if (homeSearchInput) homeSearchInput.value = getBrowseSearchQuery();
+  searchModal.hidden = false;
+  homeSearchInput?.focus();
+}
+
+function closeSearchModal() {
+  if (!searchModal) searchModal.hidden = true;
+}
+
+function applySearchFromModal() {
+  const q = homeSearchInput ? homeSearchInput.value.trim() : "";
+  setBrowseSearchQuery(q);
+  updateFilterBadge();
+  closeSearchModal();
+  renderAds().catch(() => {});
+}
 
 function openFilterModal() {
   if (!filterModal) return;
@@ -909,8 +951,35 @@ function closeFilterModal() {
   filterModal.hidden = true;
 }
 
+if (topbarSearchBtn) {
+  topbarSearchBtn.addEventListener("click", () => openSearchModal());
+}
 if (topbarFilterBtn) {
   topbarFilterBtn.addEventListener("click", () => openFilterModal());
+}
+if (searchCloseBtn) searchCloseBtn.addEventListener("click", () => closeSearchModal());
+if (searchApplyBtn) searchApplyBtn.addEventListener("click", () => applySearchFromModal());
+if (searchClearBtn) {
+  searchClearBtn.addEventListener("click", () => {
+    if (homeSearchInput) homeSearchInput.value = "";
+    setBrowseSearchQuery("");
+    updateFilterBadge();
+    closeSearchModal();
+    renderAds().catch(() => {});
+  });
+}
+if (searchModal) {
+  searchModal.addEventListener("click", (event) => {
+    if (event.target === searchModal) closeSearchModal();
+  });
+}
+if (homeSearchInput) {
+  homeSearchInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      applySearchFromModal();
+    }
+  });
 }
 
 // Clicking "T1Classifieds" is the home affordance: leave profile mode and show
@@ -920,6 +989,7 @@ if (topbarBrandBtn) {
   const goToBrowseFromBrand = async () => {
     closeAdDetail();
     closeFilterModal();
+    closeSearchModal();
     closeMenu();
     if (isProfileActive()) {
       setProfileActive(false);
@@ -963,6 +1033,20 @@ if (filterApplyBtn) {
   });
 }
 
+function clearAllBrowseFilters() {
+  if (homeCategoryFilter) homeCategoryFilter.value = "";
+  localStorage.removeItem(HOME_CATEGORY_FILTER_KEY);
+  if (homeSubCategoryFilter) {
+    homeSubCategoryFilter.value = "";
+    homeSubCategoryFilter.disabled = true;
+    homeSubCategoryFilter.innerHTML = '<option value="">Pick a category first</option>';
+  }
+  localStorage.removeItem(HOME_SUB_CATEGORY_FILTER_KEY);
+  if (homeSearchInput) homeSearchInput.value = "";
+  setBrowseSearchQuery("");
+  updateFilterBadge();
+}
+
 if (filterClearBtn) {
   filterClearBtn.addEventListener("click", () => {
     if (homeCategoryFilter) homeCategoryFilter.value = "";
@@ -993,7 +1077,10 @@ document.addEventListener("click", (event) => {
   const link = event.target.closest && event.target.closest("#adsClearFilterLink");
   if (!link) return;
   event.preventDefault();
-  if (filterClearBtn) filterClearBtn.click();
+  clearAllBrowseFilters();
+  closeFilterModal();
+  closeSearchModal();
+  renderAds().catch(() => {});
 });
 
 function filesToDataUrls(fileList) {

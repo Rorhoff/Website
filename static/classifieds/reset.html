@@ -35,6 +35,8 @@
       border-bottom: 2px solid #0284c7;
       padding-bottom: 0.1rem;
     }
+    /* Hide portfolio nav on t1classifieds.com (main.py injects data-service-mode). */
+    html[data-service-mode="classifieds"] .site-nav { display: none; }
     .reset-wrap {
       max-width: 420px;
       margin: 3rem auto;

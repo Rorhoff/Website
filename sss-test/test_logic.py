@@ -14,6 +14,8 @@ from sss_routes import (
     _ai_try_research_skill,
     _ai_try_construct_building,
     _ai_do_flight,
+    _pick_landing_orbital,
+    _valid_landing_orbital,
     Game,
     Player,
 )
@@ -384,24 +386,6 @@ def test_planet_def_ancient_not_affected_by_empire_size():
 
 # ── flight_move landing hex selection ─────────────────────────────────────────
 
-def _pick_landing(board, dest_cluster, req_id):
-    """Mirror of the server-side landing hex selection in the flight_move handler."""
-    landing = None
-    if req_id is not None and 0 <= req_id < len(board):
-        rh = board[req_id]
-        if (rh["cluster"] == dest_cluster and rh["type"] == "orbital"
-                and sum(1 for p in rh["pieces"] if p["type"] == "scout") < 3):
-            landing = rh
-    if landing is None:
-        landing = next(
-            (h for h in board
-             if h["cluster"] == dest_cluster and h["type"] == "orbital"
-             and sum(1 for p in h["pieces"] if p["type"] == "scout") < 3),
-            None,
-        )
-    return landing
-
-
 def test_flight_move_fallback_uses_first_orbital():
     """Without target_hex_id the server picks the first orbital (lowest id) in dest cluster."""
     board = _build_board(2)
@@ -415,7 +399,7 @@ def test_flight_move_fallback_uses_first_orbital():
     )
     assert orbitals, "dest cluster must have at least one orbital"
 
-    result = _pick_landing(board, dest_cluster, None)
+    result = _pick_landing_orbital(board, dest_cluster, "P0", None)
     assert result is not None
     assert result["id"] == orbitals[0]["id"], (
         f"fallback should pick lowest-id orbital ({orbitals[0]['id']}), got {result['id']}"
@@ -438,7 +422,7 @@ def test_flight_move_respects_target_hex_id():
     target = orbitals[-1]
     assert target["id"] != orbitals[0]["id"], "target and fallback must differ"
 
-    result = _pick_landing(board, dest_cluster, target["id"])
+    result = _pick_landing_orbital(board, dest_cluster, "P0", target["id"])
     assert result is not None, "Server should accept a valid target_hex_id"
     assert result["id"] == target["id"], (
         f"Expected hex {target['id']} (last orbital) but got {result['id']}"
@@ -456,7 +440,7 @@ def test_flight_move_target_hex_id_wrong_cluster_falls_back():
     wrong_hex = next(
         h for h in board if h["cluster"] == src_cluster and h["type"] == "orbital"
     )
-    result = _pick_landing(board, dest_cluster, wrong_hex["id"])
+    result = _pick_landing_orbital(board, dest_cluster, "P0", wrong_hex["id"])
 
     expected_fallback = min(
         (h for h in board if h["cluster"] == dest_cluster and h["type"] == "orbital"),
@@ -466,6 +450,21 @@ def test_flight_move_target_hex_id_wrong_cluster_falls_back():
     assert result["id"] == expected_fallback["id"], (
         "Wrong-cluster target_hex_id must fall back to first available orbital"
     )
+
+
+def test_flight_move_cannot_land_on_hex_with_enemy_ships():
+    """Opponent mobile ships block landing on the same orbital."""
+    board = _build_board(2)
+    src_wh = next(h for h in board if h["wormhole"] and h["wormhole_partner"] is not None)
+    dest_cluster = board[src_wh["wormhole_partner"]]["cluster"]
+    orbitals = [h for h in board if h["cluster"] == dest_cluster and h["type"] == "orbital"]
+    assert len(orbitals) >= 1
+    blocked = orbitals[0]
+    blocked["pieces"].append({"type": "scout", "owner": "P1"})
+    assert not _valid_landing_orbital(blocked, "P0")
+    for orb in orbitals:
+        orb["pieces"] = [{"type": "scout", "owner": "P1"}]
+    assert _pick_landing_orbital(board, dest_cluster, "P0", None) is None
 
 
 # ── AI economy helpers (_ai_try_build_scout / _research_skill / _construct_building) ──────────

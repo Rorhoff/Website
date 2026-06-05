@@ -105,9 +105,50 @@ BROAD_QUERY_RE = re.compile(
     re.IGNORECASE,
 )
 
+SQL_QUERY_RE = re.compile(
+    r"\b("
+    r"sql|query|queries|select|join|where|group\s+by|order\s+by|"
+    r"data\s+dictionary|data\s+dict|schema|erd|"
+    r"table|tables|column|columns|field|fields|"
+    r"write\s+(?:a|me|an)\s+(?:sql\s+)?query|"
+    r"generate\s+(?:a|me|an)\s+(?:sql\s+)?query|"
+    r"create\s+(?:a|me|an)\s+(?:sql\s+)?query|"
+    r"build\s+(?:a|me|an)\s+(?:sql\s+)?query"
+    r")\b",
+    re.IGNORECASE,
+)
+
+SCHEMA_DOC_LABEL_RE = re.compile(
+    r"\b(dictionary|data\s*dict|schema|data\s*model|erd|table\s*list|column\s*list)\b",
+    re.IGNORECASE,
+)
+
 
 def _is_broad_query(text: str) -> bool:
     return bool(BROAD_QUERY_RE.search(text or ""))
+
+
+def _is_sql_query_request(text: str) -> bool:
+    return bool(SQL_QUERY_RE.search(text or ""))
+
+
+def _doc_looks_like_schema(title: str, filename: str | None, full_text: str) -> bool:
+    """Heuristic: title/filename or opening content looks like a data dictionary."""
+    label = f"{title} {filename or ''}"
+    if SCHEMA_DOC_LABEL_RE.search(label):
+        return True
+    sample = (full_text or "")[:12_000].lower()
+    if "data dictionary" in sample or "data dict" in sample:
+        return True
+    markers = len(
+        re.findall(
+            r"\b(table|column|field|primary\s+key|foreign\s+key|varchar|integer|"
+            r"decimal|schema|datatype|data\s+type)\b",
+            sample,
+            re.I,
+        )
+    )
+    return markers >= 8
 
 
 def _retrieve(
@@ -294,6 +335,69 @@ def _retrieve_full_docs(
     return full_docs, hits
 
 
+def _retrieve_schema_docs(
+    user_message: str,
+    char_cap: int = 240_000,
+    per_doc_cap: int = 120_000,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Load full data-dictionary / schema documents for SQL generation.
+
+    Chunk-level RAG often surfaces only meta-instructions ("use the data dictionary")
+    instead of table and column definitions. SQL inquiries need the whole dictionary.
+    """
+    with _lock:
+        docs_snapshot = [
+            {
+                "id": d["id"],
+                "title": d.get("title") or f"Document {d['id']}",
+                "filename": d.get("filename") or "",
+                "full_text": d.get("full_text") or "",
+            }
+            for d in _docs
+        ]
+    schema_docs = [
+        d
+        for d in docs_snapshot
+        if _doc_looks_like_schema(d["title"], d.get("filename"), d["full_text"])
+    ]
+    if not schema_docs and len(docs_snapshot) == 1:
+        schema_docs = docs_snapshot
+    if not schema_docs:
+        return _retrieve_full_docs(user_message, max_docs=5, per_doc_cap=per_doc_cap, char_cap=char_cap)
+
+    full_docs: list[dict[str, Any]] = []
+    hits: list[dict[str, Any]] = []
+    total_chars = 0
+    for d in schema_docs:
+        if total_chars >= char_cap:
+            break
+        remaining = char_cap - total_chars
+        budget = min(per_doc_cap, remaining)
+        full_text = d["full_text"]
+        truncated = False
+        if len(full_text) > budget:
+            q_set = set(_tokenize(user_message))
+            start, end = _focused_window(full_text, q_set, budget)
+            section = full_text[start:end].rstrip()
+            leading = (
+                f"[Schema excerpt near char {start} of {len(full_text)}]\n\n" if start > 0 else ""
+            )
+            trailing = "\n\n[Schema document continues.]" if end < len(full_text) else ""
+            text = leading + section + trailing
+            truncated = True
+        else:
+            text = full_text
+        full_docs.append({"id": d["id"], "title": d["title"], "text": text, "truncated": truncated})
+        hits.append({
+            "title": d["title"],
+            "source_id": d["id"],
+            "part": 0,
+            "text": full_text[:600],
+        })
+        total_chars += len(text)
+    return full_docs, hits
+
+
 def _retrieve_images(query: str, top_k: int = 4) -> list[dict[str, Any]]:
     """Return knowledge-base images whose caption/filename tokens best match the query."""
     q_toks = _tokenize(query)
@@ -357,19 +461,31 @@ def _image_context(matched: list[dict[str, Any]] | None = None) -> str:
 
 def _build_context_for_query(
     user_message: str,
-) -> tuple[str, list[dict[str, Any]], list[dict[str, Any]], bool]:
+) -> tuple[str, list[dict[str, Any]], list[dict[str, Any]], bool, bool]:
     """Assemble the knowledge context block for the model.
 
     Detects enumerative/broad questions (``every``, ``all``, ``each``, ``list``, ``in order``,
     ``step by step`` …) and, for those, includes the *full* text of every matching document so
     items cannot be silently dropped because their chunks lost the chunk-level scoring race.
+    SQL / data-dictionary requests load full schema documents so the model can write queries.
     Narrow questions keep the original chunk-level RAG behavior.
     """
-    broad = _is_broad_query(user_message)
+    sql = _is_sql_query_request(user_message)
+    broad = _is_broad_query(user_message) or sql
     img_hits = _retrieve_images(user_message, top_k=4)
     parts: list[str] = []
 
-    if broad:
+    if sql:
+        full_docs, doc_hits = _retrieve_schema_docs(user_message)
+        if full_docs:
+            for d in full_docs:
+                parts.append(f"Data dictionary / schema «{d['title']}»:\n{d['text']}\n")
+            hits = list(doc_hits)
+        else:
+            hits = _retrieve(user_message, top_k=12, per_doc_limit=8)
+            for h in hits:
+                parts.append(f"From «{h['title']}» (excerpt {h.get('part', 1)}):\n{h['text']}\n")
+    elif broad:
         full_docs, doc_hits = _retrieve_full_docs(user_message, max_docs=10)
         diverse_chunks = _retrieve(user_message, top_k=24, per_doc_limit=6)
         if full_docs:
@@ -395,7 +511,7 @@ def _build_context_for_query(
     img_ctx = _image_context(img_hits)
     if img_ctx:
         ctx = (ctx + "\n\n" + img_ctx) if ctx else img_ctx
-    return ctx, hits, img_hits, broad
+    return ctx, hits, img_hits, broad, sql
 
 
 def _call_claude(system: str, user_text: str, max_tokens: int = 4096) -> str:
@@ -724,7 +840,7 @@ def delete_image(image_id: int) -> dict[str, bool]:
 def chat(body: ChatIn) -> dict[str, Any]:
     _ensure_storage()
     inquiry_images = _sanitize_inquiry_images(body.images)
-    ctx, hits, img_hits, broad = _build_context_for_query(body.message)
+    ctx, hits, img_hits, broad, sql = _build_context_for_query(body.message)
     has_kb = bool(ctx)
 
     system = (
@@ -743,6 +859,18 @@ def chat(body: ChatIn) -> dict[str, Any]:
         "`filename=` value listed in the knowledge context. The UI will render that screenshot in "
         "place. Only reference images that appear in the listing; do not invent filenames."
     )
+    if sql:
+        system += (
+            " SQL / DATA DICTIONARY MODE: The user wants a SQL query. The knowledge context includes "
+            "data dictionary or schema material — use the actual table names, column names, joins, "
+            "and relationships shown there. Write a complete, runnable SQL query (usually SELECT) "
+            "that answers their question. Put the query in a fenced ```sql code block. "
+            "Do NOT tell the user to 'use the data dictionary' or 'refer to the data dictionary' "
+            "instead of writing the query yourself. If you must assume a table or column, state the "
+            "assumption briefly, then still provide the best query you can from the dictionary. "
+            "If the dictionary truly lacks the needed tables/columns, name what is missing and end "
+            "with STATUS: NEEDS_REVIEW; otherwise end with STATUS: RESOLVED."
+        )
     if inquiry_images:
         system += (
             " The user attached screenshot(s) of the customer's issue (error dialogs, UI states, "
@@ -852,6 +980,7 @@ def chat(body: ChatIn) -> dict[str, Any]:
         ],
         "status": status_line,
         "broad": broad,
+        "sql": sql,
         "anthropic_configured": bool(os.getenv("ANTHROPIC_API_KEY", "").strip()),
         "ticket_id": body.ticket_id or new_ticket_id,
         "inquiry_images": len(inquiry_images),
