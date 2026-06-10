@@ -34,7 +34,7 @@ from typing import Annotated, Any
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, Field
@@ -189,7 +189,63 @@ if not _CLASSIFIEDS_ONLY:
     app.include_router(t1prod_router)
     app.include_router(t1referrall_router)
 
+# --- Product-domain HTML (hide portfolio nav on t1airevolution.com) ---
+
+_PRODUCT_HOST_DOMAINS = frozenset({"t1airevolution.com", "www.t1airevolution.com"})
+_HTML_OPEN = re.compile(r"(<html\b[^>]*)(>)", re.IGNORECASE)
+
+
+def _request_product_host(request: Request) -> str | None:
+    host = (request.headers.get("host") or "").split(":")[0].lower()
+    if host in _PRODUCT_HOST_DOMAINS:
+        return "t1airevolution"
+    return None
+
+
+def _inject_product_host_html(html: str, host_key: str) -> str:
+    if "data-product-host" in html:
+        return html
+
+    def repl(match: re.Match[str]) -> str:
+        tag = match.group(1)
+        if "data-product-host" in tag:
+            return match.group(0)
+        return f'{tag} data-product-host="{host_key}"{match.group(2)}'
+
+    return _HTML_OPEN.sub(repl, html, count=1)
+
+
 # --- Cross-origin and per-request analytics middleware ---
+
+
+@app.middleware("http")
+async def product_host_html_middleware(request: Request, call_next):
+    """Inject data-product-host on HTML when Host is a product domain (not rorhoff.com)."""
+    product_host = _request_product_host(request)
+    response = await call_next(request)
+    if product_host is None:
+        return response
+    content_type = (response.headers.get("content-type") or "").lower()
+    if "text/html" not in content_type:
+        return response
+    body = b""
+    async for chunk in response.body_iterator:
+        body += chunk
+    try:
+        html = body.decode("utf-8")
+    except UnicodeDecodeError:
+        return Response(
+            content=body,
+            status_code=response.status_code,
+            headers=dict(response.headers),
+        )
+    html = _inject_product_host_html(html, product_host)
+    headers = {
+        k: v
+        for k, v in response.headers.items()
+        if k.lower() not in ("content-length", "content-encoding")
+    }
+    return HTMLResponse(content=html, status_code=response.status_code, headers=headers)
 
 
 @app.middleware("http")

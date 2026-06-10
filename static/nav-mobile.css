@@ -1,5 +1,11 @@
 /* Mobile hamburger navigation — included on every page */
 
+/* Hide rorhoff.com portfolio cross-links on product domains (t1airevolution.com).
+   main.py injects data-product-host on HTML responses; product-host.js is a fallback. */
+html[data-product-host="t1airevolution"] .site-nav {
+  display: none;
+}
+
 /* Desktop: nav-links is an inline flex row, preserving the original gap */
 .nav-links {
   display: flex;
