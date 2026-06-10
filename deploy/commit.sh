@@ -28,6 +28,12 @@ DEV_SERVICE="roryportfolio"
 DEV_HEALTH_URL="http://127.0.0.1:8000/which-app"
 DEV_VENV_PIP="$DEV_DIR/.venv/bin/pip"
 
+# Discard Vite rebuild output before any pull/dirty checks (never block deploy on this path).
+if [[ -d "$DEV_DIR/.git" ]]; then
+  git -C "$DEV_DIR" checkout -- static/t1-referrall 2>/dev/null || true
+  rm -rf "$DEV_DIR/static/t1-referral"
+fi
+
 if [[ -t 1 ]]; then
   GREEN=$'\e[32m'; YELLOW=$'\e[33m'; RED=$'\e[31m'; BLUE=$'\e[34m'; RESET=$'\e[0m'
 else
@@ -129,12 +135,14 @@ sync_t1_referrall() {
 # ---------------------------------------------------------------------------
 # Sanity checks: refuse to run if the checkout has uncommitted edits, since
 # `git pull` would silently lose or conflict with them.
-# Vite rebuilds overwrite static/t1-referrall — discard those before checking.
+# static/t1-referrall is rebuilt every deploy — never treat it as a blocker.
 # ---------------------------------------------------------------------------
 [[ -d "$DEV_DIR/.git" ]] || die "Not a git checkout: $DEV_DIR"
 git -C "$DEV_DIR" checkout -- static/t1-referrall 2>/dev/null || true
 rm -rf "$DEV_DIR/static/t1-referral"
-if ! git -C "$DEV_DIR" diff --quiet || ! git -C "$DEV_DIR" diff --cached --quiet; then
+_diff_paths=':!static/t1-referrall'
+if ! git -C "$DEV_DIR" diff --quiet HEAD -- . "$_diff_paths" \
+  || ! git -C "$DEV_DIR" diff --cached --quiet HEAD -- . "$_diff_paths"; then
   git -C "$DEV_DIR" status --short
   die "$DEV_DIR has uncommitted changes — stash or revert before pulling."
 fi
