@@ -38,6 +38,19 @@ ok()   { echo "${GREEN}OK${RESET}  $*"; }
 warn() { echo "${YELLOW}WARN${RESET} $*"; }
 die()  { echo "${RED}ERR${RESET} $*" >&2; exit 1; }
 
+# Keep ~/commit.sh in sync with deploy/commit.sh so a one-time cp doesn't leave stale paths
+# (e.g. building into static/t1-referral instead of static/t1-referrall).
+_REPO_COMMIT="$DEV_DIR/deploy/commit.sh"
+if [[ -f "$_REPO_COMMIT" ]]; then
+  _this="${BASH_SOURCE[0]}"
+  if [[ "$_this" != "$_REPO_COMMIT" ]] && ! cmp -s "$_this" "$_REPO_COMMIT" 2>/dev/null; then
+    echo "${BLUE}==>${RESET} Updating ${HOME}/commit.sh from ${DEV_DIR}/deploy/commit.sh…"
+    cp "$_REPO_COMMIT" "$HOME/commit.sh"
+    chmod +x "$HOME/commit.sh"
+    exec "$HOME/commit.sh" "$@"
+  fi
+fi
+
 # Build T1Referrall (Vite/React) into static/t1-referrall after each pull.
 # Uses ./T1Referrall when present; otherwise shallow-clones from GitHub.
 # Non-fatal — a failed build keeps the last good static output (or git placeholder).
@@ -105,6 +118,11 @@ sync_t1_referrall() {
   fi
 
   [[ "$use_tmp" -eq 1 ]] && rm -rf "$tmp"
+  legacy="$DEV_DIR/static/t1-referral"
+  if [[ -d "$legacy" && "$legacy" != "$target" ]]; then
+    rm -rf "$legacy"
+    log "Removed legacy ${legacy} (use /t1-referrall/ only)."
+  fi
   ok "T1Referrall deployed to ${target}"
 }
 
