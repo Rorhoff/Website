@@ -14,7 +14,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -349,7 +349,7 @@ class T1ReferrallUser(Base):
     role: Mapped[str] = mapped_column(String(200), default="", server_default="")
     location: Mapped[str] = mapped_column(String(200), default="", server_default="")
     linkedin_url: Mapped[str] = mapped_column(String(500), default="", server_default="")
-    years_experience: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    years_experience: Mapped[float] = mapped_column(Float, default=0.0, server_default="0")
     skills: Mapped[list[Any]] = mapped_column(JSONB, default=list, server_default="[]")
     is_suspended: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
@@ -406,7 +406,7 @@ class T1ReferrallSeekerPost(Base):
     open_to_remote: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     field_of_work: Mapped[str] = mapped_column(String(200), default="", server_default="")
     skills: Mapped[list[Any]] = mapped_column(JSONB, default=list, server_default="[]")
-    experience_years: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    experience_years: Mapped[float] = mapped_column(Float, default=0.0, server_default="0")
     resume_url: Mapped[str] = mapped_column(String(500), default="", server_default="")
     portfolio_url: Mapped[str] = mapped_column(String(500), default="", server_default="")
     availability: Mapped[str] = mapped_column(String(16), default="immediately", server_default="immediately")

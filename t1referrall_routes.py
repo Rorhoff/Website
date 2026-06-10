@@ -290,7 +290,7 @@ class ProfilePatchBody(BaseModel):
     role: str | None = Field(default=None, max_length=200)
     location: str | None = Field(default=None, max_length=200)
     linkedinUrl: str | None = Field(default=None, max_length=500)
-    yearsExperience: int | None = Field(default=None, ge=0, le=80)
+    yearsExperience: float | None = Field(default=None, ge=0, le=80)
     skills: list[str] | None = Field(default=None, max_length=50)
     avatarUrl: str | None = Field(default=None, max_length=500)
 
@@ -316,7 +316,7 @@ class CreateSeekerPostBody(BaseModel):
     openToRemote: bool = False
     fieldOfWork: str = Field(default="", max_length=200)
     skills: list[str] = Field(default_factory=list, max_length=30)
-    experienceYears: int = Field(default=0, ge=0, le=80)
+    experienceYears: float = Field(default=0, ge=0, le=80)
     resumeUrl: str = Field(default="", max_length=500)
     portfolioUrl: str = Field(default="", max_length=500)
     availability: str = Field(default="immediately", max_length=16)
