@@ -11,6 +11,7 @@ import os
 import re
 import secrets
 import uuid
+import base64
 from datetime import datetime, timedelta
 from typing import Annotated, Any
 
@@ -52,6 +53,42 @@ MAX_AVATAR_BYTES = 4 * 1024 * 1024
 
 _AVAILABILITY = frozenset({"immediately", "2weeks", "1month", "3months"})
 _CONN_STATUS = frozenset({"pending", "accepted", "declined"})
+_INLINE_AVATAR_MAX_BYTES = 512 * 1024
+
+_USA_LOCATION_TERMS = (
+    "alabama", "alaska", "arizona", "arkansas", "california", "colorado", "connecticut",
+    "delaware", "florida", "georgia", "hawaii", "idaho", "illinois", "indiana", "iowa",
+    "kansas", "kentucky", "louisiana", "maine", "maryland", "massachusetts", "michigan",
+    "minnesota", "mississippi", "missouri", "montana", "nebraska", "nevada", "new hampshire",
+    "new jersey", "new mexico", "new york", "north carolina", "north dakota", "ohio",
+    "oklahoma", "oregon", "pennsylvania", "rhode island", "south carolina", "south dakota",
+    "tennessee", "texas", "utah", "vermont", "virginia", "washington", "west virginia",
+    "wisconsin", "wyoming", "district of columbia", "usa", "u.s.", "united states",
+    ", al", ", ak", ", az", ", ar", ", ca", ", co", ", ct", ", de", ", fl", ", ga", ", hi",
+    ", id", ", il", ", in", ", ia", ", ks", ", ky", ", la", ", me", ", md", ", ma", ", mi",
+    ", mn", ", ms", ", mo", ", mt", ", ne", ", nv", ", nh", ", nj", ", nm", ", ny", ", nc",
+    ", nd", ", oh", ", ok", ", or", ", pa", ", ri", ", sc", ", sd", ", tn", ", tx", ", ut",
+    ", vt", ", va", ", wa", ", wv", ", wi", ", wy",
+)
+
+
+def _is_usa_location(location: str, *, open_to_remote: bool = False) -> bool:
+    loc = (location or "").strip().lower()
+    if open_to_remote and (not loc or loc == "remote"):
+        return True
+    if loc == "remote":
+        return True
+    if not loc:
+        return False
+    return any(term in loc for term in _USA_LOCATION_TERMS)
+
+
+def _require_usa_location(location: str, *, open_to_remote: bool = False) -> None:
+    if not _is_usa_location(location, open_to_remote=open_to_remote):
+        raise HTTPException(
+            status_code=400,
+            detail="T1Referrall is USA-only. Use a US city/state (e.g. Austin, TX) or enable Open to Remote.",
+        )
 
 
 def _public_base() -> str:
@@ -408,6 +445,24 @@ def logout(
     return {"ok": True}
 
 
+@router.get("/status")
+def referrall_status():
+    """Public config hints for the SPA (no secrets)."""
+    missing = []
+    if not os.getenv("STRIPE_SECRET_KEY"):
+        missing.append("STRIPE_SECRET_KEY")
+    if not os.getenv("STRIPE_WEBHOOK_SECRET"):
+        missing.append("STRIPE_WEBHOOK_SECRET")
+    if not os.getenv("STRIPE_PUBLIC_BASE_URL"):
+        missing.append("STRIPE_PUBLIC_BASE_URL")
+    return {
+        "paymentsConfigured": stripe_service.stripe_enabled(),
+        "imageStorageConfigured": image_storage.storage_enabled(),
+        "usaOnly": True,
+        "missingPaymentEnv": missing,
+    }
+
+
 @router.get("/me")
 def me(user: T1ReferrallUser = Depends(get_current_referrall_user)):
     return _profile_out(user, include_email=True)
@@ -428,7 +483,10 @@ def patch_me(
     if body.role is not None:
         user.role = body.role.strip()
     if body.location is not None:
-        user.location = body.location.strip()
+        loc = body.location.strip()
+        if loc:
+            _require_usa_location(loc)
+        user.location = loc
     if body.linkedinUrl is not None:
         user.linkedin_url = body.linkedinUrl.strip()
     if body.yearsExperience is not None:
@@ -494,6 +552,7 @@ def create_post(
     user: T1ReferrallUser = Depends(get_current_referrall_user),
     db: Session = Depends(referrall_db),
 ):
+    _require_usa_location(body.location.strip(), open_to_remote=body.isRemote)
     row = T1ReferrallPost(
         id=str(uuid.uuid4()),
         author_id=user.id,
@@ -563,6 +622,7 @@ def create_seeker_post(
     avail = body.availability.strip()
     if avail not in _AVAILABILITY:
         raise HTTPException(status_code=400, detail="Invalid availability")
+    _require_usa_location(body.desiredLocation.strip(), open_to_remote=body.openToRemote)
     row = T1ReferrallSeekerPost(
         id=str(uuid.uuid4()),
         author_id=user.id,
@@ -911,22 +971,31 @@ async def upload_avatar(
     user: T1ReferrallUser = Depends(get_current_referrall_user),
     db: Session = Depends(referrall_db),
 ):
-    if not image_storage.storage_enabled():
-        raise HTTPException(status_code=503, detail="Image storage not configured")
     content = await file.read()
     if len(content) > MAX_AVATAR_BYTES:
         raise HTTPException(status_code=400, detail="Image too large (max 4 MB)")
     ct = (file.content_type or "").lower()
     if not image_storage.allowed_content_type(ct):
         raise HTTPException(status_code=400, detail="Unsupported image type")
-    ext_map = {"image/jpeg": "jpg", "image/jpg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif"}
-    ext = ext_map.get(ct, "jpg")
-    key = f"t1ref/{user.id}/avatar.{ext}"
-    try:
-        url = image_storage.upload_image_at_key(key, content, ct)
-    except Exception:
-        log.exception("Avatar upload failed for user=%s", user.id)
-        raise HTTPException(status_code=500, detail="Upload failed")
+
+    if image_storage.storage_enabled():
+        ext_map = {"image/jpeg": "jpg", "image/jpg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif"}
+        ext = ext_map.get(ct, "jpg")
+        key = f"t1ref/{user.id}/avatar.{ext}"
+        try:
+            url = image_storage.upload_image_at_key(key, content, ct)
+        except Exception:
+            log.exception("Avatar upload failed for user=%s", user.id)
+            raise HTTPException(status_code=500, detail="Upload failed")
+    elif len(content) <= _INLINE_AVATAR_MAX_BYTES:
+        b64 = base64.b64encode(content).decode("ascii")
+        url = f"data:{ct};base64,{b64}"
+    else:
+        raise HTTPException(
+            status_code=503,
+            detail="Image storage not configured. Use a photo under 512 KB or set S3_* env vars on the server.",
+        )
+
     user.avatar_url = url
     user.updated_at = datetime.utcnow()
     db.add(user)
@@ -963,7 +1032,13 @@ def premium_checkout(
     db: Session = Depends(referrall_db),
 ):
     if not stripe_service.stripe_enabled():
-        raise HTTPException(status_code=503, detail="Payments not configured")
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Payments not configured. On the server, set STRIPE_SECRET_KEY, "
+                "STRIPE_WEBHOOK_SECRET, and STRIPE_PUBLIC_BASE_URL in .env.dev, then restart roryportfolio."
+            ),
+        )
     post = db.get(T1ReferrallSeekerPost, body.seekerPostId)
     if post is None:
         raise HTTPException(status_code=404, detail="Seeker post not found")
