@@ -106,3 +106,26 @@ def upload_image(user_id: int, content: bytes, content_type: str) -> str:
         CacheControl="public, max-age=31536000, immutable",
     )
     return f"{public_base}/{key}"
+
+
+def upload_image_at_key(relative_key: str, content: bytes, content_type: str) -> str:
+    """Upload bytes under S3_KEY_PREFIX + relative_key; return public URL."""
+    if not storage_enabled():
+        raise RuntimeError(
+            "Image storage is not configured "
+            "(set S3_BUCKET, S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY, S3_PUBLIC_BASE_URL)."
+        )
+    if not allowed_content_type(content_type):
+        raise ValueError(f"Unsupported content type: {content_type!r}")
+    bucket = os.environ["S3_BUCKET"]
+    public_base = os.environ["S3_PUBLIC_BASE_URL"].rstrip("/")
+    prefix = os.getenv("S3_KEY_PREFIX", "")
+    key = f"{prefix}{relative_key}"
+    _client().put_object(
+        Bucket=bucket,
+        Key=key,
+        Body=content,
+        ContentType=content_type,
+        CacheControl="public, max-age=31536000, immutable",
+    )
+    return f"{public_base}/{key}"

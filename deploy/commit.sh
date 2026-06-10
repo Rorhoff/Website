@@ -44,12 +44,7 @@ sync_t1_referrall() {
   local target="$DEV_DIR/static/t1-referrall"
   local vite_base="/t1-referrall/"
   local repo_url="${T1REFERRALL_REPO_URL:-https://github.com/Rorhoff/T1Referral.git}"
-  local env_file="${T1REFERRALL_ENV_FILE:-$DEV_DIR/.env.t1-referrall}"
   local src_dir="" tmp="" use_tmp=0
-
-  if [[ ! -f "$env_file" && -f "$DEV_DIR/.env.t1-referral" ]]; then
-    env_file="$DEV_DIR/.env.t1-referral"
-  fi
 
   if ! command -v npm >/dev/null 2>&1; then
     warn "npm not found — skipping T1Referrall build."
@@ -80,18 +75,6 @@ sync_t1_referrall() {
     return 0
   fi
 
-  if [[ ! -f "$env_file" ]]; then
-    warn "Missing ${env_file} — skip T1Referrall build (see deploy/.env.t1-referrall.example)."
-    [[ "$use_tmp" -eq 1 ]] && rm -rf "$tmp"
-    return 0
-  fi
-  if ! grep -qE '^VITE_SUPABASE_URL=.+' "$env_file" \
-    || ! grep -qE '^VITE_SUPABASE_ANON_KEY=.+' "$env_file"; then
-    warn "${env_file} must set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY — skip T1Referrall build."
-    [[ "$use_tmp" -eq 1 ]] && rm -rf "$tmp"
-    return 0
-  fi
-
   log "Installing T1Referrall dependencies…"
   if ! (cd "$src_dir" && npm ci); then
     warn "T1Referrall npm ci failed."
@@ -100,7 +83,6 @@ sync_t1_referrall() {
   fi
 
   log "Building T1Referrall for ${vite_base}…"
-  cp "$env_file" "$src_dir/.env"
   if ! (cd "$src_dir" && npm run build -- --base="${vite_base}"); then
     warn "T1Referrall build failed."
     [[ "$use_tmp" -eq 1 ]] && rm -rf "$tmp"

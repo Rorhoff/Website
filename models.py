@@ -328,3 +328,192 @@ class ClassifiedPasswordResetToken(Base):
     __table_args__ = (
         Index("ix_password_reset_user_created", "user_id", "created_at"),
     )
+
+
+# --- T1Referrall (job referral network on rorhoff.com /t1-referrall/) ----------------
+
+
+class T1ReferrallUser(Base):
+    """Auth + profile in one row (replaces Supabase auth.users + profiles)."""
+
+    __tablename__ = "t1referrall_user"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    username: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    password_hash: Mapped[str] = mapped_column(String(255))
+    full_name: Mapped[str] = mapped_column(String(200), default="", server_default="")
+    avatar_url: Mapped[str] = mapped_column(String(500), default="", server_default="")
+    bio: Mapped[str] = mapped_column(Text(), default="", server_default="")
+    company: Mapped[str] = mapped_column(String(200), default="", server_default="")
+    role: Mapped[str] = mapped_column(String(200), default="", server_default="")
+    location: Mapped[str] = mapped_column(String(200), default="", server_default="")
+    linkedin_url: Mapped[str] = mapped_column(String(500), default="", server_default="")
+    years_experience: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    skills: Mapped[list[Any]] = mapped_column(JSONB, default=list, server_default="[]")
+    is_suspended: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class T1ReferrallSession(Base):
+    __tablename__ = "t1referrall_session"
+
+    token: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("t1referrall_user.id", ondelete="CASCADE"), index=True
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class T1ReferrallPost(Base):
+    __tablename__ = "t1referrall_post"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    author_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("t1referrall_user.id", ondelete="CASCADE"), index=True
+    )
+    company: Mapped[str] = mapped_column(String(200))
+    role_title: Mapped[str] = mapped_column(String(200))
+    description: Mapped[str] = mapped_column(Text(), default="", server_default="")
+    referral_bonus: Mapped[str] = mapped_column(String(200), default="", server_default="")
+    has_bonus: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    job_url: Mapped[str] = mapped_column(String(500), default="", server_default="")
+    location: Mapped[str] = mapped_column(String(200), default="", server_default="")
+    is_remote: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    tags: Mapped[list[Any]] = mapped_column(JSONB, default=list, server_default="[]")
+    required_skills: Mapped[list[Any]] = mapped_column(JSONB, default=list, server_default="[]")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class T1ReferrallSeekerPost(Base):
+    __tablename__ = "t1referrall_seeker_post"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    author_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("t1referrall_user.id", ondelete="CASCADE"), index=True
+    )
+    headline: Mapped[str] = mapped_column(String(300), default="", server_default="")
+    about: Mapped[str] = mapped_column(Text(), default="", server_default="")
+    desired_role: Mapped[str] = mapped_column(String(200), default="", server_default="")
+    desired_location: Mapped[str] = mapped_column(String(200), default="", server_default="")
+    open_to_remote: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    field_of_work: Mapped[str] = mapped_column(String(200), default="", server_default="")
+    skills: Mapped[list[Any]] = mapped_column(JSONB, default=list, server_default="[]")
+    experience_years: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    resume_url: Mapped[str] = mapped_column(String(500), default="", server_default="")
+    portfolio_url: Mapped[str] = mapped_column(String(500), default="", server_default="")
+    availability: Mapped[str] = mapped_column(String(16), default="immediately", server_default="immediately")
+    is_premium: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    premium_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    premium_order: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class T1ReferrallConnection(Base):
+    __tablename__ = "t1referrall_connection"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    requester_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("t1referrall_user.id", ondelete="CASCADE"), index=True
+    )
+    addressee_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("t1referrall_user.id", ondelete="CASCADE"), index=True
+    )
+    status: Mapped[str] = mapped_column(String(16), default="pending", server_default="pending")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+    __table_args__ = (
+        UniqueConstraint("requester_id", "addressee_id", name="uq_t1ref_connection_pair"),
+    )
+
+
+class T1ReferrallConversation(Base):
+    __tablename__ = "t1referrall_conversation"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class T1ReferrallConversationParticipant(Base):
+    __tablename__ = "t1referrall_conversation_participant"
+
+    conversation_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("t1referrall_conversation.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("t1referrall_user.id", ondelete="CASCADE"), primary_key=True
+    )
+
+
+class T1ReferrallMessage(Base):
+    __tablename__ = "t1referrall_message"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    conversation_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("t1referrall_conversation.id", ondelete="CASCADE"),
+        index=True,
+    )
+    sender_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("t1referrall_user.id", ondelete="CASCADE"), index=True
+    )
+    content: Mapped[str] = mapped_column(Text())
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    __table_args__ = (
+        Index("ix_t1ref_message_conv_created", "conversation_id", "created_at"),
+    )
+
+
+class T1ReferrallPremiumPurchase(Base):
+    __tablename__ = "t1referrall_premium_purchase"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("t1referrall_user.id", ondelete="CASCADE"), index=True
+    )
+    seeker_post_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("t1referrall_seeker_post.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    amount_cents: Mapped[int] = mapped_column(Integer)
+    purchase_number: Mapped[int] = mapped_column(Integer)
+    stripe_session_id: Mapped[str | None] = mapped_column(String(200), unique=True, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class T1ReferrallUserBlock(Base):
+    __tablename__ = "t1referrall_user_block"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    blocker_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("t1referrall_user.id", ondelete="CASCADE"), index=True
+    )
+    blocked_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("t1referrall_user.id", ondelete="CASCADE"), index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("blocker_id", "blocked_id", name="uq_t1ref_block_pair"),
+        Index("ix_t1ref_block_blocked_id", "blocked_id"),
+    )

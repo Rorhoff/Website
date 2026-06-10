@@ -43,6 +43,7 @@ from airevolution_routes import router as airevolution_router
 from classifieds_routes import router as classifieds_router
 from sss_routes import router as sss_router
 from t1prod_routes import router as t1prod_router
+from t1referrall_routes import router as t1referrall_router
 from credential_service import COOKIE_NAME
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -186,6 +187,7 @@ if not _CLASSIFIEDS_ONLY:
     app.include_router(airevolution_router)
     app.include_router(sss_router)
     app.include_router(t1prod_router)
+    app.include_router(t1referrall_router)
 
 # --- Cross-origin and per-request analytics middleware ---
 
