@@ -26,6 +26,7 @@ set -euo pipefail
 DEV_DIR="/home/ubuntu/Website"
 DEV_SERVICE="roryportfolio"
 DEV_HEALTH_URL="http://127.0.0.1:8000/which-app"
+DEV_VENV_PIP="$DEV_DIR/.venv/bin/pip"
 
 if [[ -t 1 ]]; then
   GREEN=$'\e[32m'; YELLOW=$'\e[33m'; RED=$'\e[31m'; BLUE=$'\e[34m'; RESET=$'\e[0m'
@@ -139,12 +140,23 @@ if [[ "$before" == "$after" ]]; then
   log "No code change — restarting anyway in case env/config moved."
 else
   log "Updated ${before} → ${after}"
-  # We don't try to run pip install here because the dev venv path varies.
-  # If you bump deps in dev, run pip install manually after this script.
-  if ! git -C "$DEV_DIR" diff --quiet "$before" "$after" -- requirements.txt; then
-    warn "requirements.txt changed in this pull — run pip install in your dev venv:"
-    warn "  /home/ubuntu/app/venv/bin/pip install -r $DEV_DIR/requirements.txt"
-    warn "(adjust the venv path if yours lives somewhere else)"
+fi
+
+# Install deps when requirements.txt changed, or when key packages are missing
+# (e.g. passlib for T1Referrall) so migrate scripts and the API don't fail.
+needs_pip=0
+if [[ "$before" != "$after" ]] && ! git -C "$DEV_DIR" diff --quiet "$before" "$after" -- requirements.txt; then
+  needs_pip=1
+elif [[ -x "$DEV_DIR/.venv/bin/python" ]] && ! "$DEV_DIR/.venv/bin/python" -c "import passlib" 2>/dev/null; then
+  needs_pip=1
+fi
+if [[ "$needs_pip" -eq 1 ]]; then
+  if [[ -x "$DEV_VENV_PIP" ]]; then
+    log "Installing Python dependencies in dev venv…"
+    "$DEV_VENV_PIP" install -r "$DEV_DIR/requirements.txt"
+  else
+    warn "Dev venv pip missing at ${DEV_VENV_PIP} — run:"
+    warn "  python3 -m venv $DEV_DIR/.venv && $DEV_VENV_PIP install -r $DEV_DIR/requirements.txt"
   fi
 fi
 

@@ -16,10 +16,23 @@ cd "$ROOT"
 
 if [[ -x "$ROOT/.venv/bin/python" ]]; then
   PYTHON="$ROOT/.venv/bin/python"
+  PIP="$ROOT/.venv/bin/pip"
 elif [[ -x /home/ubuntu/Website/.venv/bin/python ]]; then
   PYTHON=/home/ubuntu/Website/.venv/bin/python
+  PIP=/home/ubuntu/Website/.venv/bin/pip
 else
   PYTHON=python3
+  PIP=""
+fi
+
+if ! "$PYTHON" -c "import passlib" 2>/dev/null; then
+  echo "ERR  passlib not installed in dev venv." >&2
+  if [[ -n "$PIP" && -x "$PIP" ]]; then
+    echo "     Run: $PIP install -r $ROOT/requirements.txt" >&2
+  else
+    echo "     Run: pip install -r $ROOT/requirements.txt" >&2
+  fi
+  exit 1
 fi
 
 resolve_env_file() {
