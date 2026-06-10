@@ -249,6 +249,19 @@ async def product_host_html_middleware(request: Request, call_next):
 
 
 @app.middleware("http")
+async def spa_shell_cache_middleware(request: Request, call_next):
+    """SPA shell (index.html) must not be cached long-term — hashed /assets/* can be."""
+    response = await call_next(request)
+    path = request.url.path
+    if path in ("/t1-referrall", "/t1-referrall/", "/t1-referrall/index.html"):
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+    elif path.startswith("/t1-referrall/assets/"):
+        response.headers.setdefault("Cache-Control", "public, max-age=31536000, immutable")
+    return response
+
+
+@app.middleware("http")
 async def analytics_middleware(request: Request, call_next):
     start = time.perf_counter()
     client = request.client.host if request.client else None
