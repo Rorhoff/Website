@@ -46,6 +46,9 @@
     .site-nav a { color: var(--muted); text-decoration: none; font-size: 0.9rem; font-weight: 500; border-bottom: 2px solid transparent; padding-bottom: 0.1rem; }
     .site-nav a:hover { color: var(--accent); }
     .site-nav a.active { color: var(--heading); border-bottom-color: var(--accent); }
+    /* Hide rorhoff.com portfolio nav on t1airevolution.com (product domain). */
+    html[data-product-host] .site-nav { display: none; }
+    html[data-product-host] .page-shell { min-height: 100vh; }
     .env-badge { font-size: 0.72rem; font-weight: 700; background: #7c3aed; color: #fff; padding: 0.15rem 0.5rem; border-radius: 999px; margin-left: 0.25rem; }
     .app-tabs {
       display: flex; flex-wrap: wrap; gap: 0.35rem;
@@ -175,6 +178,14 @@
     #pinError { color: #f87171; font-size: 0.82rem; margin: 0.5rem 0 0; }
   </style>
   <link rel="stylesheet" href="/assets/nav-mobile.css" />
+  <script>
+    (function () {
+      var h = location.hostname;
+      if (h === "t1airevolution.com" || h === "www.t1airevolution.com") {
+        document.documentElement.setAttribute("data-product-host", "t1airevolution");
+      }
+    })();
+  </script>
 </head>
 <body>
 
