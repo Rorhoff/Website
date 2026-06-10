@@ -10,6 +10,7 @@ venv/
 
 # Accidental nested clone of this same repo (keep a single project root)
 /Website/
+T1Referral/
 __pycache__/
 *.py[cod]
 *.sqlite3
