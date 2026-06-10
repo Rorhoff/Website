@@ -129,8 +129,11 @@ sync_t1_referrall() {
 # ---------------------------------------------------------------------------
 # Sanity checks: refuse to run if the checkout has uncommitted edits, since
 # `git pull` would silently lose or conflict with them.
+# Vite rebuilds overwrite static/t1-referrall — discard those before checking.
 # ---------------------------------------------------------------------------
 [[ -d "$DEV_DIR/.git" ]] || die "Not a git checkout: $DEV_DIR"
+git -C "$DEV_DIR" checkout -- static/t1-referrall 2>/dev/null || true
+rm -rf "$DEV_DIR/static/t1-referral"
 if ! git -C "$DEV_DIR" diff --quiet || ! git -C "$DEV_DIR" diff --cached --quiet; then
   git -C "$DEV_DIR" status --short
   die "$DEV_DIR has uncommitted changes — stash or revert before pulling."
