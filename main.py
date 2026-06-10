@@ -684,9 +684,9 @@ else:
         name="airevolution",
     )
     app.mount(
-        "/t1-referral",
-        StaticFiles(directory=str(STATIC_DIR / "t1-referral"), html=True),
-        name="t1_referral",
+        "/t1-referrall",
+        StaticFiles(directory=str(STATIC_DIR / "t1-referrall"), html=True),
+        name="t1_referrall",
     )
     app.mount(
         "/t1-prod",
@@ -707,9 +707,18 @@ else:
     def lost_in_space_legacy():
         return RedirectResponse(url="/lost-in-space/", status_code=301)
 
+    @app.get("/t1-referrall", include_in_schema=False)
+    def t1_referrall_redirect() -> RedirectResponse:
+        return RedirectResponse(url="/t1-referrall/", status_code=301)
+
     @app.get("/t1-referral", include_in_schema=False)
-    def t1_referral_redirect() -> RedirectResponse:
-        return RedirectResponse(url="/t1-referral/", status_code=301)
+    @app.get("/t1-referral/", include_in_schema=False)
+    def t1_referral_legacy_redirect() -> RedirectResponse:
+        return RedirectResponse(url="/t1-referrall/", status_code=301)
+
+    @app.get("/t1-referral/{path:path}", include_in_schema=False)
+    def t1_referral_legacy_path_redirect(path: str) -> RedirectResponse:
+        return RedirectResponse(url=f"/t1-referrall/{path}", status_code=301)
 
     @app.get("/sss")
     @app.get("/sss/")

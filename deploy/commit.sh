@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # commit.sh — push test (rorhoff.com / dev). Pulls origin/main into
-# /home/ubuntu/Website and restarts the dev service. Replaces the old
+# /home/ubuntu/Website, rebuilds T1Referrall into static/t1-referrall, and
+# restarts the dev service. Replaces the old
 #
 #   cd ~/Website && git pull && sudo systemctl restart roryportfolio
 #
@@ -36,6 +37,94 @@ ok()   { echo "${GREEN}OK${RESET}  $*"; }
 warn() { echo "${YELLOW}WARN${RESET} $*"; }
 die()  { echo "${RED}ERR${RESET} $*" >&2; exit 1; }
 
+# Build T1Referrall (Vite/React) into static/t1-referrall after each pull.
+# Uses ./T1Referrall when present; otherwise shallow-clones from GitHub.
+# Non-fatal — a failed build keeps the last good static output (or git placeholder).
+sync_t1_referrall() {
+  local target="$DEV_DIR/static/t1-referrall"
+  local vite_base="/t1-referrall/"
+  local repo_url="${T1REFERRALL_REPO_URL:-https://github.com/Rorhoff/T1Referral.git}"
+  local env_file="${T1REFERRALL_ENV_FILE:-$DEV_DIR/.env.t1-referrall}"
+  local src_dir="" tmp="" use_tmp=0
+
+  if [[ ! -f "$env_file" && -f "$DEV_DIR/.env.t1-referral" ]]; then
+    env_file="$DEV_DIR/.env.t1-referral"
+  fi
+
+  if ! command -v npm >/dev/null 2>&1; then
+    warn "npm not found — skipping T1Referrall build."
+    return 0
+  fi
+
+  if [[ -d "$DEV_DIR/T1Referrall/.git" && -f "$DEV_DIR/T1Referrall/package.json" ]]; then
+    log "Syncing T1Referrall from local clone…"
+    src_dir="$DEV_DIR/T1Referrall"
+    git -C "$src_dir" pull --ff-only origin main 2>/dev/null \
+      || warn "T1Referrall local pull skipped (using current checkout)."
+  else
+    export GIT_TERMINAL_PROMPT=0
+    tmp="$(mktemp -d)"
+    use_tmp=1
+    log "Cloning T1Referrall from ${repo_url}…"
+    if ! git clone --depth 1 "$repo_url" "$tmp/repo" 2>/dev/null; then
+      warn "Could not clone T1Referrall — keeping existing ${target}."
+      rm -rf "$tmp"
+      return 0
+    fi
+    src_dir="$tmp/repo"
+  fi
+
+  if [[ ! -f "$src_dir/package.json" ]]; then
+    warn "T1Referrall has no package.json — nothing to build."
+    [[ "$use_tmp" -eq 1 ]] && rm -rf "$tmp"
+    return 0
+  fi
+
+  if [[ ! -f "$env_file" ]]; then
+    warn "Missing ${env_file} — skip T1Referrall build (see deploy/.env.t1-referrall.example)."
+    [[ "$use_tmp" -eq 1 ]] && rm -rf "$tmp"
+    return 0
+  fi
+  if ! grep -qE '^VITE_SUPABASE_URL=.+' "$env_file" \
+    || ! grep -qE '^VITE_SUPABASE_ANON_KEY=.+' "$env_file"; then
+    warn "${env_file} must set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY — skip T1Referrall build."
+    [[ "$use_tmp" -eq 1 ]] && rm -rf "$tmp"
+    return 0
+  fi
+
+  log "Installing T1Referrall dependencies…"
+  if ! (cd "$src_dir" && npm ci); then
+    warn "T1Referrall npm ci failed."
+    [[ "$use_tmp" -eq 1 ]] && rm -rf "$tmp"
+    return 0
+  fi
+
+  log "Building T1Referrall for ${vite_base}…"
+  cp "$env_file" "$src_dir/.env"
+  if ! (cd "$src_dir" && npm run build -- --base="${vite_base}"); then
+    warn "T1Referrall build failed."
+    [[ "$use_tmp" -eq 1 ]] && rm -rf "$tmp"
+    return 0
+  fi
+
+  if [[ ! -d "$src_dir/dist" ]]; then
+    warn "T1Referrall build did not produce dist/."
+    [[ "$use_tmp" -eq 1 ]] && rm -rf "$tmp"
+    return 0
+  fi
+
+  mkdir -p "$target"
+  if command -v rsync >/dev/null 2>&1; then
+    rsync -a --delete "$src_dir/dist/" "$target/"
+  else
+    find "$target" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+    cp -a "$src_dir/dist"/. "$target/"
+  fi
+
+  [[ "$use_tmp" -eq 1 ]] && rm -rf "$tmp"
+  ok "T1Referrall deployed to ${target}"
+}
+
 # ---------------------------------------------------------------------------
 # Sanity checks: refuse to run if the checkout has uncommitted edits, since
 # `git pull` would silently lose or conflict with them.
@@ -61,11 +150,7 @@ git -C "$DEV_DIR" checkout main >/dev/null
 # be sorted out by hand, not by a deploy script.
 git -C "$DEV_DIR" pull --ff-only origin main
 
-if [[ -f "$DEV_DIR/deploy/pull-t1-referral.sh" ]]; then
-  log "Syncing T1Referral static app (optional)…"
-  # Non-fatal; never prompts for GitHub credentials (see pull-t1-referral.sh).
-  bash "$DEV_DIR/deploy/pull-t1-referral.sh" || warn "T1Referral pull skipped — using placeholder from Website git"
-fi
+sync_t1_referrall || warn "T1Referrall sync skipped — using placeholder from Website git"
 
 after=$(git -C "$DEV_DIR" rev-parse --short HEAD)
 if [[ "$before" == "$after" ]]; then

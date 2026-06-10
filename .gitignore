@@ -3,6 +3,7 @@
 .env.prod
 .env.local
 .env.t1-referral
+.env.t1-referrall
 key.pem
 *.pem
 .venv/
@@ -11,6 +12,7 @@ venv/
 # Accidental nested clone of this same repo (keep a single project root)
 /Website/
 T1Referral/
+T1Referrall/
 __pycache__/
 *.py[cod]
 *.sqlite3
