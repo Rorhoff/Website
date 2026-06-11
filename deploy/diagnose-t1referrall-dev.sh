@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# diagnose-t1referrall-dev.sh — check T1Referrall payments + avatar storage on dev EC2.
+# diagnose-t1referrall-dev.sh — check Referr-All payments + avatar storage on dev EC2.
 #
 # Usage: bash ~/Website/deploy/diagnose-t1referrall-dev.sh
 
@@ -38,9 +38,9 @@ check_var S3_PUBLIC_BASE_URL
 
 echo
 echo "API status:"
-curl -sS "http://127.0.0.1:8000/api/t1referrall/status" | python3 -m json.tool 2>/dev/null || echo "(start webapi-dev first)"
+curl -sS "http://127.0.0.1:8000/api/referr-all/status" | python3 -m json.tool 2>/dev/null || echo "(start webapi-dev first)"
 
 echo
 echo "If payments show missing, add TEST Stripe keys to $ENV_FILE and restart roryportfolio:"
 echo "  STRIPE_PUBLIC_BASE_URL=https://rorhoff.com"
-echo "  STRIPE_WEBHOOK_SECRET=whsec_test_...  (Stripe CLI or Dashboard → /api/t1referrall/premium/webhook)"
+echo "  STRIPE_WEBHOOK_SECRET=whsec_test_...  (Stripe CLI or Dashboard → /api/referr-all/premium/webhook)"

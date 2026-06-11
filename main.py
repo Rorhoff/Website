@@ -43,7 +43,7 @@ from airevolution_routes import router as airevolution_router
 from classifieds_routes import router as classifieds_router
 from sss_routes import router as sss_router
 from t1prod_routes import router as t1prod_router
-from t1referrall_routes import router as t1referrall_router
+from t1referrall_routes import router as referr_all_router
 from credential_service import COOKIE_NAME
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -187,7 +187,7 @@ if not _CLASSIFIEDS_ONLY:
     app.include_router(airevolution_router)
     app.include_router(sss_router)
     app.include_router(t1prod_router)
-    app.include_router(t1referrall_router)
+    app.include_router(referr_all_router)
 
 # --- Product-domain HTML (hide portfolio nav on t1airevolution.com) ---
 
@@ -249,14 +249,24 @@ async def product_host_html_middleware(request: Request, call_next):
 
 
 @app.middleware("http")
+async def referr_all_legacy_rewrite(request: Request, call_next):
+    """Keep /api/t1referrall working for Stripe webhooks and cached clients."""
+    path = request.url.path
+    if path == "/api/t1referrall" or path.startswith("/api/t1referrall/"):
+        suffix = path[len("/api/t1referrall") :]
+        request.scope["path"] = f"/api/referr-all{suffix}"
+    return await call_next(request)
+
+
+@app.middleware("http")
 async def spa_shell_cache_middleware(request: Request, call_next):
     """SPA shell (index.html) must not be cached long-term — hashed /assets/* can be."""
     response = await call_next(request)
     path = request.url.path
-    if path in ("/t1-referrall", "/t1-referrall/", "/t1-referrall/index.html"):
+    if path in ("/referr-all", "/referr-all/", "/referr-all/index.html"):
         response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
         response.headers["Pragma"] = "no-cache"
-    elif path.startswith("/t1-referrall/assets/"):
+    elif path.startswith("/referr-all/assets/"):
         response.headers.setdefault("Cache-Control", "public, max-age=31536000, immutable")
     return response
 
@@ -755,9 +765,9 @@ else:
         name="airevolution",
     )
     app.mount(
-        "/t1-referrall",
-        StaticFiles(directory=str(STATIC_DIR / "t1-referrall"), html=True),
-        name="t1_referrall",
+        "/referr-all",
+        StaticFiles(directory=str(STATIC_DIR / "referr-all"), html=True),
+        name="referr_all",
     )
     app.mount(
         "/t1-prod",
@@ -778,18 +788,25 @@ else:
     def lost_in_space_legacy():
         return RedirectResponse(url="/lost-in-space/", status_code=301)
 
+    @app.get("/referr-all", include_in_schema=False)
+    def referr_all_redirect() -> RedirectResponse:
+        return RedirectResponse(url="/referr-all/", status_code=301)
+
     @app.get("/t1-referrall", include_in_schema=False)
-    def t1_referrall_redirect() -> RedirectResponse:
-        return RedirectResponse(url="/t1-referrall/", status_code=301)
+    @app.get("/t1-referrall/", include_in_schema=False)
+    @app.get("/t1-referrall/{path:path}", include_in_schema=False)
+    def t1_referrall_legacy_redirect(path: str = "") -> RedirectResponse:
+        suffix = path.strip("/")
+        url = f"/referr-all/{suffix}" if suffix else "/referr-all/"
+        return RedirectResponse(url=url, status_code=301)
 
     @app.get("/t1-referral", include_in_schema=False)
     @app.get("/t1-referral/", include_in_schema=False)
-    def t1_referral_legacy_redirect() -> RedirectResponse:
-        return RedirectResponse(url="/t1-referrall/", status_code=301)
-
     @app.get("/t1-referral/{path:path}", include_in_schema=False)
-    def t1_referral_legacy_path_redirect(path: str) -> RedirectResponse:
-        return RedirectResponse(url=f"/t1-referrall/{path}", status_code=301)
+    def t1_referral_legacy_redirect(path: str = "") -> RedirectResponse:
+        suffix = path.strip("/")
+        url = f"/referr-all/{suffix}" if suffix else "/referr-all/"
+        return RedirectResponse(url=url, status_code=301)
 
     @app.get("/sss")
     @app.get("/sss/")

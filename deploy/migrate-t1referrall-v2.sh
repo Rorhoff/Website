@@ -43,7 +43,7 @@ ENV_DEV="$(resolve_env_file "${DEV_CANDIDATES[@]}")" || {
 run_migration() {
   local label="$1"
   local env_file="$2"
-  echo "==> Migrating T1Referrall experience columns ($label)…"
+  echo "==> Migrating Referr-All experience columns ($label)…"
   set -a
   # shellcheck disable=SC1090
   source "$env_file"
@@ -76,4 +76,4 @@ PY
 }
 
 run_migration "dev" "$ENV_DEV"
-echo "OK  T1Referrall v2 migration complete."
+echo "OK  Referr-All v2 migration complete."

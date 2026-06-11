@@ -330,7 +330,7 @@ class ClassifiedPasswordResetToken(Base):
     )
 
 
-# --- T1Referrall (job referral network on rorhoff.com /t1-referrall/) ----------------
+# --- Referr-All (job referral network on rorhoff.com /referr-all/) ----------------
 
 
 class T1ReferrallUser(Base):

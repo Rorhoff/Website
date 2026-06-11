@@ -1,7 +1,7 @@
 """
-T1Referrall REST API — RDS + Bearer sessions (replaces Supabase client).
+Referr-All REST API — RDS + Bearer sessions (replaces Supabase client).
 
-Mounted at /api/t1referrall on rorhoff.com (SERVICE_MODE=full). Requires DATABASE_URL.
+Mounted at /api/referr-all on rorhoff.com (SERVICE_MODE=full). Requires DATABASE_URL.
 """
 
 from __future__ import annotations
@@ -42,12 +42,19 @@ from models import (
 
 log = logging.getLogger("webapi-testing")
 
-router = APIRouter(prefix="/api/t1referrall", tags=["t1referrall"])
+router = APIRouter(prefix="/api/referr-all", tags=["referr-all"])
 
 BASE_PREMIUM_PRICE_CENTS = 999
-PREMIUM_PRICE_INCREMENT_CENTS = 500
-PREMIUM_PRICE_MAX_CENTS = 9999
 PREMIUM_DURATION_DAYS = 30
+# Surge tiers (30-day rolling purchase count → next buyer price):
+#   first 5 purchases:  +$10 each
+#   next 5 (6–10):      +$20 each
+#   11+:                +$50 each (no cap)
+PREMIUM_TIER1_COUNT = 5
+PREMIUM_TIER1_INCREMENT_CENTS = 1000
+PREMIUM_TIER2_COUNT = 5
+PREMIUM_TIER2_INCREMENT_CENTS = 2000
+PREMIUM_TIER3_INCREMENT_CENTS = 5000
 BLOCK_SUSPEND_THRESHOLD = 10
 MAX_AVATAR_BYTES = 4 * 1024 * 1024
 
@@ -87,12 +94,16 @@ def _require_usa_location(location: str, *, open_to_remote: bool = False) -> Non
     if not _is_usa_location(location, open_to_remote=open_to_remote):
         raise HTTPException(
             status_code=400,
-            detail="T1Referrall is USA-only. Use a US city/state (e.g. Austin, TX) or enable Open to Remote.",
+            detail="Referr-All is USA-only. Use a US city/state (e.g. Austin, TX) or enable Open to Remote.",
         )
 
 
 def _public_base() -> str:
-    return os.getenv("T1REFERRALL_PUBLIC_URL", "https://rorhoff.com/t1-referrall").rstrip("/")
+    return (
+        os.getenv("REFERR_ALL_PUBLIC_URL")
+        or os.getenv("T1REFERRALL_PUBLIC_URL")
+        or "https://rorhoff.com/referr-all"
+    ).rstrip("/")
 
 
 def _iso(dt: datetime | None) -> str | None:
@@ -105,7 +116,7 @@ def referrall_db() -> Any:
     if not credential_service.database_enabled() or SessionLocal is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="DATABASE_URL is not set; T1Referrall is unavailable.",
+            detail="DATABASE_URL is not set; Referr-All is unavailable.",
         )
     db = SessionLocal()
     try:
@@ -270,6 +281,16 @@ def get_current_referrall_user(
     return user
 
 
+def _premium_price_cents_for_count(prior_purchases: int) -> int:
+    """Price for the next buyer given how many featured purchases occurred in the last 30 days."""
+    total = max(0, prior_purchases)
+    price = BASE_PREMIUM_PRICE_CENTS
+    price += min(total, PREMIUM_TIER1_COUNT) * PREMIUM_TIER1_INCREMENT_CENTS
+    price += min(max(total - PREMIUM_TIER1_COUNT, 0), PREMIUM_TIER2_COUNT) * PREMIUM_TIER2_INCREMENT_CENTS
+    price += max(total - PREMIUM_TIER1_COUNT - PREMIUM_TIER2_COUNT, 0) * PREMIUM_TIER3_INCREMENT_CENTS
+    return price
+
+
 def _premium_price_cents(db: Session) -> int:
     month_ago = datetime.utcnow() - timedelta(days=30)
     count = db.scalar(
@@ -277,9 +298,7 @@ def _premium_price_cents(db: Session) -> int:
         .select_from(T1ReferrallPremiumPurchase)
         .where(T1ReferrallPremiumPurchase.created_at >= month_ago)
     )
-    total = int(count or 0)
-    price = BASE_PREMIUM_PRICE_CENTS + PREMIUM_PRICE_INCREMENT_CENTS * total
-    return min(price, PREMIUM_PRICE_MAX_CENTS)
+    return _premium_price_cents_for_count(int(count or 0))
 
 
 def _check_block_suspend(db: Session, blocked_id: str) -> None:
@@ -1021,7 +1040,13 @@ def premium_price(
     return {
         "priceCents": cents,
         "purchaseNumber": int(count or 0) + 1,
+        "priorPurchases30d": int(count or 0),
         "durationDays": PREMIUM_DURATION_DAYS,
+        "surgeTiers": [
+            {"throughPurchase": 5, "incrementUsd": 10},
+            {"throughPurchase": 10, "incrementUsd": 20},
+            {"throughPurchase": None, "incrementUsd": 50},
+        ],
     }
 
 
@@ -1075,7 +1100,7 @@ def premium_checkout(
             }
         ],
         metadata={
-            "product": "t1referrall_premium",
+            "product": "referr_all_premium",
             "seeker_post_id": body.seekerPostId,
             "purchase_number": str(purchase_num),
             "amount_cents": str(price_cents),
@@ -1106,7 +1131,7 @@ async def premium_webhook(request: Request, db: Session = Depends(referrall_db))
     try:
         event = stripe.Webhook.construct_event(payload, sig, secret)
     except Exception:
-        log.exception("T1Referrall webhook signature failed")
+        log.exception("Referr-All webhook signature failed")
         raise HTTPException(status_code=400, detail="Bad webhook signature")
 
     if event["type"] != "checkout.session.completed":
@@ -1114,7 +1139,7 @@ async def premium_webhook(request: Request, db: Session = Depends(referrall_db))
 
     session = event["data"]["object"]
     meta = session.get("metadata") or {}
-    if meta.get("product") != "t1referrall_premium":
+    if meta.get("product") not in ("referr_all_premium", "t1referrall_premium"):
         return {"received": True}
 
     seeker_post_id = meta.get("seeker_post_id")

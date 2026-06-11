@@ -3,7 +3,7 @@
 .env.prod
 .env.local
 .env.t1-referral
-.env.t1-referrall
+.env.referr-all
 key.pem
 *.pem
 .venv/

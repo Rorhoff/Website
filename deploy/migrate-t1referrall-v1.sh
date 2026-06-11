@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# migrate-t1referrall-v1.sh — create T1Referrall tables on RDS (dev + prod DBs).
+# migrate-t1referrall-v1.sh — create Referr-All tables on RDS (dev + prod DBs).
 #
 # Run once from EC2 after deploying code that includes t1referrall models:
 #   bash ~/Website/deploy/migrate-t1referrall-v1.sh
@@ -67,7 +67,7 @@ fi
 run_create() {
   local label="$1"
   local env_file="${2:-}"
-  echo "==> Creating T1Referrall tables ($label)…"
+  echo "==> Creating Referr-All tables ($label)…"
   if [[ -n "$env_file" ]]; then
     set -a
     # shellcheck disable=SC1090
@@ -102,4 +102,4 @@ if [[ -n "$ENV_PROD" ]]; then
   run_create "prod" "$ENV_PROD"
 fi
 
-echo "OK  T1Referrall migration complete."
+echo "OK  Referr-All migration complete."
