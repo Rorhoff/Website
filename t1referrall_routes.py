@@ -1114,7 +1114,8 @@ def premium_checkout(
 
 def _premium_webhook_secret() -> str:
     return (
-        os.getenv("T1REFERRALL_STRIPE_WEBHOOK_SECRET")
+        os.getenv("REFERR_ALL_STRIPE_WEBHOOK_SECRET")
+        or os.getenv("T1REFERRALL_STRIPE_WEBHOOK_SECRET")
         or os.getenv("STRIPE_WEBHOOK_SECRET")
         or ""
     )
