@@ -12,7 +12,7 @@
 
 set -euo pipefail
 
-ENV_FILE="${ENV_FILE:-/home/ubuntu/Website/.env.dev}"
+WEBSITE_DIR="${WEBSITE_DIR:-/home/ubuntu/Website}"
 PUBLIC_BASE="https://rorhoff.com"
 WEBHOOK_URL="${PUBLIC_BASE}/api/referr-all/premium/webhook"
 
@@ -26,7 +26,31 @@ ok()   { echo "${GREEN}OK${RESET}  $*"; }
 warn() { echo "${YELLOW}WARN${RESET} $*"; }
 die()  { echo "${RED}ERR${RESET} $*" >&2; exit 1; }
 
-[[ -f "$ENV_FILE" ]] || die "Missing $ENV_FILE — create it or set ENV_FILE=..."
+resolve_env_file() {
+  local candidate=""
+  for candidate in \
+    "${ENV_FILE:-}" \
+    "$WEBSITE_DIR/.env.dev" \
+    "$WEBSITE_DIR/.env" \
+    "$WEBSITE_DIR/.env.local"; do
+    if [[ -n "$candidate" && -f "$candidate" ]]; then
+      echo "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
+ENV_FILE="$(resolve_env_file || true)"
+if [[ -z "$ENV_FILE" ]]; then
+  ENV_FILE="$WEBSITE_DIR/.env.dev"
+  warn "No env file found — will create ${ENV_FILE}"
+  warn "If roryportfolio uses a different file, re-run with: ENV_FILE=/path/to/env bash deploy/set-stripe-dev.sh"
+  touch "$ENV_FILE"
+  chmod 600 "$ENV_FILE" 2>/dev/null || true
+fi
+
+log "Using env file: $ENV_FILE"
 
 detect_service() {
   if systemctl list-unit-files --type=service 2>/dev/null | grep -q '^roryportfolio\.service'; then
@@ -54,9 +78,13 @@ set_env_var() {
 
 SERVICE="$(detect_service)"
 
-backup="${ENV_FILE}.bak.$(date +%Y%m%d%H%M%S)"
-cp "$ENV_FILE" "$backup"
-ok "Backed up env to $backup"
+if [[ -f "$ENV_FILE" && -s "$ENV_FILE" ]]; then
+  backup="${ENV_FILE}.bak.$(date +%Y%m%d%H%M%S)"
+  cp "$ENV_FILE" "$backup"
+  ok "Backed up env to $backup"
+else
+  warn "Env file is new or empty — only Stripe keys will be written."
+fi
 
 echo
 log "Referr-All / Classifieds — TEST Stripe keys for rorhoff.com dev"
