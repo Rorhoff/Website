@@ -404,6 +404,10 @@ class PremiumCheckoutBody(BaseModel):
     cancelUrl: str = Field(min_length=1, max_length=500)
 
 
+class PremiumConfirmBody(BaseModel):
+    sessionId: str = Field(min_length=1, max_length=255)
+
+
 # --- Auth ---
 
 
@@ -1050,6 +1054,80 @@ def premium_price(
     }
 
 
+def _checkout_session_meta(session: Any) -> dict[str, Any]:
+    if isinstance(session, dict):
+        return dict(session.get("metadata") or {})
+    meta = getattr(session, "metadata", None)
+    return dict(meta) if meta else {}
+
+
+def _checkout_session_field(session: Any, key: str, default: Any = None) -> Any:
+    if isinstance(session, dict):
+        return session.get(key, default)
+    return getattr(session, key, default)
+
+
+def _fulfill_premium_checkout(db: Session, session: Any) -> dict[str, Any] | None:
+    """Mark seeker post featured after a paid Checkout session (idempotent)."""
+    meta = _checkout_session_meta(session)
+    if meta.get("product") not in ("referr_all_premium", "t1referrall_premium"):
+        return None
+
+    if _checkout_session_field(session, "payment_status") != "paid":
+        return None
+
+    seeker_post_id = meta.get("seeker_post_id")
+    if not seeker_post_id:
+        return None
+
+    session_id = _checkout_session_field(session, "id")
+    if not session_id:
+        return None
+
+    existing = db.scalars(
+        select(T1ReferrallPremiumPurchase).where(
+            T1ReferrallPremiumPurchase.stripe_session_id == session_id
+        )
+    ).first()
+    if existing:
+        post = db.get(T1ReferrallSeekerPost, seeker_post_id)
+        return {
+            "seekerPostId": seeker_post_id,
+            "duplicate": True,
+            "isPremium": bool(post and post.is_premium),
+        }
+
+    post = db.get(T1ReferrallSeekerPost, seeker_post_id)
+    if post is None:
+        log.warning("Premium fulfillment: missing seeker post %s", seeker_post_id)
+        return None
+
+    max_order = db.scalar(
+        select(func.max(T1ReferrallSeekerPost.premium_order)).where(
+            T1ReferrallSeekerPost.is_premium.is_(True)
+        )
+    )
+    next_order = int(max_order or 0) + 1
+    expires = datetime.utcnow() + timedelta(days=PREMIUM_DURATION_DAYS)
+    post.is_premium = True
+    post.premium_expires_at = expires
+    post.premium_order = next_order
+    post.updated_at = datetime.utcnow()
+
+    purchase = T1ReferrallPremiumPurchase(
+        id=str(uuid.uuid4()),
+        user_id=post.author_id,
+        seeker_post_id=seeker_post_id,
+        amount_cents=int(meta.get("amount_cents") or _checkout_session_field(session, "amount_total") or 0),
+        purchase_number=int(meta.get("purchase_number") or 0),
+        stripe_session_id=session_id,
+    )
+    db.add(post)
+    db.add(purchase)
+    db.commit()
+    return {"seekerPostId": seeker_post_id, "isPremium": True}
+
+
 @router.post("/premium/checkout")
 def premium_checkout(
     body: PremiumCheckoutBody,
@@ -1112,6 +1190,33 @@ def premium_checkout(
     return {"url": session.url, "sessionId": session.id}
 
 
+@router.post("/premium/confirm")
+def premium_confirm(
+    body: PremiumConfirmBody,
+    user: T1ReferrallUser = Depends(get_current_referrall_user),
+    db: Session = Depends(referrall_db),
+):
+    """Fallback when Stripe redirects back before/alongside the webhook."""
+    if not stripe_service.stripe_enabled():
+        raise HTTPException(status_code=503, detail="Payments not configured")
+    stripe = stripe_service._stripe_client()  # noqa: SLF001
+    try:
+        session = stripe.checkout.Session.retrieve(body.sessionId)
+    except Exception as exc:
+        log.exception("Premium confirm: could not retrieve session %s", body.sessionId)
+        raise HTTPException(status_code=400, detail="Invalid checkout session") from exc
+
+    meta = _checkout_session_meta(session)
+    owner_id = meta.get("user_id")
+    if owner_id and owner_id != user.id:
+        raise HTTPException(status_code=403, detail="Not your checkout session")
+
+    result = _fulfill_premium_checkout(db, session)
+    if result is None:
+        raise HTTPException(status_code=400, detail="Payment not completed or invalid session")
+    return result
+
+
 def _premium_webhook_secret() -> str:
     return (
         os.getenv("REFERR_ALL_STRIPE_WEBHOOK_SECRET")
@@ -1139,49 +1244,7 @@ async def premium_webhook(request: Request, db: Session = Depends(referrall_db))
         return {"received": True}
 
     session = event["data"]["object"]
-    meta = session.get("metadata") or {}
-    if meta.get("product") not in ("referr_all_premium", "t1referrall_premium"):
+    result = _fulfill_premium_checkout(db, session)
+    if result is None:
         return {"received": True}
-
-    seeker_post_id = meta.get("seeker_post_id")
-    if not seeker_post_id:
-        return {"received": True}
-
-    session_id = session.get("id")
-    existing = db.scalars(
-        select(T1ReferrallPremiumPurchase).where(
-            T1ReferrallPremiumPurchase.stripe_session_id == session_id
-        )
-    ).first()
-    if existing:
-        return {"received": True, "duplicate": True}
-
-    post = db.get(T1ReferrallSeekerPost, seeker_post_id)
-    if post is None:
-        log.warning("Premium webhook: missing seeker post %s", seeker_post_id)
-        return {"received": True}
-
-    max_order = db.scalar(
-        select(func.max(T1ReferrallSeekerPost.premium_order)).where(
-            T1ReferrallSeekerPost.is_premium.is_(True)
-        )
-    )
-    next_order = int(max_order or 0) + 1
-    expires = datetime.utcnow() + timedelta(days=PREMIUM_DURATION_DAYS)
-    post.is_premium = True
-    post.premium_expires_at = expires
-    post.premium_order = next_order
-    post.updated_at = datetime.utcnow()
-
-    purchase = T1ReferrallPremiumPurchase(
-        id=str(uuid.uuid4()),
-        user_id=post.author_id,
-        seeker_post_id=seeker_post_id,
-        amount_cents=int(meta.get("amount_cents") or session.get("amount_total") or 0),
-        purchase_number=int(meta.get("purchase_number") or 0),
-        stripe_session_id=session_id,
-    )
-    db.add(post)
-    db.add(purchase)
-    db.commit()
-    return {"received": True, "seekerPostId": seeker_post_id}
+    return {"received": True, **result}
