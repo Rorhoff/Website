@@ -7,7 +7,7 @@ import { isPremiumActive } from '../lib/premium';
 import {
   Plus, Briefcase, MapPin, ExternalLink, MessageSquare,
   Wifi, X, ChevronDown, Search, Tag, Building, Star,
-  User, Filter, ChevronRight
+  User, Filter, ChevronRight, Flag
 } from 'lucide-react';
 import CreateJobPostModal from '../components/CreateJobPostModal';
 import CreateSeekerPostModal from '../components/CreateSeekerPostModal';
@@ -35,6 +35,7 @@ export default function FeedPage({ onViewProfile, onMessage }: Props) {
   const [loading, setLoading] = useState(true);
   const [showCreateJob, setShowCreateJob] = useState(false);
   const [showCreateSeeker, setShowCreateSeeker] = useState(false);
+  const hasOwnSeekerPost = !!user?.id && seekerPosts.some(p => p.author_id === user.id);
   const [showFilters, setShowFilters] = useState(false);
   const [showFeaturedBanner, setShowFeaturedBanner] = useState(false);
 
@@ -165,8 +166,19 @@ export default function FeedPage({ onViewProfile, onMessage }: Props) {
             </button>
             <div className="border-t border-gray-800" />
             <button
-              onClick={() => setShowCreateSeeker(true)}
-              className="flex items-center gap-3 w-full px-4 py-3 text-sm text-gray-300 hover:text-white hover:bg-gray-800 rounded-b-xl transition"
+              onClick={() => {
+                if (hasOwnSeekerPost) {
+                  alert('You already have a seeker post. Delete it from your profile before creating a new one.');
+                  return;
+                }
+                setShowCreateSeeker(true);
+              }}
+              disabled={hasOwnSeekerPost}
+              className={`flex items-center gap-3 w-full px-4 py-3 text-sm rounded-b-xl transition ${
+                hasOwnSeekerPost
+                  ? 'text-gray-600 cursor-not-allowed'
+                  : 'text-gray-300 hover:text-white hover:bg-gray-800'
+              }`}
             >
               <User size={15} className="text-emerald-400" />
               <div className="text-left">
@@ -347,6 +359,9 @@ function JobPostCard({
               <span className="text-xs font-semibold text-cyan-300 bg-cyan-500/10 border border-cyan-500/30 px-2 py-0.5 rounded-full">{matchScore}% match</span>
             )}
             <span className="text-gray-600 text-xs">{timeAgo(post.created_at)}</span>
+            {currentUserId && currentUserId !== post.author_id && (
+              <ReportFlagButton postId={post.id} kind="job" onRemoved={onDeleted} />
+            )}
             {currentUserId === post.author_id && (
               <button onClick={async () => { if (confirm('Delete this post?')) { await api.deletePost(post.id); onDeleted(); } }} className="w-7 h-7 flex items-center justify-center text-gray-600 hover:text-red-400 hover:bg-gray-800 rounded-lg transition">
                 <X size={14} />
@@ -457,6 +472,9 @@ function SeekerPostCard({
               <span className="text-xs font-semibold text-cyan-300 bg-cyan-500/10 border border-cyan-500/30 px-2 py-0.5 rounded-full">{matchScore}% match</span>
             )}
             <span className="text-gray-600 text-xs">{timeAgo(post.created_at)}</span>
+            {currentUserId && currentUserId !== post.author_id && (
+              <ReportFlagButton postId={post.id} kind="seeker" onRemoved={onDeleted} />
+            )}
             {currentUserId === post.author_id && (
               <button onClick={async () => { if (confirm('Delete this post?')) { await api.deleteSeekerPost(post.id); onDeleted(); } }} className="w-7 h-7 flex items-center justify-center text-gray-600 hover:text-red-400 hover:bg-gray-800 rounded-lg transition">
                 <X size={14} />
@@ -502,6 +520,59 @@ function SeekerPostCard({
         </div>
       </div>
     </div>
+  );
+}
+
+function ReportFlagButton({
+  postId,
+  kind,
+  onRemoved,
+}: {
+  postId: string;
+  kind: 'job' | 'seeker';
+  onRemoved: () => void;
+}) {
+  const [reported, setReported] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const check = kind === 'job' ? api.checkPostReported : api.checkSeekerPostReported;
+    check(postId)
+      .then(result => setReported(result.reported))
+      .catch(() => {});
+  }, [postId, kind]);
+
+  async function handleReport() {
+    if (reported || loading) return;
+    if (!confirm('Report this post as inappropriate or spam?')) return;
+    setLoading(true);
+    try {
+      const result = kind === 'job'
+        ? await api.reportPost(postId)
+        : await api.reportSeekerPost(postId);
+      setReported(true);
+      if (result.removed) onRemoved();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Could not submit report');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={handleReport}
+      disabled={loading || reported}
+      title={reported ? 'Reported' : 'Report post'}
+      className={`w-7 h-7 flex items-center justify-center rounded-lg transition disabled:opacity-60 ${
+        reported
+          ? 'text-red-400 bg-red-500/10'
+          : 'text-gray-600 hover:text-red-400 hover:bg-red-500/10'
+      }`}
+    >
+      <Flag size={13} className={reported ? 'fill-red-400' : ''} />
+    </button>
   );
 }
 

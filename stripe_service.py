@@ -676,6 +676,165 @@ def refund_prorated_gold_for_seller_delete(
     )
 
 
+# --- Referr-All featured (premium) refunds --------------------------------------------
+
+PREMIUM_REFUND_PROCESSING_RATE = 0.03
+PREMIUM_REFUND_REASON_SELLER_DELETE = "referr_all_premium_seller_delete"
+
+
+def payment_intent_from_checkout_session(session_id: str) -> tuple[str | None, int]:
+    """Return (payment_intent_id, amount_total_cents) for a Checkout session."""
+    if not session_id or not stripe_enabled():
+        return None, 0
+    stripe = _stripe_client()
+    session = stripe.checkout.Session.retrieve(session_id, expand=["payment_intent"])
+    amount_total = _safe_get(session, "amount_total")
+    cents = int(amount_total) if isinstance(amount_total, int) and amount_total > 0 else 0
+    pi_raw = _safe_get(session, "payment_intent")
+    if isinstance(pi_raw, str):
+        return pi_raw, cents
+    if isinstance(pi_raw, dict):
+        pid = pi_raw.get("id")
+        return (str(pid) if pid else None), cents
+    pid = _safe_get(pi_raw, "id") if pi_raw is not None else None
+    return (str(pid) if pid else None), cents
+
+
+def compute_premium_refund_quote(
+    *,
+    amount_cents: int,
+    payment_intent_id: str,
+    window_start: datetime,
+    window_end: datetime,
+    already_refunded: bool = False,
+) -> dict[str, Any]:
+    """Prorate featured payment: (gross − 3% fee) × days remaining / total days."""
+    quote: dict[str, Any] = {
+        "eligible": False,
+        "refund_cents": 0,
+        "blocked_reason": None,
+        "reason": PREMIUM_REFUND_REASON_SELLER_DELETE,
+        "breakdown": None,
+    }
+    if already_refunded:
+        quote["blocked_reason"] = "already_refunded"
+        return quote
+    if not payment_intent_id:
+        quote["blocked_reason"] = "no_payment_intent"
+        return quote
+    if amount_cents <= 0:
+        quote["blocked_reason"] = "invalid_payment_amount"
+        return quote
+    now = datetime.utcnow()
+    if now >= window_end:
+        quote["blocked_reason"] = "premium_expired"
+        return quote
+    total_days, days_used, days_remaining = _day_fractions(window_start, window_end, now)
+    if total_days <= 0:
+        quote["blocked_reason"] = "zero_window"
+        return quote
+    gross_paid_cents = amount_cents
+    processing_fee_cents = int(round(gross_paid_cents * PREMIUM_REFUND_PROCESSING_RATE))
+    net_after_fee_cents = max(gross_paid_cents - processing_fee_cents, 0)
+    ratio = days_remaining / total_days
+    prorated_cents = min(int(round(net_after_fee_cents * ratio)), net_after_fee_cents)
+    if prorated_cents < MIN_REFUND_CENTS:
+        quote["blocked_reason"] = "below_minimum_refund"
+        quote["breakdown"] = {
+            "gross_paid_cents": gross_paid_cents,
+            "processing_fee_cents": processing_fee_cents,
+            "processing_fee_rate": PREMIUM_REFUND_PROCESSING_RATE,
+            "net_after_fee_cents": net_after_fee_cents,
+            "total_days": round(total_days, 4),
+            "days_used": round(days_used, 4),
+            "days_remaining": round(days_remaining, 4),
+            "proration_basis": "days_remaining",
+            "proration_ratio": round(ratio, 6),
+            "prorated_refund_cents": prorated_cents,
+            "minimum_refund_cents": MIN_REFUND_CENTS,
+        }
+        return quote
+    quote["eligible"] = True
+    quote["refund_cents"] = prorated_cents
+    quote["breakdown"] = {
+        "gross_paid_cents": gross_paid_cents,
+        "processing_fee_cents": processing_fee_cents,
+        "processing_fee_rate": PREMIUM_REFUND_PROCESSING_RATE,
+        "net_after_fee_cents": net_after_fee_cents,
+        "total_days": round(total_days, 4),
+        "days_used": round(days_used, 4),
+        "days_remaining": round(days_remaining, 4),
+        "proration_basis": "days_remaining",
+        "proration_ratio": round(ratio, 6),
+        "prorated_refund_cents": prorated_cents,
+        "minimum_refund_cents": MIN_REFUND_CENTS,
+    }
+    return quote
+
+
+def refund_premium_for_seeker_post_delete(
+    *,
+    amount_cents: int,
+    payment_intent_id: str,
+    window_start: datetime,
+    window_end: datetime,
+    seeker_post_id: str,
+    already_refunded: bool = False,
+) -> dict[str, Any]:
+    """Issue Stripe partial refund when a featured seeker post is deleted early."""
+    outcome: dict[str, Any] = {
+        "attempted": False,
+        "eligible": False,
+        "refund_cents": 0,
+        "stripe_refund_id": None,
+        "error": None,
+        "blocked_reason": None,
+        "breakdown": None,
+    }
+    quote = compute_premium_refund_quote(
+        amount_cents=amount_cents,
+        payment_intent_id=payment_intent_id,
+        window_start=window_start,
+        window_end=window_end,
+        already_refunded=already_refunded,
+    )
+    outcome["breakdown"] = quote.get("breakdown")
+    outcome["blocked_reason"] = quote.get("blocked_reason")
+    if not quote.get("eligible"):
+        return outcome
+    if not stripe_enabled():
+        outcome["error"] = "stripe_disabled"
+        return outcome
+    refund_cents = int(quote["refund_cents"])
+    outcome["eligible"] = True
+    try:
+        stripe = _stripe_client()
+        outcome["attempted"] = True
+        idem = f"referr-all-premium-refund-{seeker_post_id}-{payment_intent_id}"[:245]
+        rf = stripe.Refund.create(
+            payment_intent=payment_intent_id,
+            amount=refund_cents,
+            metadata={
+                "product": "referr_all_premium",
+                "seeker_post_id": seeker_post_id,
+                "reason": PREMIUM_REFUND_REASON_SELLER_DELETE,
+            },
+            idempotency_key=idem,
+        )
+        outcome["stripe_refund_id"] = _safe_get(rf, "id") or None
+        outcome["refund_cents"] = refund_cents
+        log.info(
+            "premium_refund_ok: post=%s refund_cents=%s stripe_refund=%s",
+            seeker_post_id,
+            refund_cents,
+            outcome["stripe_refund_id"],
+        )
+    except Exception as exc:
+        outcome["error"] = str(exc)
+        log.exception("premium_refund_fail: post=%s", seeker_post_id)
+    return outcome
+
+
 def refund_quote_to_api(quote: dict[str, Any]) -> dict[str, Any]:
     """CamelCase refund preview payload for the SPA."""
     bd = quote.get("breakdown")

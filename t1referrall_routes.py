@@ -37,6 +37,7 @@ from models import (
     T1ReferrallSeekerPost,
     T1ReferrallSession,
     T1ReferrallUser,
+    T1ReferrallPostReport,
     T1ReferrallUserBlock,
 )
 
@@ -56,6 +57,10 @@ PREMIUM_TIER2_COUNT = 5
 PREMIUM_TIER2_INCREMENT_CENTS = 2000
 PREMIUM_TIER3_INCREMENT_CENTS = 5000
 BLOCK_SUSPEND_THRESHOLD = 10
+REPORT_REMOVE_THRESHOLD = 10
+REPORT_REMOVE_THRESHOLD_PREMIUM = 20
+_POST_KIND_JOB = "job"
+_POST_KIND_SEEKER = "seeker"
 MAX_AVATAR_BYTES = 4 * 1024 * 1024
 
 _AVAILABILITY = frozenset({"immediately", "2weeks", "1month", "3months"})
@@ -319,14 +324,23 @@ def _premium_price_cents_for_count(prior_purchases: int) -> int:
     return price
 
 
-def _premium_price_cents(db: Session) -> int:
+def _premium_purchase_count_30d(db: Session) -> int:
     month_ago = datetime.utcnow() - timedelta(days=30)
-    count = db.scalar(
-        select(func.count())
-        .select_from(T1ReferrallPremiumPurchase)
-        .where(T1ReferrallPremiumPurchase.created_at >= month_ago)
+    return int(
+        db.scalar(
+            select(func.count())
+            .select_from(T1ReferrallPremiumPurchase)
+            .where(
+                T1ReferrallPremiumPurchase.created_at >= month_ago,
+                T1ReferrallPremiumPurchase.refunded_at.is_(None),
+            )
+        )
+        or 0
     )
-    return _premium_price_cents_for_count(int(count or 0))
+
+
+def _premium_price_cents(db: Session) -> int:
+    return _premium_price_cents_for_count(_premium_purchase_count_30d(db))
 
 
 def _check_block_suspend(db: Session, blocked_id: str) -> None:
@@ -342,6 +356,91 @@ def _check_block_suspend(db: Session, blocked_id: str) -> None:
             user.updated_at = datetime.utcnow()
             db.add(user)
             db.commit()
+
+
+def _post_report_count(db: Session, post_kind: str, post_id: str) -> int:
+    return int(
+        db.scalar(
+            select(func.count())
+            .select_from(T1ReferrallPostReport)
+            .where(
+                T1ReferrallPostReport.post_kind == post_kind,
+                T1ReferrallPostReport.post_id == post_id,
+            )
+        )
+        or 0
+    )
+
+
+def _post_report_threshold(post_kind: str, seeker_post: T1ReferrallSeekerPost | None) -> int:
+    if post_kind == _POST_KIND_SEEKER and seeker_post is not None and _post_premium_active(seeker_post):
+        return REPORT_REMOVE_THRESHOLD_PREMIUM
+    return REPORT_REMOVE_THRESHOLD
+
+
+def _remove_post_reports(db: Session, post_kind: str, post_id: str) -> None:
+    db.execute(
+        delete(T1ReferrallPostReport).where(
+            T1ReferrallPostReport.post_kind == post_kind,
+            T1ReferrallPostReport.post_id == post_id,
+        )
+    )
+
+
+def _check_post_report_removal(db: Session, post_kind: str, post_id: str) -> bool:
+    seeker_post = db.get(T1ReferrallSeekerPost, post_id) if post_kind == _POST_KIND_SEEKER else None
+    threshold = _post_report_threshold(post_kind, seeker_post)
+    if _post_report_count(db, post_kind, post_id) < threshold:
+        return False
+    if post_kind == _POST_KIND_JOB:
+        row = db.get(T1ReferrallPost, post_id)
+    else:
+        row = seeker_post
+    if row is None:
+        return False
+    _remove_post_reports(db, post_kind, post_id)
+    db.delete(row)
+    db.commit()
+    return True
+
+
+def _user_reported_post(db: Session, user_id: str, post_kind: str, post_id: str) -> bool:
+    row = db.scalars(
+        select(T1ReferrallPostReport).where(
+            T1ReferrallPostReport.reporter_id == user_id,
+            T1ReferrallPostReport.post_kind == post_kind,
+            T1ReferrallPostReport.post_id == post_id,
+        )
+    ).first()
+    return row is not None
+
+
+def _create_post_report(
+    db: Session,
+    user: T1ReferrallUser,
+    post_kind: str,
+    post_id: str,
+    *,
+    author_id: str,
+) -> dict[str, Any]:
+    if author_id == user.id:
+        raise HTTPException(status_code=400, detail="Cannot report your own post")
+    if _user_reported_post(db, user.id, post_kind, post_id):
+        return {"ok": True, "alreadyReported": True, "removed": False}
+    row = T1ReferrallPostReport(
+        id=str(uuid.uuid4()),
+        reporter_id=user.id,
+        post_kind=post_kind,
+        post_id=post_id,
+    )
+    db.add(row)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        return {"ok": True, "alreadyReported": True, "removed": False}
+    removed = _check_post_report_removal(db, post_kind, post_id)
+    return {"ok": True, "alreadyReported": False, "removed": removed}
 
 
 def _user_participates(db: Session, conversation_id: str, user_id: str) -> bool:
@@ -663,9 +762,36 @@ def delete_post(
         raise HTTPException(status_code=404, detail="Post not found")
     if row.author_id != user.id:
         raise HTTPException(status_code=403, detail="Not your post")
+    _remove_post_reports(db, _POST_KIND_JOB, post_id)
     db.delete(row)
     db.commit()
     return {"ok": True}
+
+
+@router.post("/posts/{post_id}/report")
+def report_post(
+    post_id: str,
+    user: T1ReferrallUser = Depends(get_current_referrall_user),
+    db: Session = Depends(referrall_db),
+):
+    row = db.get(T1ReferrallPost, post_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Post not found")
+    return _create_post_report(
+        db, user, _POST_KIND_JOB, post_id, author_id=row.author_id
+    )
+
+
+@router.get("/posts/{post_id}/reported")
+def check_post_reported(
+    post_id: str,
+    user: T1ReferrallUser = Depends(get_current_referrall_user),
+    db: Session = Depends(referrall_db),
+):
+    row = db.get(T1ReferrallPost, post_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Post not found")
+    return {"reported": _user_reported_post(db, user.id, _POST_KIND_JOB, post_id)}
 
 
 # --- Seeker posts ---
@@ -701,6 +827,19 @@ def create_seeker_post(
     avail = body.availability.strip()
     if avail not in _AVAILABILITY:
         raise HTTPException(status_code=400, detail="Invalid availability")
+    existing = int(
+        db.scalar(
+            select(func.count())
+            .select_from(T1ReferrallSeekerPost)
+            .where(T1ReferrallSeekerPost.author_id == user.id)
+        )
+        or 0
+    )
+    if existing >= 1:
+        raise HTTPException(
+            status_code=409,
+            detail="You already have a seeker post. Delete it before creating a new one.",
+        )
     _require_usa_location(body.desiredLocation.strip(), open_to_remote=body.openToRemote)
     row = T1ReferrallSeekerPost(
         id=str(uuid.uuid4()),
@@ -723,6 +862,61 @@ def create_seeker_post(
     return _seeker_out(row, {user.id: _profile_out(user)})
 
 
+def _premium_purchase_for_post(db: Session, post_id: str) -> T1ReferrallPremiumPurchase | None:
+    return db.scalars(
+        select(T1ReferrallPremiumPurchase)
+        .where(
+            T1ReferrallPremiumPurchase.seeker_post_id == post_id,
+            T1ReferrallPremiumPurchase.refunded_at.is_(None),
+        )
+        .order_by(T1ReferrallPremiumPurchase.created_at.desc())
+    ).first()
+
+
+def _resolve_premium_payment_intent(purchase: T1ReferrallPremiumPurchase) -> str | None:
+    if purchase.stripe_payment_intent_id:
+        return purchase.stripe_payment_intent_id
+    if purchase.stripe_session_id:
+        pi, _ = stripe_service.payment_intent_from_checkout_session(purchase.stripe_session_id)
+        return pi
+    return None
+
+
+def _refund_premium_for_deleted_seeker_post(
+    db: Session,
+    row: T1ReferrallSeekerPost,
+) -> dict[str, Any]:
+    if not _post_premium_active(row) or not row.premium_expires_at:
+        return {"refundCents": 0, "refundEligible": False}
+    purchase = _premium_purchase_for_post(db, row.id)
+    if purchase is None:
+        return {"refundCents": 0, "refundEligible": False}
+    window_end = row.premium_expires_at
+    window_start = window_end - timedelta(days=PREMIUM_DURATION_DAYS)
+    payment_intent_id = _resolve_premium_payment_intent(purchase)
+    outcome = stripe_service.refund_premium_for_seeker_post_delete(
+        amount_cents=purchase.amount_cents,
+        payment_intent_id=payment_intent_id or "",
+        window_start=window_start,
+        window_end=window_end,
+        seeker_post_id=row.id,
+        already_refunded=purchase.refunded_at is not None,
+    )
+    if outcome.get("eligible") and outcome.get("stripe_refund_id"):
+        purchase.refunded_at = datetime.utcnow()
+        purchase.refund_cents = int(outcome.get("refund_cents") or 0)
+        purchase.stripe_refund_id = outcome.get("stripe_refund_id")
+        if payment_intent_id and not purchase.stripe_payment_intent_id:
+            purchase.stripe_payment_intent_id = payment_intent_id
+        db.add(purchase)
+        db.commit()
+    return {
+        "refundCents": int(outcome.get("refund_cents") or 0),
+        "refundEligible": bool(outcome.get("eligible")),
+        "refundBlockedReason": outcome.get("blocked_reason") or outcome.get("error"),
+    }
+
+
 @router.delete("/seeker-posts/{post_id}")
 def delete_seeker_post(
     post_id: str,
@@ -734,9 +928,37 @@ def delete_seeker_post(
         raise HTTPException(status_code=404, detail="Post not found")
     if row.author_id != user.id:
         raise HTTPException(status_code=403, detail="Not your post")
+    refund_info = _refund_premium_for_deleted_seeker_post(db, row)
+    _remove_post_reports(db, _POST_KIND_SEEKER, post_id)
     db.delete(row)
     db.commit()
-    return {"ok": True}
+    return {"ok": True, **refund_info}
+
+
+@router.post("/seeker-posts/{post_id}/report")
+def report_seeker_post(
+    post_id: str,
+    user: T1ReferrallUser = Depends(get_current_referrall_user),
+    db: Session = Depends(referrall_db),
+):
+    row = db.get(T1ReferrallSeekerPost, post_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Post not found")
+    return _create_post_report(
+        db, user, _POST_KIND_SEEKER, post_id, author_id=row.author_id
+    )
+
+
+@router.get("/seeker-posts/{post_id}/reported")
+def check_seeker_post_reported(
+    post_id: str,
+    user: T1ReferrallUser = Depends(get_current_referrall_user),
+    db: Session = Depends(referrall_db),
+):
+    row = db.get(T1ReferrallSeekerPost, post_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Post not found")
+    return {"reported": _user_reported_post(db, user.id, _POST_KIND_SEEKER, post_id)}
 
 
 # --- Connections ---
@@ -1119,16 +1341,11 @@ def premium_price(
     db: Session = Depends(referrall_db),
 ):
     cents = _premium_price_cents(db)
-    month_ago = datetime.utcnow() - timedelta(days=30)
-    count = db.scalar(
-        select(func.count())
-        .select_from(T1ReferrallPremiumPurchase)
-        .where(T1ReferrallPremiumPurchase.created_at >= month_ago)
-    )
+    count = _premium_purchase_count_30d(db)
     return {
         "priceCents": cents,
-        "purchaseNumber": int(count or 0) + 1,
-        "priorPurchases30d": int(count or 0),
+        "purchaseNumber": count + 1,
+        "priorPurchases30d": count,
         "durationDays": PREMIUM_DURATION_DAYS,
         "surgeTiers": [
             {"throughPurchase": 5, "incrementUsd": 10},
@@ -1259,6 +1476,11 @@ def _fulfill_premium_checkout(db: Session, session: Any) -> dict[str, Any] | Non
         amount_cents=int(meta.get("amount_cents") or _checkout_session_field(session, "amount_total") or 0),
         purchase_number=int(meta.get("purchase_number") or 0),
         stripe_session_id=session_id,
+        stripe_payment_intent_id=(
+            stripe_service.payment_intent_from_checkout_session(session_id)[0]
+            if session_id
+            else None
+        ),
     )
     db.add(purchase)
     try:
@@ -1302,15 +1524,7 @@ def premium_checkout(
     if post.author_id != user.id:
         raise HTTPException(status_code=403, detail="Not your post")
     price_cents = _premium_price_cents(db)
-    month_ago = datetime.utcnow() - timedelta(days=30)
-    purchase_num = int(
-        db.scalar(
-            select(func.count())
-            .select_from(T1ReferrallPremiumPurchase)
-            .where(T1ReferrallPremiumPurchase.created_at >= month_ago)
-        )
-        or 0
-    ) + 1
+    purchase_num = _premium_purchase_count_30d(db) + 1
     stripe = stripe_service._stripe_client()  # noqa: SLF001
     session = stripe.checkout.Session.create(
         mode="payment",

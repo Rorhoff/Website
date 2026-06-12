@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
 import {
   Briefcase, Building, Camera, Crown, Edit2, ExternalLink, Link, Loader,
-  MapPin, MessageSquare, Save, ShieldBan, Star, Tag, Trash2, UserCheck,
+  MapPin, MessageSquare, Plus, Save, ShieldBan, Star, Tag, Trash2, UserCheck,
   UserPlus, Wifi, X,
 } from 'lucide-react';
+import CreateSeekerPostModal from '../components/CreateSeekerPostModal';
 import * as api from '../lib/api';
 import { compressImageForUpload } from '../lib/resizeImage';
 import { isPremiumActive, storePendingPremiumSession, confirmPremiumReturn, PENDING_PREMIUM_SESSION_KEY } from '../lib/premium';
@@ -36,6 +37,7 @@ export default function ProfilePage({ userId, onMessage }: Props) {
   const [upgradingPostId, setUpgradingPostId] = useState<string | null>(null);
   const [isBlocked, setIsBlocked] = useState(false);
   const [blockLoading, setBlockLoading] = useState(false);
+  const [showCreateSeeker, setShowCreateSeeker] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [form, setForm] = useState({
@@ -202,13 +204,23 @@ export default function ProfilePage({ userId, onMessage }: Props) {
   }
 
   async function handleDeleteSeekerPost(postId: string) {
-    if (!confirm('Are you sure you want to delete this seeker post? This cannot be undone.')) return;
+    const post = seekerPosts.find(p => p.id === postId);
+    const featured = post && isPremiumActive(post);
+    const msg = featured
+      ? 'Delete this featured seeker post? Unused featured time will be refunded minus a 3% processing fee.'
+      : 'Are you sure you want to delete this seeker post? This cannot be undone.';
+    if (!confirm(msg)) return;
     setDeletingPostId(postId);
+    setUpgradeError('');
     try {
-      await api.deleteSeekerPost(postId);
+      const result = await api.deleteSeekerPost(postId);
       setSeekerPosts(prev => prev.filter(p => p.id !== postId));
+      if (result.refundCents && result.refundCents > 0) {
+        setUpgradeError(`Refund issued: $${(result.refundCents / 100).toFixed(2)} for unused featured time.`);
+      }
     } catch (err) {
       console.error('Failed to delete seeker post:', err);
+      setUpgradeError(err instanceof Error ? err.message : 'Failed to delete seeker post');
     } finally {
       setDeletingPostId(null);
     }
@@ -490,18 +502,42 @@ export default function ProfilePage({ userId, onMessage }: Props) {
       {/* Seeker Posts */}
       {(activeSeekerPosts.length > 0 || isOwn) && (
         <div>
-          <h2 className="text-lg font-bold text-white mb-4">
-            {isOwn ? 'My Seeker Posts' : 'Open to Work'}
-            <span className="text-gray-600 font-normal text-base ml-2">({activeSeekerPosts.length})</span>
-          </h2>
+          <div className="flex items-center justify-between gap-3 mb-4">
+            <h2 className="text-lg font-bold text-white">
+              {isOwn ? 'My Seeker Posts' : 'Open to Work'}
+              <span className="text-gray-600 font-normal text-base ml-2">({activeSeekerPosts.length})</span>
+            </h2>
+            {isOwn && activeSeekerPosts.length === 0 && (
+              <button
+                onClick={() => setShowCreateSeeker(true)}
+                className="flex items-center gap-2 bg-emerald-500 hover:bg-emerald-600 text-white font-medium rounded-xl px-4 py-2 text-sm transition"
+              >
+                <Plus size={14} />
+                Create Seeker Post
+              </button>
+            )}
+          </div>
           {upgradeError && (
-            <div className="mb-4 bg-red-500/10 border border-red-500/30 text-red-400 text-sm rounded-lg px-4 py-3">{upgradeError}</div>
+            <div className={`mb-4 text-sm rounded-lg px-4 py-3 border ${
+              upgradeError.startsWith('Refund issued')
+                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+                : 'bg-red-500/10 border-red-500/30 text-red-400'
+            }`}>{upgradeError}</div>
           )}
 
           {activeSeekerPosts.length === 0 ? (
             <div className="bg-gray-900 rounded-2xl border border-gray-800 p-8 text-center">
               <Star size={24} className="text-gray-600 mx-auto mb-3" />
-              <p className="text-gray-500 text-sm">No seeker posts yet. Create one from the Feed to let employers find you.</p>
+              <p className="text-gray-500 text-sm mb-4">No seeker post yet. Let employers know you are open to work.</p>
+              {isOwn && (
+                <button
+                  onClick={() => setShowCreateSeeker(true)}
+                  className="inline-flex items-center gap-2 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 font-medium rounded-xl px-4 py-2.5 text-sm transition"
+                >
+                  <Plus size={14} />
+                  Create Seeker Post
+                </button>
+              )}
             </div>
           ) : (
             <div className="space-y-4">
@@ -780,6 +816,16 @@ export default function ProfilePage({ userId, onMessage }: Props) {
             </div>
           </div>
         </div>
+      )}
+
+      {showCreateSeeker && (
+        <CreateSeekerPostModal
+          onClose={() => setShowCreateSeeker(false)}
+          onCreated={() => {
+            setShowCreateSeeker(false);
+            loadProfile();
+          }}
+        />
       )}
     </div>
   );

@@ -1,3 +1,3 @@
-# T1Referrall
+# Referr-All
 
-[![Open in Bolt](https://bolt.new/static/open-in-bolt.svg)](https://bolt.new/~/sb1-kbymplq9)
+React/Vite frontend for Referr-All (`/referr-all/`). Built into `static/referr-all/` for deployment.

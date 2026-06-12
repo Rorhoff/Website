@@ -137,7 +137,7 @@ export default function Layout({ children, currentPage, onNavigate }: Props) {
         {/* Footer */}
         <footer className="border-t border-gray-800 mt-8 pb-24 md:pb-8">
           <div className="max-w-6xl mx-auto px-4 py-6 flex flex-col sm:flex-row items-center justify-between gap-3">
-            <p className="text-gray-600 text-xs">&copy; 2026 RedA1, LLC dba Referr-All. All rights reserved.</p>
+            <p className="text-gray-600 text-xs">&copy; 2026 Referr-All. All Rights Reserved.</p>
             <div className="flex items-center gap-4">
               <button
                 onClick={() => onNavigate('terms')}

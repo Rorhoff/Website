@@ -500,6 +500,10 @@ class T1ReferrallPremiumPurchase(Base):
     amount_cents: Mapped[int] = mapped_column(Integer)
     purchase_number: Mapped[int] = mapped_column(Integer)
     stripe_session_id: Mapped[str | None] = mapped_column(String(200), unique=True, nullable=True)
+    stripe_payment_intent_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    refund_cents: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    stripe_refund_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    refunded_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
@@ -518,4 +522,21 @@ class T1ReferrallUserBlock(Base):
     __table_args__ = (
         UniqueConstraint("blocker_id", "blocked_id", name="uq_t1ref_block_pair"),
         Index("ix_t1ref_block_blocked_id", "blocked_id"),
+    )
+
+
+class T1ReferrallPostReport(Base):
+    __tablename__ = "t1referrall_post_report"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    reporter_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("t1referrall_user.id", ondelete="CASCADE"), index=True
+    )
+    post_kind: Mapped[str] = mapped_column(String(16), index=True)
+    post_id: Mapped[str] = mapped_column(String(36), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("reporter_id", "post_kind", "post_id", name="uq_t1ref_post_report"),
+        Index("ix_t1ref_post_report_target", "post_kind", "post_id"),
     )

@@ -109,6 +109,14 @@ export async function deletePost(id: string) {
   return request(`/posts/${id}`, { method: 'DELETE' });
 }
 
+export async function reportPost(id: string): Promise<{ ok: boolean; alreadyReported: boolean; removed: boolean }> {
+  return request(`/posts/${id}/report`, { method: 'POST' });
+}
+
+export async function checkPostReported(id: string): Promise<{ reported: boolean }> {
+  return request(`/posts/${id}/reported`);
+}
+
 export async function listSeekerPosts(): Promise<SeekerPost[]> {
   return request<SeekerPost[]>('/seeker-posts');
 }
@@ -117,8 +125,21 @@ export async function createSeekerPost(body: Record<string, unknown>): Promise<S
   return request<SeekerPost>('/seeker-posts', { method: 'POST', body: JSON.stringify(body) });
 }
 
-export async function deleteSeekerPost(id: string) {
+export async function deleteSeekerPost(id: string): Promise<{
+  ok: boolean;
+  refundCents?: number;
+  refundEligible?: boolean;
+  refundBlockedReason?: string | null;
+}> {
   return request(`/seeker-posts/${id}`, { method: 'DELETE' });
+}
+
+export async function reportSeekerPost(id: string): Promise<{ ok: boolean; alreadyReported: boolean; removed: boolean }> {
+  return request(`/seeker-posts/${id}/report`, { method: 'POST' });
+}
+
+export async function checkSeekerPostReported(id: string): Promise<{ reported: boolean }> {
+  return request(`/seeker-posts/${id}/reported`);
 }
 
 export async function listConnections(): Promise<Connection[]> {
