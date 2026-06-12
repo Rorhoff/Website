@@ -68,10 +68,17 @@ export default function CreateSeekerPostModal({ onClose, onCreated }: Props) {
         availability: form.availability,
       });
 
-      const priceInfo = await getPremiumPrice();
-      setPremiumPrice(priceInfo.priceCents);
-      setPurchaseNumber(priceInfo.purchaseNumber);
       setCreatedPostId(data.id);
+      onCreated();
+
+      try {
+        const priceInfo = await getPremiumPrice();
+        setPremiumPrice(priceInfo.priceCents);
+        setPurchaseNumber(priceInfo.purchaseNumber);
+      } catch {
+        setPremiumPrice(api.BASE_PREMIUM_PRICE_CENTS);
+        setPurchaseNumber(1);
+      }
       setStep('premium');
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to post');

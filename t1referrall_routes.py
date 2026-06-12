@@ -326,17 +326,19 @@ def _premium_price_cents_for_count(prior_purchases: int) -> int:
 
 def _premium_purchase_count_30d(db: Session) -> int:
     month_ago = datetime.utcnow() - timedelta(days=30)
-    return int(
-        db.scalar(
-            select(func.count())
-            .select_from(T1ReferrallPremiumPurchase)
-            .where(
-                T1ReferrallPremiumPurchase.created_at >= month_ago,
-                T1ReferrallPremiumPurchase.refunded_at.is_(None),
-            )
-        )
-        or 0
+    base = (
+        select(func.count())
+        .select_from(T1ReferrallPremiumPurchase)
+        .where(T1ReferrallPremiumPurchase.created_at >= month_ago)
     )
+    try:
+        return int(
+            db.scalar(base.where(T1ReferrallPremiumPurchase.refunded_at.is_(None))) or 0
+        )
+    except ProgrammingError:
+        db.rollback()
+        log.warning("Premium count: refunded_at column missing — run migrate-t1referrall-v7.sh")
+        return int(db.scalar(base) or 0)
 
 
 def _premium_price_cents(db: Session) -> int:
@@ -603,6 +605,7 @@ def _premium_db_ready(db: Session) -> tuple[bool, str | None]:
         db.scalar(
             select(T1ReferrallSeekerPost.is_premium).limit(1)
         )
+        db.scalar(select(T1ReferrallPremiumPurchase.refunded_at).limit(1))
         return True, None
     except Exception as exc:
         db.rollback()
@@ -1340,8 +1343,16 @@ def premium_price(
     user: T1ReferrallUser = Depends(get_current_referrall_user),
     db: Session = Depends(referrall_db),
 ):
-    cents = _premium_price_cents(db)
-    count = _premium_purchase_count_30d(db)
+    try:
+        cents = _premium_price_cents(db)
+        count = _premium_purchase_count_30d(db)
+    except ProgrammingError as exc:
+        db.rollback()
+        log.exception("Premium price DB error")
+        raise HTTPException(
+            status_code=500,
+            detail="Database schema out of date — run bash deploy/migrate-t1referrall-v7.sh on the server",
+        ) from exc
     return {
         "priceCents": cents,
         "purchaseNumber": count + 1,
@@ -1469,22 +1480,34 @@ def _fulfill_premium_checkout(db: Session, session: Any) -> dict[str, Any] | Non
 
     _apply_premium_to_post(db, post)
 
-    purchase = T1ReferrallPremiumPurchase(
-        id=str(uuid.uuid4()),
-        user_id=post.author_id,
-        seeker_post_id=seeker_post_id,
-        amount_cents=int(meta.get("amount_cents") or _checkout_session_field(session, "amount_total") or 0),
-        purchase_number=int(meta.get("purchase_number") or 0),
-        stripe_session_id=session_id,
-        stripe_payment_intent_id=(
-            stripe_service.payment_intent_from_checkout_session(session_id)[0]
-            if session_id
-            else None
-        ),
-    )
+    pi_id: str | None = None
+    if session_id:
+        try:
+            pi_id, _ = stripe_service.payment_intent_from_checkout_session(session_id)
+        except Exception:
+            log.warning("Premium fulfillment: could not resolve payment intent for %s", session_id)
+
+    purchase_kwargs: dict[str, Any] = {
+        "id": str(uuid.uuid4()),
+        "user_id": post.author_id,
+        "seeker_post_id": seeker_post_id,
+        "amount_cents": int(meta.get("amount_cents") or _checkout_session_field(session, "amount_total") or 0),
+        "purchase_number": int(meta.get("purchase_number") or 0),
+        "stripe_session_id": session_id,
+    }
+    if pi_id:
+        purchase_kwargs["stripe_payment_intent_id"] = pi_id
+    purchase = T1ReferrallPremiumPurchase(**purchase_kwargs)
     db.add(purchase)
     try:
         db.commit()
+    except ProgrammingError as exc:
+        db.rollback()
+        log.exception("Premium fulfillment DB error — run migrate-t1referrall-v7.sh")
+        raise HTTPException(
+            status_code=500,
+            detail="Database schema out of date — run bash deploy/migrate-t1referrall-v7.sh on the server",
+        ) from exc
     except IntegrityError:
         db.rollback()
         existing = db.scalars(
@@ -1518,43 +1541,60 @@ def premium_checkout(
                 "STRIPE_WEBHOOK_SECRET, and STRIPE_PUBLIC_BASE_URL in .env.dev, then restart roryportfolio."
             ),
         )
+    ready, db_err = _premium_db_ready(db)
+    if not ready:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Premium database not ready: {db_err}. Run bash deploy/fix-referr-all-premium.sh on the server.",
+        )
     post = db.get(T1ReferrallSeekerPost, body.seekerPostId)
     if post is None:
         raise HTTPException(status_code=404, detail="Seeker post not found")
     if post.author_id != user.id:
         raise HTTPException(status_code=403, detail="Not your post")
-    price_cents = _premium_price_cents(db)
-    purchase_num = _premium_purchase_count_30d(db) + 1
-    stripe = stripe_service._stripe_client()  # noqa: SLF001
-    session = stripe.checkout.Session.create(
-        mode="payment",
-        payment_method_types=["card"],
-        line_items=[
-            {
-                "quantity": 1,
-                "price_data": {
-                    "currency": "usd",
-                    "unit_amount": price_cents,
-                    "product_data": {
-                        "name": "Featured Post — 30 Days",
-                        "description": (
-                            "Your seeker post will be pinned near the top of the feed "
-                            "with a Featured badge for 30 days."
-                        ),
+    try:
+        price_cents = _premium_price_cents(db)
+        purchase_num = _premium_purchase_count_30d(db) + 1
+        stripe = stripe_service._stripe_client()  # noqa: SLF001
+        session = stripe.checkout.Session.create(
+            mode="payment",
+            payment_method_types=["card"],
+            line_items=[
+                {
+                    "quantity": 1,
+                    "price_data": {
+                        "currency": "usd",
+                        "unit_amount": price_cents,
+                        "product_data": {
+                            "name": "Featured Post — 30 Days",
+                            "description": (
+                                "Your seeker post will be pinned near the top of the feed "
+                                "with a Featured badge for 30 days."
+                            ),
+                        },
                     },
-                },
-            }
-        ],
-        metadata={
-            "product": "referr_all_premium",
-            "seeker_post_id": body.seekerPostId,
-            "purchase_number": str(purchase_num),
-            "amount_cents": str(price_cents),
-            "user_id": user.id,
-        },
-        success_url=body.successUrl,
-        cancel_url=body.cancelUrl,
-    )
+                }
+            ],
+            metadata={
+                "product": "referr_all_premium",
+                "seeker_post_id": body.seekerPostId,
+                "purchase_number": str(purchase_num),
+                "amount_cents": str(price_cents),
+                "user_id": user.id,
+            },
+            success_url=body.successUrl,
+            cancel_url=body.cancelUrl,
+        )
+    except ProgrammingError as exc:
+        db.rollback()
+        log.exception("Premium checkout DB error")
+        raise HTTPException(
+            status_code=500,
+            detail="Database schema out of date — run bash deploy/migrate-t1referrall-v7.sh on the server",
+        ) from exc
+    except Exception as exc:
+        log.exception("Premium checkout Stripe error")
+        raise HTTPException(status_code=500, detail="Could not start checkout — try again shortly") from exc
     return {"url": session.url, "sessionId": session.id}
 
 
@@ -1598,30 +1638,55 @@ def premium_reconcile(
     """Activate featured status for completed Stripe checkouts that were never fulfilled."""
     if not os.getenv("STRIPE_SECRET_KEY"):
         raise HTTPException(status_code=503, detail="Stripe not configured")
+    ready, db_err = _premium_db_ready(db)
+    if not ready:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Premium database not ready: {db_err}. Run bash deploy/fix-referr-all-premium.sh on the server.",
+        )
     stripe = stripe_service._stripe_client()  # noqa: SLF001
     cutoff = int((datetime.utcnow() - timedelta(days=30)).timestamp())
     activated: list[dict[str, Any]] = []
     starting_after: str | None = None
 
-    for _ in range(5):
-        params: dict[str, Any] = {"limit": 100, "status": "complete"}
-        if starting_after:
-            params["starting_after"] = starting_after
-        page = stripe.checkout.Session.list(**params)
-        for session in page.data:
-            if int(session.created or 0) < cutoff:
-                continue
-            meta = dict(session.metadata or {})
-            if meta.get("user_id") != user.id:
-                continue
-            if meta.get("product") not in ("referr_all_premium", "t1referrall_premium"):
-                continue
-            result = _fulfill_premium_checkout(db, session)
-            if result and result.get("isPremium"):
-                activated.append(result)
-        if not page.has_more:
-            break
-        starting_after = page.data[-1].id
+    try:
+        for _ in range(5):
+            params: dict[str, Any] = {"limit": 100, "status": "complete"}
+            if starting_after:
+                params["starting_after"] = starting_after
+            page = stripe.checkout.Session.list(**params)
+            for session in page.data:
+                if int(_checkout_session_field(session, "created") or 0) < cutoff:
+                    continue
+                meta = _checkout_session_meta(session)
+                if meta.get("user_id") != user.id:
+                    continue
+                if meta.get("product") not in ("referr_all_premium", "t1referrall_premium"):
+                    continue
+                try:
+                    result = _fulfill_premium_checkout(db, session)
+                except HTTPException:
+                    raise
+                except Exception:
+                    log.exception("Premium reconcile: fulfill failed for session")
+                    continue
+                if result and result.get("isPremium"):
+                    activated.append(result)
+            if not page.has_more:
+                break
+            starting_after = page.data[-1].id
+    except HTTPException:
+        raise
+    except ProgrammingError as exc:
+        db.rollback()
+        log.exception("Premium reconcile DB error")
+        raise HTTPException(
+            status_code=500,
+            detail="Database schema out of date — run bash deploy/migrate-t1referrall-v7.sh on the server",
+        ) from exc
+    except Exception as exc:
+        log.exception("Premium reconcile Stripe error")
+        raise HTTPException(status_code=500, detail="Could not sync payments — try again shortly") from exc
 
     return {"activated": len(activated), "results": activated}
 

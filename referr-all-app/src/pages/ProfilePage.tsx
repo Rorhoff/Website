@@ -5,6 +5,7 @@ import {
   UserPlus, Wifi, X,
 } from 'lucide-react';
 import CreateSeekerPostModal from '../components/CreateSeekerPostModal';
+import CreateJobPostModal from '../components/CreateJobPostModal';
 import * as api from '../lib/api';
 import { compressImageForUpload } from '../lib/resizeImage';
 import { isPremiumActive, storePendingPremiumSession, confirmPremiumReturn, PENDING_PREMIUM_SESSION_KEY } from '../lib/premium';
@@ -38,6 +39,7 @@ export default function ProfilePage({ userId, onMessage }: Props) {
   const [isBlocked, setIsBlocked] = useState(false);
   const [blockLoading, setBlockLoading] = useState(false);
   const [showCreateSeeker, setShowCreateSeeker] = useState(false);
+  const [showCreateJob, setShowCreateJob] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [form, setForm] = useState({
@@ -654,15 +656,35 @@ export default function ProfilePage({ userId, onMessage }: Props) {
 
       {/* Referral Posts */}
       <div>
-        <h2 className="text-lg font-bold text-white mb-4">
-          {isOwn ? 'My Referral Posts' : `${profile.full_name}'s Posts`}
-          <span className="text-gray-600 font-normal text-base ml-2">({posts.length})</span>
-        </h2>
+        <div className="flex items-center justify-between gap-3 mb-4">
+          <h2 className="text-lg font-bold text-white">
+            {isOwn ? 'My Referral Posts' : `${profile.full_name}'s Posts`}
+            <span className="text-gray-600 font-normal text-base ml-2">({posts.length})</span>
+          </h2>
+          {isOwn && (
+            <button
+              onClick={() => setShowCreateJob(true)}
+              className="flex items-center gap-2 bg-blue-500 hover:bg-blue-600 text-white font-medium rounded-xl px-4 py-2 text-sm transition"
+            >
+              <Plus size={14} />
+              Create Referral Job Post
+            </button>
+          )}
+        </div>
 
         {posts.length === 0 ? (
           <div className="bg-gray-900 rounded-2xl border border-gray-800 p-10 text-center">
             <Briefcase size={28} className="text-gray-600 mx-auto mb-3" />
-            <p className="text-gray-500 text-sm">{isOwn ? "You haven't posted any openings yet." : "No posts yet."}</p>
+            <p className="text-gray-500 text-sm mb-4">{isOwn ? "You haven't posted any openings yet." : 'No posts yet.'}</p>
+            {isOwn && (
+              <button
+                onClick={() => setShowCreateJob(true)}
+                className="inline-flex items-center gap-2 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/30 text-blue-400 font-medium rounded-xl px-4 py-2.5 text-sm transition"
+              >
+                <Plus size={14} />
+                Create Referral Job Post
+              </button>
+            )}
           </div>
         ) : (
           <div className="space-y-4">
@@ -823,6 +845,16 @@ export default function ProfilePage({ userId, onMessage }: Props) {
           onClose={() => setShowCreateSeeker(false)}
           onCreated={() => {
             setShowCreateSeeker(false);
+            loadProfile();
+          }}
+        />
+      )}
+
+      {showCreateJob && (
+        <CreateJobPostModal
+          onClose={() => setShowCreateJob(false)}
+          onCreated={() => {
+            setShowCreateJob(false);
             loadProfile();
           }}
         />

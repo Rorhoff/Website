@@ -9,10 +9,12 @@ type Props = {
 };
 
 export default function CreateJobPostModal({ onClose, onCreated }: Props) {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const [form, setForm] = useState({
-    company: '', role_title: '', description: '', location: '',
-    is_remote: false, job_url: '', tags: '', required_skills: '',
+    company: profile?.company || '',
+    role_title: profile?.role || '',
+    description: '', location: profile?.location || '',
+    is_remote: false, job_url: '', tags: '', required_skills: (profile?.skills || []).slice(0, 5).join(', '),
   });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
