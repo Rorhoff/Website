@@ -91,6 +91,7 @@ log "Referr-All / Classifieds — TEST Stripe keys for rorhoff.com dev"
 echo "  Dashboard: https://dashboard.stripe.com/test/apikeys"
 echo "  Webhook:   ${WEBHOOK_URL}"
 echo "             Event: checkout.session.completed"
+warn "Webhook URL must be rorhoff.com (with two r's) — NOT romoff.com"
 echo
 
 read -rsp "STRIPE_SECRET_KEY (sk_test_...): " STRIPE_SECRET_KEY

@@ -19,7 +19,7 @@ from fastapi import APIRouter, Depends, File, Header, HTTPException, Request, Up
 from passlib.hash import bcrypt as bcrypt_hasher
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, or_, select, update
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, ProgrammingError
 from sqlalchemy.orm import Session
 
 import credential_service
@@ -61,6 +61,32 @@ MAX_AVATAR_BYTES = 4 * 1024 * 1024
 _AVAILABILITY = frozenset({"immediately", "2weeks", "1month", "3months"})
 _CONN_STATUS = frozenset({"pending", "accepted", "declined"})
 _INLINE_AVATAR_MAX_BYTES = 512 * 1024
+
+
+def _shrink_avatar_for_inline(content: bytes, content_type: str) -> tuple[bytes, str]:
+    """Downscale/compress to fit inline DB storage when S3 is off."""
+    import io
+
+    from PIL import Image
+
+    img = Image.open(io.BytesIO(content))
+    if img.mode not in ("RGB", "L"):
+        img = img.convert("RGB")
+    max_dim = 800
+    w, h = img.size
+    if max(w, h) > max_dim:
+        img.thumbnail((max_dim, max_dim), Image.Resampling.LANCZOS)
+    quality = 85
+    while quality >= 40:
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=quality, optimize=True)
+        data = buf.getvalue()
+        if len(data) <= _INLINE_AVATAR_MAX_BYTES:
+            return data, "image/jpeg"
+        quality -= 10
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=40, optimize=True)
+    return buf.getvalue(), "image/jpeg"
 
 _USA_LOCATION_TERMS = (
     "alabama", "alaska", "arizona", "arkansas", "california", "colorado", "connecticut",
@@ -468,6 +494,18 @@ def logout(
     return {"ok": True}
 
 
+def _premium_db_ready(db: Session) -> tuple[bool, str | None]:
+    try:
+        db.scalar(select(func.count()).select_from(T1ReferrallPremiumPurchase))
+        db.scalar(
+            select(T1ReferrallSeekerPost.is_premium).limit(1)
+        )
+        return True, None
+    except Exception as exc:
+        db.rollback()
+        return False, str(exc)
+
+
 @router.get("/status")
 def referrall_status():
     """Public config hints for the SPA (no secrets)."""
@@ -478,9 +516,19 @@ def referrall_status():
         missing.append("STRIPE_WEBHOOK_SECRET")
     if not os.getenv("STRIPE_PUBLIC_BASE_URL"):
         missing.append("STRIPE_PUBLIC_BASE_URL")
+    premium_ready = False
+    premium_err: str | None = None
+    if credential_service.database_enabled() and SessionLocal is not None:
+        db = SessionLocal()
+        try:
+            premium_ready, premium_err = _premium_db_ready(db)
+        finally:
+            db.close()
     return {
         "paymentsConfigured": stripe_service.stripe_enabled(),
         "imageStorageConfigured": image_storage.storage_enabled(),
+        "premiumDbReady": premium_ready,
+        "premiumDbError": premium_err,
         "usaOnly": True,
         "missingPaymentEnv": missing,
     }
@@ -1001,6 +1049,16 @@ async def upload_avatar(
     if not image_storage.allowed_content_type(ct):
         raise HTTPException(status_code=400, detail="Unsupported image type")
 
+    if not image_storage.storage_enabled() and len(content) > _INLINE_AVATAR_MAX_BYTES:
+        try:
+            content, ct = _shrink_avatar_for_inline(content, ct)
+        except Exception:
+            log.exception("Avatar inline resize failed for user=%s", user.id)
+            raise HTTPException(
+                status_code=503,
+                detail="Could not process image. Try a smaller photo or configure S3_* on the server.",
+            )
+
     if image_storage.storage_enabled():
         ext_map = {"image/jpeg": "jpg", "image/jpg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif"}
         ext = ext_map.get(ct, "jpg")
@@ -1056,9 +1114,17 @@ def premium_price(
 
 def _checkout_session_meta(session: Any) -> dict[str, Any]:
     if isinstance(session, dict):
-        return dict(session.get("metadata") or {})
-    meta = getattr(session, "metadata", None)
-    return dict(meta) if meta else {}
+        raw = session.get("metadata") or {}
+    else:
+        raw = getattr(session, "metadata", None) or {}
+    if raw is None:
+        return {}
+    if isinstance(raw, dict):
+        return dict(raw)
+    try:
+        return dict(raw)
+    except (TypeError, ValueError):
+        return {k: raw[k] for k in raw.keys()} if hasattr(raw, "keys") else {}
 
 
 def _checkout_session_field(session: Any, key: str, default: Any = None) -> Any:
@@ -1067,41 +1133,13 @@ def _checkout_session_field(session: Any, key: str, default: Any = None) -> Any:
     return getattr(session, key, default)
 
 
-def _fulfill_premium_checkout(db: Session, session: Any) -> dict[str, Any] | None:
-    """Mark seeker post featured after a paid Checkout session (idempotent)."""
-    meta = _checkout_session_meta(session)
-    if meta.get("product") not in ("referr_all_premium", "t1referrall_premium"):
-        return None
+def _checkout_session_paid(session: Any) -> bool:
+    payment_status = _checkout_session_field(session, "payment_status")
+    status = _checkout_session_field(session, "status")
+    return payment_status == "paid" or status == "complete"
 
-    if _checkout_session_field(session, "payment_status") != "paid":
-        return None
 
-    seeker_post_id = meta.get("seeker_post_id")
-    if not seeker_post_id:
-        return None
-
-    session_id = _checkout_session_field(session, "id")
-    if not session_id:
-        return None
-
-    existing = db.scalars(
-        select(T1ReferrallPremiumPurchase).where(
-            T1ReferrallPremiumPurchase.stripe_session_id == session_id
-        )
-    ).first()
-    if existing:
-        post = db.get(T1ReferrallSeekerPost, seeker_post_id)
-        return {
-            "seekerPostId": seeker_post_id,
-            "duplicate": True,
-            "isPremium": bool(post and post.is_premium),
-        }
-
-    post = db.get(T1ReferrallSeekerPost, seeker_post_id)
-    if post is None:
-        log.warning("Premium fulfillment: missing seeker post %s", seeker_post_id)
-        return None
-
+def _apply_premium_to_post(db: Session, post: T1ReferrallSeekerPost) -> None:
     max_order = db.scalar(
         select(func.max(T1ReferrallSeekerPost.premium_order)).where(
             T1ReferrallSeekerPost.is_premium.is_(True)
@@ -1113,6 +1151,62 @@ def _fulfill_premium_checkout(db: Session, session: Any) -> dict[str, Any] | Non
     post.premium_expires_at = expires
     post.premium_order = next_order
     post.updated_at = datetime.utcnow()
+    db.add(post)
+
+
+def _post_premium_active(post: T1ReferrallSeekerPost | None, now: datetime | None = None) -> bool:
+    if post is None or not post.is_premium:
+        return False
+    if post.premium_expires_at is None:
+        return True
+    return post.premium_expires_at > (now or datetime.utcnow())
+
+
+def _fulfill_premium_checkout(db: Session, session: Any) -> dict[str, Any] | None:
+    """Mark seeker post featured after a paid Checkout session (idempotent)."""
+    meta = _checkout_session_meta(session)
+    if meta.get("product") not in ("referr_all_premium", "t1referrall_premium"):
+        return None
+
+    session_id = _checkout_session_field(session, "id")
+    if not _checkout_session_paid(session):
+        log.warning(
+            "Premium fulfillment: session %s not paid (payment_status=%s, status=%s)",
+            session_id,
+            _checkout_session_field(session, "payment_status"),
+            _checkout_session_field(session, "status"),
+        )
+        return None
+
+    seeker_post_id = meta.get("seeker_post_id")
+    if not seeker_post_id:
+        return None
+
+    if not session_id:
+        return None
+
+    existing = db.scalars(
+        select(T1ReferrallPremiumPurchase).where(
+            T1ReferrallPremiumPurchase.stripe_session_id == session_id
+        )
+    ).first()
+    post = db.get(T1ReferrallSeekerPost, seeker_post_id)
+    if existing:
+        if post and not _post_premium_active(post):
+            _apply_premium_to_post(db, post)
+            db.commit()
+            log.info("Premium fulfillment: healed inactive post %s for session %s", seeker_post_id, session_id)
+        return {
+            "seekerPostId": seeker_post_id,
+            "duplicate": True,
+            "isPremium": _post_premium_active(post),
+        }
+
+    if post is None:
+        log.warning("Premium fulfillment: missing seeker post %s", seeker_post_id)
+        return None
+
+    _apply_premium_to_post(db, post)
 
     purchase = T1ReferrallPremiumPurchase(
         id=str(uuid.uuid4()),
@@ -1122,9 +1216,25 @@ def _fulfill_premium_checkout(db: Session, session: Any) -> dict[str, Any] | Non
         purchase_number=int(meta.get("purchase_number") or 0),
         stripe_session_id=session_id,
     )
-    db.add(post)
     db.add(purchase)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        existing = db.scalars(
+            select(T1ReferrallPremiumPurchase).where(
+                T1ReferrallPremiumPurchase.stripe_session_id == session_id
+            )
+        ).first()
+        post = db.get(T1ReferrallSeekerPost, seeker_post_id)
+        if post and not _post_premium_active(post):
+            _apply_premium_to_post(db, post)
+            db.commit()
+        return {
+            "seekerPostId": seeker_post_id,
+            "duplicate": True,
+            "isPremium": _post_premium_active(post),
+        }
     return {"seekerPostId": seeker_post_id, "isPremium": True}
 
 
@@ -1211,10 +1321,51 @@ def premium_confirm(
     if owner_id and owner_id != user.id:
         raise HTTPException(status_code=403, detail="Not your checkout session")
 
+    if meta.get("product") not in ("referr_all_premium", "t1referrall_premium"):
+        raise HTTPException(status_code=400, detail="Not a featured-post checkout session")
+    if not _checkout_session_paid(session):
+        raise HTTPException(status_code=400, detail="Payment not completed yet")
+
     result = _fulfill_premium_checkout(db, session)
     if result is None:
-        raise HTTPException(status_code=400, detail="Payment not completed or invalid session")
+        raise HTTPException(status_code=400, detail="Could not activate featured status for this session")
     return result
+
+
+@router.post("/premium/reconcile")
+def premium_reconcile(
+    user: T1ReferrallUser = Depends(get_current_referrall_user),
+    db: Session = Depends(referrall_db),
+):
+    """Activate featured status for completed Stripe checkouts that were never fulfilled."""
+    if not os.getenv("STRIPE_SECRET_KEY"):
+        raise HTTPException(status_code=503, detail="Stripe not configured")
+    stripe = stripe_service._stripe_client()  # noqa: SLF001
+    cutoff = int((datetime.utcnow() - timedelta(days=30)).timestamp())
+    activated: list[dict[str, Any]] = []
+    starting_after: str | None = None
+
+    for _ in range(5):
+        params: dict[str, Any] = {"limit": 100, "status": "complete"}
+        if starting_after:
+            params["starting_after"] = starting_after
+        page = stripe.checkout.Session.list(**params)
+        for session in page.data:
+            if int(session.created or 0) < cutoff:
+                continue
+            meta = dict(session.metadata or {})
+            if meta.get("user_id") != user.id:
+                continue
+            if meta.get("product") not in ("referr_all_premium", "t1referrall_premium"):
+                continue
+            result = _fulfill_premium_checkout(db, session)
+            if result and result.get("isPremium"):
+                activated.append(result)
+        if not page.has_more:
+            break
+        starting_after = page.data[-1].id
+
+    return {"activated": len(activated), "results": activated}
 
 
 def _premium_webhook_secret() -> str:
@@ -1240,11 +1391,34 @@ async def premium_webhook(request: Request, db: Session = Depends(referrall_db))
         log.exception("Referr-All webhook signature failed")
         raise HTTPException(status_code=400, detail="Bad webhook signature")
 
-    if event["type"] != "checkout.session.completed":
+    try:
+        event_type = event["type"]
+    except (KeyError, TypeError):
         return {"received": True}
 
-    session = event["data"]["object"]
-    result = _fulfill_premium_checkout(db, session)
+    if event_type != "checkout.session.completed":
+        return {"received": True}
+
+    try:
+        session = event["data"]["object"]
+        session_id = _checkout_session_field(session, "id")
+    except (KeyError, TypeError):
+        log.exception("Referr-All webhook: malformed checkout.session.completed payload")
+        raise HTTPException(status_code=400, detail="Malformed webhook payload")
+
+    try:
+        result = _fulfill_premium_checkout(db, session)
+    except ProgrammingError:
+        db.rollback()
+        log.exception("Referr-All webhook: DB schema missing for session=%s", session_id)
+        raise HTTPException(
+            status_code=500,
+            detail="Database schema missing — run bash deploy/fix-referr-all-premium.sh on the server",
+        )
+    except Exception:
+        db.rollback()
+        log.exception("Referr-All webhook fulfillment failed for session=%s", session_id)
+        raise HTTPException(status_code=500, detail="Webhook processing failed")
     if result is None:
         return {"received": True}
     return {"received": True, **result}

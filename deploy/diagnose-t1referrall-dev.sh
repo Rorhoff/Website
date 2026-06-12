@@ -27,7 +27,39 @@ echo
 echo "Stripe (required for Featured / Premium checkout):"
 check_var STRIPE_SECRET_KEY
 check_var STRIPE_WEBHOOK_SECRET
+check_var REFERR_ALL_STRIPE_WEBHOOK_SECRET
 check_var STRIPE_PUBLIC_BASE_URL
+
+echo
+echo "Database premium tables:"
+if [[ -n "${DATABASE_URL:-}" ]]; then
+  python3 - <<'PY'
+import os, sys
+if not os.getenv("DATABASE_URL"):
+    sys.exit(0)
+try:
+    from sqlalchemy import create_engine, text
+    engine = create_engine(os.environ["DATABASE_URL"])
+    with engine.connect() as conn:
+        for table in ("t1referrall_seeker_post", "t1referrall_premium_purchase"):
+            row = conn.execute(text(
+                "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = :t)"
+            ), {"t": table}).scalar()
+            print(f"{'OK  ' if row else 'MISS'} table {table}")
+        cols = conn.execute(text(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name = 't1referrall_seeker_post' "
+            "AND column_name IN ('is_premium', 'premium_expires_at', 'premium_order')"
+        )).scalars().all()
+        for col in ("is_premium", "premium_expires_at", "premium_order"):
+            print(f"{'OK  ' if col in cols else 'MISS'} column t1referrall_seeker_post.{col}")
+except Exception as exc:
+    print(f"WARN DB check failed: {exc}")
+PY
+else
+  echo "WARN DATABASE_URL not loaded from env file"
+fi
+echo "  If any MISS above, run: bash ~/Website/deploy/fix-referr-all-premium.sh"
 
 echo
 echo "S3/R2 (optional — avatars fall back to inline data URLs under 512 KB without this):"
@@ -43,4 +75,7 @@ curl -sS "http://127.0.0.1:8000/api/referr-all/status" | python3 -m json.tool 2>
 echo
 echo "If payments show missing, add TEST Stripe keys to $ENV_FILE and restart roryportfolio:"
 echo "  STRIPE_PUBLIC_BASE_URL=https://rorhoff.com"
-echo "  STRIPE_WEBHOOK_SECRET=whsec_test_...  (Stripe CLI or Dashboard → /api/referr-all/premium/webhook)"
+echo "  REFERR_ALL_STRIPE_WEBHOOK_SECRET=whsec_...  (Dashboard → /api/referr-all/premium/webhook)"
+echo "  STRIPE_WEBHOOK_SECRET=whsec_...             (same or Classifieds secret)"
+echo
+echo "If Stripe webhooks return 500, run: bash ~/Website/deploy/migrate-t1referrall-v3.sh"

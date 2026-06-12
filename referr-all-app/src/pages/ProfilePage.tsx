@@ -5,6 +5,8 @@ import {
   UserPlus, Wifi, X,
 } from 'lucide-react';
 import * as api from '../lib/api';
+import { compressImageForUpload } from '../lib/resizeImage';
+import { isPremiumActive, storePendingPremiumSession, confirmPremiumReturn, PENDING_PREMIUM_SESSION_KEY } from '../lib/premium';
 import type { Profile, Post, Connection, SeekerPost } from '../lib/types';
 import { AVAILABILITY_LABELS } from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
@@ -15,7 +17,7 @@ type Props = {
 };
 
 export default function ProfilePage({ userId, onMessage }: Props) {
-  const { user, profile: myProfile, refreshProfile } = useAuth();
+  const { user, profile: myProfile, refreshProfile, premiumConfirmError } = useAuth();
   const isOwn = user?.id === userId;
 
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -77,6 +79,18 @@ export default function ProfilePage({ userId, onMessage }: Props) {
       setConnection(conn);
       setIsBlocked(blockCheck.blocked);
 
+      if (isOwn && userSeekerPosts.some(sp => !isPremiumActive(sp))) {
+        try {
+          const synced = await api.reconcilePremiumPayments();
+          if (synced.activated > 0) {
+            const refreshedSeeker = await api.listSeekerPosts();
+            setSeekerPosts(refreshedSeeker.filter(x => x.author_id === userId));
+          }
+        } catch {
+          /* Stripe sync is best-effort */
+        }
+      }
+
       setForm({
         full_name: p.full_name || '',
         bio: p.bio || '',
@@ -101,7 +115,8 @@ export default function ProfilePage({ userId, onMessage }: Props) {
     setAvatarUploading(true);
     setAvatarError('');
     try {
-      const { url } = await api.uploadAvatar(file);
+      const prepared = await compressImageForUpload(file);
+      const { url } = await api.uploadAvatar(prepared);
       const publicUrl = url.startsWith('data:') ? url : `${url}?t=${Date.now()}`;
       await api.updateProfile({ avatarUrl: publicUrl });
       setForm(f => ({ ...f, avatar_url: publicUrl }));
@@ -192,6 +207,40 @@ export default function ProfilePage({ userId, onMessage }: Props) {
     }
   }
 
+  async function handleSyncPremiumPayments() {
+    setUpgradeError('');
+    setUpgradingPostId('sync');
+    try {
+      const result = await api.reconcilePremiumPayments();
+      if (result.activated > 0) {
+        await loadProfile();
+      } else {
+        setUpgradeError('No unfulfilled featured payments found in the last 30 days.');
+      }
+    } catch (err) {
+      setUpgradeError(err instanceof Error ? err.message : 'Could not sync payments');
+    } finally {
+      setUpgradingPostId(null);
+    }
+  }
+
+  async function handleRetryFeaturedActivation() {
+    setUpgradeError('');
+    setUpgradingPostId('retry');
+    try {
+      const result = await confirmPremiumReturn();
+      if (result.confirmed) {
+        await loadProfile();
+      } else {
+        setUpgradeError(result.error || 'Could not activate featured status. Try refreshing after a minute.');
+      }
+    } catch (err) {
+      setUpgradeError(err instanceof Error ? err.message : 'Could not activate featured status');
+    } finally {
+      setUpgradingPostId(null);
+    }
+  }
+
   async function handleUpgradeToPremium(postId: string) {
     setUpgradingPostId(postId);
     setUpgradeError('');
@@ -203,6 +252,7 @@ export default function ProfilePage({ userId, onMessage }: Props) {
         cancelUrl: `${origin}/referr-all/`,
       });
       if (!json.url) throw new Error('Failed to create checkout session');
+      if (json.sessionId) storePendingPremiumSession(json.sessionId);
       window.location.href = json.url;
     } catch (err) {
       setUpgradeError(err instanceof Error ? err.message : 'Failed to start checkout');
@@ -242,10 +292,7 @@ export default function ProfilePage({ userId, onMessage }: Props) {
   const connStatus = connection?.status;
   const isRequester = connection?.requester_id === user?.id;
 
-  const activeSeekerPosts = seekerPosts.filter(p => {
-    if (!p.is_premium) return true;
-    return !p.premium_expires_at || new Date(p.premium_expires_at) > new Date();
-  });
+  const activeSeekerPosts = seekerPosts.filter(p => isPremiumActive(p) || !p.is_premium);
 
   return (
     <div className="max-w-2xl mx-auto pb-20 md:pb-0 space-y-5">
@@ -427,13 +474,13 @@ export default function ProfilePage({ userId, onMessage }: Props) {
           ) : (
             <div className="space-y-4">
               {activeSeekerPosts.map(post => {
-                const isPremiumActive = post.is_premium && post.premium_expires_at && new Date(post.premium_expires_at) > new Date();
+                const premiumActive = isPremiumActive(post);
                 return (
                   <div
                     key={post.id}
-                    className={`bg-gray-900 rounded-2xl border p-5 ${isPremiumActive ? 'border-amber-400/40' : 'border-gray-800'}`}
+                    className={`bg-gray-900 rounded-2xl border p-5 ${premiumActive ? 'border-amber-400/40' : 'border-gray-800'}`}
                   >
-                    {isPremiumActive && (
+                    {premiumActive && (
                       <div className="flex items-center gap-1.5 mb-3">
                         <Star size={12} className="text-amber-400 fill-amber-400" />
                         <span className="text-amber-400 text-xs font-semibold tracking-wide uppercase">Featured</span>
@@ -473,19 +520,47 @@ export default function ProfilePage({ userId, onMessage }: Props) {
 
                     {isOwn && (
                       <div className="flex items-center gap-2 mt-4 pt-4 border-t border-gray-800">
-                        {!isPremiumActive && (
-                          <button
-                            onClick={() => handleUpgradeToPremium(post.id)}
-                            disabled={upgradingPostId === post.id}
-                            className="flex items-center gap-2 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-400 font-medium rounded-xl px-4 py-2 text-sm transition disabled:opacity-50"
-                          >
-                            {upgradingPostId === post.id ? (
-                              <Loader size={13} className="animate-spin" />
-                            ) : (
-                              <Crown size={13} />
+                        {!premiumActive && (
+                          <>
+                            <button
+                              onClick={() => handleUpgradeToPremium(post.id)}
+                              disabled={upgradingPostId === post.id}
+                              className="flex items-center gap-2 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-400 font-medium rounded-xl px-4 py-2 text-sm transition disabled:opacity-50"
+                            >
+                              {upgradingPostId === post.id ? (
+                                <Loader size={13} className="animate-spin" />
+                              ) : (
+                                <Crown size={13} />
+                              )}
+                              Upgrade to Premium
+                            </button>
+                            {(premiumConfirmError || localStorage.getItem(PENDING_PREMIUM_SESSION_KEY)) && (
+                              <button
+                                onClick={handleRetryFeaturedActivation}
+                                disabled={upgradingPostId === 'retry'}
+                                className="flex items-center gap-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 font-medium rounded-xl px-4 py-2 text-sm transition disabled:opacity-50"
+                              >
+                                {upgradingPostId === 'retry' ? (
+                                  <Loader size={13} className="animate-spin" />
+                                ) : (
+                                  <Star size={13} />
+                                )}
+                                Restore featured status
+                              </button>
                             )}
-                            Upgrade to Premium
-                          </button>
+                            <button
+                              onClick={handleSyncPremiumPayments}
+                              disabled={upgradingPostId === 'sync'}
+                              className="flex items-center gap-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 font-medium rounded-xl px-4 py-2 text-sm transition disabled:opacity-50"
+                            >
+                              {upgradingPostId === 'sync' ? (
+                                <Loader size={13} className="animate-spin" />
+                              ) : (
+                                <Crown size={13} />
+                              )}
+                              Sync payments
+                            </button>
+                          </>
                         )}
                         <button
                           onClick={() => handleDeleteSeekerPost(post.id)}

@@ -204,7 +204,7 @@ export async function createPremiumCheckout(input: {
   seekerPostId: string;
   successUrl: string;
   cancelUrl: string;
-}): Promise<{ url: string }> {
+}): Promise<{ url: string; sessionId: string }> {
   return request('/premium/checkout', { method: 'POST', body: JSON.stringify(input) });
 }
 
@@ -214,6 +214,10 @@ export function premiumCheckoutSuccessUrl(origin = window.location.origin): stri
 
 export async function confirmPremiumCheckout(sessionId: string): Promise<{ seekerPostId: string; isPremium?: boolean }> {
   return request('/premium/confirm', { method: 'POST', body: JSON.stringify({ sessionId }) });
+}
+
+export async function reconcilePremiumPayments(): Promise<{ activated: number; results: { seekerPostId: string; isPremium?: boolean }[] }> {
+  return request('/premium/reconcile', { method: 'POST' });
 }
 
 export {

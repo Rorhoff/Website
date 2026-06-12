@@ -3,6 +3,7 @@ import * as api from '../lib/api';
 import type { Post, Profile, SeekerPost } from '../lib/types';
 import { AVAILABILITY_LABELS } from '../lib/types';
 import { useAuth } from '../contexts/AuthContext';
+import { isPremiumActive } from '../lib/premium';
 import {
   Plus, Briefcase, MapPin, ExternalLink, MessageSquare,
   Wifi, X, ChevronDown, Search, Tag, Building, Star,
@@ -27,7 +28,7 @@ type Props = {
 };
 
 export default function FeedPage({ onViewProfile, onMessage }: Props) {
-  const { user, profile } = useAuth();
+  const { user, profile, featuredReturn, premiumConfirmError, premiumConfirmed } = useAuth();
   const [tab, setTab] = useState<FeedTab>('openings');
   const [posts, setPosts] = useState<(Post & { profiles: Profile })[]>([]);
   const [seekerPosts, setSeekerPosts] = useState<(SeekerPost & { profiles: Profile })[]>([]);
@@ -43,33 +44,31 @@ export default function FeedPage({ onViewProfile, onMessage }: Props) {
   const [filterRemote, setFilterRemote] = useState(false);
 
   useEffect(() => {
-    async function init() {
-      const params = new URLSearchParams(window.location.search);
-      const featured = params.get('featured') === '1';
-      const sessionId = params.get('session_id');
-
-      if (featured && sessionId) {
-        try {
-          await api.confirmPremiumCheckout(sessionId);
-        } catch (err) {
-          console.error('Featured confirm failed:', err);
-        }
-      }
-
-      await fetchAll();
-
-      if (featured) {
-        setShowFeaturedBanner(true);
-        setTab('seekers');
-        window.history.replaceState({}, '', window.location.pathname);
-        setTimeout(() => setShowFeaturedBanner(false), 6000);
-      }
-    }
-    init();
+    fetchAll();
   }, []);
+
+  useEffect(() => {
+    if (!featuredReturn || loading) return;
+    setTab('seekers');
+    const ownFeatured = seekerPosts.some(
+      p => p.author_id === user?.id && isPremiumActive(p),
+    );
+    if (premiumConfirmed && ownFeatured) {
+      setShowFeaturedBanner(true);
+      const timer = setTimeout(() => setShowFeaturedBanner(false), 6000);
+      return () => clearTimeout(timer);
+    }
+  }, [featuredReturn, premiumConfirmError, premiumConfirmed, loading, seekerPosts, user?.id]);
 
   async function fetchAll() {
     setLoading(true);
+    if (featuredReturn && !premiumConfirmed) {
+      try {
+        await api.reconcilePremiumPayments();
+      } catch {
+        /* best-effort */
+      }
+    }
     const [jobData, seekerData] = await Promise.all([
       api.listPosts(),
       api.listSeekerPosts(),
@@ -90,13 +89,13 @@ export default function FeedPage({ onViewProfile, onMessage }: Props) {
     return true;
   }
 
-  function sortByMatch<T extends { is_premium?: boolean }>(
+  function sortByMatch<T extends { is_premium?: boolean; premium_expires_at?: string | null }>(
     items: T[],
     scoreFor: (item: T) => number,
   ): T[] {
     return [...items].sort((a, b) => {
-      const premiumA = Boolean(a.is_premium);
-      const premiumB = Boolean(b.is_premium);
+      const premiumA = isPremiumActive(a);
+      const premiumB = isPremiumActive(b);
       if (premiumA !== premiumB) return premiumA ? -1 : 1;
       return scoreFor(b) - scoreFor(a);
     });
@@ -130,6 +129,15 @@ export default function FeedPage({ onViewProfile, onMessage }: Props) {
           <Star size={16} className="text-amber-400 fill-amber-400 flex-shrink-0" />
           <p className="text-amber-300 text-sm font-medium flex-1">Your post is now featured! It will appear at the top of the Seekers feed for 30 days.</p>
           <button onClick={() => setShowFeaturedBanner(false)} className="text-amber-400/60 hover:text-amber-300 transition"><X size={16} /></button>
+        </div>
+      )}
+      {featuredReturn && premiumConfirmError && (
+        <div className="mb-5 flex items-center gap-3 bg-red-500/10 border border-red-400/30 rounded-xl px-4 py-3">
+          <p className="text-red-300 text-sm flex-1">
+            {premiumConfirmError} Check Stripe webhook URL is exactly{' '}
+            <span className="font-mono text-red-200">https://rorhoff.com/api/referr-all/premium/webhook</span>
+            {' '}(not romoff.com). Then open Profile and click Sync payments.
+          </p>
         </div>
       )}
       {/* Header */}
@@ -408,7 +416,7 @@ function SeekerPostCard({
   matchScore?: number;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const isPremiumActive = post.is_premium && post.premium_expires_at && new Date(post.premium_expires_at) > new Date();
+  const premiumActive = isPremiumActive(post);
   const p = post.profiles;
 
   function timeAgo(date: string) {
@@ -423,11 +431,11 @@ function SeekerPostCard({
 
   return (
     <div className={`rounded-2xl overflow-hidden transition-all ${
-      isPremiumActive
+      premiumActive
         ? 'border-2 border-amber-400/60 shadow-lg shadow-amber-500/10 bg-gradient-to-b from-amber-500/5 to-gray-900'
         : 'bg-gray-900 border border-gray-800 hover:border-gray-700'
     }`}>
-      {isPremiumActive && (
+      {premiumActive && (
         <div className="flex items-center gap-2 px-5 py-2 bg-gradient-to-r from-amber-500/20 to-amber-400/10 border-b border-amber-400/20">
           <Star size={13} className="text-amber-400 fill-amber-400" />
           <span className="text-amber-300 text-xs font-semibold tracking-wide">FEATURED CANDIDATE</span>
@@ -436,8 +444,8 @@ function SeekerPostCard({
       <div className="p-6">
         <div className="flex items-start justify-between mb-4">
           <button onClick={() => onViewProfile(post.author_id)} className="flex items-center gap-3 group">
-            <div className={`w-11 h-11 rounded-full flex items-center justify-center overflow-hidden flex-shrink-0 ${isPremiumActive ? 'border-2 border-amber-400/60 bg-amber-500/10' : 'border border-blue-500/30 bg-blue-500/20'}`}>
-              {p?.avatar_url ? <img src={p.avatar_url} alt="" className="w-full h-full object-cover" /> : <span className={`font-semibold ${isPremiumActive ? 'text-amber-400' : 'text-blue-400'}`}>{p?.full_name?.charAt(0)?.toUpperCase() || '?'}</span>}
+            <div className={`w-11 h-11 rounded-full flex items-center justify-center overflow-hidden flex-shrink-0 ${premiumActive ? 'border-2 border-amber-400/60 bg-amber-500/10' : 'border border-blue-500/30 bg-blue-500/20'}`}>
+              {p?.avatar_url ? <img src={p.avatar_url} alt="" className="w-full h-full object-cover" /> : <span className={`font-semibold ${premiumActive ? 'text-amber-400' : 'text-blue-400'}`}>{p?.full_name?.charAt(0)?.toUpperCase() || '?'}</span>}
             </div>
             <div className="text-left">
               <div className="text-white font-semibold text-sm group-hover:text-blue-400 transition">{p?.full_name}</div>

@@ -1,11 +1,15 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import * as api from '../lib/api';
+import { confirmPremiumReturn } from '../lib/premium';
 import type { Profile } from '../lib/types';
 
 type AuthContextType = {
   user: Profile | null;
   profile: Profile | null;
   loading: boolean;
+  premiumConfirmError: string | null;
+  featuredReturn: boolean;
+  premiumConfirmed: boolean;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
 };
@@ -14,6 +18,9 @@ const AuthContext = createContext<AuthContextType>({
   user: null,
   profile: null,
   loading: true,
+  premiumConfirmError: null,
+  featuredReturn: false,
+  premiumConfirmed: false,
   signOut: async () => {},
   refreshProfile: async () => {},
 });
@@ -21,6 +28,9 @@ const AuthContext = createContext<AuthContextType>({
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [premiumConfirmError, setPremiumConfirmError] = useState<string | null>(null);
+  const [featuredReturn, setFeaturedReturn] = useState(false);
+  const [premiumConfirmed, setPremiumConfirmed] = useState(false);
 
   async function refreshProfile() {
     if (!api.getToken()) {
@@ -45,6 +55,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         const me = await api.fetchMe();
         setProfile(me);
+        const premium = await confirmPremiumReturn();
+        setFeaturedReturn(premium.featuredReturn);
+        setPremiumConfirmed(premium.confirmed);
+        setPremiumConfirmError(premium.error ?? null);
       } catch {
         api.setToken(null);
       } finally {
@@ -59,7 +73,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user: profile, profile, loading, signOut, refreshProfile }}>
+    <AuthContext.Provider value={{
+      user: profile,
+      profile,
+      loading,
+      premiumConfirmError,
+      featuredReturn,
+      premiumConfirmed,
+      signOut,
+      refreshProfile,
+    }}>
       {children}
     </AuthContext.Provider>
   );
