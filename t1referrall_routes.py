@@ -607,9 +607,15 @@ def _premium_db_ready(db: Session) -> tuple[bool, str | None]:
         )
         db.scalar(select(T1ReferrallPremiumPurchase.refunded_at).limit(1))
         return True, None
+    except ProgrammingError as exc:
+        db.rollback()
+        msg = str(exc)
+        if "refunded_at" in msg or "stripe_payment_intent_id" in msg:
+            return False, "Run bash deploy/fix-referr-all-premium.sh on the server (v7 migration)."
+        return False, "Premium database schema is out of date."
     except Exception as exc:
         db.rollback()
-        return False, str(exc)
+        return False, "Premium database not ready."
 
 
 @router.get("/status")
