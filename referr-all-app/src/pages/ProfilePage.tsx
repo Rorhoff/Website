@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import {
-  Briefcase, Building, Camera, Crown, Edit2, ExternalLink, Link, Loader,
-  MapPin, MessageSquare, Plus, Save, ShieldBan, Star, Tag, Trash2, UserCheck,
+  Briefcase, Building, Camera, ChevronDown, Crown, Edit2, ExternalLink, Link, Loader,
+  MapPin, MessageSquare, Plus, Save, ShieldBan, Star, Tag, Trash2, User, UserCheck,
   UserPlus, Wifi, X,
 } from 'lucide-react';
 import CreateSeekerPostModal from '../components/CreateSeekerPostModal';
@@ -314,6 +314,7 @@ export default function ProfilePage({ userId, onMessage }: Props) {
   const isRequester = connection?.requester_id === user?.id;
 
   const activeSeekerPosts = seekerPosts.filter(p => isPremiumActive(p) || !p.is_premium);
+  const hasOwnSeekerPost = seekerPosts.length > 0;
 
   return (
     <div className="max-w-2xl mx-auto pb-20 md:pb-0 space-y-5">
@@ -509,14 +510,12 @@ export default function ProfilePage({ userId, onMessage }: Props) {
               {isOwn ? 'My Seeker Posts' : 'Open to Work'}
               <span className="text-gray-600 font-normal text-base ml-2">({activeSeekerPosts.length})</span>
             </h2>
-            {isOwn && activeSeekerPosts.length === 0 && (
-              <button
-                onClick={() => setShowCreateSeeker(true)}
-                className="flex items-center gap-2 bg-emerald-500 hover:bg-emerald-600 text-white font-medium rounded-xl px-4 py-2 text-sm transition"
-              >
-                <Plus size={14} />
-                Create Seeker Post
-              </button>
+            {isOwn && (
+              <ProfilePostDropdown
+                hasOwnSeekerPost={hasOwnSeekerPost}
+                onJob={() => setShowCreateJob(true)}
+                onSeeker={() => setShowCreateSeeker(true)}
+              />
             )}
           </div>
           {upgradeError && (
@@ -530,16 +529,7 @@ export default function ProfilePage({ userId, onMessage }: Props) {
           {activeSeekerPosts.length === 0 ? (
             <div className="bg-gray-900 rounded-2xl border border-gray-800 p-8 text-center">
               <Star size={24} className="text-gray-600 mx-auto mb-3" />
-              <p className="text-gray-500 text-sm mb-4">No seeker post yet. Let employers know you are open to work.</p>
-              {isOwn && (
-                <button
-                  onClick={() => setShowCreateSeeker(true)}
-                  className="inline-flex items-center gap-2 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 font-medium rounded-xl px-4 py-2.5 text-sm transition"
-                >
-                  <Plus size={14} />
-                  Create Seeker Post
-                </button>
-              )}
+              <p className="text-gray-500 text-sm">No seeker post yet. Let employers know you are open to work.</p>
             </div>
           ) : (
             <div className="space-y-4">
@@ -656,35 +646,15 @@ export default function ProfilePage({ userId, onMessage }: Props) {
 
       {/* Referral Posts */}
       <div>
-        <div className="flex items-center justify-between gap-3 mb-4">
-          <h2 className="text-lg font-bold text-white">
-            {isOwn ? 'My Referral Posts' : `${profile.full_name}'s Posts`}
-            <span className="text-gray-600 font-normal text-base ml-2">({posts.length})</span>
-          </h2>
-          {isOwn && (
-            <button
-              onClick={() => setShowCreateJob(true)}
-              className="flex items-center gap-2 bg-blue-500 hover:bg-blue-600 text-white font-medium rounded-xl px-4 py-2 text-sm transition"
-            >
-              <Plus size={14} />
-              Create Referral Job Post
-            </button>
-          )}
-        </div>
+        <h2 className="text-lg font-bold text-white mb-4">
+          {isOwn ? 'My Referral Posts' : `${profile.full_name}'s Posts`}
+          <span className="text-gray-600 font-normal text-base ml-2">({posts.length})</span>
+        </h2>
 
         {posts.length === 0 ? (
           <div className="bg-gray-900 rounded-2xl border border-gray-800 p-10 text-center">
             <Briefcase size={28} className="text-gray-600 mx-auto mb-3" />
-            <p className="text-gray-500 text-sm mb-4">{isOwn ? "You haven't posted any openings yet." : 'No posts yet.'}</p>
-            {isOwn && (
-              <button
-                onClick={() => setShowCreateJob(true)}
-                className="inline-flex items-center gap-2 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/30 text-blue-400 font-medium rounded-xl px-4 py-2.5 text-sm transition"
-              >
-                <Plus size={14} />
-                Create Referral Job Post
-              </button>
-            )}
+            <p className="text-gray-500 text-sm">{isOwn ? "You haven't posted any openings yet." : 'No posts yet.'}</p>
           </div>
         ) : (
           <div className="space-y-4">
@@ -859,6 +829,65 @@ export default function ProfilePage({ userId, onMessage }: Props) {
           }}
         />
       )}
+    </div>
+  );
+}
+
+function ProfilePostDropdown({
+  hasOwnSeekerPost,
+  onJob,
+  onSeeker,
+}: {
+  hasOwnSeekerPost: boolean;
+  onJob: () => void;
+  onSeeker: () => void;
+}) {
+  return (
+    <div className="relative group">
+      <button
+        type="button"
+        className="flex items-center gap-2 bg-blue-500 hover:bg-blue-600 text-white font-semibold px-4 py-2.5 rounded-xl text-sm transition-colors shadow-lg shadow-blue-500/20"
+      >
+        <Plus size={16} />
+        Post
+        <ChevronDown size={14} />
+      </button>
+      <div className="absolute right-0 top-full mt-1.5 w-52 bg-gray-900 border border-gray-700 rounded-xl shadow-xl z-30 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all">
+        <button
+          type="button"
+          onClick={onJob}
+          className="flex items-center gap-3 w-full px-4 py-3 text-sm text-gray-300 hover:text-white hover:bg-gray-800 rounded-t-xl transition"
+        >
+          <Briefcase size={15} className="text-blue-400" />
+          <div className="text-left">
+            <div className="font-medium">Post Job Opening</div>
+            <div className="text-xs text-gray-500">Share a referral opportunity</div>
+          </div>
+        </button>
+        <div className="border-t border-gray-800" />
+        <button
+          type="button"
+          onClick={() => {
+            if (hasOwnSeekerPost) {
+              alert('You already have a seeker post. Delete it before creating a new one.');
+              return;
+            }
+            onSeeker();
+          }}
+          disabled={hasOwnSeekerPost}
+          className={`flex items-center gap-3 w-full px-4 py-3 text-sm rounded-b-xl transition ${
+            hasOwnSeekerPost
+              ? 'text-gray-600 cursor-not-allowed'
+              : 'text-gray-300 hover:text-white hover:bg-gray-800'
+          }`}
+        >
+          <User size={15} className="text-emerald-400" />
+          <div className="text-left">
+            <div className="font-medium">Post Yourself</div>
+            <div className="text-xs text-gray-500">Let employers find you</div>
+          </div>
+        </button>
+      </div>
     </div>
   );
 }
