@@ -349,8 +349,10 @@ class T1ReferrallUser(Base):
     role: Mapped[str] = mapped_column(String(200), default="", server_default="")
     location: Mapped[str] = mapped_column(String(200), default="", server_default="")
     linkedin_url: Mapped[str] = mapped_column(String(500), default="", server_default="")
+    portfolio_url: Mapped[str] = mapped_column(String(500), default="", server_default="")
     years_experience: Mapped[float] = mapped_column(Float, default=0.0, server_default="0")
     skills: Mapped[list[Any]] = mapped_column(JSONB, default=list, server_default="[]")
+    interests: Mapped[list[Any]] = mapped_column(JSONB, default=list, server_default="[]")
     is_suspended: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(

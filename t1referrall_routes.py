@@ -182,8 +182,10 @@ def _profile_out(user: T1ReferrallUser, *, include_email: bool = False) -> dict[
         "role": user.role or "",
         "location": user.location or "",
         "linkedin_url": user.linkedin_url or "",
+        "portfolio_url": user.portfolio_url or "",
         "years_experience": user.years_experience or 0,
         "skills": list(user.skills or []),
+        "interests": list(user.interests or []),
         "is_suspended": bool(user.is_suspended),
         "created_at": _iso(user.created_at),
         "updated_at": _iso(user.updated_at),
@@ -372,8 +374,10 @@ class ProfilePatchBody(BaseModel):
     role: str | None = Field(default=None, max_length=200)
     location: str | None = Field(default=None, max_length=200)
     linkedinUrl: str | None = Field(default=None, max_length=500)
+    portfolioUrl: str | None = Field(default=None, max_length=500)
     yearsExperience: float | None = Field(default=None, ge=0, le=80)
     skills: list[str] | None = Field(default=None, max_length=50)
+    interests: list[str] | None = Field(default=None, max_length=50)
     avatarUrl: str | None = Field(default=None, max_length=2_000_000)
 
 
@@ -560,10 +564,14 @@ def patch_me(
         user.location = loc
     if body.linkedinUrl is not None:
         user.linkedin_url = body.linkedinUrl.strip()
+    if body.portfolioUrl is not None:
+        user.portfolio_url = body.portfolioUrl.strip()
     if body.yearsExperience is not None:
         user.years_experience = body.yearsExperience
     if body.skills is not None:
         user.skills = [s.strip() for s in body.skills if s.strip()][:50]
+    if body.interests is not None:
+        user.interests = [s.strip() for s in body.interests if s.strip()][:50]
     if body.avatarUrl is not None:
         user.avatar_url = body.avatarUrl.strip()
     user.updated_at = datetime.utcnow()

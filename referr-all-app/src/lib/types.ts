@@ -8,8 +8,10 @@ export type Profile = {
   role: string;
   location: string;
   linkedin_url: string;
+  portfolio_url: string;
   years_experience: number;
   skills: string[];
+  interests: string[];
   is_suspended: boolean;
   created_at: string;
   updated_at: string;

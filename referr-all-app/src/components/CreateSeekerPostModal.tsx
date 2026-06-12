@@ -41,7 +41,7 @@ export default function CreateSeekerPostModal({ onClose, onCreated }: Props) {
     skills: (profile?.skills || []).join(', '),
     experience_years: profile?.years_experience ? String(profile.years_experience) : '',
     resume_url: '',
-    portfolio_url: profile?.linkedin_url || '',
+    portfolio_url: profile?.portfolio_url || '',
     availability: 'immediately',
   });
   const [submitting, setSubmitting] = useState(false);

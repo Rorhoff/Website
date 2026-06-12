@@ -45,8 +45,10 @@ export default function ProfilePage({ userId, onMessage }: Props) {
     role: '',
     location: '',
     linkedin_url: '',
+    portfolio_url: '',
     years_experience: '',
     skills: '',
+    interests: '',
     avatar_url: '',
   });
 
@@ -98,8 +100,10 @@ export default function ProfilePage({ userId, onMessage }: Props) {
         role: p.role || '',
         location: p.location || '',
         linkedin_url: p.linkedin_url || '',
+        portfolio_url: p.portfolio_url || '',
         years_experience: String(p.years_experience || ''),
         skills: (p.skills || []).join(', '),
+        interests: (p.interests || []).join(', '),
         avatar_url: p.avatar_url || '',
       });
     } catch (err) {
@@ -136,6 +140,7 @@ export default function ProfilePage({ userId, onMessage }: Props) {
     setSaveError('');
     try {
       const skills = form.skills.split(',').map(s => s.trim()).filter(Boolean);
+      const interests = form.interests.split(',').map(s => s.trim()).filter(Boolean);
       await api.updateProfile({
         fullName: form.full_name.trim(),
         bio: form.bio.trim(),
@@ -143,8 +148,10 @@ export default function ProfilePage({ userId, onMessage }: Props) {
         role: form.role.trim(),
         location: form.location.trim(),
         linkedinUrl: form.linkedin_url.trim(),
+        portfolioUrl: form.portfolio_url.trim(),
         yearsExperience: parseFloat(form.years_experience) || 0,
         skills,
+        interests,
       });
       await Promise.all([loadProfile(), refreshProfile()]);
       setEditing(false);
@@ -431,6 +438,18 @@ export default function ProfilePage({ userId, onMessage }: Props) {
               </a>
             )}
 
+            {profile.portfolio_url && (
+              <a
+                href={profile.portfolio_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1.5 text-blue-400 text-sm mt-1 hover:text-blue-300 transition"
+              >
+                <ExternalLink size={13} />
+                Portfolio
+              </a>
+            )}
+
             {profile.bio && (
               <p className="text-gray-300 text-sm mt-4 leading-relaxed">{profile.bio}</p>
             )}
@@ -449,6 +468,19 @@ export default function ProfilePage({ userId, onMessage }: Props) {
                     {skill}
                   </span>
                 ))}
+              </div>
+            )}
+
+            {profile.interests && profile.interests.length > 0 && (
+              <div className="mt-4">
+                <p className="text-xs font-medium text-gray-500 mb-2">Interests/Music/Movie/Games</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {profile.interests.map(item => (
+                    <span key={item} className="text-xs bg-purple-500/10 border border-purple-500/20 text-purple-300 px-2.5 py-1 rounded-lg">
+                      {item}
+                    </span>
+                  ))}
+                </div>
               </div>
             )}
           </div>
@@ -712,9 +744,21 @@ export default function ProfilePage({ userId, onMessage }: Props) {
                   className="w-full bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-2.5 text-sm placeholder-gray-600 focus:outline-none focus:border-blue-500 transition" />
               </div>
               <div>
+                <label className="block text-sm font-medium text-gray-300 mb-1.5">Interests/Music/Movie/Games</label>
+                <input value={form.interests} onChange={e => setForm(f => ({ ...f, interests: e.target.value }))}
+                  placeholder="Hiking, Diablo IV, sci-fi movies (comma separated)"
+                  className="w-full bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-2.5 text-sm placeholder-gray-600 focus:outline-none focus:border-blue-500 transition" />
+              </div>
+              <div>
                 <label className="block text-sm font-medium text-gray-300 mb-1.5">LinkedIn URL</label>
                 <input value={form.linkedin_url} onChange={e => setForm(f => ({ ...f, linkedin_url: e.target.value }))}
                   placeholder="https://linkedin.com/in/yourname"
+                  className="w-full bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-2.5 text-sm placeholder-gray-600 focus:outline-none focus:border-blue-500 transition" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-1.5">Portfolio URL</label>
+                <input value={form.portfolio_url} onChange={e => setForm(f => ({ ...f, portfolio_url: e.target.value }))}
+                  placeholder="https://yoursite.com or GitHub link"
                   className="w-full bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-2.5 text-sm placeholder-gray-600 focus:outline-none focus:border-blue-500 transition" />
               </div>
 

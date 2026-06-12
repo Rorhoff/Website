@@ -56,11 +56,20 @@ function skillOverlap(a: string[], b: string[]): number {
   return hits;
 }
 
-function interestOverlap(viewerBio: string, postText: string): number {
-  const viewer = new Set(extractInterestTokens(viewerBio));
+function interestListOverlap(viewerInterests: string[], postText: string): number {
+  const lower = postText.toLowerCase();
+  return viewerInterests.filter(i => i && lower.includes(i.toLowerCase())).length;
+}
+
+function interestOverlap(viewerBio: string, viewerInterests: string[], postText: string): number {
+  const fromBio = extractInterestTokens(viewerBio);
+  const fromList = viewerInterests.map(i => i.toLowerCase().trim()).filter(Boolean);
+  const viewer = new Set([...fromBio, ...fromList]);
   const post = extractInterestTokens(postText);
-  if (!viewer.size || !post.length) return 0;
-  return post.filter(t => viewer.has(t)).length;
+  const postLower = postText.toLowerCase();
+  let hits = post.filter(t => viewer.has(t)).length;
+  hits += interestListOverlap(fromList, postLower);
+  return hits;
 }
 
 /** True when location looks USA-based or the post/user is open to remote US work. */
@@ -94,7 +103,7 @@ export function computeMatchScore(viewer: Profile | null | undefined, post: Matc
     .join(' ');
 
   const skills = skillOverlap(viewerSkills, postSkills) * 10;
-  const interests = interestOverlap(viewer.bio || '', postText) * 8;
+  const interests = interestOverlap(viewer.bio || '', viewer.interests || [], postText) * 8;
   const roleHint = viewer.role && postText.toLowerCase().includes(viewer.role.toLowerCase()) ? 5 : 0;
   return skills + interests + roleHint;
 }
