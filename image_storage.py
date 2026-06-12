@@ -58,7 +58,13 @@ _REQUIRED_ENV = (
 
 
 def storage_enabled() -> bool:
-    return all(os.getenv(k) for k in _REQUIRED_ENV)
+    if not all(os.getenv(k) for k in _REQUIRED_ENV):
+        return False
+    # R2 requires an explicit API endpoint; without it boto3 hits AWS and uploads fail.
+    if not os.getenv("S3_ENDPOINT_URL"):
+        log.warning("S3_* set but S3_ENDPOINT_URL missing — image uploads will use inline fallback")
+        return False
+    return True
 
 
 def allowed_content_type(content_type: str | None) -> bool:

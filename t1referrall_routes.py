@@ -1046,18 +1046,12 @@ async def upload_avatar(
     if len(content) > MAX_AVATAR_BYTES:
         raise HTTPException(status_code=400, detail="Image too large (max 4 MB)")
     ct = (file.content_type or "").lower()
+    if not ct or ct == "application/octet-stream":
+        ct = "image/jpeg"
     if not image_storage.allowed_content_type(ct):
-        raise HTTPException(status_code=400, detail="Unsupported image type")
+        raise HTTPException(status_code=400, detail="Unsupported image type (use JPEG, PNG, WebP, or GIF)")
 
-    if not image_storage.storage_enabled() and len(content) > _INLINE_AVATAR_MAX_BYTES:
-        try:
-            content, ct = _shrink_avatar_for_inline(content, ct)
-        except Exception:
-            log.exception("Avatar inline resize failed for user=%s", user.id)
-            raise HTTPException(
-                status_code=503,
-                detail="Could not process image. Try a smaller photo or configure S3_* on the server.",
-            )
+    url: str | None = None
 
     if image_storage.storage_enabled():
         ext_map = {"image/jpeg": "jpg", "image/jpg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif"}
@@ -1066,26 +1060,45 @@ async def upload_avatar(
         try:
             url = image_storage.upload_image_at_key(key, content, ct)
         except Exception:
-            log.exception("Avatar upload failed for user=%s", user.id)
-            raise HTTPException(status_code=500, detail="Upload failed")
-    elif len(content) <= _INLINE_AVATAR_MAX_BYTES:
+            log.exception("Avatar S3 upload failed for user=%s — trying inline fallback", user.id)
+            url = None
+
+    if url is None:
+        if len(content) > _INLINE_AVATAR_MAX_BYTES:
+            try:
+                content, ct = _shrink_avatar_for_inline(content, ct)
+            except ImportError:
+                log.exception("Avatar resize failed: Pillow not installed")
+                raise HTTPException(
+                    status_code=503,
+                    detail="Install Pillow on the server (pip install -r requirements.txt) or fix S3_* env vars.",
+                )
+            except Exception:
+                log.exception("Avatar inline resize failed for user=%s", user.id)
+                raise HTTPException(
+                    status_code=503,
+                    detail="Could not process image. Try a smaller photo.",
+                )
+        if len(content) > _INLINE_AVATAR_MAX_BYTES:
+            raise HTTPException(
+                status_code=503,
+                detail="Image still too large after compression.",
+            )
         b64 = base64.b64encode(content).decode("ascii")
         url = f"data:{ct};base64,{b64}"
-    else:
-        raise HTTPException(
-            status_code=503,
-            detail="Image storage not configured. Use a photo under 512 KB or set S3_* env vars on the server.",
-        )
 
     user.avatar_url = url
     user.updated_at = datetime.utcnow()
     db.add(user)
     try:
         db.commit()
-    except Exception:
+    except Exception as exc:
         db.rollback()
         log.exception("Avatar DB save failed for user=%s (url_len=%s)", user.id, len(url))
-        raise HTTPException(status_code=500, detail="Could not save avatar. Run deploy/migrate-t1referrall-v4.sh on the server.")
+        raise HTTPException(
+            status_code=500,
+            detail="Could not save avatar. Run: bash deploy/migrate-t1referrall-v4.sh",
+        ) from exc
     return {"url": url}
 
 

@@ -62,11 +62,12 @@ fi
 echo "  If any MISS above, run: bash ~/Website/deploy/fix-referr-all-premium.sh"
 
 echo
-echo "S3/R2 (optional — avatars fall back to inline data URLs under 512 KB without this):"
+echo "S3/R2 (optional — avatars fall back to inline storage without this):"
 check_var S3_BUCKET
 check_var S3_ACCESS_KEY_ID
 check_var S3_SECRET_ACCESS_KEY
 check_var S3_PUBLIC_BASE_URL
+check_var S3_ENDPOINT_URL
 
 echo
 echo "API status:"

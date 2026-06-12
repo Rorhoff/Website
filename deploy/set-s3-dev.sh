@@ -80,7 +80,11 @@ read -rsp "S3_ACCESS_KEY_ID: " S3_ACCESS_KEY_ID
 echo
 read -rsp "S3_SECRET_ACCESS_KEY: " S3_SECRET_ACCESS_KEY
 echo
-read -rp "S3_ENDPOINT_URL [https://<account>.r2.cloudflarestorage.com]: " S3_ENDPOINT_URL
+echo
+echo "  Find Account ID in Cloudflare R2 sidebar, then enter:"
+echo "  https://<ACCOUNT_ID>.r2.cloudflarestorage.com"
+read -rp "S3_ENDPOINT_URL (required for R2): " S3_ENDPOINT_URL
+[[ -n "$S3_ENDPOINT_URL" ]] || die "S3_ENDPOINT_URL is required for Cloudflare R2."
 read -rp "S3_PUBLIC_BASE_URL [https://images.t1classifieds.com]: " S3_PUBLIC_BASE_URL
 S3_PUBLIC_BASE_URL="${S3_PUBLIC_BASE_URL:-https://images.t1classifieds.com}"
 read -rp "S3_KEY_PREFIX [dev/]: " S3_KEY_PREFIX
