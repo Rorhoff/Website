@@ -185,7 +185,7 @@ async function loadTickets() {
       </article>`
         )
         .join("")
-    : '<p class="muted">No tickets yet. Submit from the <strong>Tickets</strong> form or use the agent with "Log as ticket".</p>';
+    : '<p class="muted">No tickets yet. Submit from the "Tickets" form or use the agent with "Log as ticket".</p>';
   list.querySelectorAll("[data-run-ai]").forEach((btn) => {
     btn.addEventListener("click", async () => {
       const id = +btn.getAttribute("data-run-ai");
@@ -513,7 +513,7 @@ function initChat() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          message: message || "(screenshot inquiry — see attached image(s))",
+          message: message || "(screenshot inquiry. See attached image(s).)",
           images,
           create_ticket: !!(logTicket && logTicket.checked),
         }),
@@ -527,7 +527,7 @@ function initChat() {
       const sqlTag = res.sql
         ? (res.schema_docs?.length
           ? ` · schema: ${res.schema_docs.join(", ")}`
-          : " · no schema doc — re-upload as type Data dictionary / schema")
+          : " · no schema doc. Re-upload as type Data dictionary / schema")
         : "";
       const imgTag = res.inquiry_images ? ` · ${res.inquiry_images} pasted screenshot${res.inquiry_images > 1 ? "s" : ""} analyzed` : "";
       if (res.ticket_id) {
@@ -675,7 +675,7 @@ function initDocUpload() {
         for (const file of files) {
           const fd = new FormData();
           fd.set("file", file);
-          if (titleBase) fd.set("title", files.length === 1 ? titleBase : `${titleBase} — ${file.name}`);
+          if (titleBase) fd.set("title", files.length === 1 ? titleBase : `${titleBase}: ${file.name}`);
           const kind = el("docKind")?.value;
           if (kind) fd.set("doc_kind", kind);
           await fetchJSON("/documents", { method: "POST", body: fd });

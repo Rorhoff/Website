@@ -273,7 +273,7 @@ def _build_usrid_column_index(full_text: str, max_lines: int = 300) -> str:
 
 _SQL_SYSTEM_PROMPT = (
     "You write SQL for internal support staff using their uploaded DATA DICTIONARY. "
-    "This task is always in scope — never refuse, never say 'outside the knowledge base', "
+    "This task is always in scope. Never refuse, never say 'outside the knowledge base', "
     "never escalate to a DBA, and never cite security risks as a reason to avoid read-only SELECT queries. "
     "Scan the DATA DICTIONARY for every table that contains usrid, user_id, or userid columns. "
     "Write runnable SQL (SELECT with LEFT JOIN or UNION ALL as appropriate) using exact table and "
@@ -464,7 +464,7 @@ def _retrieve_full_docs(
             start, end = _focused_window(full_text, q_set, budget)
             section = full_text[start:end].rstrip()
             leading_note = (
-                f"[Excerpt focused near char {start} of {len(full_text)} — anchored on the "
+                f"[Excerpt focused near char {start} of {len(full_text)}. Anchored on the "
                 f"section with the highest density of query keywords. Earlier pages are not "
                 f"shown.]\n\n"
                 if start > 0
@@ -614,7 +614,7 @@ def _image_context(matched: list[dict[str, Any]] | None = None) -> str:
         cap = (im.get("caption") or "").strip()
         fname = im.get("filename") or ""
         url = im.get("url_path", "")
-        cap_part = f": {cap}" if cap else " (no caption — describe in UI)"
+        cap_part = f": {cap}" if cap else " (no caption; describe in UI)"
         return f"- filename={fname} url={url}{cap_part}"
 
     out: list[str] = []
@@ -742,7 +742,7 @@ def _call_claude(system: str, user_text: str, max_tokens: int = 4096) -> str:
             return f"(Claude request failed: {e})"
         except Exception as e:  # noqa: BLE001
             return f"(Claude error: {e})"
-    return f"(Claude unavailable — {last_err}. Please try again in a moment.)"
+    return f"(Claude unavailable. {last_err}. Please try again in a moment.)"
 
 
 MAX_INQUIRY_IMAGES = 4
@@ -820,7 +820,7 @@ def _call_claude_vision(
             return f"(Claude request failed: {e})"
         except Exception as e:  # noqa: BLE001
             return f"(Claude error: {e})"
-    return f"(Claude unavailable — {last_err}. Please try again in a moment.)"
+    return f"(Claude unavailable. {last_err}. Please try again in a moment.)"
 
 
 def _sanitize_inquiry_images(raw: list[str] | None) -> list[str]:
@@ -1057,6 +1057,8 @@ def chat(body: ChatIn) -> dict[str, Any]:
             "If the issue is beyond Tier 1 or needs internal escalation, use: STATUS: ESCALATE. "
             "Be concise, use numbered steps for fixes, name UI areas and settings panels when relevant, "
             "and keep a professional, helpful tone. "
+            "Do not use em dashes in your replies; end the sentence or use a comma instead. "
+            "Do not use markdown bold (**). Use quotation marks when naming UI areas, tabs, or settings. "
             "When a screenshot from the knowledge base helps illustrate a step, embed it inline using "
             "the marker `[[image: FILENAME]]` on its own line, where FILENAME exactly matches the "
             "`filename=` value listed in the knowledge context. The UI will render that screenshot in "
@@ -1065,18 +1067,18 @@ def chat(body: ChatIn) -> dict[str, Any]:
     if inquiry_images:
         system += (
             " The user attached screenshot(s) of the customer's issue (error dialogs, UI states, "
-            "email captures). Read visible text in those images carefully — extract exact error "
-            "messages, codes, and UI labels — and use them in your triage. Do not ask the user to "
+            "email captures). Read visible text in those images carefully. Extract exact error "
+            "messages, codes, and UI labels, and use them in your triage. Do not ask the user to "
             "re-type text that is already visible in an attached screenshot."
         )
     if broad:
         system += (
-            " IMPORTANT — enumerative request: the user is asking you to cover every/all/each item "
+            " IMPORTANT: enumerative request. The user is asking you to cover every/all/each item "
             "or to provide a list, an ordered walkthrough, or step-by-step instructions across "
             "multiple items. Before drafting, scan the knowledge context for numbered or labeled "
             "subsections (for example 'Chapter 7' with sub-sections 7.1, 7.2, 7.3 … 7.N, or a "
             "list of application names with their own setup sections). Enumerate EVERY such "
-            "subsection that the context actually shows — do not stop early, do not summarize "
+            "subsection that the context actually shows. Do not stop early, do not summarize "
             "items away, do not silently merge them. Use a numbered top-level list. For each "
             "subsection, include its original heading or label (e.g. '7.1 ApplicationName') "
             "followed by its steps. After listing what you found, explicitly state how many "
@@ -1088,8 +1090,8 @@ def chat(body: ChatIn) -> dict[str, Any]:
     if sql:
         user_block = (
             f"Write SQL for this support request:\n{body.message}\n\n"
-            f"DATA DICTIONARY (required — use these table and column names only):\n"
-            f"{ctx or '[EMPTY — no data dictionary loaded. Tell user to upload under Knowledge base with document type Data dictionary / schema.]'}"
+            f"DATA DICTIONARY (required; use these table and column names only):\n"
+            f"{ctx or '[EMPTY. No data dictionary loaded. Tell user to upload under Knowledge base with document type Data dictionary / schema.]'}"
         )
     else:
         user_block = (
@@ -1111,15 +1113,15 @@ def chat(body: ChatIn) -> dict[str, Any]:
     if not reply:
         if has_kb:
             reply = (
-                "*(ANTHROPIC_API_KEY is not set. Showing retrieved context only.)*\n\n"
-                f"**Matched knowledge:**\n{ctx}\n\n"
-                "**Next steps for you (draft):** Summarize the closest matching procedure above, "
-                "or add more documentation in the Knowledge Base and set `ANTHROPIC_API_KEY` for full AI answers."
+                "(ANTHROPIC_API_KEY is not set. Showing retrieved context only.)\n\n"
+                f"Matched knowledge:\n{ctx}\n\n"
+                "Next steps for you (draft): Summarize the closest matching procedure above, "
+                'or add more documentation in "Knowledge base" and set `ANTHROPIC_API_KEY` for full AI answers.'
             )
         else:
             reply = (
-                "*(No knowledge base content matched and no API key configured.)*\n\n"
-                "Add PDFs, guides, or pasted text under **Knowledge Base**, and set the "
+                "(No knowledge base content matched and no API key configured.)\n\n"
+                'Add PDFs, guides, or pasted text under "Knowledge base", and set the '
                 "`ANTHROPIC_API_KEY` environment variable to enable Claude-powered answers."
             )
 
