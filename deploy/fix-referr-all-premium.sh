@@ -15,9 +15,9 @@ SESSION_ID="${1:-}"
 
 resolve_python() {
   for candidate in \
+    /home/ubuntu/app/venv/bin/python \
     "$ROOT/.venv/bin/python" \
-    /home/ubuntu/Website/.venv/bin/python \
-    /home/ubuntu/app/venv/bin/python; do
+    /home/ubuntu/Website/.venv/bin/python; do
     if [[ -x "$candidate" ]]; then
       echo "$candidate"
       return 0
