@@ -749,6 +749,15 @@ if _CLASSIFIEDS_ONLY:
         return HTMLResponse(html)
 else:
     # Dev / full mode (rorhoff.com): keep the portfolio + every other SPA reachable.
+    _REFERR_ALL_FAVICON = STATIC_DIR / "referr-all" / "favicon.svg"
+
+    @app.get("/favicon.ico", include_in_schema=False)
+    def referr_all_root_favicon() -> FileResponse:
+        """Browsers request /favicon.ico at the site root on every page load."""
+        if not _REFERR_ALL_FAVICON.is_file():
+            raise HTTPException(status_code=404, detail="Not found")
+        return FileResponse(_REFERR_ALL_FAVICON, media_type="image/svg+xml")
+
     app.mount(
         "/api-testing",
         StaticFiles(directory=str(STATIC_DIR / "api-testing"), html=True),
