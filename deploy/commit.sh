@@ -57,7 +57,8 @@ if [[ -f "$_REPO_COMMIT" ]]; then
 fi
 
 # Build Referr-All (Vite/React) into static/referr-all after each pull.
-# Uses ./T1Referrall when present; otherwise shallow-clones from GitHub.
+# Prefers referr-all-app/ in this repo (Referr-All branding), then ./T1Referrall on EC2,
+# otherwise shallow-clones from GitHub (legacy T1Referral repo).
 # Non-fatal — a failed build keeps the last good static output (or git placeholder).
 sync_referr_all() {
   local target="$DEV_DIR/static/referr-all"
@@ -70,11 +71,14 @@ sync_referr_all() {
     return 0
   fi
 
-  if [[ -d "$DEV_DIR/T1Referrall/.git" && -f "$DEV_DIR/T1Referrall/package.json" ]]; then
-    log "Syncing Referr-All from local clone…"
+  if [[ -f "$DEV_DIR/referr-all-app/package.json" ]]; then
+    log "Building Referr-All from ${DEV_DIR}/referr-all-app…"
+    src_dir="$DEV_DIR/referr-all-app"
+  elif [[ -d "$DEV_DIR/T1Referrall/.git" && -f "$DEV_DIR/T1Referrall/package.json" ]]; then
+    log "Syncing Referr-All from local T1Referrall clone…"
     src_dir="$DEV_DIR/T1Referrall"
     git -C "$src_dir" pull --ff-only origin main 2>/dev/null \
-      || warn "Referr-All local pull skipped (using current checkout)."
+      || warn "T1Referrall local pull skipped (using current checkout)."
   else
     export GIT_TERMINAL_PROMPT=0
     tmp="$(mktemp -d)"

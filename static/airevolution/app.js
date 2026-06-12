@@ -101,7 +101,7 @@ async function loadDocuments() {
         <a href="${im.url_path}" target="_blank" rel="noopener"><img src="${im.url_path}" alt="" class="thumb" loading="lazy" decoding="async" /></a>
         <div class="grow">
           <div class="muted sm">${escapeHtml(im.filename)}</div>
-          <input type="text" class="caption-in" data-cap="${im.id}" placeholder="What this screenshot shows (settings, error, …)" value="${escapeAttr(im.caption || "")}" />
+          <input type="text" class="caption-in" data-cap="${im.id}" placeholder="What this screenshot shows (settings, error, etc.)" value="${escapeAttr(im.caption || "")}" />
         </div>
         <div class="img-actions">
           <button type="button" class="btn sm" data-save-cap="${im.id}">Save caption</button>
@@ -189,7 +189,7 @@ async function loadTickets() {
   list.querySelectorAll("[data-run-ai]").forEach((btn) => {
     btn.addEventListener("click", async () => {
       const id = +btn.getAttribute("data-run-ai");
-      setBanner("ticketBanner", "Running AI…", "info");
+      setBanner("ticketBanner", "Running AI.", "info");
       const aiImages = el("aiImages");
       if (aiImages) {
         aiImages.hidden = true;
@@ -494,7 +494,7 @@ function initChat() {
     if (!message && !images.length) return;
     // Release pasted screenshot bytes from the DOM once captured for the API request.
     clearChatInput(input);
-    out.textContent = "Working on your request…";
+    out.textContent = "Working on your request.";
     if (retrieval) retrieval.innerHTML = "";
     if (aiImages) {
       aiImages.hidden = true;
@@ -506,7 +506,7 @@ function initChat() {
     }
     if (submitBtn) {
       submitBtn.disabled = true;
-      submitBtn.textContent = "Working…";
+      submitBtn.textContent = "Working.";
     }
     try {
       const res = await fetchJSON("/chat", {
@@ -669,7 +669,7 @@ function initDocUpload() {
       if (!files.length) { setBanner("kbBanner", "Select at least one file.", "err"); return; }
       const imgFile = el("docImg")?.files?.[0];
       const titleBase = (el("docTitle")?.value || "").trim();
-      setBanner("kbBanner", `Uploading ${files.length} file${files.length > 1 ? "s" : ""}…`, "info");
+      setBanner("kbBanner", `Uploading ${files.length} file${files.length > 1 ? "s" : ""}.`, "info");
       try {
         await _uploadImgIfPresent(imgFile?.size ? imgFile : null, titleBase);
         for (const file of files) {
@@ -703,7 +703,7 @@ function initDocUpload() {
         return;
       }
       const pt = (el("pasteTitle")?.value || "").trim();
-      setBanner("kbBanner", imageCount ? `Adding text + ${imageCount} image${imageCount > 1 ? "s" : ""}…` : "Adding text…", "info");
+      setBanner("kbBanner", imageCount ? `Adding text + ${imageCount} image${imageCount > 1 ? "s" : ""}.` : "Adding text.", "info");
       try {
         for (const f of [...pastedImgs, ...filePickerImgs]) {
           if (f && f.size) await _uploadImgIfPresent(f, pt);
@@ -736,7 +736,7 @@ function initTicketForm() {
   if (form) {
     form.addEventListener("submit", async (ev) => {
       ev.preventDefault();
-      setBanner("ticketBanner", "Submitting…", "info");
+      setBanner("ticketBanner", "Submitting.", "info");
       const subject = el("tSubject")?.value?.trim();
       const description = el("tBody")?.value?.trim();
       const email = el("tEmail")?.value?.trim();

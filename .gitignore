@@ -13,6 +13,8 @@ venv/
 /Website/
 T1Referral/
 T1Referrall/
+referr-all-app/node_modules/
+referr-all-app/dist/
 __pycache__/
 *.py[cod]
 *.sqlite3
