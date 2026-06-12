@@ -343,7 +343,7 @@ class T1ReferrallUser(Base):
     username: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     password_hash: Mapped[str] = mapped_column(String(255))
     full_name: Mapped[str] = mapped_column(String(200), default="", server_default="")
-    avatar_url: Mapped[str] = mapped_column(String(500), default="", server_default="")
+    avatar_url: Mapped[str] = mapped_column(Text(), default="", server_default="")
     bio: Mapped[str] = mapped_column(Text(), default="", server_default="")
     company: Mapped[str] = mapped_column(String(200), default="", server_default="")
     role: Mapped[str] = mapped_column(String(200), default="", server_default="")

@@ -374,7 +374,7 @@ class ProfilePatchBody(BaseModel):
     linkedinUrl: str | None = Field(default=None, max_length=500)
     yearsExperience: float | None = Field(default=None, ge=0, le=80)
     skills: list[str] | None = Field(default=None, max_length=50)
-    avatarUrl: str | None = Field(default=None, max_length=500)
+    avatarUrl: str | None = Field(default=None, max_length=2_000_000)
 
 
 class CreatePostBody(BaseModel):
@@ -1080,7 +1080,12 @@ async def upload_avatar(
     user.avatar_url = url
     user.updated_at = datetime.utcnow()
     db.add(user)
-    db.commit()
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        log.exception("Avatar DB save failed for user=%s (url_len=%s)", user.id, len(url))
+        raise HTTPException(status_code=500, detail="Could not save avatar. Run deploy/migrate-t1referrall-v4.sh on the server.")
     return {"url": url}
 
 
