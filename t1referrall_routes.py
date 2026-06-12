@@ -1112,19 +1112,37 @@ def premium_price(
     }
 
 
+def _coerce_stripe_mapping(raw: Any) -> dict[str, Any]:
+    """Convert Stripe metadata / nested objects to a plain string-key dict."""
+    if raw is None:
+        return {}
+    if isinstance(raw, dict):
+        return {str(k): v for k, v in raw.items()}
+    to_dict = getattr(raw, "to_dict", None)
+    if callable(to_dict):
+        try:
+            converted = to_dict()
+            if isinstance(converted, dict):
+                return {str(k): v for k, v in converted.items()}
+        except Exception:
+            pass
+    try:
+        items = raw.items()
+        return {str(k): v for k, v in items}
+    except Exception:
+        pass
+    try:
+        return {str(k): raw[k] for k in raw}
+    except Exception:
+        return {}
+
+
 def _checkout_session_meta(session: Any) -> dict[str, Any]:
     if isinstance(session, dict):
         raw = session.get("metadata") or {}
     else:
         raw = getattr(session, "metadata", None) or {}
-    if raw is None:
-        return {}
-    if isinstance(raw, dict):
-        return dict(raw)
-    try:
-        return dict(raw)
-    except (TypeError, ValueError):
-        return {k: raw[k] for k in raw.keys()} if hasattr(raw, "keys") else {}
+    return _coerce_stripe_mapping(raw)
 
 
 def _checkout_session_field(session: Any, key: str, default: Any = None) -> Any:

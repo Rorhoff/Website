@@ -65,9 +65,11 @@ def main() -> int:
         db.close()
 
     if not result:
+        from t1referrall_routes import _checkout_session_meta
+
         print("WARN No changes — session may be unpaid or not a featured checkout.")
         print(f"     payment_status={getattr(session, 'payment_status', None)}")
-        print(f"     metadata={dict(getattr(session, 'metadata', {}) or {})}")
+        print(f"     metadata={_checkout_session_meta(session)}")
         return 2
 
     print("OK ", result)
