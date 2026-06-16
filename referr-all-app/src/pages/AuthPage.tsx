@@ -1,15 +1,44 @@
 import { useState } from 'react';
 import * as api from '../lib/api';
-import { Briefcase, Users, MessageSquare, TrendingUp } from 'lucide-react';
+import { Briefcase, Users, MessageSquare, TrendingUp, ArrowLeft } from 'lucide-react';
+
+type View = 'login' | 'register' | 'forgot' | 'reset';
+
+function initialResetToken(): string | null {
+  if (typeof window === 'undefined') return null;
+  return new URLSearchParams(window.location.search).get('reset_token');
+}
+
+function passwordIssue(pw: string): string | null {
+  if (pw.length < 8) return 'Password must be at least 8 characters.';
+  if (!/\d/.test(pw)) return 'Password must include at least one number.';
+  if (!/[^A-Za-z0-9]/.test(pw)) return 'Password must include at least one special character.';
+  return null;
+}
 
 export default function AuthPage() {
-  const [mode, setMode] = useState<'login' | 'register'>('login');
+  const [resetToken] = useState<string | null>(initialResetToken);
+  const [view, setView] = useState<View>(resetToken ? 'reset' : 'login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [fullName, setFullName] = useState('');
   const [username, setUsername] = useState('');
   const [error, setError] = useState('');
+  const [info, setInfo] = useState('');
   const [loading, setLoading] = useState(false);
+
+  function goTo(next: View) {
+    setView(next);
+    setError('');
+    setInfo('');
+  }
+
+  function clearResetParam() {
+    if (typeof window !== 'undefined') {
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -17,7 +46,7 @@ export default function AuthPage() {
     setLoading(true);
 
     try {
-      if (mode === 'login') {
+      if (view === 'login') {
         await api.login(email, password);
         window.location.reload();
       } else {
@@ -43,12 +72,76 @@ export default function AuthPage() {
     }
   }
 
+  async function handleForgot(e: React.FormEvent) {
+    e.preventDefault();
+    setError('');
+    setInfo('');
+    setLoading(true);
+    try {
+      await api.forgotPassword(email);
+      setInfo("If an account exists for that email, we've sent a password reset link. Check your inbox.");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'An error occurred');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleReset(e: React.FormEvent) {
+    e.preventDefault();
+    setError('');
+    setInfo('');
+    if (!resetToken) {
+      setError('Reset link is missing or invalid. Request a new one.');
+      return;
+    }
+    const issue = passwordIssue(password);
+    if (issue) {
+      setError(issue);
+      return;
+    }
+    if (password !== confirmPassword) {
+      setError('Passwords do not match.');
+      return;
+    }
+    setLoading(true);
+    try {
+      await api.resetPassword(resetToken, password);
+      clearResetParam();
+      setPassword('');
+      setConfirmPassword('');
+      setInfo('Your password has been reset. You can now sign in with your new password.');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'An error occurred');
+    } finally {
+      setLoading(false);
+    }
+  }
+
   const features = [
     { icon: Briefcase, title: 'Post Job Openings', desc: 'Share referral opportunities at your company' },
     { icon: TrendingUp, title: 'Earn Referral Bonuses', desc: 'Get rewarded when your referrals get hired' },
     { icon: Users, title: 'Build Your Network', desc: 'Connect with professionals across industries' },
     { icon: MessageSquare, title: 'Direct Messaging', desc: 'Chat privately with potential candidates or friends' },
   ];
+
+  const headings: Record<View, { title: string; subtitle: string }> = {
+    login: { title: 'Welcome back', subtitle: 'Sign in to your Referr-All account' },
+    register: { title: 'Create your account', subtitle: 'Join thousands of professionals sharing referrals' },
+    forgot: { title: 'Reset your password', subtitle: "Enter your email and we'll send you a reset link" },
+    reset: { title: 'Choose a new password', subtitle: 'Enter a new password for your account' },
+  };
+
+  const errorBox = error && (
+    <div className="bg-red-500/10 border border-red-500/30 text-red-400 text-sm rounded-lg px-4 py-3">
+      {error}
+    </div>
+  );
+  const infoBox = info && (
+    <div className="bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-sm rounded-lg px-4 py-3">
+      {info}
+    </div>
+  );
 
   return (
     <div className="min-h-screen bg-gray-950 flex">
@@ -107,110 +200,215 @@ export default function AuthPage() {
 
           <div className="bg-gray-900 rounded-2xl border border-gray-800 p-8 shadow-2xl">
             <div className="mb-8">
-              <h2 className="text-2xl font-bold text-white mb-1">
-                {mode === 'login' ? 'Welcome back' : 'Create your account'}
-              </h2>
-              <p className="text-gray-500 text-sm">
-                {mode === 'login'
-                  ? 'Sign in to your Referr-All account'
-                  : 'Join thousands of professionals sharing referrals'}
-              </p>
+              <h2 className="text-2xl font-bold text-white mb-1">{headings[view].title}</h2>
+              <p className="text-gray-500 text-sm">{headings[view].subtitle}</p>
             </div>
 
-            <div className="flex rounded-lg bg-gray-800 p-1 mb-6">
-              <button
-                type="button"
-                onClick={() => { setMode('login'); setError(''); }}
-                className={`flex-1 py-2 rounded-md text-sm font-medium transition-all ${
-                  mode === 'login' ? 'bg-blue-500 text-white shadow' : 'text-gray-400 hover:text-white'
-                }`}
-              >
-                Sign In
-              </button>
-              <button
-                type="button"
-                onClick={() => { setMode('register'); setError(''); }}
-                className={`flex-1 py-2 rounded-md text-sm font-medium transition-all ${
-                  mode === 'register' ? 'bg-blue-500 text-white shadow' : 'text-gray-400 hover:text-white'
-                }`}
-              >
-                Create Account
-              </button>
-            </div>
+            {(view === 'login' || view === 'register') && (
+              <div className="flex rounded-lg bg-gray-800 p-1 mb-6">
+                <button
+                  type="button"
+                  onClick={() => goTo('login')}
+                  className={`flex-1 py-2 rounded-md text-sm font-medium transition-all ${
+                    view === 'login' ? 'bg-blue-500 text-white shadow' : 'text-gray-400 hover:text-white'
+                  }`}
+                >
+                  Sign In
+                </button>
+                <button
+                  type="button"
+                  onClick={() => goTo('register')}
+                  className={`flex-1 py-2 rounded-md text-sm font-medium transition-all ${
+                    view === 'register' ? 'bg-blue-500 text-white shadow' : 'text-gray-400 hover:text-white'
+                  }`}
+                >
+                  Create Account
+                </button>
+              </div>
+            )}
 
-            <form onSubmit={handleSubmit} className="space-y-4">
-              {mode === 'register' && (
-                <>
+            {(view === 'login' || view === 'register') && (
+              <form onSubmit={handleSubmit} className="space-y-4">
+                {view === 'register' && (
+                  <>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-300 mb-1.5">Full Name</label>
+                      <input
+                        type="text"
+                        value={fullName}
+                        onChange={e => setFullName(e.target.value)}
+                        placeholder="Jane Smith"
+                        required
+                        className="w-full bg-gray-800 border border-gray-700 text-white rounded-lg px-4 py-3 text-sm placeholder-gray-600 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-300 mb-1.5">Username</label>
+                      <div className="relative">
+                        <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 text-sm">@</span>
+                        <input
+                          type="text"
+                          value={username}
+                          onChange={e => setUsername(e.target.value)}
+                          placeholder="janesmith"
+                          required
+                          autoComplete="username"
+                          className="w-full bg-gray-800 border border-gray-700 text-white rounded-lg pl-8 pr-4 py-3 text-sm placeholder-gray-600 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition"
+                        />
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-1.5">Email</label>
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={e => setEmail(e.target.value)}
+                    placeholder="jane@example.com"
+                    required
+                    autoComplete="email"
+                    className="w-full bg-gray-800 border border-gray-700 text-white rounded-lg px-4 py-3 text-sm placeholder-gray-600 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition"
+                  />
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="block text-sm font-medium text-gray-300">Password</label>
+                    {view === 'login' && (
+                      <button
+                        type="button"
+                        onClick={() => goTo('forgot')}
+                        className="text-xs text-blue-400 hover:text-blue-300 transition"
+                      >
+                        Forgot password?
+                      </button>
+                    )}
+                  </div>
+                  <input
+                    type="password"
+                    autoComplete={view === 'register' ? 'new-password' : 'current-password'}
+                    value={password}
+                    onChange={e => setPassword(e.target.value)}
+                    placeholder="••••••••"
+                    required
+                    minLength={8}
+                    className="w-full bg-gray-800 border border-gray-700 text-white rounded-lg px-4 py-3 text-sm placeholder-gray-600 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition"
+                  />
+                </div>
+
+                {errorBox}
+
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full bg-blue-500 hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold rounded-lg py-3 text-sm transition-colors mt-2"
+                >
+                  {loading ? 'Please wait...' : view === 'login' ? 'Sign In' : 'Create Account'}
+                </button>
+              </form>
+            )}
+
+            {view === 'forgot' && (
+              <form onSubmit={handleForgot} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-1.5">Email</label>
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={e => setEmail(e.target.value)}
+                    placeholder="jane@example.com"
+                    required
+                    autoComplete="email"
+                    className="w-full bg-gray-800 border border-gray-700 text-white rounded-lg px-4 py-3 text-sm placeholder-gray-600 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition"
+                  />
+                </div>
+
+                {errorBox}
+                {infoBox}
+
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full bg-blue-500 hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold rounded-lg py-3 text-sm transition-colors mt-2"
+                >
+                  {loading ? 'Please wait...' : 'Send reset link'}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => goTo('login')}
+                  className="w-full flex items-center justify-center gap-2 text-gray-400 hover:text-white text-sm transition pt-1"
+                >
+                  <ArrowLeft size={14} />
+                  Back to sign in
+                </button>
+              </form>
+            )}
+
+            {view === 'reset' && (
+              info ? (
+                <div className="space-y-5">
+                  {infoBox}
+                  <button
+                    type="button"
+                    onClick={() => goTo('login')}
+                    className="w-full bg-blue-500 hover:bg-blue-600 text-white font-semibold rounded-lg py-3 text-sm transition-colors"
+                  >
+                    Back to sign in
+                  </button>
+                </div>
+              ) : (
+                <form onSubmit={handleReset} className="space-y-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-300 mb-1.5">Full Name</label>
+                    <label className="block text-sm font-medium text-gray-300 mb-1.5">New Password</label>
                     <input
-                      type="text"
-                      value={fullName}
-                      onChange={e => setFullName(e.target.value)}
-                      placeholder="Jane Smith"
+                      type="password"
+                      value={password}
+                      onChange={e => setPassword(e.target.value)}
+                      placeholder="••••••••"
                       required
+                      minLength={8}
+                      autoComplete="new-password"
                       className="w-full bg-gray-800 border border-gray-700 text-white rounded-lg px-4 py-3 text-sm placeholder-gray-600 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-300 mb-1.5">Username</label>
-                    <div className="relative">
-                      <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 text-sm">@</span>
-                      <input
-                        type="text"
-                        value={username}
-                        onChange={e => setUsername(e.target.value)}
-                        placeholder="janesmith"
-                        required
-                        autoComplete="username"
-                        className="w-full bg-gray-800 border border-gray-700 text-white rounded-lg pl-8 pr-4 py-3 text-sm placeholder-gray-600 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition"
-                      />
-                    </div>
+                    <label className="block text-sm font-medium text-gray-300 mb-1.5">Confirm New Password</label>
+                    <input
+                      type="password"
+                      value={confirmPassword}
+                      onChange={e => setConfirmPassword(e.target.value)}
+                      placeholder="••••••••"
+                      required
+                      minLength={8}
+                      autoComplete="new-password"
+                      className="w-full bg-gray-800 border border-gray-700 text-white rounded-lg px-4 py-3 text-sm placeholder-gray-600 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition"
+                    />
                   </div>
-                </>
-              )}
 
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1.5">Email</label>
-                <input
-                  type="email"
-                  value={email}
-                  onChange={e => setEmail(e.target.value)}
-                  placeholder="jane@example.com"
-                  required
-                  autoComplete="email"
-                  className="w-full bg-gray-800 border border-gray-700 text-white rounded-lg px-4 py-3 text-sm placeholder-gray-600 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition"
-                />
-              </div>
+                  {errorBox}
 
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1.5">Password</label>
-                <input
-                  type="password"
-                  autoComplete={mode === 'register' ? 'new-password' : 'current-password'}
-                  value={password}
-                  onChange={e => setPassword(e.target.value)}
-                  placeholder="••••••••"
-                  required
-                  minLength={8}
-                  className="w-full bg-gray-800 border border-gray-700 text-white rounded-lg px-4 py-3 text-sm placeholder-gray-600 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition"
-                />
-              </div>
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="w-full bg-blue-500 hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold rounded-lg py-3 text-sm transition-colors mt-2"
+                  >
+                    {loading ? 'Please wait...' : 'Reset password'}
+                  </button>
 
-              {error && (
-                <div className="bg-red-500/10 border border-red-500/30 text-red-400 text-sm rounded-lg px-4 py-3">
-                  {error}
-                </div>
-              )}
-
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full bg-blue-500 hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold rounded-lg py-3 text-sm transition-colors mt-2"
-              >
-                {loading ? 'Please wait...' : mode === 'login' ? 'Sign In' : 'Create Account'}
-              </button>
-            </form>
+                  <button
+                    type="button"
+                    onClick={() => goTo('login')}
+                    className="w-full flex items-center justify-center gap-2 text-gray-400 hover:text-white text-sm transition pt-1"
+                  >
+                    <ArrowLeft size={14} />
+                    Back to sign in
+                  </button>
+                </form>
+              )
+            )}
           </div>
         </div>
       </div>

@@ -73,6 +73,22 @@ export async function login(email: string, password: string): Promise<{ token: s
   return data;
 }
 
+export async function forgotPassword(email: string): Promise<{ ok: boolean }> {
+  return request<{ ok: boolean }>(
+    '/password/forgot',
+    { method: 'POST', body: JSON.stringify({ email }) },
+    false,
+  );
+}
+
+export async function resetPassword(token: string, newPassword: string): Promise<{ ok: boolean }> {
+  return request<{ ok: boolean }>(
+    '/password/reset',
+    { method: 'POST', body: JSON.stringify({ token, password: newPassword }) },
+    false,
+  );
+}
+
 export async function logout() {
   try {
     await request('/logout', { method: 'POST' });

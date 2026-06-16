@@ -149,6 +149,11 @@ def _api_base() -> str:
     return f"{origin}/api/referr-all"
 
 
+def _app_base() -> str:
+    """User-facing SPA origin for email links (e.g. https://referr-all.com)."""
+    return (os.getenv("REFERR_ALL_APP_URL") or _public_base()).rstrip("/")
+
+
 def _iso(dt: datetime | None) -> str | None:
     if dt is None:
         return None
@@ -270,6 +275,32 @@ def _send_verification_email(user: T1ReferrallUser) -> None:
         f'<p><a href="{link}">Confirm my email</a></p>'
         f"<p>This link expires in {EMAIL_VERIFY_TTL_HOURS} hours. "
         "If you didn't sign up, you can ignore this message.</p>"
+    )
+    _send_email(user.email, subject, text_body, html_body)
+
+
+PASSWORD_RESET_TTL_HOURS = 1
+
+
+def _send_password_reset_email(user: T1ReferrallUser, raw_token: str) -> None:
+    link = f"{_app_base()}/?reset_token={raw_token}"
+    subject = "Reset your Referr-All password"
+    text_body = (
+        f"Hi {user.full_name or user.username},\n\n"
+        f"We received a request to reset your Referr-All password. "
+        f"Use this link to choose a new one:\n{link}\n\n"
+        f"This link expires in {PASSWORD_RESET_TTL_HOURS} hour. "
+        "If you didn't request this, you can safely ignore this message — "
+        "your password won't change."
+    )
+    html_body = (
+        f"<p>Hi {user.full_name or user.username},</p>"
+        f"<p>We received a request to reset your Referr-All password. "
+        f"Use this link to choose a new one:</p>"
+        f'<p><a href="{link}">Reset my password</a></p>'
+        f"<p>This link expires in {PASSWORD_RESET_TTL_HOURS} hour. "
+        "If you didn't request this, you can safely ignore this message — "
+        "your password won't change.</p>"
     )
     _send_email(user.email, subject, text_body, html_body)
 
@@ -600,6 +631,15 @@ class LoginBody(BaseModel):
     password: str = Field(min_length=1, max_length=256)
 
 
+class ForgotPasswordBody(BaseModel):
+    email: str = Field(min_length=3, max_length=255)
+
+
+class ResetPasswordBody(BaseModel):
+    token: str = Field(min_length=1, max_length=64)
+    password: str = Field(min_length=8, max_length=256)
+
+
 class ProfilePatchBody(BaseModel):
     fullName: str | None = Field(default=None, max_length=200)
     bio: str | None = Field(default=None, max_length=5000)
@@ -782,6 +822,55 @@ def verify_email_resend(
     except Exception:
         log.exception("Verification email resend failed for user=%s", user.id)
     return {"ok": True, "sent": _email_configured()}
+
+
+@router.post("/password/forgot")
+def password_forgot(
+    body: ForgotPasswordBody, request: Request, db: Session = Depends(referrall_db)
+):
+    email = body.email.strip().lower()
+    _rate_limit(f"forgot:ip:{_client_ip(request)}", max_attempts=10, window_seconds=3600)
+    _rate_limit(f"forgot:email:{email}", max_attempts=5, window_seconds=3600)
+    user = db.scalars(
+        select(T1ReferrallUser).where(func.lower(T1ReferrallUser.email) == email)
+    ).first()
+    if user is not None and not user.is_suspended:
+        user.password_reset_token = secrets.token_urlsafe(32)
+        user.password_reset_sent_at = datetime.utcnow()
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        try:
+            _send_password_reset_email(user, user.password_reset_token)
+        except Exception:
+            log.exception("Password reset email failed for user=%s", user.id)
+    # Always the same response so the endpoint can't be used to probe accounts.
+    return {"ok": True}
+
+
+@router.post("/password/reset")
+def password_reset(body: ResetPasswordBody, db: Session = Depends(referrall_db)):
+    token = body.token.strip()
+    user = db.scalars(
+        select(T1ReferrallUser).where(T1ReferrallUser.password_reset_token == token)
+    ).first()
+    sent_at = user.password_reset_sent_at if user else None
+    expired = (
+        sent_at is None
+        or datetime.utcnow() - sent_at > timedelta(hours=PASSWORD_RESET_TTL_HOURS)
+    )
+    if user is None or not token or expired:
+        raise HTTPException(status_code=400, detail="Invalid or expired reset link.")
+    _validate_password_strength(body.password)
+    user.password_hash = _hash_password(body.password)
+    user.password_reset_token = None
+    user.password_reset_sent_at = None
+    user.updated_at = datetime.utcnow()
+    db.add(user)
+    # Invalidate all existing sessions so a leaked token can't keep old logins alive.
+    db.execute(delete(T1ReferrallSession).where(T1ReferrallSession.user_id == user.id))
+    db.commit()
+    return {"ok": True}
 
 
 def _premium_db_ready(db: Session) -> tuple[bool, str | None]:
