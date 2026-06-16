@@ -29,12 +29,13 @@ resolve_python() {
 PYTHON="$(resolve_python)"
 echo "==> Using Python: $PYTHON"
 
-echo "==> Step 1: DB migrations (premium, profile, reports, refunds)…"
+echo "==> Step 1: DB migrations (premium, profile, reports, refunds, email)…"
 bash "$ROOT/deploy/migrate-t1referrall-v3.sh"
 bash "$ROOT/deploy/migrate-t1referrall-v4.sh"
 bash "$ROOT/deploy/migrate-t1referrall-v5.sh"
 bash "$ROOT/deploy/migrate-t1referrall-v6.sh"
 bash "$ROOT/deploy/migrate-t1referrall-v7.sh"
+bash "$ROOT/deploy/migrate-t1referrall-v8.sh"
 
 echo "==> Step 2: create_all fallback (any missing Referr-All tables)…"
 ENV_FILE="${ENV_FILE:-/home/ubuntu/Website/.env}"

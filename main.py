@@ -271,6 +271,39 @@ async def spa_shell_cache_middleware(request: Request, call_next):
     return response
 
 
+_REFERR_ALL_CSP = (
+    "default-src 'self'; "
+    "script-src 'self'; "
+    "style-src 'self' 'unsafe-inline'; "
+    "img-src 'self' data: https:; "
+    "font-src 'self' data:; "
+    "connect-src 'self'; "
+    "manifest-src 'self'; "
+    "worker-src 'self'; "
+    "base-uri 'self'; "
+    "form-action 'self'; "
+    "frame-ancestors 'none'"
+)
+
+
+@app.middleware("http")
+async def referr_all_security_headers(request: Request, call_next):
+    """Security headers for Referr-All (SPA + API). Scoped so other apps are untouched."""
+    response = await call_next(request)
+    path = request.url.path
+    if path.startswith("/referr-all") or path.startswith("/api/referr-all"):
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+        response.headers.setdefault(
+            "Permissions-Policy", "geolocation=(), microphone=(), camera=()"
+        )
+        # CSP only on the SPA/document responses, not the JSON API.
+        if path.startswith("/referr-all"):
+            response.headers.setdefault("Content-Security-Policy", _REFERR_ALL_CSP)
+    return response
+
+
 @app.middleware("http")
 async def analytics_middleware(request: Request, call_next):
     start = time.perf_counter()

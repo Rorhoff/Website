@@ -10,12 +10,17 @@ import logging
 import os
 import re
 import secrets
+import threading
+import time
 import uuid
 import base64
+from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import Annotated, Any
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, File, Header, HTTPException, Request, UploadFile, status
+from fastapi.responses import RedirectResponse
 from passlib.hash import bcrypt as bcrypt_hasher
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, or_, select, update
@@ -137,10 +142,136 @@ def _public_base() -> str:
     ).rstrip("/")
 
 
+def _api_base() -> str:
+    """API root (<origin>/api/referr-all), derived from the public SPA base."""
+    pub = _public_base()
+    origin = pub[: -len("/referr-all")] if pub.endswith("/referr-all") else pub
+    return f"{origin}/api/referr-all"
+
+
 def _iso(dt: datetime | None) -> str | None:
     if dt is None:
         return None
     return dt.isoformat() + "Z" if dt.tzinfo is None else dt.isoformat()
+
+
+# --- Rate limiting (in-memory fixed window; single-process backend) ---
+
+_rate_lock = threading.Lock()
+_rate_buckets: dict[str, list[float]] = defaultdict(list)
+
+
+def _client_ip(request: Request) -> str:
+    """Real client IP, honoring the nginx X-Forwarded-For chain."""
+    fwd = request.headers.get("x-forwarded-for", "")
+    if fwd:
+        first = fwd.split(",")[0].strip()
+        if first:
+            return first
+    return request.client.host if request.client else "unknown"
+
+
+def _rate_limit(key: str, max_attempts: int, window_seconds: int) -> None:
+    """Raise 429 when more than max_attempts happen within the rolling window."""
+    now = time.monotonic()
+    cutoff = now - window_seconds
+    with _rate_lock:
+        bucket = _rate_buckets[key]
+        drop = 0
+        for ts in bucket:
+            if ts >= cutoff:
+                break
+            drop += 1
+        if drop:
+            del bucket[:drop]
+        if len(bucket) >= max_attempts:
+            retry = int(window_seconds - (now - bucket[0])) + 1
+            raise HTTPException(
+                status_code=429,
+                detail="Too many attempts. Please wait a moment and try again.",
+                headers={"Retry-After": str(max(retry, 1))},
+            )
+        bucket.append(now)
+        if not bucket:
+            _rate_buckets.pop(key, None)
+
+
+# --- URL validation (block javascript:/data: and other XSS-prone schemes) ---
+
+
+def _validate_url(value: str | None, field: str, *, allow_data_image: bool = False) -> str:
+    v = (value or "").strip()
+    if not v:
+        return ""
+    if allow_data_image and v[:11].lower() == "data:image/":
+        return v
+    parsed = urlparse(v)
+    if parsed.scheme.lower() in ("http", "https") and parsed.netloc:
+        return v
+    raise HTTPException(status_code=400, detail=f"{field} must be a valid http(s) URL.")
+
+
+# --- Email (provider-agnostic SMTP with a logging no-op fallback) ---
+
+EMAIL_VERIFY_TTL_HOURS = 48
+
+
+def _email_configured() -> bool:
+    return bool(os.getenv("SMTP_HOST") and os.getenv("SMTP_FROM"))
+
+
+def _send_email(to_email: str, subject: str, text_body: str, html_body: str | None = None) -> bool:
+    """Send via SMTP if configured; otherwise log the message so links are still usable."""
+    if not _email_configured():
+        log.info("[email:disabled] to=%s | %s | %s", to_email, subject, text_body)
+        return False
+    import smtplib
+    import ssl
+    from email.message import EmailMessage
+
+    host = os.getenv("SMTP_HOST", "")
+    port = int(os.getenv("SMTP_PORT", "587"))
+    smtp_user = os.getenv("SMTP_USERNAME")
+    smtp_pass = os.getenv("SMTP_PASSWORD")
+    sender = os.getenv("SMTP_FROM", "")
+    msg = EmailMessage()
+    msg["From"] = sender
+    msg["To"] = to_email
+    msg["Subject"] = subject
+    msg.set_content(text_body)
+    if html_body:
+        msg.add_alternative(html_body, subtype="html")
+    try:
+        with smtplib.SMTP(host, port, timeout=10) as server:
+            server.starttls(context=ssl.create_default_context())
+            if smtp_user and smtp_pass:
+                server.login(smtp_user, smtp_pass)
+            server.send_message(msg)
+        return True
+    except Exception:
+        log.exception("Email send failed to %s", to_email)
+        return False
+
+
+def _send_verification_email(user: T1ReferrallUser) -> None:
+    if not user.email_verify_token:
+        return
+    link = f"{_api_base()}/verify-email/confirm?token={user.email_verify_token}"
+    subject = "Confirm your Referr-All email"
+    text_body = (
+        f"Hi {user.full_name or user.username},\n\n"
+        f"Confirm your email to finish setting up your Referr-All account:\n{link}\n\n"
+        f"This link expires in {EMAIL_VERIFY_TTL_HOURS} hours. "
+        "If you didn't sign up, you can ignore this message."
+    )
+    html_body = (
+        f"<p>Hi {user.full_name or user.username},</p>"
+        f"<p>Confirm your email to finish setting up your Referr-All account:</p>"
+        f'<p><a href="{link}">Confirm my email</a></p>'
+        f"<p>This link expires in {EMAIL_VERIFY_TTL_HOURS} hours. "
+        "If you didn't sign up, you can ignore this message.</p>"
+    )
+    _send_email(user.email, subject, text_body, html_body)
 
 
 def referrall_db() -> Any:
@@ -197,6 +328,7 @@ def _profile_out(user: T1ReferrallUser, *, include_email: bool = False) -> dict[
     }
     if include_email:
         out["email"] = user.email
+        out["email_verified"] = bool(getattr(user, "email_verified", False))
     return out
 
 
@@ -543,7 +675,8 @@ class PremiumConfirmBody(BaseModel):
 
 
 @router.post("/register")
-def register(body: RegisterBody, db: Session = Depends(referrall_db)):
+def register(body: RegisterBody, request: Request, db: Session = Depends(referrall_db)):
+    _rate_limit(f"register:ip:{_client_ip(request)}", max_attempts=10, window_seconds=3600)
     _validate_password_strength(body.password)
     email = body.email.strip().lower()
     username = re.sub(r"[^a-z0-9_]", "", body.username.strip().lower())
@@ -560,6 +693,8 @@ def register(body: RegisterBody, db: Session = Depends(referrall_db)):
         username=username,
         password_hash=_hash_password(body.password),
         full_name=body.fullName.strip(),
+        email_verify_token=secrets.token_urlsafe(32),
+        email_verify_sent_at=datetime.utcnow(),
     )
     db.add(user)
     try:
@@ -568,13 +703,19 @@ def register(body: RegisterBody, db: Session = Depends(referrall_db)):
         db.rollback()
         raise HTTPException(status_code=409, detail="Username or email already taken.")
     db.refresh(user)
+    try:
+        _send_verification_email(user)
+    except Exception:
+        log.exception("Verification email send failed for user=%s", user.id)
     token = _create_session(db, user.id)
     return {"token": token, "profile": _profile_out(user, include_email=True)}
 
 
 @router.post("/login")
-def login(body: LoginBody, db: Session = Depends(referrall_db)):
+def login(body: LoginBody, request: Request, db: Session = Depends(referrall_db)):
     email = body.email.strip().lower()
+    _rate_limit(f"login:ip:{_client_ip(request)}", max_attempts=15, window_seconds=900)
+    _rate_limit(f"login:email:{email}", max_attempts=7, window_seconds=900)
     user = db.scalars(
         select(T1ReferrallUser).where(func.lower(T1ReferrallUser.email) == email)
     ).first()
@@ -597,6 +738,50 @@ def logout(
             db.execute(delete(T1ReferrallSession).where(T1ReferrallSession.token == token))
             db.commit()
     return {"ok": True}
+
+
+@router.get("/verify-email/confirm")
+def verify_email_confirm(token: str, db: Session = Depends(referrall_db)):
+    """Email link target. Marks the account verified and redirects back to the SPA."""
+    base = _public_base()
+    token = (token or "").strip()
+    if not token:
+        return RedirectResponse(url=f"{base}/?verified=0", status_code=303)
+    user = db.scalars(
+        select(T1ReferrallUser).where(T1ReferrallUser.email_verify_token == token)
+    ).first()
+    if user is None:
+        return RedirectResponse(url=f"{base}/?verified=0", status_code=303)
+    sent_at = user.email_verify_sent_at
+    if sent_at and datetime.utcnow() - sent_at > timedelta(hours=EMAIL_VERIFY_TTL_HOURS):
+        return RedirectResponse(url=f"{base}/?verified=expired", status_code=303)
+    user.email_verified = True
+    user.email_verify_token = None
+    user.updated_at = datetime.utcnow()
+    db.add(user)
+    db.commit()
+    return RedirectResponse(url=f"{base}/?verified=1", status_code=303)
+
+
+@router.post("/verify-email/resend")
+def verify_email_resend(
+    request: Request,
+    user: T1ReferrallUser = Depends(get_current_referrall_user),
+    db: Session = Depends(referrall_db),
+):
+    if getattr(user, "email_verified", False):
+        return {"ok": True, "alreadyVerified": True}
+    _rate_limit(f"verify-resend:{user.id}", max_attempts=5, window_seconds=3600)
+    user.email_verify_token = secrets.token_urlsafe(32)
+    user.email_verify_sent_at = datetime.utcnow()
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    try:
+        _send_verification_email(user)
+    except Exception:
+        log.exception("Verification email resend failed for user=%s", user.id)
+    return {"ok": True, "sent": _email_configured()}
 
 
 def _premium_db_ready(db: Session) -> tuple[bool, str | None]:
@@ -671,9 +856,9 @@ def patch_me(
             _require_usa_location(loc)
         user.location = loc
     if body.linkedinUrl is not None:
-        user.linkedin_url = body.linkedinUrl.strip()
+        user.linkedin_url = _validate_url(body.linkedinUrl, "LinkedIn URL")
     if body.portfolioUrl is not None:
-        user.portfolio_url = body.portfolioUrl.strip()
+        user.portfolio_url = _validate_url(body.portfolioUrl, "Portfolio URL")
     if body.yearsExperience is not None:
         user.years_experience = body.yearsExperience
     if body.skills is not None:
@@ -681,7 +866,7 @@ def patch_me(
     if body.interests is not None:
         user.interests = [s.strip() for s in body.interests if s.strip()][:50]
     if body.avatarUrl is not None:
-        user.avatar_url = body.avatarUrl.strip()
+        user.avatar_url = _validate_url(body.avatarUrl, "Avatar URL", allow_data_image=True)
     user.updated_at = datetime.utcnow()
     db.add(user)
     db.commit()
@@ -761,7 +946,7 @@ def create_post(
         description=body.description.strip(),
         referral_bonus=body.referralBonus.strip(),
         has_bonus=body.hasBonus,
-        job_url=body.jobUrl.strip(),
+        job_url=_validate_url(body.jobUrl, "Job URL"),
         location=body.location.strip(),
         is_remote=body.isRemote,
         tags=[t.strip() for t in body.tags if t.strip()][:20],
@@ -874,8 +1059,8 @@ def create_seeker_post(
         field_of_work=body.fieldOfWork.strip(),
         skills=[s.strip() for s in body.skills if s.strip()][:30],
         experience_years=body.experienceYears,
-        resume_url=body.resumeUrl.strip(),
-        portfolio_url=body.portfolioUrl.strip(),
+        resume_url=_validate_url(body.resumeUrl, "Resume URL"),
+        portfolio_url=_validate_url(body.portfolioUrl, "Portfolio URL"),
         availability=avail,
     )
     db.add(row)
