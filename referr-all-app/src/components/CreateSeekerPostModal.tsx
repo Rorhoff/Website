@@ -32,7 +32,6 @@ export default function CreateSeekerPostModal({ onClose, onCreated }: Props) {
   const [purchaseNumber, setPurchaseNumber] = useState(0);
 
   const [form, setForm] = useState({
-    headline: '',
     about: profile?.bio || '',
     desired_role: profile?.role || '',
     desired_location: profile?.location || '',
@@ -55,7 +54,7 @@ export default function CreateSeekerPostModal({ onClose, onCreated }: Props) {
     try {
       const skills = form.skills.split(',').map(s => s.trim()).filter(Boolean);
       const data = await api.createSeekerPost({
-        headline: form.headline.trim(),
+        headline: form.desired_role.trim(),
         about: form.about.trim(),
         desiredRole: form.desired_role.trim(),
         desiredLocation: form.desired_location.trim(),
@@ -126,27 +125,21 @@ export default function CreateSeekerPostModal({ onClose, onCreated }: Props) {
 
             <form onSubmit={handleSubmit} className="p-6 space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1.5">Headline *</label>
-                <input value={form.headline} onChange={e => setForm(f => ({ ...f, headline: e.target.value }))}
-                  placeholder="e.g. Full-Stack Engineer open to new opportunities" required
+                <label className="block text-sm font-medium text-gray-300 mb-1.5">Desired Role *</label>
+                <input value={form.desired_role} onChange={e => setForm(f => ({ ...f, desired_role: e.target.value }))}
+                  placeholder="e.g. Senior Technical Support Engineer"
+                  required
                   className="w-full bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-2.5 text-sm placeholder-gray-600 focus:outline-none focus:border-blue-500 transition" />
+                <p className="text-gray-600 text-xs mt-1">Shown as the title of your seeker post in the feed.</p>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-1.5">Desired Role *</label>
-                  <input value={form.desired_role} onChange={e => setForm(f => ({ ...f, desired_role: e.target.value }))}
-                    placeholder="e.g. Senior Engineer" required
-                    className="w-full bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-2.5 text-sm placeholder-gray-600 focus:outline-none focus:border-blue-500 transition" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-1.5">Field of Work</label>
-                  <select value={form.field_of_work} onChange={e => setForm(f => ({ ...f, field_of_work: e.target.value }))}
-                    className="w-full bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-blue-500 transition">
-                    <option value="">Select field</option>
-                    {FIELDS_OF_WORK.map(f => <option key={f} value={f}>{f}</option>)}
-                  </select>
-                </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-1.5">Field of Work</label>
+                <select value={form.field_of_work} onChange={e => setForm(f => ({ ...f, field_of_work: e.target.value }))}
+                  className="w-full bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-blue-500 transition">
+                  <option value="">Select field</option>
+                  {FIELDS_OF_WORK.map(f => <option key={f} value={f}>{f}</option>)}
+                </select>
               </div>
 
               <div>

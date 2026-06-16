@@ -697,11 +697,24 @@ def list_profiles(
     user: T1ReferrallUser = Depends(get_current_referrall_user),
     db: Session = Depends(referrall_db),
 ):
-    rows = db.scalars(
+    blocked_ids = set(
+        db.scalars(
+            select(T1ReferrallUserBlock.blocked_id).where(
+                T1ReferrallUserBlock.blocker_id == user.id
+            )
+        ).all()
+    )
+    stmt = (
         select(T1ReferrallUser)
-        .where(T1ReferrallUser.id != user.id, T1ReferrallUser.is_suspended.is_(False))
+        .where(
+            T1ReferrallUser.id != user.id,
+            T1ReferrallUser.is_suspended.is_(False),
+        )
         .order_by(T1ReferrallUser.username)
-    ).all()
+    )
+    if blocked_ids:
+        stmt = stmt.where(T1ReferrallUser.id.not_in(blocked_ids))
+    rows = db.scalars(stmt).all()
     return [_profile_out(r) for r in rows]
 
 
@@ -853,7 +866,7 @@ def create_seeker_post(
     row = T1ReferrallSeekerPost(
         id=str(uuid.uuid4()),
         author_id=user.id,
-        headline=body.headline.strip(),
+        headline=body.headline.strip() or body.desiredRole.strip(),
         about=body.about.strip(),
         desired_role=body.desiredRole.strip(),
         desired_location=body.desiredLocation.strip(),
@@ -1076,7 +1089,17 @@ def list_blocks(
     rows = db.scalars(
         select(T1ReferrallUserBlock).where(T1ReferrallUserBlock.blocker_id == user.id)
     ).all()
-    return [{"id": r.id, "blocked_id": r.blocked_id, "created_at": _iso(r.created_at)} for r in rows]
+    profile_ids = {r.blocked_id for r in rows}
+    profiles = _load_profiles(db, profile_ids)
+    return [
+        {
+            "id": r.id,
+            "blocked_id": r.blocked_id,
+            "created_at": _iso(r.created_at),
+            "profile": profiles.get(r.blocked_id),
+        }
+        for r in rows
+    ]
 
 
 @router.post("/blocks")

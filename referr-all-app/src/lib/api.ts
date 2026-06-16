@@ -176,6 +176,17 @@ export async function deleteBlock(blockedId: string) {
   return request(`/blocks/${blockedId}`, { method: 'DELETE' });
 }
 
+export type BlockEntry = {
+  id: string;
+  blocked_id: string;
+  created_at: string;
+  profile?: Profile | null;
+};
+
+export async function listBlocks(): Promise<BlockEntry[]> {
+  return request<BlockEntry[]>('/blocks');
+}
+
 export async function listConversations(): Promise<Conversation[]> {
   return request<Conversation[]>('/conversations');
 }
