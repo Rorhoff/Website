@@ -160,7 +160,7 @@ export default function Layout({ children, currentPage, onNavigate }: Props) {
       </main>
 
       {/* Bottom mobile nav */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-gray-900/95 backdrop-blur border-t border-gray-800 flex z-50">
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-gray-900/95 backdrop-blur border-t border-gray-800 flex z-50 pb-safe">
         {navItems.map(({ id, icon: Icon }) => (
           <button
             key={id}

@@ -10,11 +10,22 @@
   html {
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    -webkit-text-size-adjust: 100%;
   }
 
   body {
     background-color: #030712;
     color: #f9fafb;
+  }
+
+  /* Prevent iOS Safari from auto-zooming when focusing form controls.
+     Any control below 16px triggers the zoom, so enforce 16px on phones. */
+  @media (max-width: 767px) {
+    input,
+    select,
+    textarea {
+      font-size: 16px;
+    }
   }
 }
 
@@ -24,5 +35,10 @@
     -webkit-line-clamp: 3;
     -webkit-box-orient: vertical;
     overflow: hidden;
+  }
+
+  /* Respect the home-indicator / notch on iOS for fixed bottom UI. */
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom);
   }
 }

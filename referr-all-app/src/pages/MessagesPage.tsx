@@ -24,8 +24,16 @@ export default function MessagesPage({ initialUserId, onClearInitial }: Props) {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
+  const [isMobile, setIsMobile] = useState(
+    typeof window !== 'undefined' && window.innerWidth < 768,
+  );
   const [mobileView, setMobileView] = useState<'list' | 'chat'>('list');
+
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
 
   const loadConversations = useCallback(async () => {
     if (!user) return;
