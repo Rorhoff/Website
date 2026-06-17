@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import {
   Briefcase, Building, Camera, ChevronDown, Crown, Edit2, ExternalLink, Link, Loader,
-  MapPin, MessageSquare, Plus, Save, ShieldBan, Star, Tag, Trash2, User, UserCheck,
+  MapPin, MessageSquare, Plus, Save, Settings, ShieldBan, Star, Tag, Trash2, User, UserCheck,
   UserPlus, Wifi, X,
 } from 'lucide-react';
 import CreateSeekerPostModal from '../components/CreateSeekerPostModal';
@@ -16,9 +16,10 @@ import { useAuth } from '../contexts/AuthContext';
 type Props = {
   userId: string;
   onMessage: (userId: string) => void;
+  onOpenSettings?: () => void;
 };
 
-export default function ProfilePage({ userId, onMessage }: Props) {
+export default function ProfilePage({ userId, onMessage, onOpenSettings }: Props) {
   const { user, profile: myProfile, refreshProfile, premiumConfirmError } = useAuth();
   const isOwn = user?.id === userId;
 
@@ -366,13 +367,22 @@ export default function ProfilePage({ userId, onMessage }: Props) {
 
             <div className="flex items-center gap-2 mt-2">
               {isOwn ? (
-                <button
-                  onClick={() => setEditing(true)}
-                  className="flex items-center gap-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 font-medium rounded-xl px-4 py-2 text-sm transition"
-                >
-                  <Edit2 size={14} />
-                  Edit Profile
-                </button>
+                <div className="flex flex-col items-stretch gap-2">
+                  <button
+                    onClick={() => setEditing(true)}
+                    className="flex items-center justify-center gap-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 font-medium rounded-xl px-4 py-2 text-sm transition"
+                  >
+                    <Edit2 size={14} />
+                    Edit Profile
+                  </button>
+                  <button
+                    onClick={() => onOpenSettings?.()}
+                    className="flex items-center justify-center gap-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 font-medium rounded-xl px-4 py-2 text-sm transition"
+                  >
+                    <Settings size={14} />
+                    Settings
+                  </button>
+                </div>
               ) : (
                 <>
                   <button

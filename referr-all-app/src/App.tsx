@@ -6,10 +6,11 @@ import FeedPage from './pages/FeedPage';
 import NetworkPage from './pages/NetworkPage';
 import MessagesPage from './pages/MessagesPage';
 import ProfilePage from './pages/ProfilePage';
+import SettingsPage from './pages/SettingsPage';
 import TermsPage from './pages/TermsPage';
 import PrivacyPage from './pages/PrivacyPage';
 
-type Page = 'feed' | 'network' | 'messages' | 'profile' | 'terms' | 'privacy';
+type Page = 'feed' | 'network' | 'messages' | 'profile' | 'settings' | 'terms' | 'privacy';
 
 function AppInner() {
   const { user, profile, loading, signOut } = useAuth();
@@ -97,6 +98,13 @@ function AppInner() {
         <ProfilePage
           userId={viewingUserId || user.id}
           onMessage={handleMessage}
+          onOpenSettings={() => navigate('settings')}
+        />
+      )}
+      {page === 'settings' && (
+        <SettingsPage
+          onBack={() => navigate('profile')}
+          onViewProfile={handleViewProfile}
         />
       )}
       {page === 'terms' && (

@@ -2,7 +2,7 @@ import { ReactNode, useState } from 'react';
 import { Briefcase, Users, MessageSquare, User, LogOut, Bell, Menu, X, TrendingUp } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
-type Page = 'feed' | 'network' | 'messages' | 'profile' | 'terms' | 'privacy';
+type Page = 'feed' | 'network' | 'messages' | 'profile' | 'settings' | 'terms' | 'privacy';
 
 type Props = {
   children: ReactNode;

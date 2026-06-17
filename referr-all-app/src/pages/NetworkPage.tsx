@@ -1,11 +1,10 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import * as api from '../lib/api';
 import type { Profile, Connection } from '../lib/types';
-import type { BlockEntry } from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
-import { UserPlus, UserCheck, UserX, Search, Users, Clock, MapPin, Briefcase, Ban } from 'lucide-react';
+import { UserPlus, UserCheck, UserX, Search, Users, Clock, MapPin, Briefcase } from 'lucide-react';
 
-type Tab = 'discover' | 'connections' | 'pending' | 'blocked';
+type Tab = 'discover' | 'connections' | 'pending';
 
 type Props = {
   onViewProfile: (userId: string) => void;
@@ -25,7 +24,6 @@ export default function NetworkPage({ onViewProfile, onMessage }: Props) {
   const { user } = useAuth();
   const [tab, setTab] = useState<Tab>('discover');
   const [allPeople, setAllPeople] = useState<Profile[]>([]);
-  const [blockedList, setBlockedList] = useState<BlockEntry[]>([]);
   const [connections, setConnections] = useState<Connection[]>([]);
   const [pending, setPending] = useState<Connection[]>([]);
   const [loading, setLoading] = useState(true);
@@ -36,17 +34,15 @@ export default function NetworkPage({ onViewProfile, onMessage }: Props) {
     if (!user) return;
     setLoading(true);
 
-    const [allProfiles, allConns, blocks] = await Promise.all([
+    const [allProfiles, allConns] = await Promise.all([
       api.listProfiles(),
       api.listConnections(),
-      api.listBlocks(),
     ]);
 
     const allConnsTyped = allConns as Connection[];
     setConnections(allConnsTyped.filter(c => c.status === 'accepted'));
     setPending(allConnsTyped.filter(c => c.status === 'pending'));
     setAllPeople(allProfiles as Profile[]);
-    setBlockedList(blocks);
 
     setLoading(false);
   }, [user]);
@@ -117,13 +113,6 @@ export default function NetworkPage({ onViewProfile, onMessage }: Props) {
   async function removeConnection(connId: string) {
     setActionLoading(connId);
     await api.deleteConnection(connId);
-    await loadAll();
-    setActionLoading(null);
-  }
-
-  async function unblockUser(blockedId: string) {
-    setActionLoading(blockedId);
-    await api.deleteBlock(blockedId);
     await loadAll();
     setActionLoading(null);
   }
@@ -227,7 +216,6 @@ export default function NetworkPage({ onViewProfile, onMessage }: Props) {
     { id: 'discover', label: 'Discover' },
     { id: 'connections', label: 'Connections', count: connections.length },
     { id: 'pending', label: 'Pending', count: pending.filter(c => c.addressee_id === user?.id).length },
-    { id: 'blocked', label: 'Blocked', count: blockedList.length },
   ];
 
   const isSearching = search.trim().length > 0;
@@ -295,7 +283,7 @@ export default function NetworkPage({ onViewProfile, onMessage }: Props) {
             title={isSearching ? 'No matching people' : 'No people to discover'}
             desc={
               isSearching
-                ? 'Try a different name or check the Blocked tab if you previously blocked someone.'
+                ? 'Try a different name. If you previously blocked someone, manage blocks in Settings.'
                 : "You're connected with everyone, or no other users exist yet."
             }
           />
@@ -343,40 +331,6 @@ export default function NetworkPage({ onViewProfile, onMessage }: Props) {
                   }
                   onViewProfile={onViewProfile}
                 />
-              );
-            })}
-          </div>
-        )
-      ) : tab === 'blocked' ? (
-        blockedList.length === 0 ? (
-          <EmptyState icon={Ban} title="No blocked users" desc="People you block won't appear in search or discovery. You can unblock them here." />
-        ) : (
-          <div className="space-y-3">
-            {blockedList.map(entry => {
-              const person = entry.profile;
-              if (!person) return null;
-              return (
-                <div key={entry.id} className="bg-gray-900 rounded-2xl border border-gray-800 p-5 flex items-center justify-between gap-4">
-                  <button onClick={() => onViewProfile(person.id)} className="flex items-center gap-3 group min-w-0">
-                    <Avatar profile={person} size="md" />
-                    <div className="min-w-0 text-left">
-                      <div className="text-white font-semibold text-sm group-hover:text-blue-400 transition truncate">{person.full_name}</div>
-                      <div className="text-gray-500 text-xs truncate">
-                        {person.role && person.company
-                          ? `${person.role} at ${person.company}`
-                          : `@${person.username}`}
-                      </div>
-                    </div>
-                  </button>
-                  <button
-                    onClick={() => unblockUser(entry.blocked_id)}
-                    disabled={actionLoading === entry.blocked_id}
-                    className="flex items-center gap-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 font-medium rounded-lg px-3 py-2 text-sm transition disabled:opacity-50 flex-shrink-0"
-                  >
-                    <UserCheck size={14} />
-                    {actionLoading === entry.blocked_id ? 'Unblocking...' : 'Unblock'}
-                  </button>
-                </div>
               );
             })}
           </div>
