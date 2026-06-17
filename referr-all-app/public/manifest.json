@@ -1,10 +1,10 @@
 {
-  "id": "/referr-all/",
+  "id": "./",
   "name": "Referr-All",
   "short_name": "Referr-All",
   "description": "Referral-based professional networking: post job openings, build your network, and message connections.",
-  "start_url": "/referr-all/",
-  "scope": "/referr-all/",
+  "start_url": "./",
+  "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#030712",

@@ -1,5 +1,7 @@
-const CACHE = 'referr-all-v1';
-const BASE = '/referr-all/';
+const CACHE = 'referr-all-v2';
+// Derive the base path from the service worker's own location so the same file
+// works whether deployed at the site root (referr-all.com) or under /referr-all/.
+const BASE = self.location.pathname.replace(/sw\.js$/, '');
 
 self.addEventListener('install', (event) => {
   self.skipWaiting();
