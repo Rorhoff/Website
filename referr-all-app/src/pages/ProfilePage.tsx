@@ -7,7 +7,7 @@ import {
 import CreateSeekerPostModal from '../components/CreateSeekerPostModal';
 import CreateJobPostModal from '../components/CreateJobPostModal';
 import * as api from '../lib/api';
-import { compressImageForUpload } from '../lib/resizeImage';
+import { compressBannerForUpload, compressImageForUpload } from '../lib/resizeImage';
 import { isPremiumActive, storePendingPremiumSession, confirmPremiumReturn, PENDING_PREMIUM_SESSION_KEY } from '../lib/premium';
 import type { Profile, Post, Connection, SeekerPost } from '../lib/types';
 import { AVAILABILITY_LABELS } from '../lib/api';
@@ -34,6 +34,8 @@ export default function ProfilePage({ userId, onMessage, onOpenSettings }: Props
   const [actionLoading, setActionLoading] = useState(false);
   const [avatarUploading, setAvatarUploading] = useState(false);
   const [avatarError, setAvatarError] = useState('');
+  const [bannerUploading, setBannerUploading] = useState(false);
+  const [bannerError, setBannerError] = useState('');
   const [upgradeError, setUpgradeError] = useState('');
   const [deletingPostId, setDeletingPostId] = useState<string | null>(null);
   const [upgradingPostId, setUpgradingPostId] = useState<string | null>(null);
@@ -43,6 +45,7 @@ export default function ProfilePage({ userId, onMessage, onOpenSettings }: Props
   const [showCreateJob, setShowCreateJob] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const bannerInputRef = useRef<HTMLInputElement>(null);
 
   const [form, setForm] = useState({
     full_name: '',
@@ -56,6 +59,7 @@ export default function ProfilePage({ userId, onMessage, onOpenSettings }: Props
     skills: '',
     interests: '',
     avatar_url: '',
+    banner_url: '',
   });
 
   useEffect(() => {
@@ -111,6 +115,7 @@ export default function ProfilePage({ userId, onMessage, onOpenSettings }: Props
         skills: (p.skills || []).join(', '),
         interests: (p.interests || []).join(', '),
         avatar_url: p.avatar_url || '',
+        banner_url: p.banner_url || '',
       });
     } catch (err) {
       console.error('Failed to load profile:', err);
@@ -137,6 +142,26 @@ export default function ProfilePage({ userId, onMessage, onOpenSettings }: Props
     } finally {
       setAvatarUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  }
+
+  async function handleBannerUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file || !user) return;
+    setBannerUploading(true);
+    setBannerError('');
+    try {
+      const prepared = await compressBannerForUpload(file);
+      const { url } = await api.uploadBanner(prepared);
+      const publicUrl = url.startsWith('data:') ? url : `${url}?t=${Date.now()}`;
+      setForm(f => ({ ...f, banner_url: publicUrl }));
+      setProfile(p => p ? { ...p, banner_url: publicUrl } : p);
+      await refreshProfile();
+    } catch (err) {
+      setBannerError(err instanceof Error ? err.message : 'Banner upload failed');
+    } finally {
+      setBannerUploading(false);
+      if (bannerInputRef.current) bannerInputRef.current.value = '';
     }
   }
 
@@ -326,12 +351,49 @@ export default function ProfilePage({ userId, onMessage, onOpenSettings }: Props
 
   return (
     <div className="max-w-2xl mx-auto pb-20 md:pb-0 space-y-5">
-      {/* Profile card */}
-      <div className="bg-gray-900 rounded-2xl border border-gray-800 overflow-hidden">
-        <div className="h-24 bg-gradient-to-r from-blue-600/30 via-cyan-500/20 to-gray-900" />
+      {/* Profile card — no overflow-hidden so mobile action menus aren't clipped */}
+      <div className="bg-gray-900 rounded-2xl border border-gray-800">
+        <div className="relative group h-24 rounded-t-2xl overflow-hidden bg-gradient-to-r from-blue-600/30 via-cyan-500/20 to-gray-900">
+          {(form.banner_url || profile.banner_url) && (
+            <img
+              src={form.banner_url || profile.banner_url}
+              alt=""
+              className="absolute inset-0 w-full h-full object-cover"
+            />
+          )}
+          {bannerUploading && (
+            <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
+              <Loader size={20} className="text-white animate-spin" />
+            </div>
+          )}
+          {isOwn && (
+            <>
+              <button
+                type="button"
+                onClick={() => bannerInputRef.current?.click()}
+                disabled={bannerUploading}
+                className="absolute top-2 right-2 flex items-center gap-1.5 bg-black/50 hover:bg-black/70 text-white text-xs font-medium rounded-lg px-2.5 py-1.5 transition opacity-100 sm:opacity-0 sm:group-hover:opacity-100 disabled:opacity-50"
+                title="Change banner photo"
+              >
+                <Camera size={13} />
+                Change photo
+              </button>
+              <input
+                ref={bannerInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handleBannerUpload}
+                className="hidden"
+              />
+            </>
+          )}
+        </div>
+        {bannerError && (
+          <p className="text-red-400 text-xs px-6 pt-2">{bannerError}</p>
+        )}
 
         <div className="px-6 pb-6">
-          <div className="flex items-end justify-between -mt-10 mb-4">
+            <div className="flex items-end justify-between -mt-10 mb-4 relative z-10">
             {/* Avatar */}
             <div className="relative group">
               <div className="w-20 h-20 rounded-full bg-blue-500/20 border-4 border-gray-900 flex items-center justify-center overflow-hidden">
@@ -458,7 +520,7 @@ export default function ProfilePage({ userId, onMessage, onOpenSettings }: Props
                           onClick={() => setActionsOpen(false)}
                           className="fixed inset-0 z-20 cursor-default"
                         />
-                        <div className="absolute right-0 top-full mt-1.5 w-52 bg-gray-900 border border-gray-700 rounded-xl shadow-xl z-30 overflow-hidden">
+                        <div className="absolute right-0 top-full mt-1.5 w-52 bg-gray-900 border border-gray-700 rounded-xl shadow-xl z-50 overflow-hidden">
                           <button
                             onClick={() => { setActionsOpen(false); onMessage(userId); }}
                             className="flex items-center gap-3 w-full px-4 py-3 text-sm text-gray-300 hover:bg-gray-800 transition"

@@ -248,6 +248,12 @@ export async function uploadAvatar(file: File): Promise<{ url: string }> {
   return request<{ url: string }>('/uploads/avatar', { method: 'POST', body: form });
 }
 
+export async function uploadBanner(file: File): Promise<{ url: string }> {
+  const form = new FormData();
+  form.append('file', file);
+  return request<{ url: string }>('/uploads/banner', { method: 'POST', body: form });
+}
+
 export type PremiumPriceInfo = {
   priceCents: number;
   purchaseNumber: number;

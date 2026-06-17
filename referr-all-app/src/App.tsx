@@ -64,7 +64,8 @@ function AppInner() {
       setPrevPage(page as Page);
     }
     setPage(p);
-    if (p !== 'profile') setViewingUserId(null);
+    // Main nav always shows your own profile; clear any "viewing someone else" id.
+    setViewingUserId(null);
     if (p !== 'messages') {
       setMessageUserId(null);
     }

@@ -84,3 +84,8 @@ export async function compressImageForUpload(
   const name = file.name.replace(/\.[^.]+$/, '') || 'avatar';
   return new File([blob], `${name}.jpg`, { type: 'image/jpeg' });
 }
+
+/** Wider crop/compress for profile banner uploads. */
+export async function compressBannerForUpload(file: File): Promise<File> {
+  return compressImageForUpload(file, 768 * 1024, 1200);
+}

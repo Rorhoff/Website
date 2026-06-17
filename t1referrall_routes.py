@@ -67,10 +67,12 @@ REPORT_REMOVE_THRESHOLD_PREMIUM = 20
 _POST_KIND_JOB = "job"
 _POST_KIND_SEEKER = "seeker"
 MAX_AVATAR_BYTES = 4 * 1024 * 1024
+MAX_BANNER_BYTES = 4 * 1024 * 1024
 
 _AVAILABILITY = frozenset({"immediately", "2weeks", "1month", "3months"})
 _CONN_STATUS = frozenset({"pending", "accepted", "declined"})
 _INLINE_AVATAR_MAX_BYTES = 512 * 1024
+_INLINE_BANNER_MAX_BYTES = 768 * 1024
 
 
 def _shrink_avatar_for_inline(content: bytes, content_type: str) -> tuple[bytes, str]:
@@ -92,6 +94,33 @@ def _shrink_avatar_for_inline(content: bytes, content_type: str) -> tuple[bytes,
         img.save(buf, format="JPEG", quality=quality, optimize=True)
         data = buf.getvalue()
         if len(data) <= _INLINE_AVATAR_MAX_BYTES:
+            return data, "image/jpeg"
+        quality -= 10
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=40, optimize=True)
+    return buf.getvalue(), "image/jpeg"
+
+
+def _shrink_banner_for_inline(content: bytes, content_type: str) -> tuple[bytes, str]:
+    """Downscale/compress profile banner for inline DB storage when S3 is off."""
+    import io
+
+    from PIL import Image
+
+    img = Image.open(io.BytesIO(content))
+    if img.mode not in ("RGB", "L"):
+        img = img.convert("RGB")
+    max_w, max_h = 1200, 400
+    w, h = img.size
+    scale = min(max_w / w, max_h / h, 1.0)
+    if scale < 1.0:
+        img = img.resize((max(1, int(w * scale)), max(1, int(h * scale))), Image.Resampling.LANCZOS)
+    quality = 85
+    while quality >= 40:
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=quality, optimize=True)
+        data = buf.getvalue()
+        if len(data) <= _INLINE_BANNER_MAX_BYTES:
             return data, "image/jpeg"
         quality -= 10
     buf = io.BytesIO()
@@ -370,6 +399,7 @@ def _profile_out(user: T1ReferrallUser, *, include_email: bool = False) -> dict[
         "username": user.username,
         "full_name": user.full_name,
         "avatar_url": user.avatar_url or "",
+        "banner_url": getattr(user, "banner_url", "") or "",
         "bio": user.bio or "",
         "company": user.company or "",
         "role": user.role or "",
@@ -820,6 +850,7 @@ class ProfilePatchBody(BaseModel):
     skills: list[str] | None = Field(default=None, max_length=50)
     interests: list[str] | None = Field(default=None, max_length=50)
     avatarUrl: str | None = Field(default=None, max_length=2_000_000)
+    bannerUrl: str | None = Field(default=None, max_length=2_000_000)
 
 
 class CreatePostBody(BaseModel):
@@ -1187,6 +1218,8 @@ def patch_me(
         user.interests = [s.strip() for s in body.interests if s.strip()][:50]
     if body.avatarUrl is not None:
         user.avatar_url = _validate_url(body.avatarUrl, "Avatar URL", allow_data_image=True)
+    if body.bannerUrl is not None:
+        user.banner_url = _validate_url(body.bannerUrl, "Banner URL", allow_data_image=True)
     user.updated_at = datetime.utcnow()
     db.add(user)
     db.commit()
@@ -2145,6 +2178,72 @@ async def upload_avatar(
         raise HTTPException(
             status_code=500,
             detail="Could not save avatar. Run: bash deploy/migrate-t1referrall-v4.sh",
+        ) from exc
+    return {"url": url}
+
+
+@router.post("/uploads/banner")
+async def upload_banner(
+    file: UploadFile = File(...),
+    user: T1ReferrallUser = Depends(get_current_referrall_user),
+    db: Session = Depends(referrall_db),
+):
+    content = await file.read()
+    if len(content) > MAX_BANNER_BYTES:
+        raise HTTPException(status_code=400, detail="Image too large (max 4 MB)")
+    ct = (file.content_type or "").lower()
+    if not ct or ct == "application/octet-stream":
+        ct = "image/jpeg"
+    if not image_storage.allowed_content_type(ct):
+        raise HTTPException(status_code=400, detail="Unsupported image type (use JPEG, PNG, WebP, or GIF)")
+
+    url: str | None = None
+
+    if image_storage.storage_enabled():
+        ext_map = {"image/jpeg": "jpg", "image/jpg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif"}
+        ext = ext_map.get(ct, "jpg")
+        key = f"t1ref/{user.id}/banner.{ext}"
+        try:
+            url = image_storage.upload_image_at_key(key, content, ct)
+        except Exception:
+            log.exception("Banner S3 upload failed for user=%s — trying inline fallback", user.id)
+            url = None
+
+    if url is None:
+        if len(content) > _INLINE_BANNER_MAX_BYTES:
+            try:
+                content, ct = _shrink_banner_for_inline(content, ct)
+            except ImportError:
+                log.exception("Banner resize failed: Pillow not installed")
+                raise HTTPException(
+                    status_code=503,
+                    detail="Install Pillow on the server (pip install -r requirements.txt) or fix S3_* env vars.",
+                )
+            except Exception:
+                log.exception("Banner inline resize failed for user=%s", user.id)
+                raise HTTPException(
+                    status_code=503,
+                    detail="Could not process image. Try a smaller photo.",
+                )
+        if len(content) > _INLINE_BANNER_MAX_BYTES:
+            raise HTTPException(
+                status_code=503,
+                detail="Image still too large after compression.",
+            )
+        b64 = base64.b64encode(content).decode("ascii")
+        url = f"data:{ct};base64,{b64}"
+
+    user.banner_url = url
+    user.updated_at = datetime.utcnow()
+    db.add(user)
+    try:
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        log.exception("Banner DB save failed for user=%s (url_len=%s)", user.id, len(url))
+        raise HTTPException(
+            status_code=500,
+            detail="Could not save banner. Run: bash deploy/migrate-t1referrall-v11.sh",
         ) from exc
     return {"url": url}
 
