@@ -70,44 +70,15 @@ export default function SettingsPage({ onBack, onViewProfile }: Props) {
       <PreferencesSection profile={profile} />
       <PurchaseHistorySection purchases={purchases} loading={loading} />
 
-      {/* Blocked users */}
-      <Section icon={Ban} title="Blocked Users" desc="People you block won't appear in search or discovery, and can't message you.">
-        {loading ? (
-          <SkeletonRows />
-        ) : blockedList.length === 0 ? (
-          <EmptyCard icon={Ban} title="No blocked users" desc="You can block someone from their profile. They'll show up here so you can unblock them later." />
-        ) : (
-          <div className="space-y-3">
-            {blockedList.map(entry => {
-              const person = entry.profile;
-              if (!person) return null;
-              return (
-                <div key={entry.id} className="bg-gray-900 rounded-2xl border border-gray-800 p-5 flex items-center justify-between gap-4">
-                  <button onClick={() => onViewProfile(person.id)} className="flex items-center gap-3 group min-w-0">
-                    <Avatar profile={person} />
-                    <div className="min-w-0 text-left">
-                      <div className="text-white font-semibold text-sm group-hover:text-blue-400 transition truncate">{person.full_name}</div>
-                      <div className="text-gray-500 text-xs truncate">
-                        {person.role && person.company ? `${person.role} at ${person.company}` : `@${person.username}`}
-                      </div>
-                    </div>
-                  </button>
-                  <button
-                    onClick={() => unblockUser(entry.blocked_id)}
-                    disabled={actionLoading === entry.blocked_id}
-                    className="flex items-center gap-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 font-medium rounded-lg px-3 py-2 text-sm transition disabled:opacity-50 flex-shrink-0"
-                  >
-                    <UserCheck size={14} />
-                    {actionLoading === entry.blocked_id ? 'Unblocking...' : 'Unblock'}
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </Section>
-
-      <DangerZone onDeactivated={signOut} onDeleted={signOut} />
+      <DangerZone
+        onDeactivated={signOut}
+        onDeleted={signOut}
+        blockedList={blockedList}
+        blockedLoading={loading}
+        unblockingId={actionLoading}
+        onViewProfile={onViewProfile}
+        onUnblock={unblockUser}
+      />
     </div>
   );
 }
@@ -518,8 +489,19 @@ function PurchaseHistorySection({ purchases, loading }: { purchases: PurchaseRec
 
 /* ---------- Danger zone ---------- */
 
-function DangerZone({ onDeactivated, onDeleted }: { onDeactivated: () => Promise<void>; onDeleted: () => Promise<void> }) {
+function DangerZone({
+  onDeactivated, onDeleted, blockedList, blockedLoading, unblockingId, onViewProfile, onUnblock,
+}: {
+  onDeactivated: () => Promise<void>;
+  onDeleted: () => Promise<void>;
+  blockedList: BlockEntry[];
+  blockedLoading: boolean;
+  unblockingId: string | null;
+  onViewProfile: (userId: string) => void;
+  onUnblock: (blockedId: string) => void;
+}) {
   const [mode, setMode] = useState<'none' | 'deactivate' | 'delete'>('none');
+  const [showBlocked, setShowBlocked] = useState(false);
   const [password, setPassword] = useState('');
   const [confirmText, setConfirmText] = useState('');
   const [busy, setBusy] = useState(false);
@@ -561,6 +543,56 @@ function DangerZone({ onDeactivated, onDeleted }: { onDeactivated: () => Promise
       <p className="text-gray-500 text-sm mb-4">Temporarily hibernate or permanently delete your account.</p>
 
       <div className="bg-gray-900 rounded-2xl border border-gray-800 divide-y divide-gray-800">
+        {/* Blocked users */}
+        <div className="p-5">
+          <div className="flex items-center justify-between gap-4">
+            <div className="min-w-0">
+              <div className="text-white text-sm font-medium">Blocked users</div>
+              <div className="text-gray-500 text-xs mt-0.5">People you block won't appear in search or discovery, and can't message you.</div>
+            </div>
+            <button onClick={() => setShowBlocked(s => !s)} className={secondaryBtn}>
+              {showBlocked ? 'Hide' : `Manage${blockedList.length ? ` (${blockedList.length})` : ''}`}
+            </button>
+          </div>
+          {showBlocked && (
+            <div className="mt-4 border-t border-gray-800 pt-4">
+              {blockedLoading ? (
+                <div className="text-gray-500 text-sm">Loading…</div>
+              ) : blockedList.length === 0 ? (
+                <p className="text-gray-500 text-sm">You haven't blocked anyone.</p>
+              ) : (
+                <div className="space-y-2">
+                  {blockedList.map(entry => {
+                    const person = entry.profile;
+                    if (!person) return null;
+                    return (
+                      <div key={entry.id} className="bg-gray-800/60 rounded-lg p-3 flex items-center justify-between gap-3">
+                        <button onClick={() => onViewProfile(person.id)} className="flex items-center gap-3 group min-w-0">
+                          <Avatar profile={person} />
+                          <div className="min-w-0 text-left">
+                            <div className="text-white font-semibold text-sm group-hover:text-blue-400 transition truncate">{person.full_name}</div>
+                            <div className="text-gray-500 text-xs truncate">
+                              {person.role && person.company ? `${person.role} at ${person.company}` : `@${person.username}`}
+                            </div>
+                          </div>
+                        </button>
+                        <button
+                          onClick={() => onUnblock(entry.blocked_id)}
+                          disabled={unblockingId === entry.blocked_id}
+                          className="flex items-center gap-1.5 bg-gray-700 hover:bg-gray-600 text-gray-200 font-medium rounded-lg px-3 py-2 text-sm transition disabled:opacity-50 flex-shrink-0"
+                        >
+                          <UserCheck size={14} />
+                          {unblockingId === entry.blocked_id ? 'Unblocking...' : 'Unblock'}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
         {/* Hibernate */}
         <div className="p-5">
           <div className="flex items-center justify-between gap-4">
@@ -682,34 +714,6 @@ function MsgBox({ msg }: { msg: Msg }) {
         ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
         : 'bg-red-500/10 border-red-500/30 text-red-400'
     }`}>{msg.text}</div>
-  );
-}
-
-function SkeletonRows() {
-  return (
-    <div className="space-y-3">
-      {[1, 2].map(i => (
-        <div key={i} className="bg-gray-900 rounded-2xl border border-gray-800 p-5 animate-pulse flex items-center gap-3">
-          <div className="w-12 h-12 rounded-full bg-gray-800" />
-          <div className="space-y-2">
-            <div className="w-28 h-4 bg-gray-800 rounded" />
-            <div className="w-20 h-3 bg-gray-800 rounded" />
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function EmptyCard({ icon: Icon, title, desc }: { icon: typeof Ban; title: string; desc: string }) {
-  return (
-    <div className="bg-gray-900 rounded-2xl border border-gray-800 p-8 text-center">
-      <div className="w-14 h-14 bg-gray-800 rounded-2xl flex items-center justify-center mx-auto mb-3">
-        <Icon size={24} className="text-gray-600" />
-      </div>
-      <p className="text-gray-400 font-medium text-sm">{title}</p>
-      <p className="text-gray-600 text-xs mt-1">{desc}</p>
-    </div>
   );
 }
 
