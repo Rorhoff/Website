@@ -102,20 +102,20 @@ ok "Checkout + venv ready."
 provision_database() {
   [[ "$HAVE_PSQL" -eq 1 ]] || { warn "psql unavailable — create $PROD_DB manually."; return 0; }
 
-  local dev_env="$DEV_DIR/.env.dev"
-  if [[ ! -f "$dev_env" ]]; then
-    warn "No $dev_env — cannot derive DB connection. Create $PROD_DB manually and set DATABASE_URL in $ENV_FILE."
-    return 0
-  fi
-
-  # Pipefail-safe: sed prints the value, tail consumes all input (no SIGPIPE from an early
-  # 'head' exit), and '|| true' covers the no-match case. Then strip one layer of quotes.
-  local dev_db_url
-  dev_db_url="$(sed -n 's/^DATABASE_URL=//p' "$dev_env" | tail -n1 || true)"
-  dev_db_url="${dev_db_url%[\"\']}"
-  dev_db_url="${dev_db_url#[\"\']}"
+  # The dev service may load its DATABASE_URL from .env.dev OR .env (systemd vs ENV_FILE),
+  # so check both and take the first that defines it. Pipefail-safe: sed prints the value,
+  # tail consumes all input (no SIGPIPE), '|| true' covers no-match. Then strip one layer
+  # of surrounding quotes.
+  local dev_db_url="" f
+  for f in "$DEV_DIR/.env.dev" "$DEV_DIR/.env"; do
+    [[ -f "$f" ]] || continue
+    dev_db_url="$(sed -n 's/^DATABASE_URL=//p' "$f" | tail -n1 || true)"
+    dev_db_url="${dev_db_url%[\"\']}"
+    dev_db_url="${dev_db_url#[\"\']}"
+    [[ -n "$dev_db_url" ]] && { log "Derived DB connection from $f"; break; }
+  done
   if [[ -z "$dev_db_url" ]]; then
-    warn "DATABASE_URL not set in $dev_env — skipping DB auto-create."
+    warn "No DATABASE_URL found in $DEV_DIR/.env.dev or $DEV_DIR/.env — create $PROD_DB manually and set DATABASE_URL in $ENV_FILE."
     return 0
   fi
 
