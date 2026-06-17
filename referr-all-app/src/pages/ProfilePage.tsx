@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import {
   Briefcase, Building, Camera, ChevronDown, Crown, Edit2, ExternalLink, Link, Loader,
   MapPin, MessageSquare, MoreVertical, Plus, Save, Settings, ShieldBan, Star, Tag, Trash2,
-  User, UserCheck, UserPlus, Wifi, X,
+  User, UserCheck, UserPlus, Wifi, X, ArrowLeft,
 } from 'lucide-react';
 import CreateSeekerPostModal from '../components/CreateSeekerPostModal';
 import CreateJobPostModal from '../components/CreateJobPostModal';
@@ -17,9 +17,10 @@ type Props = {
   userId: string;
   onMessage: (userId: string) => void;
   onOpenSettings?: () => void;
+  onBack?: () => void;
 };
 
-export default function ProfilePage({ userId, onMessage, onOpenSettings }: Props) {
+export default function ProfilePage({ userId, onMessage, onOpenSettings, onBack }: Props) {
   const { user, profile: myProfile, refreshProfile, premiumConfirmError } = useAuth();
   const isOwn = user?.id === userId;
 
@@ -350,7 +351,16 @@ export default function ProfilePage({ userId, onMessage, onOpenSettings }: Props
   const hasOwnSeekerPost = seekerPosts.length > 0;
 
   return (
-    <div className="max-w-2xl mx-auto pb-20 md:pb-0 space-y-5">
+    <div className="max-w-2xl mx-auto pb-20 md:pb-0 space-y-5 min-w-0 w-full">
+      {onBack && (
+        <button
+          onClick={onBack}
+          className="flex items-center gap-2 text-gray-400 hover:text-white text-sm font-medium transition -mb-1"
+        >
+          <ArrowLeft size={16} />
+          Back
+        </button>
+      )}
       {/* Profile card — no overflow-hidden so mobile action menus aren't clipped */}
       <div className="bg-gray-900 rounded-2xl border border-gray-800">
         <div className="relative group h-24 rounded-t-2xl overflow-hidden bg-gradient-to-r from-blue-600/30 via-cyan-500/20 to-gray-900">
@@ -372,11 +382,11 @@ export default function ProfilePage({ userId, onMessage, onOpenSettings }: Props
                 type="button"
                 onClick={() => bannerInputRef.current?.click()}
                 disabled={bannerUploading}
-                className="absolute top-2 right-2 flex items-center gap-1.5 bg-black/50 hover:bg-black/70 text-white text-xs font-medium rounded-lg px-2.5 py-1.5 transition opacity-100 sm:opacity-0 sm:group-hover:opacity-100 disabled:opacity-50"
+                className="absolute top-2 right-2 flex items-center gap-1.5 bg-black/50 hover:bg-black/70 text-white text-xs font-medium rounded-lg px-2 py-1.5 sm:px-2.5 transition opacity-100 sm:opacity-0 sm:group-hover:opacity-100 disabled:opacity-50"
                 title="Change banner photo"
               >
                 <Camera size={13} />
-                Change photo
+                <span className="hidden sm:inline">Change photo</span>
               </button>
               <input
                 ref={bannerInputRef}
@@ -389,11 +399,11 @@ export default function ProfilePage({ userId, onMessage, onOpenSettings }: Props
           )}
         </div>
         {bannerError && (
-          <p className="text-red-400 text-xs px-6 pt-2">{bannerError}</p>
+          <p className="text-red-400 text-xs px-4 sm:px-6 pt-2">{bannerError}</p>
         )}
 
-        <div className="px-6 pb-6">
-            <div className="flex items-end justify-between -mt-10 mb-4 relative z-10">
+        <div className="px-4 sm:px-6 pb-6">
+            <div className="flex items-end justify-between gap-3 -mt-10 mb-4 relative z-10 min-w-0">
             {/* Avatar */}
             <div className="relative group">
               <div className="w-20 h-20 rounded-full bg-blue-500/20 border-4 border-gray-900 flex items-center justify-center overflow-hidden">
@@ -434,19 +444,19 @@ export default function ProfilePage({ userId, onMessage, onOpenSettings }: Props
               <p className="text-red-400 text-xs mt-2 max-w-xs">{avatarError}</p>
             )}
 
-            <div className="flex items-center gap-2 mt-2">
+            <div className="flex items-center gap-2 mt-2 flex-shrink-0">
               {isOwn ? (
                 <div className="flex flex-col items-stretch gap-2">
                   <button
                     onClick={() => setEditing(true)}
-                    className="flex items-center justify-center gap-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 font-medium rounded-xl px-4 py-2 text-sm transition"
+                    className="flex items-center justify-center gap-1.5 sm:gap-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 font-medium rounded-xl px-3 sm:px-4 py-2 text-xs sm:text-sm transition whitespace-nowrap"
                   >
                     <Edit2 size={14} />
                     Edit Profile
                   </button>
                   <button
                     onClick={() => onOpenSettings?.()}
-                    className="flex items-center justify-center gap-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 font-medium rounded-xl px-4 py-2 text-sm transition"
+                    className="flex items-center justify-center gap-1.5 sm:gap-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 font-medium rounded-xl px-3 sm:px-4 py-2 text-xs sm:text-sm transition whitespace-nowrap"
                   >
                     <Settings size={14} />
                     Settings
@@ -636,18 +646,20 @@ export default function ProfilePage({ userId, onMessage, onOpenSettings }: Props
 
       {/* Seeker Posts */}
       {(activeSeekerPosts.length > 0 || isOwn) && (
-        <div>
-          <div className="flex items-center justify-between gap-3 mb-4">
-            <h2 className="text-lg font-bold text-white">
+        <div className="min-w-0">
+          <div className="flex items-center justify-between gap-3 mb-4 min-w-0">
+            <h2 className="text-base sm:text-lg font-bold text-white min-w-0 truncate">
               {isOwn ? 'My Seeker Posts' : 'Open to Work'}
-              <span className="text-gray-600 font-normal text-base ml-2">({activeSeekerPosts.length})</span>
+              <span className="text-gray-600 font-normal text-sm sm:text-base ml-1.5 sm:ml-2">({activeSeekerPosts.length})</span>
             </h2>
             {isOwn && (
-              <ProfilePostDropdown
+              <div className="flex-shrink-0">
+                <ProfilePostDropdown
                 hasOwnSeekerPost={hasOwnSeekerPost}
                 onJob={() => setShowCreateJob(true)}
                 onSeeker={() => setShowCreateSeeker(true)}
               />
+              </div>
             )}
           </div>
           {upgradeError && (
@@ -777,10 +789,10 @@ export default function ProfilePage({ userId, onMessage, onOpenSettings }: Props
       )}
 
       {/* Referral Posts */}
-      <div>
-        <h2 className="text-lg font-bold text-white mb-4">
+      <div className="min-w-0">
+        <h2 className="text-base sm:text-lg font-bold text-white mb-4 truncate">
           {isOwn ? 'My Referral Posts' : `${profile.full_name}'s Posts`}
-          <span className="text-gray-600 font-normal text-base ml-2">({posts.length})</span>
+          <span className="text-gray-600 font-normal text-sm sm:text-base ml-1.5 sm:ml-2">({posts.length})</span>
         </h2>
 
         {posts.length === 0 ? (
@@ -978,7 +990,7 @@ function ProfilePostDropdown({
     <div className="relative group">
       <button
         type="button"
-        className="flex items-center gap-2 bg-blue-500 hover:bg-blue-600 text-white font-semibold px-4 py-2.5 rounded-xl text-sm transition-colors shadow-lg shadow-blue-500/20"
+        className="flex items-center gap-1.5 sm:gap-2 bg-blue-500 hover:bg-blue-600 text-white font-semibold px-3 sm:px-4 py-2.5 rounded-xl text-sm transition-colors shadow-lg shadow-blue-500/20"
       >
         <Plus size={16} />
         Post

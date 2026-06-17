@@ -123,32 +123,32 @@ export default function FeedPage({ onViewProfile, onMessage }: Props) {
   const hasActiveFilters = filterState || filterField || filterRemote;
 
   return (
-    <div className="max-w-2xl mx-auto pb-20 md:pb-0">
+    <div className="max-w-2xl mx-auto pb-20 md:pb-0 min-w-0 w-full">
       {/* Featured payment success banner */}
       {showFeaturedBanner && (
-        <div className="mb-5 flex items-center gap-3 bg-amber-500/10 border border-amber-400/30 rounded-xl px-4 py-3">
+        <div className="mb-5 flex items-center gap-3 bg-amber-500/10 border border-amber-400/30 rounded-xl px-4 py-3 min-w-0">
           <Star size={16} className="text-amber-400 fill-amber-400 flex-shrink-0" />
-          <p className="text-amber-300 text-sm font-medium flex-1">Your post is now featured! It will appear at the top of the Seekers feed for 30 days.</p>
+          <p className="text-amber-300 text-sm font-medium flex-1 min-w-0">Your post is now featured! It will appear at the top of the Seekers feed for 30 days.</p>
           <button onClick={() => setShowFeaturedBanner(false)} className="text-amber-400/60 hover:text-amber-300 transition"><X size={16} /></button>
         </div>
       )}
       {featuredReturn && premiumConfirmError && (
-        <div className="mb-5 flex items-center gap-3 bg-red-500/10 border border-red-400/30 rounded-xl px-4 py-3">
-          <p className="text-red-300 text-sm flex-1">
+        <div className="mb-5 bg-red-500/10 border border-red-400/30 rounded-xl px-4 py-3">
+          <p className="text-red-300 text-sm break-words">
             {premiumConfirmError} Check Stripe webhook URL is exactly{' '}
-            <span className="font-mono text-red-200">https://rorhoff.com/api/referr-all/premium/webhook</span>
+            <span className="font-mono text-red-200 break-all">https://rorhoff.com/api/referr-all/premium/webhook</span>
             {' '}(not romoff.com). Then open Profile and click Sync payments.
           </p>
         </div>
       )}
       {/* Header */}
-      <div className="flex items-center justify-between mb-5">
-        <div>
-          <h1 className="text-2xl font-bold text-white">Referral Feed</h1>
-          <p className="text-gray-500 text-sm mt-0.5">USA-based opportunities · ranked by skills & interests</p>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-5 min-w-0">
+        <div className="min-w-0">
+          <h1 className="text-xl sm:text-2xl font-bold text-white">Referral Feed</h1>
+          <p className="text-gray-500 text-xs sm:text-sm mt-0.5">USA opportunities · ranked by skills</p>
         </div>
-        <div className="relative group">
-          <button className="flex items-center gap-2 bg-blue-500 hover:bg-blue-600 text-white font-semibold px-4 py-2.5 rounded-xl text-sm transition-colors shadow-lg shadow-blue-500/20">
+        <div className="relative group flex-shrink-0 self-start sm:self-auto">
+          <button className="flex items-center gap-1.5 sm:gap-2 bg-blue-500 hover:bg-blue-600 text-white font-semibold px-3 sm:px-4 py-2.5 rounded-xl text-sm transition-colors shadow-lg shadow-blue-500/20">
             <Plus size={16} />
             Post
             <ChevronDown size={14} />
@@ -191,28 +191,28 @@ export default function FeedPage({ onViewProfile, onMessage }: Props) {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 bg-gray-900 rounded-xl p-1 mb-4 border border-gray-800">
+      <div className="flex gap-1 bg-gray-900 rounded-xl p-1 mb-4 border border-gray-800 min-w-0 overflow-hidden">
         <button
           onClick={() => setTab('openings')}
-          className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-all ${tab === 'openings' ? 'bg-blue-500 text-white shadow' : 'text-gray-400 hover:text-white'}`}
+          className={`flex-1 min-w-0 flex items-center justify-center gap-1 sm:gap-2 py-2.5 rounded-lg text-xs sm:text-sm font-medium transition-all ${tab === 'openings' ? 'bg-blue-500 text-white shadow' : 'text-gray-400 hover:text-white'}`}
         >
-          <Briefcase size={15} />
-          Job Openings
-          <span className={`text-xs rounded-full px-1.5 py-0.5 ${tab === 'openings' ? 'bg-white/20' : 'bg-gray-700 text-gray-400'}`}>{posts.length}</span>
+          <Briefcase size={14} className="flex-shrink-0 hidden sm:block" />
+          <span className="truncate"><span className="sm:hidden">Openings</span><span className="hidden sm:inline">Job Openings</span></span>
+          <span className={`flex-shrink-0 text-xs rounded-full px-1.5 py-0.5 ${tab === 'openings' ? 'bg-white/20' : 'bg-gray-700 text-gray-400'}`}>{posts.length}</span>
         </button>
         <button
           onClick={() => setTab('seekers')}
-          className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-all ${tab === 'seekers' ? 'bg-emerald-600 text-white shadow' : 'text-gray-400 hover:text-white'}`}
+          className={`flex-1 min-w-0 flex items-center justify-center gap-1 sm:gap-2 py-2.5 rounded-lg text-xs sm:text-sm font-medium transition-all ${tab === 'seekers' ? 'bg-emerald-600 text-white shadow' : 'text-gray-400 hover:text-white'}`}
         >
-          <User size={15} />
-          Job Seekers
-          <span className={`text-xs rounded-full px-1.5 py-0.5 ${tab === 'seekers' ? 'bg-white/20' : 'bg-gray-700 text-gray-400'}`}>{seekerPosts.length}</span>
+          <User size={14} className="flex-shrink-0" />
+          <span className="truncate"><span className="sm:hidden">Seekers</span><span className="hidden sm:inline">Job Seekers</span></span>
+          <span className={`flex-shrink-0 text-xs rounded-full px-1.5 py-0.5 ${tab === 'seekers' ? 'bg-white/20' : 'bg-gray-700 text-gray-400'}`}>{seekerPosts.length}</span>
         </button>
       </div>
 
       {/* Search + Filter row */}
-      <div className="flex gap-2 mb-3">
-        <div className="relative flex-1">
+      <div className="flex gap-2 mb-3 min-w-0">
+        <div className="relative flex-1 min-w-0">
           <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-500" />
           <input
             type="text"
@@ -224,14 +224,15 @@ export default function FeedPage({ onViewProfile, onMessage }: Props) {
         </div>
         <button
           onClick={() => setShowFilters(!showFilters)}
-          className={`flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-sm font-medium border transition ${
+          aria-label="Filters"
+          className={`flex-shrink-0 flex items-center gap-1.5 px-2.5 sm:px-3.5 py-2.5 rounded-xl text-sm font-medium border transition ${
             hasActiveFilters
               ? 'bg-blue-500/10 border-blue-500/40 text-blue-400'
               : 'bg-gray-900 border-gray-800 text-gray-400 hover:text-white hover:border-gray-700'
           }`}
         >
           <Filter size={15} />
-          Filters
+          <span className="hidden sm:inline">Filters</span>
           {hasActiveFilters && <span className="w-1.5 h-1.5 rounded-full bg-blue-400" />}
         </button>
       </div>

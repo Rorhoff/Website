@@ -12,12 +12,15 @@ import PrivacyPage from './pages/PrivacyPage';
 
 type Page = 'feed' | 'network' | 'messages' | 'profile' | 'settings' | 'terms' | 'privacy';
 
+type NavSnapshot = { page: Page; viewingUserId: string | null };
+
 function AppInner() {
   const { user, profile, loading, signOut } = useAuth();
   const [page, setPage] = useState<Page>('feed');
   const [viewingUserId, setViewingUserId] = useState<string | null>(null);
   const [messageUserId, setMessageUserId] = useState<string | null>(null);
   const [prevPage, setPrevPage] = useState<Page>('feed');
+  const [returnTo, setReturnTo] = useState<NavSnapshot | null>(null);
 
   if (loading) {
     return (
@@ -63,6 +66,7 @@ function AppInner() {
     if (p === 'terms' || p === 'privacy') {
       setPrevPage(page as Page);
     }
+    setReturnTo(null);
     setPage(p);
     // Main nav always shows your own profile; clear any "viewing someone else" id.
     setViewingUserId(null);
@@ -71,12 +75,34 @@ function AppInner() {
     }
   }
 
+  function goBack() {
+    if (returnTo) {
+      setPage(returnTo.page);
+      setViewingUserId(returnTo.viewingUserId);
+      setReturnTo(null);
+      if (returnTo.page !== 'messages') {
+        setMessageUserId(null);
+      }
+      return;
+    }
+    navigate('feed');
+  }
+
   function handleViewProfile(userId: string) {
+    if (userId !== user?.id) {
+      setReturnTo({ page, viewingUserId });
+    }
     setViewingUserId(userId);
     setPage('profile');
   }
 
+  function openSettings() {
+    setReturnTo({ page, viewingUserId });
+    setPage('settings');
+  }
+
   function handleMessage(userId: string) {
+    setReturnTo({ page, viewingUserId });
     setMessageUserId(userId);
     setPage('messages');
   }
@@ -99,12 +125,13 @@ function AppInner() {
         <ProfilePage
           userId={viewingUserId || user.id}
           onMessage={handleMessage}
-          onOpenSettings={() => navigate('settings')}
+          onOpenSettings={openSettings}
+          onBack={viewingUserId ? goBack : undefined}
         />
       )}
       {page === 'settings' && (
         <SettingsPage
-          onBack={() => navigate('profile')}
+          onBack={goBack}
           onViewProfile={handleViewProfile}
         />
       )}

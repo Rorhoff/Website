@@ -11,11 +11,19 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     -webkit-text-size-adjust: 100%;
+    overflow-x: hidden;
   }
 
   body {
     background-color: #030712;
     color: #f9fafb;
+    overflow-x: hidden;
+    max-width: 100%;
+  }
+
+  #root {
+    overflow-x: hidden;
+    max-width: 100%;
   }
 
   /* Prevent iOS Safari from auto-zooming when focusing form controls.
