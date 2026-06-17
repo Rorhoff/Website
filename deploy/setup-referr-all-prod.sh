@@ -96,59 +96,76 @@ ok "Checkout + venv ready."
 # ---------------------------------------------------------------------------
 # Phase 2: dedicated prod database (derived from dev .env.dev)
 # ---------------------------------------------------------------------------
-phase "Phase 2: database ($PROD_DB)"
-PROD_APP_DB_URL=""
-if [[ "$HAVE_PSQL" -eq 1 ]]; then
-  DEV_ENV="$DEV_DIR/.env.dev"
-  if [[ ! -f "$DEV_ENV" ]]; then
-    warn "No $DEV_ENV — cannot derive DB connection. Create $PROD_DB manually and set DATABASE_URL in $ENV_FILE."
-  else
-    DEV_DB_URL="$(grep -E '^DATABASE_URL=' "$DEV_ENV" | head -n1 | cut -d= -f2- | sed -e 's/^["'\'']//' -e 's/["'\'']$//')"
-    if [[ -z "$DEV_DB_URL" ]]; then
-      warn "DATABASE_URL not set in $DEV_ENV — skipping DB auto-create."
-    else
-      # Derive: prod app URL (keeps the +psycopg driver, db=ReferrAll_Prod) and admin URLs
-      # (plain postgresql:// to the maintenance DB and to the dev DB as a fallback).
-      mapfile -t _DB < <(python3 - "$DEV_DB_URL" "$PROD_DB" <<'PY'
+# Provision the dedicated prod DB. Fully non-fatal: every risky command is guarded so a
+# missing var / bad connection only warns and the script continues to the cert phase.
+# Sets the global PROD_APP_DB_URL when it can derive the connection.
+provision_database() {
+  [[ "$HAVE_PSQL" -eq 1 ]] || { warn "psql unavailable — create $PROD_DB manually."; return 0; }
+
+  local dev_env="$DEV_DIR/.env.dev"
+  if [[ ! -f "$dev_env" ]]; then
+    warn "No $dev_env — cannot derive DB connection. Create $PROD_DB manually and set DATABASE_URL in $ENV_FILE."
+    return 0
+  fi
+
+  # Pipefail-safe: sed prints the value, tail consumes all input (no SIGPIPE from an early
+  # 'head' exit), and '|| true' covers the no-match case. Then strip one layer of quotes.
+  local dev_db_url
+  dev_db_url="$(sed -n 's/^DATABASE_URL=//p' "$dev_env" | tail -n1 || true)"
+  dev_db_url="${dev_db_url%[\"\']}"
+  dev_db_url="${dev_db_url#[\"\']}"
+  if [[ -z "$dev_db_url" ]]; then
+    warn "DATABASE_URL not set in $dev_env — skipping DB auto-create."
+    return 0
+  fi
+
+  # Derive the prod app URL (keeps the +psycopg driver, db=ReferrAll_Prod) plus two admin
+  # URLs (plain postgresql:// to the maintenance DB, then to the dev DB as a fallback).
+  local derived app admin_pg admin_dev
+  derived="$(python3 - "$dev_db_url" "$PROD_DB" <<'PY' || true
 import sys, urllib.parse as u
 dev, prod_db = sys.argv[1], sys.argv[2]
 p = u.urlparse(dev)
-app = p._replace(path="/" + prod_db).geturl()
-admin_pg  = p._replace(scheme="postgresql", path="/postgres").geturl()
-admin_dev = p._replace(scheme="postgresql").geturl()
-print(app)
-print(admin_pg)
-print(admin_dev)
+print(p._replace(path="/" + prod_db).geturl())
+print(p._replace(scheme="postgresql", path="/postgres").geturl())
+print(p._replace(scheme="postgresql").geturl())
 PY
-)
-      PROD_APP_DB_URL="${_DB[0]}"
-      ADMIN_PG_URL="${_DB[1]}"
-      ADMIN_DEV_URL="${_DB[2]}"
-
-      # Pick an admin connection that works (maintenance 'postgres' db, else the dev db).
-      ADMIN_URL=""
-      if psql "$ADMIN_PG_URL" -tAc "SELECT 1" >/dev/null 2>&1; then
-        ADMIN_URL="$ADMIN_PG_URL"
-      elif psql "$ADMIN_DEV_URL" -tAc "SELECT 1" >/dev/null 2>&1; then
-        ADMIN_URL="$ADMIN_DEV_URL"
-      fi
-
-      if [[ -z "$ADMIN_URL" ]]; then
-        warn "Could not connect to Postgres with the dev credentials — create $PROD_DB manually."
-      else
-        _exists="$(psql "$ADMIN_URL" -tAc "SELECT 1 FROM pg_database WHERE datname='$PROD_DB'" 2>/dev/null || echo "")"
-        if [[ "$_exists" == "1" ]]; then
-          ok "Database $PROD_DB already exists."
-        else
-          log "Creating database $PROD_DB…"
-          psql "$ADMIN_URL" -c "CREATE DATABASE \"$PROD_DB\"" \
-            && ok "Created $PROD_DB (empty; tables auto-create on first service start)." \
-            || warn "CREATE DATABASE failed — create $PROD_DB manually."
-        fi
-      fi
-    fi
+)"
+  app="$(printf '%s\n' "$derived" | sed -n '1p')"
+  admin_pg="$(printf '%s\n' "$derived" | sed -n '2p')"
+  admin_dev="$(printf '%s\n' "$derived" | sed -n '3p')"
+  if [[ -z "$app" ]]; then
+    warn "Could not parse the dev DATABASE_URL — set DATABASE_URL in $ENV_FILE manually."
+    return 0
   fi
-fi
+  PROD_APP_DB_URL="$app"
+
+  local admin_url=""
+  if psql "$admin_pg" -tAc "SELECT 1" >/dev/null 2>&1; then
+    admin_url="$admin_pg"
+  elif psql "$admin_dev" -tAc "SELECT 1" >/dev/null 2>&1; then
+    admin_url="$admin_dev"
+  fi
+  if [[ -z "$admin_url" ]]; then
+    warn "Could not connect to Postgres with the dev credentials — create $PROD_DB manually."
+    return 0
+  fi
+
+  local exists
+  exists="$(psql "$admin_url" -tAc "SELECT 1 FROM pg_database WHERE datname='$PROD_DB'" 2>/dev/null || true)"
+  if [[ "$exists" == "1" ]]; then
+    ok "Database $PROD_DB already exists."
+  elif psql "$admin_url" -c "CREATE DATABASE \"$PROD_DB\""; then
+    ok "Created $PROD_DB (empty; tables auto-create on first service start)."
+  else
+    warn "CREATE DATABASE failed — create $PROD_DB manually."
+  fi
+  return 0
+}
+
+phase "Phase 2: database ($PROD_DB)"
+PROD_APP_DB_URL=""
+provision_database || warn "Database phase skipped (continuing with provisioning)."
 
 # ---------------------------------------------------------------------------
 # Phase 3: env file
@@ -163,7 +180,7 @@ fi
 chmod 600 "$ENV_FILE"
 
 if [[ -n "$PROD_APP_DB_URL" ]]; then
-  python3 - "$ENV_FILE" "$PROD_APP_DB_URL" <<'PY'
+  if python3 - "$ENV_FILE" "$PROD_APP_DB_URL" <<'PY'
 import sys
 path, url = sys.argv[1], sys.argv[2]
 lines = open(path, encoding="utf-8").read().splitlines()
@@ -177,7 +194,11 @@ if not done:
     out.append("DATABASE_URL=" + url)
 open(path, "w", encoding="utf-8").write("\n".join(out) + "\n")
 PY
-  ok "Set DATABASE_URL in $ENV_FILE to the derived $PROD_DB connection."
+  then
+    ok "Set DATABASE_URL in $ENV_FILE to the derived $PROD_DB connection."
+  else
+    warn "Could not rewrite DATABASE_URL — set it manually in $ENV_FILE (db must be $PROD_DB)."
+  fi
 else
   warn "DATABASE_URL not auto-set — set it manually in $ENV_FILE (db must be $PROD_DB)."
 fi
@@ -188,9 +209,10 @@ echo "  - CLOUDFLARE_API_TOKEN   (token with 'Email Sending: Edit')"
 echo "  - CLOUDFLARE_ACCOUNT_ID"
 echo "  - STRIPE_* live keys      (optional, for premium)"
 echo "  - S3_* / R2               (optional, for uploads)"
-read -r -p "Open $ENV_FILE in an editor now? [Y/n] " _ans
+_ans=""
+read -r -p "Open $ENV_FILE in an editor now? [Y/n] " _ans || true
 if [[ ! "${_ans:-Y}" =~ ^[Nn]$ ]]; then
-  "${EDITOR:-nano}" "$ENV_FILE"
+  "${EDITOR:-nano}" "$ENV_FILE" || warn "Editor exited non-zero — re-check $ENV_FILE before deploying."
 fi
 if ! grep -qE '^CLOUDFLARE_API_TOKEN=.+' "$ENV_FILE"; then
   warn "CLOUDFLARE_API_TOKEN is still empty — email sending will be a logged no-op until you set it."
