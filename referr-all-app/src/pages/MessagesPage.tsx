@@ -23,7 +23,7 @@ export default function MessagesPage({ initialUserId, onClearInitial }: Props) {
   const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   const [isMobile, setIsMobile] = useState(
     typeof window !== 'undefined' && window.innerWidth < 768,
   );
@@ -95,7 +95,10 @@ export default function MessagesPage({ initialUserId, onClearInitial }: Props) {
   }, [selectedConvId]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    // Scroll only the message list to the bottom — never the page/window, which
+    // on mobile would push the whole view down and reveal blank space.
+    const el = messagesContainerRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
   }, [messages]);
 
   async function sendMessage(e: React.FormEvent) {
@@ -192,7 +195,7 @@ export default function MessagesPage({ initialUserId, onClearInitial }: Props) {
                 )}
                 <div className="text-white font-semibold text-sm">{selectedConv.otherUser?.full_name}</div>
               </div>
-              <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-4 space-y-3">
                 {messages.map(msg => {
                   const isMine = msg.sender_id === user?.id;
                   return (
@@ -203,7 +206,6 @@ export default function MessagesPage({ initialUserId, onClearInitial }: Props) {
                     </div>
                   );
                 })}
-                <div ref={messagesEndRef} />
               </div>
               <form onSubmit={sendMessage} className="p-4 border-t border-gray-800 flex gap-2">
                 <input

@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import {
   Briefcase, Building, Camera, ChevronDown, Crown, Edit2, ExternalLink, Link, Loader,
-  MapPin, MessageSquare, Plus, Save, Settings, ShieldBan, Star, Tag, Trash2, User, UserCheck,
-  UserPlus, Wifi, X,
+  MapPin, MessageSquare, MoreVertical, Plus, Save, Settings, ShieldBan, Star, Tag, Trash2,
+  User, UserCheck, UserPlus, Wifi, X,
 } from 'lucide-react';
 import CreateSeekerPostModal from '../components/CreateSeekerPostModal';
 import CreateJobPostModal from '../components/CreateJobPostModal';
@@ -41,6 +41,7 @@ export default function ProfilePage({ userId, onMessage, onOpenSettings }: Props
   const [blockLoading, setBlockLoading] = useState(false);
   const [showCreateSeeker, setShowCreateSeeker] = useState(false);
   const [showCreateJob, setShowCreateJob] = useState(false);
+  const [actionsOpen, setActionsOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [form, setForm] = useState({
@@ -313,6 +314,12 @@ export default function ProfilePage({ userId, onMessage, onOpenSettings }: Props
 
   const connStatus = connection?.status;
   const isRequester = connection?.requester_id === user?.id;
+  const connectLabel = connStatus === 'accepted'
+    ? 'Remove connection'
+    : connStatus === 'pending'
+      ? (isRequester ? 'Request sent' : 'Pending')
+      : 'Connect';
+  const connectDisabled = connStatus === 'pending' || actionLoading;
 
   const activeSeekerPosts = seekerPosts.filter(p => isPremiumActive(p) || !p.is_premium);
   const hasOwnSeekerPost = seekerPosts.length > 0;
@@ -385,49 +392,102 @@ export default function ProfilePage({ userId, onMessage, onOpenSettings }: Props
                 </div>
               ) : (
                 <>
-                  <button
-                    onClick={() => onMessage(userId)}
-                    className="flex items-center gap-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 font-medium rounded-xl px-4 py-2 text-sm transition"
-                  >
-                    <MessageSquare size={14} />
-                    Message
-                  </button>
-                  {connStatus === 'accepted' ? (
+                  {/* Desktop: inline action buttons */}
+                  <div className="hidden sm:flex items-center gap-2">
                     <button
-                      onClick={handleConnect}
-                      disabled={actionLoading}
-                      className="flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 font-medium rounded-xl px-4 py-2 text-sm transition hover:bg-red-500/10 hover:border-red-500/30 hover:text-red-400 disabled:opacity-50"
+                      onClick={() => onMessage(userId)}
+                      className="flex items-center gap-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 font-medium rounded-xl px-4 py-2 text-sm transition"
                     >
-                      <UserCheck size={14} />
-                      Connected
+                      <MessageSquare size={14} />
+                      Message
                     </button>
-                  ) : connStatus === 'pending' ? (
-                    <button disabled className="flex items-center gap-2 bg-amber-500/10 border border-amber-500/30 text-amber-400 font-medium rounded-xl px-4 py-2 text-sm opacity-70">
-                      {isRequester ? 'Request Sent' : 'Pending'}
-                    </button>
-                  ) : (
+                    {connStatus === 'accepted' ? (
+                      <button
+                        onClick={handleConnect}
+                        disabled={actionLoading}
+                        className="flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 font-medium rounded-xl px-4 py-2 text-sm transition hover:bg-red-500/10 hover:border-red-500/30 hover:text-red-400 disabled:opacity-50"
+                      >
+                        <UserCheck size={14} />
+                        Connected
+                      </button>
+                    ) : connStatus === 'pending' ? (
+                      <button disabled className="flex items-center gap-2 bg-amber-500/10 border border-amber-500/30 text-amber-400 font-medium rounded-xl px-4 py-2 text-sm opacity-70">
+                        {isRequester ? 'Request Sent' : 'Pending'}
+                      </button>
+                    ) : (
+                      <button
+                        onClick={handleConnect}
+                        disabled={actionLoading}
+                        className="flex items-center gap-2 bg-blue-500 hover:bg-blue-600 text-white font-medium rounded-xl px-4 py-2 text-sm transition disabled:opacity-50"
+                      >
+                        <UserPlus size={14} />
+                        Connect
+                      </button>
+                    )}
                     <button
-                      onClick={handleConnect}
-                      disabled={actionLoading}
-                      className="flex items-center gap-2 bg-blue-500 hover:bg-blue-600 text-white font-medium rounded-xl px-4 py-2 text-sm transition disabled:opacity-50"
+                      onClick={handleBlock}
+                      disabled={blockLoading}
+                      className={`flex items-center gap-2 font-medium rounded-xl px-3 py-2 text-sm transition disabled:opacity-50 ${
+                        isBlocked
+                          ? 'bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20'
+                          : 'bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-500 hover:text-red-400'
+                      }`}
+                      title={isBlocked ? 'Unblock user' : 'Block user'}
                     >
-                      <UserPlus size={14} />
-                      Connect
+                      <ShieldBan size={14} />
+                      {isBlocked ? 'Blocked' : 'Block'}
                     </button>
-                  )}
-                  <button
-                    onClick={handleBlock}
-                    disabled={blockLoading}
-                    className={`flex items-center gap-2 font-medium rounded-xl px-3 py-2 text-sm transition disabled:opacity-50 ${
-                      isBlocked
-                        ? 'bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20'
-                        : 'bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-500 hover:text-red-400'
-                    }`}
-                    title={isBlocked ? 'Unblock user' : 'Block user'}
-                  >
-                    <ShieldBan size={14} />
-                    {isBlocked ? 'Blocked' : 'Block'}
-                  </button>
+                  </div>
+
+                  {/* Mobile: collapse the actions into a single menu */}
+                  <div className="relative sm:hidden">
+                    <button
+                      onClick={() => setActionsOpen(o => !o)}
+                      className="w-10 h-10 flex items-center justify-center bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 rounded-xl transition"
+                      title="Actions"
+                      aria-haspopup="true"
+                      aria-expanded={actionsOpen}
+                    >
+                      <MoreVertical size={18} />
+                    </button>
+                    {actionsOpen && (
+                      <>
+                        <button
+                          type="button"
+                          aria-hidden="true"
+                          onClick={() => setActionsOpen(false)}
+                          className="fixed inset-0 z-20 cursor-default"
+                        />
+                        <div className="absolute right-0 top-full mt-1.5 w-52 bg-gray-900 border border-gray-700 rounded-xl shadow-xl z-30 overflow-hidden">
+                          <button
+                            onClick={() => { setActionsOpen(false); onMessage(userId); }}
+                            className="flex items-center gap-3 w-full px-4 py-3 text-sm text-gray-300 hover:bg-gray-800 transition"
+                          >
+                            <MessageSquare size={15} className="text-gray-400" />
+                            Message
+                          </button>
+                          <button
+                            onClick={() => { setActionsOpen(false); if (!connectDisabled) handleConnect(); }}
+                            disabled={connectDisabled}
+                            className="flex items-center gap-3 w-full px-4 py-3 text-sm text-gray-300 hover:bg-gray-800 transition disabled:opacity-50 border-t border-gray-800"
+                          >
+                            {connStatus === 'accepted'
+                              ? <UserCheck size={15} className="text-emerald-400" />
+                              : <UserPlus size={15} className="text-blue-400" />}
+                            {connectLabel}
+                          </button>
+                          <button
+                            onClick={() => { setActionsOpen(false); handleBlock(); }}
+                            disabled={blockLoading}
+                            className="flex items-center gap-3 w-full px-4 py-3 text-sm text-red-400 hover:bg-gray-800 transition disabled:opacity-50 border-t border-gray-800"
+                          >
+                            <ShieldBan size={15} />
+                            {isBlocked ? 'Unblock' : 'Block'}
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
                 </>
               )}
             </div>
