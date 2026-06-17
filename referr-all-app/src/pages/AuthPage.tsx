@@ -142,7 +142,7 @@ export default function AuthPage() {
 
   const features = [
     { icon: Briefcase, title: 'Post Job Openings', desc: 'Share referral opportunities at your company' },
-    { icon: TrendingUp, title: 'Earn Referral Bonuses', desc: 'Get rewarded when your referrals get hired' },
+    { icon: TrendingUp, title: 'Earn Referral Bonuses', desc: 'Potential awards from your company may await when your referrals get hired' },
     { icon: Users, title: 'Build Your Network', desc: 'Connect with professionals across industries' },
     { icon: MessageSquare, title: 'Direct Messaging', desc: 'Chat privately with potential candidates or friends' },
   ];
@@ -470,6 +470,30 @@ export default function AuthPage() {
                 </form>
               )
             )}
+          </div>
+
+          {/* Mobile-only marketing: shown below the form so it's reachable by scrolling */}
+          <div className="lg:hidden mt-12 mb-4">
+            <h1 className="text-3xl font-black text-white leading-tight mb-3">
+              Your network is your <span className="text-blue-400">greatest asset.</span>
+            </h1>
+            <p className="text-gray-400 text-sm mb-6">
+              Post job openings, connect with talent, and earn referral bonuses — all in one place.
+            </p>
+            <div className="grid grid-cols-1 gap-3">
+              {features.map(({ icon: Icon, title, desc }) => (
+                <div key={title} className="flex items-start gap-4 p-4 rounded-xl bg-white/5 border border-white/10">
+                  <div className="w-10 h-10 bg-blue-500/20 rounded-lg flex items-center justify-center flex-shrink-0">
+                    <Icon size={20} className="text-blue-400" />
+                  </div>
+                  <div>
+                    <div className="text-white font-semibold text-sm">{title}</div>
+                    <div className="text-gray-500 text-sm">{desc}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <p className="text-gray-600 text-xs mt-8">© 2026 Referr-All. All rights reserved.</p>
           </div>
         </div>
       </div>
