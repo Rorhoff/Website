@@ -239,6 +239,8 @@ def _validate_url(value: str | None, field: str, *, allow_data_image: bool = Fal
         return ""
     if allow_data_image and v[:11].lower() == "data:image/":
         return v
+    if not re.match(r"^https?://", v, re.I):
+        v = f"https://{v}"
     parsed = urlparse(v)
     if parsed.scheme.lower() in ("http", "https") and parsed.netloc:
         return v

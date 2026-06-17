@@ -27,29 +27,16 @@ source "$ROOT/deploy/referrall-migrate-env.sh"
 referrall_load_migration_env
 
 echo "==> Referr-All account/settings columns migration (v10)…"
-"$PYTHON" - <<'PY'
-from sqlalchemy import text
-from database import engine
+"$PYTHON" "$ROOT/deploy/referrall-migrate-db.py" \
+  "ALTER TABLE t1referrall_user ADD COLUMN IF NOT EXISTS phone varchar(32) NOT NULL DEFAULT ''" \
+  "ALTER TABLE t1referrall_user ADD COLUMN IF NOT EXISTS totp_secret varchar(64)" \
+  "ALTER TABLE t1referrall_user ADD COLUMN IF NOT EXISTS totp_enabled boolean NOT NULL DEFAULT false" \
+  "ALTER TABLE t1referrall_user ADD COLUMN IF NOT EXISTS is_deactivated boolean NOT NULL DEFAULT false" \
+  "ALTER TABLE t1referrall_user ADD COLUMN IF NOT EXISTS deactivated_at timestamp without time zone" \
+  "ALTER TABLE t1referrall_user ADD COLUMN IF NOT EXISTS settings jsonb NOT NULL DEFAULT '{}'::jsonb" \
+  "ALTER TABLE t1referrall_session ADD COLUMN IF NOT EXISTS user_agent varchar(400) NOT NULL DEFAULT ''" \
+  "ALTER TABLE t1referrall_session ADD COLUMN IF NOT EXISTS ip varchar(64) NOT NULL DEFAULT ''" \
+  "ALTER TABLE t1referrall_session ADD COLUMN IF NOT EXISTS last_seen_at timestamp without time zone"
 
-if engine is None:
-    raise SystemExit("DATABASE_URL not set")
-
-statements = [
-    "ALTER TABLE t1referrall_user ADD COLUMN IF NOT EXISTS phone varchar(32) NOT NULL DEFAULT ''",
-    "ALTER TABLE t1referrall_user ADD COLUMN IF NOT EXISTS totp_secret varchar(64)",
-    "ALTER TABLE t1referrall_user ADD COLUMN IF NOT EXISTS totp_enabled boolean NOT NULL DEFAULT false",
-    "ALTER TABLE t1referrall_user ADD COLUMN IF NOT EXISTS is_deactivated boolean NOT NULL DEFAULT false",
-    "ALTER TABLE t1referrall_user ADD COLUMN IF NOT EXISTS deactivated_at timestamp without time zone",
-    "ALTER TABLE t1referrall_user ADD COLUMN IF NOT EXISTS settings jsonb NOT NULL DEFAULT '{}'::jsonb",
-    "ALTER TABLE t1referrall_session ADD COLUMN IF NOT EXISTS user_agent varchar(400) NOT NULL DEFAULT ''",
-    "ALTER TABLE t1referrall_session ADD COLUMN IF NOT EXISTS ip varchar(64) NOT NULL DEFAULT ''",
-    "ALTER TABLE t1referrall_session ADD COLUMN IF NOT EXISTS last_seen_at timestamp without time zone",
-]
-
-with engine.begin() as conn:
-    for sql in statements:
-        conn.execute(text(sql))
-print("OK  account/settings columns ready")
-PY
-
+echo "OK  account/settings columns ready"
 echo "OK  Referr-All v10 migration complete."

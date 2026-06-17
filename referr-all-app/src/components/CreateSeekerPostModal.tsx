@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import * as api from '../lib/api';
 import { getPremiumPrice, PREMIUM_DURATION_DAYS } from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
+import { normalizeHttpUrl } from '../lib/normalizeUrl';
 import { X, Wifi, Star, ChevronRight } from 'lucide-react';
 
 const FIELDS_OF_WORK = [
@@ -45,6 +46,13 @@ export default function CreateSeekerPostModal({ onClose, onCreated }: Props) {
   });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const errorRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (error) {
+      errorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  }, [error]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -53,6 +61,8 @@ export default function CreateSeekerPostModal({ onClose, onCreated }: Props) {
     setSubmitting(true);
     try {
       const skills = form.skills.split(',').map(s => s.trim()).filter(Boolean);
+      const resumeUrl = normalizeHttpUrl(form.resume_url);
+      const portfolioUrl = normalizeHttpUrl(form.portfolio_url);
       const data = await api.createSeekerPost({
         headline: form.desired_role.trim(),
         about: form.about.trim(),
@@ -62,8 +72,8 @@ export default function CreateSeekerPostModal({ onClose, onCreated }: Props) {
         fieldOfWork: form.field_of_work,
         skills,
         experienceYears: parseFloat(form.experience_years) || 0,
-        resumeUrl: form.resume_url.trim(),
-        portfolioUrl: form.portfolio_url.trim(),
+        resumeUrl,
+        portfolioUrl,
         availability: form.availability,
       });
 
@@ -124,6 +134,15 @@ export default function CreateSeekerPostModal({ onClose, onCreated }: Props) {
             </div>
 
             <form onSubmit={handleSubmit} className="p-6 space-y-4">
+              {error && (
+                <div
+                  ref={errorRef}
+                  className="sticky top-[4.5rem] z-20 bg-red-500/15 border border-red-500/40 text-red-300 text-sm rounded-lg px-4 py-3 shadow-lg"
+                >
+                  {error}
+                </div>
+              )}
+
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-1.5">Desired Role *</label>
                 <input value={form.desired_role} onChange={e => setForm(f => ({ ...f, desired_role: e.target.value }))}
@@ -194,25 +213,20 @@ export default function CreateSeekerPostModal({ onClose, onCreated }: Props) {
                 <div>
                   <label className="block text-sm font-medium text-gray-300 mb-1.5">LinkedIn Profile</label>
                   <input value={form.resume_url} onChange={e => setForm(f => ({ ...f, resume_url: e.target.value }))}
-                    placeholder="https://linkedin.com/in/yourname" type="url"
+                    placeholder="linkedin.com/in/yourname or https://..."
                     className="w-full bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-2.5 text-sm placeholder-gray-600 focus:outline-none focus:border-blue-500 transition" />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-300 mb-1.5">Portfolio URL</label>
                   <input value={form.portfolio_url} onChange={e => setForm(f => ({ ...f, portfolio_url: e.target.value }))}
-                    placeholder="https://..." type="url"
+                    placeholder="yoursite.com or https://..."
                     className="w-full bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-2.5 text-sm placeholder-gray-600 focus:outline-none focus:border-blue-500 transition" />
                 </div>
               </div>
 
-              {error && <div className="bg-red-500/10 border border-red-500/30 text-red-400 text-sm rounded-lg px-4 py-3">{error}</div>}
-
-              <div className="flex gap-3 pt-2">
-                <button type="button" onClick={onClose} className="flex-1 bg-gray-800 hover:bg-gray-700 text-gray-300 font-medium rounded-xl py-3 text-sm transition">Cancel</button>
-                <button type="submit" disabled={submitting} className="flex-1 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-semibold rounded-xl py-3 text-sm transition">
-                  {submitting ? 'Posting...' : 'Post & Continue'}
-                </button>
-              </div>
+              <button type="submit" disabled={submitting} className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-semibold rounded-xl py-3 text-sm transition">
+                {submitting ? 'Posting...' : 'Post & Continue'}
+              </button>
             </form>
           </>
         ) : (

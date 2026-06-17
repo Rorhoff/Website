@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import * as api from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
+import { normalizeHttpUrl } from '../lib/normalizeUrl';
 import { X, Wifi } from 'lucide-react';
 
 type Props = {
@@ -33,7 +34,7 @@ export default function CreateJobPostModal({ onClose, onCreated }: Props) {
         description: form.description.trim(),
         location: form.location.trim(),
         isRemote: form.is_remote,
-        jobUrl: form.job_url.trim(),
+        jobUrl: normalizeHttpUrl(form.job_url),
         tags,
         requiredSkills: required_skills,
       });
@@ -95,7 +96,7 @@ export default function CreateJobPostModal({ onClose, onCreated }: Props) {
 
           <div>
             <label className="block text-sm font-medium text-gray-300 mb-1.5">Job URL</label>
-            <input value={form.job_url} onChange={e => setForm(f => ({ ...f, job_url: e.target.value }))} placeholder="https://jobs.company.com/role" type="url"
+            <input value={form.job_url} onChange={e => setForm(f => ({ ...f, job_url: e.target.value }))} placeholder="jobs.company.com/role or https://..."
               className="w-full bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-2.5 text-sm placeholder-gray-600 focus:outline-none focus:border-blue-500 transition" />
           </div>
 
@@ -107,12 +108,9 @@ export default function CreateJobPostModal({ onClose, onCreated }: Props) {
 
           {error && <div className="bg-red-500/10 border border-red-500/30 text-red-400 text-sm rounded-lg px-4 py-3">{error}</div>}
 
-          <div className="flex gap-3 pt-2">
-            <button type="button" onClick={onClose} className="flex-1 bg-gray-800 hover:bg-gray-700 text-gray-300 font-medium rounded-xl py-3 text-sm transition">Cancel</button>
-            <button type="submit" disabled={submitting} className="flex-1 bg-blue-500 hover:bg-blue-600 disabled:opacity-50 text-white font-semibold rounded-xl py-3 text-sm transition">
-              {submitting ? 'Posting...' : 'Post Opening'}
-            </button>
-          </div>
+          <button type="submit" disabled={submitting} className="w-full bg-blue-500 hover:bg-blue-600 disabled:opacity-50 text-white font-semibold rounded-xl py-3 text-sm transition">
+            {submitting ? 'Posting...' : 'Post Opening'}
+          </button>
         </form>
       </div>
     </div>

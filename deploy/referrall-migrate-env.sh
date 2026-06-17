@@ -11,7 +11,7 @@ referrall_resolve_env_file() {
   local candidate
   for candidate in "$@"; do
     [[ -n "$candidate" && -f "$candidate" ]] || continue
-    if grep -qE '^DATABASE_URL=.+' "$candidate" 2>/dev/null; then
+    if grep -qE '^[[:space:]]*(export[[:space:]]+)?DATABASE_URL=.+' "$candidate" 2>/dev/null; then
       echo "$candidate"
       return 0
     fi
@@ -52,7 +52,36 @@ referrall_load_migration_env() {
   set +a
 
   if [[ -z "${DATABASE_URL:-}" ]]; then
+    # Some env files use export DATABASE_URL=... which bash source handles, but if the
+    # variable still isn't set try parsing the file directly.
+    local py="${PYTHON:-python3}"
+    parsed="$("$py" - "$env_file" <<'PY'
+import sys
+from pathlib import Path
+
+def parse(path: Path):
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[7:].strip()
+        if line.startswith("DATABASE_URL="):
+            return line.split("=", 1)[1].strip().strip('"').strip("'")
+    return ""
+
+print(parse(Path(sys.argv[1])))
+PY
+)"
+    if [[ -n "$parsed" ]]; then
+      export DATABASE_URL="$parsed"
+    fi
+  fi
+
+  if [[ -z "${DATABASE_URL:-}" ]]; then
     echo "ERR  DATABASE_URL is empty in $env_file" >&2
+    echo "     Check that file contains DATABASE_URL=postgresql+psycopg://..." >&2
+    echo "     Or run: grep DATABASE_URL /home/ubuntu/Website/.env /home/ubuntu/Website/.env.dev" >&2
     exit 1
   fi
 

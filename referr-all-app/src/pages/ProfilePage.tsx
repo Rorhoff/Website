@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import CreateSeekerPostModal from '../components/CreateSeekerPostModal';
 import CreateJobPostModal from '../components/CreateJobPostModal';
+import AvatarCropModal from '../components/AvatarCropModal';
 import * as api from '../lib/api';
 import { compressBannerForUpload, compressImageForUpload } from '../lib/resizeImage';
 import { isPremiumActive, storePendingPremiumSession, confirmPremiumReturn, PENDING_PREMIUM_SESSION_KEY } from '../lib/premium';
@@ -45,6 +46,7 @@ export default function ProfilePage({ userId, onMessage, onOpenSettings, onBack 
   const [showCreateSeeker, setShowCreateSeeker] = useState(false);
   const [showCreateJob, setShowCreateJob] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
+  const [avatarCropFile, setAvatarCropFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const bannerInputRef = useRef<HTMLInputElement>(null);
 
@@ -128,6 +130,13 @@ export default function ProfilePage({ userId, onMessage, onOpenSettings, onBack 
   async function handleAvatarUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file || !user) return;
+    setAvatarError('');
+    setAvatarCropFile(file);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  }
+
+  async function uploadAvatarFile(file: File) {
+    if (!user) return;
     setAvatarUploading(true);
     setAvatarError('');
     try {
@@ -142,7 +151,6 @@ export default function ProfilePage({ userId, onMessage, onOpenSettings, onBack 
       setAvatarError(err instanceof Error ? err.message : 'Avatar upload failed');
     } finally {
       setAvatarUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
     }
   }
 
@@ -970,6 +978,17 @@ export default function ProfilePage({ userId, onMessage, onOpenSettings, onBack 
           onCreated={() => {
             setShowCreateJob(false);
             loadProfile();
+          }}
+        />
+      )}
+
+      {avatarCropFile && (
+        <AvatarCropModal
+          file={avatarCropFile}
+          onCancel={() => setAvatarCropFile(null)}
+          onConfirm={async cropped => {
+            setAvatarCropFile(null);
+            await uploadAvatarFile(cropped);
           }}
         />
       )}

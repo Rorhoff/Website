@@ -24,18 +24,8 @@ source "$ROOT/deploy/referrall-migrate-env.sh"
 referrall_load_migration_env
 
 echo "==> Referr-All profile banner_url migration (v11)…"
-"$PYTHON" - <<'PY'
-from sqlalchemy import text
-from database import engine
+"$PYTHON" "$ROOT/deploy/referrall-migrate-db.py" \
+  "ALTER TABLE t1referrall_user ADD COLUMN IF NOT EXISTS banner_url text NOT NULL DEFAULT ''"
 
-if engine is None:
-    raise SystemExit("DATABASE_URL not set")
-
-with engine.begin() as conn:
-    conn.execute(text(
-        "ALTER TABLE t1referrall_user ADD COLUMN IF NOT EXISTS banner_url text NOT NULL DEFAULT ''"
-    ))
-print("OK  banner_url column ready")
-PY
-
+echo "OK  banner_url column ready"
 echo "OK  Referr-All v11 migration complete."
