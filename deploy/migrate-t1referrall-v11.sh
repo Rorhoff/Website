@@ -19,30 +19,11 @@ else
   PYTHON=python3
 fi
 
-resolve_env_file() {
-  local candidate
-  for candidate in "$@"; do
-    [[ -n "$candidate" && -f "$candidate" ]] && { echo "$candidate"; return 0; }
-  done
-  return 1
-}
-
-ENV_DEV="$(resolve_env_file \
-  "${ENV_FILE:-}" \
-  "$ROOT/.env.referrall" \
-  /home/ubuntu/Website/.env.dev \
-  /home/ubuntu/Website/.env \
-  "$ROOT/.env.dev" \
-  "$ROOT/.env")" || {
-  echo "ERR  No env file found." >&2
-  exit 1
-}
+# shellcheck disable=SC1091
+source "$ROOT/deploy/referrall-migrate-env.sh"
+referrall_load_migration_env
 
 echo "==> Referr-All profile banner_url migration (v11)…"
-set -a
-# shellcheck disable=SC1090
-source "$ENV_DEV"
-set +a
 "$PYTHON" - <<'PY'
 from sqlalchemy import text
 from database import engine

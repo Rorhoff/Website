@@ -53,6 +53,20 @@ try:
         )).scalars().all()
         for col in ("is_premium", "premium_expires_at", "premium_order"):
             print(f"{'OK  ' if col in cols else 'MISS'} column t1referrall_seeker_post.{col}")
+        user_cols = conn.execute(text(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name = 't1referrall_user' "
+            "AND column_name IN ('totp_enabled', 'banner_url', 'settings')"
+        )).scalars().all()
+        for col in ("totp_enabled", "banner_url", "settings"):
+            print(f"{'OK  ' if col in user_cols else 'MISS'} column t1referrall_user.{col}")
+        sess_cols = conn.execute(text(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name = 't1referrall_session' "
+            "AND column_name IN ('user_agent', 'ip', 'last_seen_at')"
+        )).scalars().all()
+        for col in ("user_agent", "ip", "last_seen_at"):
+            print(f"{'OK  ' if col in sess_cols else 'MISS'} column t1referrall_session.{col}")
 except Exception as exc:
     print(f"WARN DB check failed: {exc}")
 PY
@@ -60,6 +74,7 @@ else
   echo "WARN DATABASE_URL not loaded from env file"
 fi
 echo "  If any MISS above, run: bash ~/Website/deploy/fix-referr-all-premium.sh"
+echo "  Login 500 usually means v10/v11 migrations were not run on dev yet."
 
 echo
 echo "S3/R2 (optional — avatars fall back to inline storage without this):"

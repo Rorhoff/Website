@@ -29,7 +29,7 @@ resolve_python() {
 PYTHON="$(resolve_python)"
 echo "==> Using Python: $PYTHON"
 
-echo "==> Step 1: DB migrations (premium, profile, reports, refunds, email, reset)…"
+echo "==> Step 1: DB migrations (premium, profile, reports, refunds, email, reset, settings, banner)…"
 bash "$ROOT/deploy/migrate-t1referrall-v3.sh"
 bash "$ROOT/deploy/migrate-t1referrall-v4.sh"
 bash "$ROOT/deploy/migrate-t1referrall-v5.sh"
@@ -37,14 +37,13 @@ bash "$ROOT/deploy/migrate-t1referrall-v6.sh"
 bash "$ROOT/deploy/migrate-t1referrall-v7.sh"
 bash "$ROOT/deploy/migrate-t1referrall-v8.sh"
 bash "$ROOT/deploy/migrate-t1referrall-v9.sh"
+bash "$ROOT/deploy/migrate-t1referrall-v10.sh"
+bash "$ROOT/deploy/migrate-t1referrall-v11.sh"
 
 echo "==> Step 2: create_all fallback (any missing Referr-All tables)…"
-ENV_FILE="${ENV_FILE:-/home/ubuntu/Website/.env}"
-[[ -f "$ENV_FILE" ]] || ENV_FILE="/home/ubuntu/Website/.env.dev"
-set -a
-# shellcheck disable=SC1090
-source "$ENV_FILE"
-set +a
+# shellcheck disable=SC1091
+source "$ROOT/deploy/referrall-migrate-env.sh"
+referrall_load_migration_env
 "$PYTHON" - <<'PY'
 import models  # noqa: F401
 from database import Base, engine

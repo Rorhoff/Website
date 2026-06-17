@@ -1135,6 +1135,27 @@ def password_reset(body: ResetPasswordBody, db: Session = Depends(referrall_db))
     return {"ok": True}
 
 
+AUTH_SCHEMA_MIGRATE_HINT = (
+    "Run on the server: bash deploy/migrate-t1referrall-v10.sh && "
+    "bash deploy/migrate-t1referrall-v11.sh"
+)
+
+
+def _auth_db_ready(db: Session) -> tuple[bool, str | None]:
+    """True when login/register can read users and write sessions."""
+    try:
+        db.scalar(select(T1ReferrallUser.totp_enabled).limit(1))
+        db.scalar(select(T1ReferrallUser.banner_url).limit(1))
+        db.scalar(select(T1ReferrallSession.user_agent).limit(1))
+        return True, None
+    except ProgrammingError:
+        db.rollback()
+        return False, AUTH_SCHEMA_MIGRATE_HINT
+    except Exception:
+        db.rollback()
+        return False, "Auth database schema is out of date."
+
+
 def _premium_db_ready(db: Session) -> tuple[bool, str | None]:
     try:
         db.scalar(select(func.count()).select_from(T1ReferrallPremiumPurchase))
@@ -1166,15 +1187,20 @@ def referrall_status():
         missing.append("STRIPE_PUBLIC_BASE_URL")
     premium_ready = False
     premium_err: str | None = None
+    auth_ready = False
+    auth_err: str | None = None
     if credential_service.database_enabled() and SessionLocal is not None:
         db = SessionLocal()
         try:
+            auth_ready, auth_err = _auth_db_ready(db)
             premium_ready, premium_err = _premium_db_ready(db)
         finally:
             db.close()
     return {
         "paymentsConfigured": stripe_service.stripe_enabled(),
         "imageStorageConfigured": image_storage.storage_enabled(),
+        "authDbReady": auth_ready,
+        "authDbError": auth_err,
         "premiumDbReady": premium_ready,
         "premiumDbError": premium_err,
         "usaOnly": True,
