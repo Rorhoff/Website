@@ -33,7 +33,7 @@ export default function CreateSeekerPostModal({ onClose, onCreated }: Props) {
 
   const [form, setForm] = useState({
     about: profile?.bio || '',
-    desired_role: profile?.role || '',
+    desired_role: '',
     desired_location: profile?.location || '',
     open_to_remote: false,
     field_of_work: '',

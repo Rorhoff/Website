@@ -359,6 +359,12 @@ class T1ReferrallUser(Base):
     email_verify_sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     password_reset_token: Mapped[str | None] = mapped_column(String(64), nullable=True)
     password_reset_sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    phone: Mapped[str] = mapped_column(String(32), default="", server_default="")
+    totp_secret: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    totp_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    is_deactivated: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    deactivated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    settings: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, server_default="{}")
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()
@@ -373,6 +379,9 @@ class T1ReferrallSession(Base):
         String(36), ForeignKey("t1referrall_user.id", ondelete="CASCADE"), index=True
     )
     expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    user_agent: Mapped[str] = mapped_column(String(400), default="", server_default="")
+    ip: Mapped[str] = mapped_column(String(64), default="", server_default="")
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 

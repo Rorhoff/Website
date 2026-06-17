@@ -20,5 +20,8 @@ stripe>=10.0.0
 pypdf>=5.0.0
 # Avatar resize when S3 is not configured (Referr-All profile photos).
 Pillow>=10.0.0
+# TOTP two-factor auth (Referr-All Settings) + server-side QR code generation.
+pyotp>=2.9.0
+qrcode>=7.4.2
 pytest>=8.0
 pytest-asyncio>=0.23

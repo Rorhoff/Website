@@ -16,6 +16,40 @@ export type Profile = {
   created_at: string;
   updated_at: string;
   email?: string;
+  email_verified?: boolean;
+  phone?: string;
+  totp_enabled?: boolean;
+  is_deactivated?: boolean;
+  settings?: AccountSettings;
+};
+
+export type AccountSettings = {
+  email_notifications?: boolean;
+  connection_request_emails?: boolean;
+  message_emails?: boolean;
+  marketing_emails?: boolean;
+  profile_discoverable?: boolean;
+  show_online_status?: boolean;
+};
+
+export type AccountSession = {
+  id: string;
+  current: boolean;
+  user_agent: string;
+  ip: string;
+  created_at: string;
+  last_seen_at: string | null;
+  expires_at: string;
+};
+
+export type PurchaseRecord = {
+  id: string;
+  amount_cents: number;
+  purchase_number: number;
+  refund_cents: number | null;
+  refunded_at: string | null;
+  created_at: string;
+  description: string;
 };
 
 export type Post = {

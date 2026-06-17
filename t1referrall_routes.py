@@ -386,6 +386,10 @@ def _profile_out(user: T1ReferrallUser, *, include_email: bool = False) -> dict[
     if include_email:
         out["email"] = user.email
         out["email_verified"] = bool(getattr(user, "email_verified", False))
+        out["phone"] = getattr(user, "phone", "") or ""
+        out["totp_enabled"] = bool(getattr(user, "totp_enabled", False))
+        out["is_deactivated"] = bool(getattr(user, "is_deactivated", False))
+        out["settings"] = dict(getattr(user, "settings", None) or {})
     return out
 
 
@@ -470,10 +474,49 @@ def _load_profiles(db: Session, user_ids: set[str]) -> dict[str, dict[str, Any]]
     return {u.id: _profile_out(u) for u in rows}
 
 
-def _create_session(db: Session, user_id: str) -> str:
+def _deactivated_author_ids(db: Session, author_ids: set[str]) -> set[str]:
+    """Authors who hibernated their account; their content is hidden from feeds."""
+    if not author_ids:
+        return set()
+    return set(
+        db.scalars(
+            select(T1ReferrallUser.id).where(
+                T1ReferrallUser.id.in_(author_ids),
+                T1ReferrallUser.is_deactivated.is_(True),
+            )
+        ).all()
+    )
+
+
+def _bearer_token(authorization: str | None) -> str | None:
+    if authorization and authorization.startswith("Bearer "):
+        return authorization[7:].strip() or None
+    return None
+
+
+def _shorten(value: str | None, limit: int) -> str:
+    return (value or "")[:limit]
+
+
+def _create_session(db: Session, user_id: str, request: Request | None = None) -> str:
     token = secrets.token_urlsafe(32)
-    expires = datetime.utcnow() + timedelta(hours=credential_service.SESSION_HOURS)
-    db.add(T1ReferrallSession(token=token, user_id=user_id, expires_at=expires))
+    now = datetime.utcnow()
+    expires = now + timedelta(hours=credential_service.SESSION_HOURS)
+    user_agent = ""
+    ip = ""
+    if request is not None:
+        user_agent = _shorten(request.headers.get("user-agent"), 400)
+        ip = _shorten(_client_ip(request), 64)
+    db.add(
+        T1ReferrallSession(
+            token=token,
+            user_id=user_id,
+            expires_at=expires,
+            user_agent=user_agent,
+            ip=ip,
+            last_seen_at=now,
+        )
+    )
     db.commit()
     return token
 
@@ -493,6 +536,16 @@ def get_current_referrall_user(
             db.delete(row)
             db.commit()
         raise HTTPException(status_code=401, detail="Invalid or expired session")
+    # Throttled "last active" touch so the sessions list stays meaningful without
+    # writing on every single request.
+    try:
+        last_seen = getattr(row, "last_seen_at", None)
+        if last_seen is None or datetime.utcnow() - last_seen > timedelta(minutes=10):
+            row.last_seen_at = datetime.utcnow()
+            db.add(row)
+            db.commit()
+    except Exception:
+        db.rollback()
     user = db.get(T1ReferrallUser, row.user_id)
     if user is None:
         db.delete(row)
@@ -501,6 +554,95 @@ def get_current_referrall_user(
     if user.is_suspended:
         raise HTTPException(status_code=403, detail="Account suspended")
     return user
+
+
+# --- Two-factor auth (TOTP) helpers ---
+
+TOTP_ISSUER = "Referr-All"
+_2FA_CHALLENGE_TTL_SECONDS = 300
+_pending_2fa: dict[str, tuple[str, float]] = {}
+_pending_2fa_lock = threading.Lock()
+
+
+def _prune_2fa_challenges(now: float) -> None:
+    expired = [k for k, (_, exp) in _pending_2fa.items() if exp < now]
+    for k in expired:
+        _pending_2fa.pop(k, None)
+
+
+def _create_2fa_challenge(user_id: str) -> str:
+    token = secrets.token_urlsafe(32)
+    now = time.time()
+    with _pending_2fa_lock:
+        _prune_2fa_challenges(now)
+        _pending_2fa[token] = (user_id, now + _2FA_CHALLENGE_TTL_SECONDS)
+    return token
+
+
+def _consume_2fa_challenge(token: str) -> str | None:
+    token = (token or "").strip()
+    if not token:
+        return None
+    now = time.time()
+    with _pending_2fa_lock:
+        _prune_2fa_challenges(now)
+        entry = _pending_2fa.pop(token, None)
+    if entry is None:
+        return None
+    user_id, exp = entry
+    if exp < now:
+        return None
+    return user_id
+
+
+def _restore_2fa_challenge(token: str, user_id: str) -> None:
+    token = (token or "").strip()
+    if not token:
+        return
+    with _pending_2fa_lock:
+        _pending_2fa[token] = (user_id, time.time() + _2FA_CHALLENGE_TTL_SECONDS)
+
+
+def _verify_totp(secret: str | None, code: str | None) -> bool:
+    if not secret or not code:
+        return False
+    code = re.sub(r"\s+", "", str(code))
+    if not re.fullmatch(r"\d{6}", code):
+        return False
+    try:
+        import pyotp
+    except ImportError:
+        log.error("pyotp not installed; cannot verify TOTP codes")
+        return False
+    return pyotp.TOTP(secret).verify(code, valid_window=1)
+
+
+def _qr_data_url(otpauth_url: str) -> str:
+    """Render the otpauth:// URI to a PNG data URL so the secret never leaves us."""
+    try:
+        import io as _io
+
+        import qrcode
+
+        img = qrcode.make(otpauth_url)
+        buf = _io.BytesIO()
+        img.save(buf, format="PNG")
+        b64 = base64.b64encode(buf.getvalue()).decode("ascii")
+        return f"data:image/png;base64,{b64}"
+    except Exception:
+        log.exception("Failed to render TOTP QR code")
+        return ""
+
+
+def _finalize_login(db: Session, user: T1ReferrallUser, request: Request | None) -> str:
+    # Logging back in reactivates a hibernated account (LinkedIn-style).
+    if getattr(user, "is_deactivated", False):
+        user.is_deactivated = False
+        user.deactivated_at = None
+        user.updated_at = datetime.utcnow()
+        db.add(user)
+        db.commit()
+    return _create_session(db, user.id, request)
 
 
 def _premium_price_cents_for_count(prior_purchases: int) -> int:
@@ -737,6 +879,47 @@ class PremiumConfirmBody(BaseModel):
     sessionId: str = Field(min_length=1, max_length=255)
 
 
+class Login2faBody(BaseModel):
+    twofaToken: str = Field(min_length=1, max_length=64)
+    code: str = Field(min_length=1, max_length=10)
+
+
+class ChangePasswordBody(BaseModel):
+    currentPassword: str = Field(min_length=1, max_length=256)
+    newPassword: str = Field(min_length=8, max_length=256)
+
+
+class ChangeEmailBody(BaseModel):
+    password: str = Field(min_length=1, max_length=256)
+    newEmail: str = Field(min_length=3, max_length=255)
+
+
+class ChangePhoneBody(BaseModel):
+    phone: str = Field(default="", max_length=32)
+
+
+class TwoFactorEnableBody(BaseModel):
+    code: str = Field(min_length=1, max_length=10)
+
+
+class TwoFactorDisableBody(BaseModel):
+    password: str = Field(min_length=1, max_length=256)
+    code: str | None = Field(default=None, max_length=10)
+
+
+class AccountSettingsBody(BaseModel):
+    settings: dict[str, Any] = Field(default_factory=dict)
+
+
+class DeactivateAccountBody(BaseModel):
+    password: str = Field(min_length=1, max_length=256)
+
+
+class DeleteAccountBody(BaseModel):
+    password: str = Field(min_length=1, max_length=256)
+    confirm: str = Field(default="", max_length=20)
+
+
 # --- Auth ---
 
 
@@ -773,7 +956,7 @@ def register(body: RegisterBody, request: Request, db: Session = Depends(referra
         _send_verification_email(user)
     except Exception:
         log.exception("Verification email send failed for user=%s", user.id)
-    token = _create_session(db, user.id)
+    token = _create_session(db, user.id, request)
     return {"token": token, "profile": _profile_out(user, include_email=True)}
 
 
@@ -789,7 +972,29 @@ def login(body: LoginBody, request: Request, db: Session = Depends(referrall_db)
         raise HTTPException(status_code=401, detail="Invalid email or password.")
     if user.is_suspended:
         raise HTTPException(status_code=403, detail="Account suspended")
-    token = _create_session(db, user.id)
+    if getattr(user, "totp_enabled", False) and getattr(user, "totp_secret", None):
+        challenge = _create_2fa_challenge(user.id)
+        return {"twofaRequired": True, "twofaToken": challenge}
+    token = _finalize_login(db, user, request)
+    return {"token": token, "profile": _profile_out(user, include_email=True)}
+
+
+@router.post("/login/2fa")
+def login_2fa(body: Login2faBody, request: Request, db: Session = Depends(referrall_db)):
+    _rate_limit(f"login2fa:ip:{_client_ip(request)}", max_attempts=20, window_seconds=900)
+    user_id = _consume_2fa_challenge(body.twofaToken)
+    if not user_id:
+        raise HTTPException(status_code=400, detail="Your verification session expired. Sign in again.")
+    user = db.get(T1ReferrallUser, user_id)
+    if user is None:
+        raise HTTPException(status_code=400, detail="Account not found.")
+    if user.is_suspended:
+        raise HTTPException(status_code=403, detail="Account suspended")
+    if not _verify_totp(getattr(user, "totp_secret", None), body.code):
+        # Put the challenge back so a single typo doesn't force a full re-login.
+        _restore_2fa_challenge(body.twofaToken, user_id)
+        raise HTTPException(status_code=400, detail="Invalid authentication code.")
+    token = _finalize_login(db, user, request)
     return {"token": token, "profile": _profile_out(user, include_email=True)}
 
 
@@ -989,6 +1194,279 @@ def patch_me(
     return _profile_out(user, include_email=True)
 
 
+# --- Account & security settings ---
+
+
+# Notification/visibility preferences the SPA is allowed to set, with defaults.
+_ALLOWED_SETTINGS_KEYS = frozenset({
+    "email_notifications",
+    "connection_request_emails",
+    "message_emails",
+    "marketing_emails",
+    "profile_discoverable",
+    "show_online_status",
+})
+
+
+@router.post("/account/password")
+def change_password(
+    body: ChangePasswordBody,
+    request: Request,
+    user: T1ReferrallUser = Depends(get_current_referrall_user),
+    db: Session = Depends(referrall_db),
+):
+    _rate_limit(f"chpw:{user.id}", max_attempts=10, window_seconds=3600)
+    if not _verify_password(body.currentPassword, user.password_hash):
+        raise HTTPException(status_code=400, detail="Current password is incorrect.")
+    _validate_password_strength(body.newPassword)
+    user.password_hash = _hash_password(body.newPassword)
+    user.updated_at = datetime.utcnow()
+    db.add(user)
+    # Invalidate every other session; keep the caller signed in by re-issuing.
+    db.execute(delete(T1ReferrallSession).where(T1ReferrallSession.user_id == user.id))
+    db.commit()
+    token = _create_session(db, user.id, request)
+    return {"ok": True, "token": token}
+
+
+@router.post("/account/email")
+def change_email(
+    body: ChangeEmailBody,
+    user: T1ReferrallUser = Depends(get_current_referrall_user),
+    db: Session = Depends(referrall_db),
+):
+    _rate_limit(f"chemail:{user.id}", max_attempts=10, window_seconds=3600)
+    if not _verify_password(body.password, user.password_hash):
+        raise HTTPException(status_code=400, detail="Password is incorrect.")
+    new_email = body.newEmail.strip().lower()
+    if "@" not in new_email or "." not in new_email.split("@")[-1]:
+        raise HTTPException(status_code=400, detail="Enter a valid email address.")
+    if new_email == (user.email or "").lower():
+        raise HTTPException(status_code=400, detail="That is already your email address.")
+    existing = db.scalars(
+        select(T1ReferrallUser).where(func.lower(T1ReferrallUser.email) == new_email)
+    ).first()
+    if existing is not None:
+        raise HTTPException(status_code=409, detail="That email is already registered.")
+    user.email = new_email
+    user.email_verified = False
+    user.email_verify_token = secrets.token_urlsafe(32)
+    user.email_verify_sent_at = datetime.utcnow()
+    user.updated_at = datetime.utcnow()
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    try:
+        _send_verification_email(user)
+    except Exception:
+        log.exception("Verification email send failed after email change user=%s", user.id)
+    return {"ok": True, "profile": _profile_out(user, include_email=True), "verificationSent": _email_configured()}
+
+
+@router.post("/account/phone")
+def set_phone(
+    body: ChangePhoneBody,
+    user: T1ReferrallUser = Depends(get_current_referrall_user),
+    db: Session = Depends(referrall_db),
+):
+    phone = re.sub(r"[^\d+\-\s().]", "", body.phone or "").strip()[:32]
+    user.phone = phone
+    user.updated_at = datetime.utcnow()
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return {"ok": True, "profile": _profile_out(user, include_email=True)}
+
+
+@router.patch("/account/settings")
+def update_account_settings(
+    body: AccountSettingsBody,
+    user: T1ReferrallUser = Depends(get_current_referrall_user),
+    db: Session = Depends(referrall_db),
+):
+    current = dict(getattr(user, "settings", None) or {})
+    for key, value in (body.settings or {}).items():
+        if key in _ALLOWED_SETTINGS_KEYS:
+            current[key] = bool(value)
+    user.settings = current
+    user.updated_at = datetime.utcnow()
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return {"ok": True, "settings": current}
+
+
+@router.get("/account/2fa/setup")
+def two_factor_setup(user: T1ReferrallUser = Depends(get_current_referrall_user)):
+    """Generate (but do not yet enable) a TOTP secret + provisioning QR."""
+    try:
+        import pyotp
+    except ImportError:
+        raise HTTPException(status_code=503, detail="2FA is not available on this server yet.")
+    secret = pyotp.random_base32()
+    otpauth_url = pyotp.TOTP(secret).provisioning_uri(name=user.email, issuer_name=TOTP_ISSUER)
+    qr_data_url = _qr_data_url(otpauth_url)
+    return {"secret": secret, "otpauthUrl": otpauth_url, "qrDataUrl": qr_data_url}
+
+
+@router.post("/account/2fa/enable")
+def two_factor_enable(
+    body: TwoFactorEnableBody,
+    secret: Annotated[str | None, Header(alias="X-2FA-Secret")] = None,
+    user: T1ReferrallUser = Depends(get_current_referrall_user),
+    db: Session = Depends(referrall_db),
+):
+    secret = (secret or "").strip()
+    if not secret:
+        raise HTTPException(status_code=400, detail="Missing setup secret. Restart 2FA setup.")
+    if not _verify_totp(secret, body.code):
+        raise HTTPException(status_code=400, detail="That code didn't match. Try the current code.")
+    user.totp_secret = secret
+    user.totp_enabled = True
+    user.updated_at = datetime.utcnow()
+    db.add(user)
+    db.commit()
+    return {"ok": True}
+
+
+@router.post("/account/2fa/disable")
+def two_factor_disable(
+    body: TwoFactorDisableBody,
+    user: T1ReferrallUser = Depends(get_current_referrall_user),
+    db: Session = Depends(referrall_db),
+):
+    if not _verify_password(body.password, user.password_hash):
+        raise HTTPException(status_code=400, detail="Password is incorrect.")
+    user.totp_secret = None
+    user.totp_enabled = False
+    user.updated_at = datetime.utcnow()
+    db.add(user)
+    db.commit()
+    return {"ok": True}
+
+
+@router.get("/account/sessions")
+def list_sessions(
+    authorization: Annotated[str | None, Header()] = None,
+    user: T1ReferrallUser = Depends(get_current_referrall_user),
+    db: Session = Depends(referrall_db),
+):
+    current = _bearer_token(authorization)
+    rows = db.scalars(
+        select(T1ReferrallSession)
+        .where(T1ReferrallSession.user_id == user.id)
+        .order_by(T1ReferrallSession.created_at.desc())
+    ).all()
+    out = []
+    for row in rows:
+        out.append({
+            "id": row.token[:12],
+            "current": row.token == current,
+            "user_agent": getattr(row, "user_agent", "") or "",
+            "ip": getattr(row, "ip", "") or "",
+            "created_at": _iso(row.created_at),
+            "last_seen_at": _iso(getattr(row, "last_seen_at", None)),
+            "expires_at": _iso(row.expires_at),
+        })
+    return out
+
+
+@router.post("/account/sessions/revoke-others")
+def revoke_other_sessions(
+    authorization: Annotated[str | None, Header()] = None,
+    user: T1ReferrallUser = Depends(get_current_referrall_user),
+    db: Session = Depends(referrall_db),
+):
+    current = _bearer_token(authorization)
+    stmt = delete(T1ReferrallSession).where(T1ReferrallSession.user_id == user.id)
+    if current:
+        stmt = stmt.where(T1ReferrallSession.token != current)
+    db.execute(stmt)
+    db.commit()
+    return {"ok": True}
+
+
+@router.delete("/account/sessions/{session_id}")
+def revoke_session(
+    session_id: str,
+    authorization: Annotated[str | None, Header()] = None,
+    user: T1ReferrallUser = Depends(get_current_referrall_user),
+    db: Session = Depends(referrall_db),
+):
+    session_id = (session_id or "").strip()
+    rows = db.scalars(
+        select(T1ReferrallSession).where(T1ReferrallSession.user_id == user.id)
+    ).all()
+    target = next((r for r in rows if r.token == session_id or r.token[:12] == session_id), None)
+    if target is None:
+        raise HTTPException(status_code=404, detail="Session not found.")
+    db.delete(target)
+    db.commit()
+    return {"ok": True}
+
+
+@router.get("/account/purchases")
+def list_purchases(
+    user: T1ReferrallUser = Depends(get_current_referrall_user),
+    db: Session = Depends(referrall_db),
+):
+    try:
+        rows = db.scalars(
+            select(T1ReferrallPremiumPurchase)
+            .where(T1ReferrallPremiumPurchase.user_id == user.id)
+            .order_by(T1ReferrallPremiumPurchase.created_at.desc())
+        ).all()
+    except ProgrammingError:
+        db.rollback()
+        return []
+    out = []
+    for row in rows:
+        out.append({
+            "id": row.id,
+            "amount_cents": row.amount_cents,
+            "purchase_number": row.purchase_number,
+            "refund_cents": row.refund_cents,
+            "refunded_at": _iso(row.refunded_at),
+            "created_at": _iso(row.created_at),
+            "description": "Featured seeker post (30 days)",
+        })
+    return out
+
+
+@router.post("/account/deactivate")
+def deactivate_account(
+    body: DeactivateAccountBody,
+    authorization: Annotated[str | None, Header()] = None,
+    user: T1ReferrallUser = Depends(get_current_referrall_user),
+    db: Session = Depends(referrall_db),
+):
+    if not _verify_password(body.password, user.password_hash):
+        raise HTTPException(status_code=400, detail="Password is incorrect.")
+    user.is_deactivated = True
+    user.deactivated_at = datetime.utcnow()
+    user.updated_at = datetime.utcnow()
+    db.add(user)
+    # End all sessions; signing back in reactivates the account.
+    db.execute(delete(T1ReferrallSession).where(T1ReferrallSession.user_id == user.id))
+    db.commit()
+    return {"ok": True}
+
+
+@router.delete("/account")
+def delete_account(
+    body: DeleteAccountBody,
+    user: T1ReferrallUser = Depends(get_current_referrall_user),
+    db: Session = Depends(referrall_db),
+):
+    if not _verify_password(body.password, user.password_hash):
+        raise HTTPException(status_code=400, detail="Password is incorrect.")
+    # ON DELETE CASCADE on the FKs removes posts, connections, messages, blocks,
+    # sessions, and premium-purchase rows tied to this user.
+    db.delete(user)
+    db.commit()
+    return {"ok": True}
+
+
 # --- Profiles (network discovery) ---
 
 
@@ -1009,12 +1487,15 @@ def list_profiles(
         .where(
             T1ReferrallUser.id != user.id,
             T1ReferrallUser.is_suspended.is_(False),
+            T1ReferrallUser.is_deactivated.is_(False),
         )
         .order_by(T1ReferrallUser.username)
     )
     if blocked_ids:
         stmt = stmt.where(T1ReferrallUser.id.not_in(blocked_ids))
     rows = db.scalars(stmt).all()
+    # Honor the "Discoverable profile" preference (defaults to discoverable).
+    rows = [r for r in rows if (getattr(r, "settings", None) or {}).get("profile_discoverable") is not False]
     return [_profile_out(r) for r in rows]
 
 
@@ -1042,7 +1523,9 @@ def list_posts(
         select(T1ReferrallPost).order_by(T1ReferrallPost.created_at.desc())
     ).all()
     author_ids = {r.author_id for r in rows}
-    profiles = _load_profiles(db, author_ids)
+    hidden = _deactivated_author_ids(db, author_ids)
+    rows = [r for r in rows if r.author_id not in hidden]
+    profiles = _load_profiles(db, author_ids - hidden)
     return [_post_out(r, profiles) for r in rows]
 
 
@@ -1136,7 +1619,9 @@ def list_seeker_posts(
         if r.is_premium and r.premium_expires_at and r.premium_expires_at < now:
             r.is_premium = False
     author_ids = {r.author_id for r in rows}
-    profiles = _load_profiles(db, author_ids)
+    hidden = _deactivated_author_ids(db, author_ids)
+    rows = [r for r in rows if r.author_id not in hidden]
+    profiles = _load_profiles(db, author_ids - hidden)
     return [_seeker_out(r, profiles) for r in rows]
 
 

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import * as api from '../lib/api';
 import { Briefcase, Users, MessageSquare, TrendingUp, ArrowLeft } from 'lucide-react';
 
-type View = 'login' | 'register' | 'forgot' | 'reset';
+type View = 'login' | 'register' | 'forgot' | 'reset' | 'twofa';
 
 function initialResetToken(): string | null {
   if (typeof window === 'undefined') return null;
@@ -27,6 +27,8 @@ export default function AuthPage() {
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
   const [loading, setLoading] = useState(false);
+  const [twofaToken, setTwofaToken] = useState('');
+  const [twofaCode, setTwofaCode] = useState('');
 
   function goTo(next: View) {
     setView(next);
@@ -47,8 +49,14 @@ export default function AuthPage() {
 
     try {
       if (view === 'login') {
-        await api.login(email, password);
-        window.location.reload();
+        const res = await api.login(email, password);
+        if ('twofaRequired' in res && res.twofaRequired) {
+          setTwofaToken(res.twofaToken);
+          setTwofaCode('');
+          goTo('twofa');
+        } else {
+          window.location.reload();
+        }
       } else {
         if (!username.trim() || !fullName.trim()) {
           throw new Error('Please fill in all fields.');
@@ -65,6 +73,20 @@ export default function AuthPage() {
         });
         window.location.reload();
       }
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'An error occurred');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleVerify2fa(e: React.FormEvent) {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+    try {
+      await api.loginVerify2fa(twofaToken, twofaCode.trim());
+      window.location.reload();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'An error occurred');
     } finally {
@@ -130,6 +152,7 @@ export default function AuthPage() {
     register: { title: 'Create your account', subtitle: 'Join thousands of professionals sharing referrals' },
     forgot: { title: 'Reset your password', subtitle: "Enter your email and we'll send you a reset link" },
     reset: { title: 'Choose a new password', subtitle: 'Enter a new password for your account' },
+    twofa: { title: 'Two-factor authentication', subtitle: 'Enter the 6-digit code from your authenticator app' },
   };
 
   const errorBox = error && (
@@ -339,6 +362,44 @@ export default function AuthPage() {
                 <button
                   type="button"
                   onClick={() => goTo('login')}
+                  className="w-full flex items-center justify-center gap-2 text-gray-400 hover:text-white text-sm transition pt-1"
+                >
+                  <ArrowLeft size={14} />
+                  Back to sign in
+                </button>
+              </form>
+            )}
+
+            {view === 'twofa' && (
+              <form onSubmit={handleVerify2fa} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-1.5">Authentication code</label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    value={twofaCode}
+                    onChange={e => setTwofaCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                    placeholder="123456"
+                    required
+                    autoFocus
+                    className="w-full bg-gray-800 border border-gray-700 text-white rounded-lg px-4 py-3 text-center text-lg tracking-[0.4em] placeholder-gray-600 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition"
+                  />
+                </div>
+
+                {errorBox}
+
+                <button
+                  type="submit"
+                  disabled={loading || twofaCode.length < 6}
+                  className="w-full bg-blue-500 hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold rounded-lg py-3 text-sm transition-colors mt-2"
+                >
+                  {loading ? 'Verifying...' : 'Verify & sign in'}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => { setTwofaToken(''); setTwofaCode(''); goTo('login'); }}
                   className="w-full flex items-center justify-center gap-2 text-gray-400 hover:text-white text-sm transition pt-1"
                 >
                   <ArrowLeft size={14} />

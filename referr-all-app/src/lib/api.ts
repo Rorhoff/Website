@@ -1,4 +1,7 @@
-import type { Connection, Conversation, Message, Post, Profile, SeekerPost } from './types';
+import type {
+  AccountSession, AccountSettings, Connection, Conversation, Message, Post, Profile,
+  PurchaseRecord, SeekerPost,
+} from './types';
 import {
   BASE_PREMIUM_PRICE_CENTS,
   PREMIUM_DURATION_DAYS,
@@ -63,10 +66,24 @@ export async function register(input: {
   return data;
 }
 
-export async function login(email: string, password: string): Promise<{ token: string; profile: Profile }> {
-  const data = await request<{ token: string; profile: Profile }>(
+export type LoginResult =
+  | { token: string; profile: Profile; twofaRequired?: false }
+  | { twofaRequired: true; twofaToken: string };
+
+export async function login(email: string, password: string): Promise<LoginResult> {
+  const data = await request<LoginResult>(
     '/login',
     { method: 'POST', body: JSON.stringify({ email, password }) },
+    false,
+  );
+  if ('token' in data && data.token) setToken(data.token);
+  return data;
+}
+
+export async function loginVerify2fa(twofaToken: string, code: string): Promise<{ token: string; profile: Profile }> {
+  const data = await request<{ token: string; profile: Profile }>(
+    '/login/2fa',
+    { method: 'POST', body: JSON.stringify({ twofaToken, code }) },
     false,
   );
   setToken(data.token);
@@ -266,6 +283,69 @@ export async function confirmPremiumCheckout(sessionId: string): Promise<{ seeke
 
 export async function reconcilePremiumPayments(): Promise<{ activated: number; results: { seekerPostId: string; isPremium?: boolean }[] }> {
   return request('/premium/reconcile', { method: 'POST' });
+}
+
+// --- Account & security settings ---
+
+export async function changePassword(currentPassword: string, newPassword: string): Promise<{ ok: boolean; token: string }> {
+  const data = await request<{ ok: boolean; token: string }>(
+    '/account/password',
+    { method: 'POST', body: JSON.stringify({ currentPassword, newPassword }) },
+  );
+  if (data.token) setToken(data.token);
+  return data;
+}
+
+export async function changeEmail(password: string, newEmail: string): Promise<{ ok: boolean; profile: Profile; verificationSent: boolean }> {
+  return request('/account/email', { method: 'POST', body: JSON.stringify({ password, newEmail }) });
+}
+
+export async function setPhone(phone: string): Promise<{ ok: boolean; profile: Profile }> {
+  return request('/account/phone', { method: 'POST', body: JSON.stringify({ phone }) });
+}
+
+export async function updateAccountSettings(settings: AccountSettings): Promise<{ ok: boolean; settings: AccountSettings }> {
+  return request('/account/settings', { method: 'PATCH', body: JSON.stringify({ settings }) });
+}
+
+export async function twoFactorSetup(): Promise<{ secret: string; otpauthUrl: string; qrDataUrl: string }> {
+  return request('/account/2fa/setup');
+}
+
+export async function twoFactorEnable(secret: string, code: string): Promise<{ ok: boolean }> {
+  return request('/account/2fa/enable', {
+    method: 'POST',
+    headers: { 'X-2FA-Secret': secret },
+    body: JSON.stringify({ code }),
+  });
+}
+
+export async function twoFactorDisable(password: string, code?: string): Promise<{ ok: boolean }> {
+  return request('/account/2fa/disable', { method: 'POST', body: JSON.stringify({ password, code }) });
+}
+
+export async function listSessions(): Promise<AccountSession[]> {
+  return request<AccountSession[]>('/account/sessions');
+}
+
+export async function revokeSession(id: string): Promise<{ ok: boolean }> {
+  return request(`/account/sessions/${id}`, { method: 'DELETE' });
+}
+
+export async function revokeOtherSessions(): Promise<{ ok: boolean }> {
+  return request('/account/sessions/revoke-others', { method: 'POST' });
+}
+
+export async function listPurchases(): Promise<PurchaseRecord[]> {
+  return request<PurchaseRecord[]>('/account/purchases');
+}
+
+export async function deactivateAccount(password: string): Promise<{ ok: boolean }> {
+  return request('/account/deactivate', { method: 'POST', body: JSON.stringify({ password }) });
+}
+
+export async function deleteAccount(password: string): Promise<{ ok: boolean }> {
+  return request('/account', { method: 'DELETE', body: JSON.stringify({ password, confirm: 'DELETE' }) });
 }
 
 export {
