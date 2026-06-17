@@ -1,12 +1,13 @@
 import { useState, useEffect, useRef } from 'react';
 import {
-  Briefcase, Building, Camera, ChevronDown, Crown, Edit2, ExternalLink, Link, Loader,
-  MapPin, MessageSquare, MoreVertical, Plus, Save, Settings, ShieldBan, Star, Tag, Trash2,
+  Briefcase, Building, Camera, Crown, Edit2, ExternalLink, Link, Loader,
+  MapPin, MessageSquare, MoreVertical, Save, Settings, ShieldBan, Star, Tag, Trash2,
   User, UserCheck, UserPlus, Wifi, X, ArrowLeft,
 } from 'lucide-react';
 import CreateSeekerPostModal from '../components/CreateSeekerPostModal';
 import CreateJobPostModal from '../components/CreateJobPostModal';
 import AvatarCropModal from '../components/AvatarCropModal';
+import PostActionDropdown from '../components/PostActionDropdown';
 import * as api from '../lib/api';
 import { compressBannerForUpload, compressImageForUpload } from '../lib/resizeImage';
 import { isPremiumActive, storePendingPremiumSession, confirmPremiumReturn, PENDING_PREMIUM_SESSION_KEY } from '../lib/premium';
@@ -662,7 +663,7 @@ export default function ProfilePage({ userId, onMessage, onOpenSettings, onBack 
             </h2>
             {isOwn && (
               <div className="flex-shrink-0">
-                <ProfilePostDropdown
+                <PostActionDropdown
                 hasOwnSeekerPost={hasOwnSeekerPost}
                 onJob={() => setShowCreateJob(true)}
                 onSeeker={() => setShowCreateSeeker(true)}
@@ -992,65 +993,6 @@ export default function ProfilePage({ userId, onMessage, onOpenSettings, onBack 
           }}
         />
       )}
-    </div>
-  );
-}
-
-function ProfilePostDropdown({
-  hasOwnSeekerPost,
-  onJob,
-  onSeeker,
-}: {
-  hasOwnSeekerPost: boolean;
-  onJob: () => void;
-  onSeeker: () => void;
-}) {
-  return (
-    <div className="relative group">
-      <button
-        type="button"
-        className="flex items-center gap-1.5 sm:gap-2 bg-blue-500 hover:bg-blue-600 text-white font-semibold px-3 sm:px-4 py-2.5 rounded-xl text-sm transition-colors shadow-lg shadow-blue-500/20"
-      >
-        <Plus size={16} />
-        Post
-        <ChevronDown size={14} />
-      </button>
-      <div className="absolute right-0 top-full mt-1.5 w-52 bg-gray-900 border border-gray-700 rounded-xl shadow-xl z-30 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all">
-        <button
-          type="button"
-          onClick={onJob}
-          className="flex items-center gap-3 w-full px-4 py-3 text-sm text-gray-300 hover:text-white hover:bg-gray-800 rounded-t-xl transition"
-        >
-          <Briefcase size={15} className="text-blue-400" />
-          <div className="text-left">
-            <div className="font-medium">Post Job Opening</div>
-            <div className="text-xs text-gray-500">Share a referral opportunity</div>
-          </div>
-        </button>
-        <div className="border-t border-gray-800" />
-        <button
-          type="button"
-          onClick={() => {
-            if (hasOwnSeekerPost) {
-              alert('You already have a seeker post. Delete it before creating a new one.');
-              return;
-            }
-            onSeeker();
-          }}
-          disabled={hasOwnSeekerPost}
-          className={`flex items-center gap-3 w-full px-4 py-3 text-sm rounded-b-xl transition ${
-            hasOwnSeekerPost
-              ? 'text-gray-600 cursor-not-allowed'
-              : 'text-gray-300 hover:text-white hover:bg-gray-800'
-          }`}
-        >
-          <User size={15} className="text-emerald-400" />
-          <div className="text-left">
-            <div className="font-medium">Post Yourself</div>
-            <div className="text-xs text-gray-500">Let employers find you</div>
-          </div>
-        </button>
-      </div>
     </div>
   );
 }

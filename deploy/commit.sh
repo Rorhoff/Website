@@ -188,6 +188,12 @@ if [[ "$needs_pip" -eq 1 ]]; then
   fi
 fi
 
+log "Referr-All DB migrations (auth schema v10/v11)…"
+export PYTHON="${DEV_DIR}/.venv/bin/python"
+export ROOT="$DEV_DIR"
+bash "$DEV_DIR/deploy/migrate-t1referrall-v10.sh" || warn "v10 migration failed — login may 500 until fixed"
+bash "$DEV_DIR/deploy/migrate-t1referrall-v11.sh" || warn "v11 migration failed"
+
 log "Restarting ${DEV_SERVICE}…"
 sudo systemctl restart "$DEV_SERVICE"
 sleep 2

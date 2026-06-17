@@ -5,12 +5,13 @@ import { AVAILABILITY_LABELS } from '../lib/types';
 import { useAuth } from '../contexts/AuthContext';
 import { isPremiumActive } from '../lib/premium';
 import {
-  Plus, Briefcase, MapPin, ExternalLink, MessageSquare,
-  Wifi, X, ChevronDown, Search, Tag, Building, Star,
+  Briefcase, MapPin, ExternalLink, MessageSquare,
+  Wifi, X, Search, Tag, Building, Star,
   User, Filter, ChevronRight, Flag
 } from 'lucide-react';
 import CreateJobPostModal from '../components/CreateJobPostModal';
 import CreateSeekerPostModal from '../components/CreateSeekerPostModal';
+import PostActionDropdown from '../components/PostActionDropdown';
 import { computeMatchScore, isUsaLocation, matchPercent } from '../lib/feedMatch';
 import { US_STATES } from '../lib/usStates';
 
@@ -147,46 +148,12 @@ export default function FeedPage({ onViewProfile, onMessage }: Props) {
           <h1 className="text-xl sm:text-2xl font-bold text-white">Referral Feed</h1>
           <p className="text-gray-500 text-xs sm:text-sm mt-0.5">USA opportunities · ranked by skills</p>
         </div>
-        <div className="relative group flex-shrink-0 self-start sm:self-auto">
-          <button className="flex items-center gap-1.5 sm:gap-2 bg-blue-500 hover:bg-blue-600 text-white font-semibold px-3 sm:px-4 py-2.5 rounded-xl text-sm transition-colors shadow-lg shadow-blue-500/20">
-            <Plus size={16} />
-            Post
-            <ChevronDown size={14} />
-          </button>
-          <div className="absolute right-0 top-full mt-1.5 w-52 bg-gray-900 border border-gray-700 rounded-xl shadow-xl z-30 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all">
-            <button
-              onClick={() => setShowCreateJob(true)}
-              className="flex items-center gap-3 w-full px-4 py-3 text-sm text-gray-300 hover:text-white hover:bg-gray-800 rounded-t-xl transition"
-            >
-              <Briefcase size={15} className="text-blue-400" />
-              <div className="text-left">
-                <div className="font-medium">Post Job Opening</div>
-                <div className="text-xs text-gray-500">Share a referral opportunity</div>
-              </div>
-            </button>
-            <div className="border-t border-gray-800" />
-            <button
-              onClick={() => {
-                if (hasOwnSeekerPost) {
-                  alert('You already have a seeker post. Delete it from your profile before creating a new one.');
-                  return;
-                }
-                setShowCreateSeeker(true);
-              }}
-              disabled={hasOwnSeekerPost}
-              className={`flex items-center gap-3 w-full px-4 py-3 text-sm rounded-b-xl transition ${
-                hasOwnSeekerPost
-                  ? 'text-gray-600 cursor-not-allowed'
-                  : 'text-gray-300 hover:text-white hover:bg-gray-800'
-              }`}
-            >
-              <User size={15} className="text-emerald-400" />
-              <div className="text-left">
-                <div className="font-medium">Post Yourself</div>
-                <div className="text-xs text-gray-500">Let employers find you</div>
-              </div>
-            </button>
-          </div>
+        <div className="flex-shrink-0 self-start sm:self-auto">
+          <PostActionDropdown
+            hasOwnSeekerPost={hasOwnSeekerPost}
+            onJob={() => setShowCreateJob(true)}
+            onSeeker={() => setShowCreateSeeker(true)}
+          />
         </div>
       </div>
 

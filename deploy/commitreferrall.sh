@@ -176,6 +176,13 @@ else
   log "requirements.txt unchanged — skipping pip install."
 fi
 
+log "Referr-All DB migrations (auth schema v10/v11)…"
+export PYTHON="${REFERRALL_DIR}/.venv/bin/python"
+export ROOT="$REFERRALL_DIR"
+export ENV_FILE="${REFERRALL_DIR}/.env.referrall"
+bash "$REFERRALL_DIR/deploy/migrate-t1referrall-v10.sh" || warn "v10 migration failed"
+bash "$REFERRALL_DIR/deploy/migrate-t1referrall-v11.sh" || warn "v11 migration failed"
+
 log "Restarting ${REFERRALL_SERVICE}…"
 sudo systemctl restart "$REFERRALL_SERVICE"
 sleep 2

@@ -998,18 +998,25 @@ def login(body: LoginBody, request: Request, db: Session = Depends(referrall_db)
     email = body.email.strip().lower()
     _rate_limit(f"login:ip:{_client_ip(request)}", max_attempts=15, window_seconds=900)
     _rate_limit(f"login:email:{email}", max_attempts=7, window_seconds=900)
-    user = db.scalars(
-        select(T1ReferrallUser).where(func.lower(T1ReferrallUser.email) == email)
-    ).first()
-    if user is None or not _verify_password(body.password, user.password_hash):
-        raise HTTPException(status_code=401, detail="Invalid email or password.")
-    if user.is_suspended:
-        raise HTTPException(status_code=403, detail="Account suspended")
-    if getattr(user, "totp_enabled", False) and getattr(user, "totp_secret", None):
-        challenge = _create_2fa_challenge(user.id)
-        return {"twofaRequired": True, "twofaToken": challenge}
-    token = _finalize_login(db, user, request)
-    return {"token": token, "profile": _profile_out(user, include_email=True)}
+    try:
+        user = db.scalars(
+            select(T1ReferrallUser).where(func.lower(T1ReferrallUser.email) == email)
+        ).first()
+        if user is None or not _verify_password(body.password, user.password_hash):
+            raise HTTPException(status_code=401, detail="Invalid email or password.")
+        if user.is_suspended:
+            raise HTTPException(status_code=403, detail="Account suspended")
+        if getattr(user, "totp_enabled", False) and getattr(user, "totp_secret", None):
+            challenge = _create_2fa_challenge(user.id)
+            return {"twofaRequired": True, "twofaToken": challenge}
+        token = _finalize_login(db, user, request)
+        return {"token": token, "profile": _profile_out(user, include_email=True)}
+    except HTTPException:
+        raise
+    except ProgrammingError:
+        db.rollback()
+        log.exception("Referr-All login failed: database schema out of date")
+        raise HTTPException(status_code=503, detail=AUTH_SCHEMA_MIGRATE_HINT)
 
 
 @router.post("/login/2fa")

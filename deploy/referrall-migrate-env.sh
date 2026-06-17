@@ -21,6 +21,8 @@ referrall_resolve_env_file() {
 
 referrall_load_migration_env() {
   local root="${ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+  local py="${PYTHON:-python3}"
+  local migrate_py="$root/deploy/referrall-migrate-db.py"
   local candidates=(
     "${ENV_FILE:-}"
     /home/ubuntu/Website/.env.dev
@@ -36,12 +38,22 @@ referrall_load_migration_env() {
     return 0
   fi
 
+  # Prefer Python bootstrap: reads env files + systemd EnvironmentFiles for roryportfolio.
+  if [[ -f "$migrate_py" ]]; then
+    if parsed="$("$py" "$migrate_py" --print-url 2>/dev/null)" && [[ -n "$parsed" ]]; then
+      export DATABASE_URL="$parsed"
+      echo "==> Loaded DATABASE_URL via referrall-migrate-db.py"
+      return 0
+    fi
+  fi
+
   env_file="$(referrall_resolve_env_file "${candidates[@]}")" || {
     echo "ERR  No env file with DATABASE_URL found. Checked:" >&2
     for candidate in "${candidates[@]}"; do
       [[ -n "$candidate" ]] && echo "       $candidate" >&2
     done
-    echo "       Run: ENV_FILE=/home/ubuntu/Website/.env.dev bash deploy/migrate-t1referrall-v10.sh" >&2
+    echo "       Also tried systemd EnvironmentFiles for roryportfolio/webapi-dev." >&2
+    echo "       Run: grep DATABASE_URL /home/ubuntu/Website/.env*" >&2
     exit 1
   }
 
@@ -52,9 +64,6 @@ referrall_load_migration_env() {
   set +a
 
   if [[ -z "${DATABASE_URL:-}" ]]; then
-    # Some env files use export DATABASE_URL=... which bash source handles, but if the
-    # variable still isn't set try parsing the file directly.
-    local py="${PYTHON:-python3}"
     parsed="$("$py" - "$env_file" <<'PY'
 import sys
 from pathlib import Path
@@ -81,7 +90,6 @@ PY
   if [[ -z "${DATABASE_URL:-}" ]]; then
     echo "ERR  DATABASE_URL is empty in $env_file" >&2
     echo "     Check that file contains DATABASE_URL=postgresql+psycopg://..." >&2
-    echo "     Or run: grep DATABASE_URL /home/ubuntu/Website/.env /home/ubuntu/Website/.env.dev" >&2
     exit 1
   fi
 
