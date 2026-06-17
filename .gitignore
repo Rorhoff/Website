@@ -3,7 +3,12 @@
 .env.prod
 .env.local
 .env.t1-referral
+.env.t1-referrall
 .env.referr-all
+.env.referrall
+# Stray / backup env files (created by set-*.sh helpers) — never commit; they hold secrets.
+.env-
+.env.bak.*
 key.pem
 *.pem
 .venv/
@@ -28,6 +33,9 @@ __pycache__/
 
 # SSS per-game event recordings
 recordings/
+
+# Runtime data written by the t1-prod service (not source)
+static/t1-prod/data/
 
 # T1AI knowledge base (persisted on server, not in git)
 static/airevolution/uploads/kb_documents.json
