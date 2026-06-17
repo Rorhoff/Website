@@ -221,41 +221,67 @@ def _validate_url(value: str | None, field: str, *, allow_data_image: bool = Fal
 EMAIL_VERIFY_TTL_HOURS = 48
 
 
+CLOUDFLARE_EMAIL_SEND_URL = (
+    "https://api.cloudflare.com/client/v4/accounts/{account_id}/email/sending/send"
+)
+DEFAULT_EMAIL_FROM = "noreply@referr-all.com"
+
+
 def _email_configured() -> bool:
-    return bool(os.getenv("SMTP_HOST") and os.getenv("SMTP_FROM"))
+    return bool(os.getenv("CLOUDFLARE_API_TOKEN") and os.getenv("CLOUDFLARE_ACCOUNT_ID"))
 
 
 def _send_email(to_email: str, subject: str, text_body: str, html_body: str | None = None) -> bool:
-    """Send via SMTP if configured; otherwise log the message so links are still usable."""
+    """Send via the Cloudflare Email Service REST API.
+
+    Falls back to a logging no-op (returning False) when the Cloudflare env vars
+    are not set, so verification/reset links are still recoverable from the logs.
+    """
     if not _email_configured():
         log.info("[email:disabled] to=%s | %s | %s", to_email, subject, text_body)
         return False
-    import smtplib
-    import ssl
-    from email.message import EmailMessage
+    import httpx
 
-    host = os.getenv("SMTP_HOST", "")
-    port = int(os.getenv("SMTP_PORT", "587"))
-    smtp_user = os.getenv("SMTP_USERNAME")
-    smtp_pass = os.getenv("SMTP_PASSWORD")
-    sender = os.getenv("SMTP_FROM", "")
-    msg = EmailMessage()
-    msg["From"] = sender
-    msg["To"] = to_email
-    msg["Subject"] = subject
-    msg.set_content(text_body)
+    account_id = os.getenv("CLOUDFLARE_ACCOUNT_ID", "")
+    token = os.getenv("CLOUDFLARE_API_TOKEN", "")
+    sender = os.getenv("SMTP_FROM", DEFAULT_EMAIL_FROM)
+    payload: dict[str, Any] = {
+        "to": to_email,
+        "from": sender,
+        "subject": subject,
+        "text": text_body,
+    }
     if html_body:
-        msg.add_alternative(html_body, subtype="html")
+        payload["html"] = html_body
     try:
-        with smtplib.SMTP(host, port, timeout=10) as server:
-            server.starttls(context=ssl.create_default_context())
-            if smtp_user and smtp_pass:
-                server.login(smtp_user, smtp_pass)
-            server.send_message(msg)
-        return True
+        resp = httpx.post(
+            CLOUDFLARE_EMAIL_SEND_URL.format(account_id=account_id),
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json",
+            },
+            json=payload,
+            timeout=10,
+        )
     except Exception:
-        log.exception("Email send failed to %s", to_email)
+        log.exception("Cloudflare email request failed to %s", to_email)
         return False
+    if resp.status_code >= 400:
+        log.error(
+            "Cloudflare email send to %s failed (HTTP %s): %s",
+            to_email,
+            resp.status_code,
+            resp.text[:500],
+        )
+        return False
+    try:
+        data = resp.json()
+    except ValueError:
+        data = {}
+    if isinstance(data, dict) and data.get("success") is False:
+        log.error("Cloudflare email send to %s returned errors: %s", to_email, data.get("errors"))
+        return False
+    return True
 
 
 def _send_verification_email(user: T1ReferrallUser) -> None:
