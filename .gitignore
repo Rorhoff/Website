@@ -15,6 +15,13 @@ T1Referral/
 T1Referrall/
 referr-all-app/node_modules/
 referr-all-app/dist/
+
+# Local Referr-All audit/scratch checkouts (each is its own git repo + node_modules)
+/_audit_t1/
+/_t1_fix/
+/_t1_src/
+/_t1_verify/
+/static/t1-referral-pull-test/
 __pycache__/
 *.py[cod]
 *.sqlite3
