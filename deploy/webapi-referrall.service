@@ -1,0 +1,35 @@
+; systemd unit for the PROD Referr-All-only FastAPI service.
+; Installs to: /etc/systemd/system/webapi-referrall.service
+; Runs from:   /home/ubuntu/website-referrall   (separate checkout pinned to a `referrall-v*`
+;                                                git tag, so `git pull` on the dev box never
+;                                                touches referr-all.com)
+; Loads:       /home/ubuntu/website-referrall/.env.referrall
+;              (SERVICE_MODE=referrall, APP_ENV=production, DATABASE_URL=...ReferrAll_Prod,
+;               CORS_ORIGINS=https://referr-all.com, SESSION_COOKIE_SECURE=1,
+;               REFERR_ALL_PUBLIC_URL=https://referr-all.com, REFERR_ALL_APP_URL=https://referr-all.com,
+;               CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, SMTP_FROM, live STRIPE_* keys)
+; Listens on:  127.0.0.1:8002   (nginx for referr-all.com proxies to this, behind Cloudflare)
+; Reload:      sudo systemctl daemon-reload && sudo systemctl restart webapi-referrall
+;
+; To deploy a new version (mirrors webapi-prod / commitprod.sh):
+;   1) on local: git tag -a referrall-v1.0 -m "..." && git push origin referrall-v1.0
+;   2) on EC2:   ~/commitreferrall.sh referrall-v1.0
+
+[Unit]
+Description=WebAPI (production, Referr-All only) for referr-all.com
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/website-referrall
+EnvironmentFile=/home/ubuntu/website-referrall/.env.referrall
+Environment=PYTHONUNBUFFERED=1
+Environment=ENV_FILE=/home/ubuntu/website-referrall/.env.referrall
+ExecStart=/home/ubuntu/website-referrall/.venv/bin/uvicorn main:app --host 127.0.0.1 --port 8002 --proxy-headers --forwarded-allow-ips=127.0.0.1
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

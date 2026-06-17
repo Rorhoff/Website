@@ -502,3 +502,125 @@ Once prod is healthy, tighten the EC2 security group so port 443 only accepts
 Cloudflare's IP ranges (https://www.cloudflare.com/ips/). This means
 `t1classifieds.com` is reachable only via Cloudflare — and your raw EC2 IP isn't.
 `rorhoff.com` can stay open if you want the unproxied path.
+
+---
+
+## referr-all.com — a third (Referr-All) prod service
+
+This mirrors the t1classifieds prod model exactly, for Referr-All. It adds a third
+service on the same box; `rorhoff.com/referr-all/` keeps running as dev/staging.
+
+```
+                        ┌─────────────────────────────┐
+   referr-all.com ─────►│  nginx (referr-all.conf)    │──► 127.0.0.1:8002  webapi-referrall
+   (proxied via         │                             │                    SERVICE_MODE=referrall
+    Cloudflare)         └─────────────────────────────┘                    DB=ReferrAll_Prod
+                                                                            cwd=/home/ubuntu/website-referrall (pinned to a referrall-v* tag)
+```
+
+- **Tag scheme:** `referrall-vMAJOR.MINOR` (annotated tags only).
+- **Service mode:** `SERVICE_MODE=referrall` makes the app mount only the Referr-All
+  router and serve the SPA at `/` (built with Vite base `/`). On referr-all.com the API
+  client's `/api/referr-all` calls resolve to `https://referr-all.com/api/referr-all`.
+- **Data:** a dedicated, initially empty `ReferrAll_Prod` database — separate from the dev
+  `RoryPortfolio` DB, so prod users/posts are isolated from staging.
+
+### One-time setup
+
+1. **DNS:** add `referr-all.com` to Cloudflare, proxied (orange cloud), pointing at the EC2 IP.
+
+2. **TLS (Cloudflare Origin cert):** Cloudflare → referr-all.com → SSL/TLS → Origin Server →
+   Create Certificate (hostnames `referr-all.com, *.referr-all.com`, RSA, 15 years). Then on EC2:
+
+   ```bash
+   sudo mkdir -p /etc/ssl/cloudflare
+   sudo nano /etc/ssl/cloudflare/referr-all.com.pem   # paste the certificate body
+   sudo nano /etc/ssl/cloudflare/referr-all.com.key   # paste the private key
+   sudo chmod 600 /etc/ssl/cloudflare/referr-all.com.key
+   ```
+
+   Set the Cloudflare SSL/TLS mode to **Full (strict)**.
+
+3. **Create the prod database** on the existing RDS instance:
+
+   ```bash
+   psql "postgresql://dbadmin:PASS@roryporfolio.cl0oawym20pw.us-west-1.rds.amazonaws.com:5432/RoryPortfolio"
+   ```
+   ```sql
+   CREATE DATABASE "ReferrAll_Prod";
+   ```
+
+   Tables are auto-created on first uvicorn start (`Base.metadata.create_all`). A fresh DB
+   needs **no** migration scripts — it's created with all current columns.
+
+4. **Prod checkout + venv:**
+
+   ```bash
+   git clone https://github.com/Rorhoff/Website.git /home/ubuntu/website-referrall
+   cd /home/ubuntu/website-referrall
+   python3 -m venv .venv
+   .venv/bin/pip install -r requirements.txt
+   ```
+
+5. **Env file:** copy the template and fill it in (DB URL, Cloudflare email token/account,
+   live Stripe, etc.):
+
+   ```bash
+   cp deploy/.env.referrall.example /home/ubuntu/website-referrall/.env.referrall
+   nano /home/ubuntu/website-referrall/.env.referrall
+   chmod 600 /home/ubuntu/website-referrall/.env.referrall
+   ```
+
+6. **systemd service:**
+
+   ```bash
+   sudo cp deploy/webapi-referrall.service /etc/systemd/system/webapi-referrall.service
+   sudo systemctl daemon-reload
+   sudo systemctl enable --now webapi-referrall
+   ```
+
+7. **nginx vhost:**
+
+   ```bash
+   sudo cp deploy/nginx-referr-all.conf /etc/nginx/sites-available/referr-all.conf
+   sudo ln -s /etc/nginx/sites-available/referr-all.conf /etc/nginx/sites-enabled/
+   sudo nginx -t && sudo systemctl reload nginx
+   ```
+
+8. **Deploy script:**
+
+   ```bash
+   cp deploy/commitreferrall.sh ~/commitreferrall.sh
+   chmod +x ~/commitreferrall.sh
+   ```
+
+### Promoting test → referr-all.com (release)
+
+```bash
+# Local: tag the commit you want live and push the tag.
+git checkout main && git pull
+git tag -a referrall-v1.0 -m "First referr-all.com release"
+git push origin referrall-v1.0
+
+# On EC2: the only step that moves referr-all.com.
+~/commitreferrall.sh referrall-v1.0
+```
+
+The script checks out the tag in `/home/ubuntu/website-referrall`, rebuilds the SPA with
+base `/`, runs `pip install` only when `requirements.txt` changed, restarts
+`webapi-referrall`, and probes `127.0.0.1:8002/which-app`.
+
+### Rollback / list tags / restart
+
+```bash
+~/commitreferrall.sh                  # show recent referrall-v* tags + usage
+~/commitreferrall.sh referrall-v0.9   # roll back to an older tag
+sudo systemctl restart webapi-referrall
+```
+
+### Verify isolation
+
+```bash
+curl -s https://referr-all.com/which-app   # SERVICE_MODE=referrall, ENV_FILE=...referrall
+curl -s https://rorhoff.com/which-app      # SERVICE_MODE=full (dev untouched)
+```

@@ -57,11 +57,13 @@ APP_ENV = os.getenv("APP_ENV", "unknown")
 
 # SERVICE_MODE = "full"        -> everything (portfolio root + all SPAs + all routers)
 # SERVICE_MODE = "classifieds" -> only classifieds router + classifieds SPA at "/"
-# The classifieds-only mode is used by the prod service on t1classifieds.com so the
-# process is lean (less memory, fewer surprises) and "/" serves the SPA directly with
-# no redirect dance.
+# SERVICE_MODE = "referrall"   -> only Referr-All router + Referr-All SPA at "/"
+# The lean modes back the per-domain prod services (t1classifieds.com :8001,
+# referr-all.com :8002) so each process is small and "/" serves its SPA directly
+# with no redirect dance.
 SERVICE_MODE = os.getenv("SERVICE_MODE", "full").lower()
 _CLASSIFIEDS_ONLY = SERVICE_MODE == "classifieds"
+_REFERR_ALL_ONLY = SERVICE_MODE == "referrall"
 
 log = logging.getLogger("webapi-testing")
 
@@ -183,7 +185,10 @@ app.add_middleware(
 )
 
 app.include_router(classifieds_router)
-if not _CLASSIFIEDS_ONLY:
+if _REFERR_ALL_ONLY:
+    # referr-all.com: only the Referr-All API is mounted.
+    app.include_router(referr_all_router)
+elif not _CLASSIFIEDS_ONLY:
     app.include_router(airevolution_router)
     app.include_router(sss_router)
     app.include_router(t1prod_router)
@@ -263,6 +268,14 @@ async def spa_shell_cache_middleware(request: Request, call_next):
     """SPA shell (index.html) must not be cached long-term — hashed /assets/* can be."""
     response = await call_next(request)
     path = request.url.path
+    if _REFERR_ALL_ONLY:
+        # referr-all.com serves the SPA from the domain root (base "/").
+        if path in ("/", "/index.html"):
+            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            response.headers["Pragma"] = "no-cache"
+        elif path.startswith("/assets/"):
+            response.headers.setdefault("Cache-Control", "public, max-age=31536000, immutable")
+        return response
     if path in ("/referr-all", "/referr-all/", "/referr-all/index.html"):
         response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
         response.headers["Pragma"] = "no-cache"
@@ -288,18 +301,25 @@ _REFERR_ALL_CSP = (
 
 @app.middleware("http")
 async def referr_all_security_headers(request: Request, call_next):
-    """Security headers for Referr-All (SPA + API). Scoped so other apps are untouched."""
+    """Security headers for Referr-All (SPA + API). Scoped so other apps are untouched.
+
+    On referr-all.com (SERVICE_MODE=referrall) the entire service is Referr-All, so the
+    headers apply to every path; otherwise they are limited to the /referr-all* subtree.
+    """
     response = await call_next(request)
     path = request.url.path
-    if path.startswith("/referr-all") or path.startswith("/api/referr-all"):
+    if _REFERR_ALL_ONLY or path.startswith("/referr-all") or path.startswith("/api/referr-all"):
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
         response.headers.setdefault("X-Frame-Options", "DENY")
         response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
         response.headers.setdefault(
             "Permissions-Policy", "geolocation=(), microphone=(), camera=()"
         )
-        # CSP only on the SPA/document responses, not the JSON API.
-        if path.startswith("/referr-all"):
+        # CSP on SPA/document + asset responses, not the JSON API or plain-text probes.
+        if _REFERR_ALL_ONLY:
+            if not path.startswith(("/api/", "/which-app", "/health")):
+                response.headers.setdefault("Content-Security-Policy", _REFERR_ALL_CSP)
+        elif path.startswith("/referr-all"):
             response.headers.setdefault("Content-Security-Policy", _REFERR_ALL_CSP)
     return response
 
@@ -526,12 +546,15 @@ if _CLASSIFIEDS_ONLY:
         return HTMLResponse(_CLASSIFIEDS_RESET_PROD)
 
 
-app.mount("/assets", StaticFiles(directory=str(STATIC_DIR)), name="assets")
-app.mount(
-    "/classifieds",
-    StaticFiles(directory=str(STATIC_DIR / "classifieds"), html=True),
-    name="classifieds",
-)
+# In referrall mode the Referr-All SPA owns the domain root (and its own /assets),
+# so the portfolio /assets and /classifieds mounts must not be registered.
+if not _REFERR_ALL_ONLY:
+    app.mount("/assets", StaticFiles(directory=str(STATIC_DIR)), name="assets")
+    app.mount(
+        "/classifieds",
+        StaticFiles(directory=str(STATIC_DIR / "classifieds"), html=True),
+        name="classifieds",
+    )
 
 _LEGAL_TERMS_PDF = STATIC_DIR / "classifieds" / "legal" / "terms.pdf"
 _LEGAL_PRIVACY_PDF = STATIC_DIR / "classifieds" / "legal" / "privacy.pdf"
@@ -780,6 +803,33 @@ if _CLASSIFIEDS_ONLY:
         if ad_id:
             html = _inject_prod_listing_seo(html, ad_id)
         return HTMLResponse(html)
+elif _REFERR_ALL_ONLY:
+    # referr-all.com: serve the Referr-All SPA (built with --base=/) from the domain root.
+    # The SPA uses query-param routing (?reset_token=, ?verified=), so no path fallback
+    # is needed — unknown paths legitimately 404.
+    @app.get("/favicon.ico", include_in_schema=False)
+    def referr_all_root_favicon_ico() -> FileResponse:
+        icon = STATIC_DIR / "referr-all" / "favicon.svg"
+        if not icon.is_file():
+            raise HTTPException(status_code=404, detail="Not found")
+        return FileResponse(icon, media_type="image/svg+xml")
+
+    @app.get("/", include_in_schema=False)
+    @app.get("/index.html", include_in_schema=False)
+    def root_referr_all() -> FileResponse:
+        index = STATIC_DIR / "referr-all" / "index.html"
+        if not index.is_file():
+            raise HTTPException(status_code=503, detail="Referr-All build missing")
+        return FileResponse(index, media_type="text/html")
+
+    # Static build output (/assets/*, /sw.js, /manifest.json, /icon*.svg, …). Mounted at
+    # "/" and registered last, so the API routers, /health, /which-app and the routes
+    # above all take precedence.
+    app.mount(
+        "/",
+        StaticFiles(directory=str(STATIC_DIR / "referr-all"), html=True, check_dir=False),
+        name="referr_all_root",
+    )
 else:
     # Dev / full mode (rorhoff.com): keep the portfolio + every other SPA reachable.
     _REFERR_ALL_FAVICON = STATIC_DIR / "referr-all" / "favicon.svg"
