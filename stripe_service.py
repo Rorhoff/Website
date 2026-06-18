@@ -686,7 +686,6 @@ def refund_prorated_gold_for_seller_delete(
 
 # --- Referr-All featured (premium) refunds --------------------------------------------
 
-PREMIUM_REFUND_PROCESSING_RATE = 0.03
 PREMIUM_REFUND_REASON_SELLER_DELETE = "referr_all_premium_seller_delete"
 
 
@@ -716,7 +715,10 @@ def compute_premium_refund_quote(
     window_end: datetime,
     already_refunded: bool = False,
 ) -> dict[str, Any]:
-    """Prorate featured payment: (gross − 3% fee) × days remaining / total days."""
+    """Prorate featured payment: (gross − Stripe fee) × days remaining / total days.
+
+    Uses the same fee model as Classifieds Gold seller-delete refunds (2.9% + $0.30).
+    """
     quote: dict[str, Any] = {
         "eligible": False,
         "refund_cents": 0,
@@ -742,16 +744,16 @@ def compute_premium_refund_quote(
         quote["blocked_reason"] = "zero_window"
         return quote
     gross_paid_cents = amount_cents
-    processing_fee_cents = int(round(gross_paid_cents * PREMIUM_REFUND_PROCESSING_RATE))
-    net_after_fee_cents = max(gross_paid_cents - processing_fee_cents, 0)
+    stripe_fee_cents = _stripe_fee_cents(gross_paid_cents)
+    net_after_fee_cents = max(gross_paid_cents - stripe_fee_cents, 0)
     ratio = days_remaining / total_days
     prorated_cents = min(int(round(net_after_fee_cents * ratio)), net_after_fee_cents)
     if prorated_cents < MIN_REFUND_CENTS:
         quote["blocked_reason"] = "below_minimum_refund"
         quote["breakdown"] = {
             "gross_paid_cents": gross_paid_cents,
-            "processing_fee_cents": processing_fee_cents,
-            "processing_fee_rate": PREMIUM_REFUND_PROCESSING_RATE,
+            "stripe_fee_cents": stripe_fee_cents,
+            "stripe_fee_label": STRIPE_CARD_FEE_LABEL,
             "net_after_fee_cents": net_after_fee_cents,
             "total_days": round(total_days, 4),
             "days_used": round(days_used, 4),
@@ -766,8 +768,8 @@ def compute_premium_refund_quote(
     quote["refund_cents"] = prorated_cents
     quote["breakdown"] = {
         "gross_paid_cents": gross_paid_cents,
-        "processing_fee_cents": processing_fee_cents,
-        "processing_fee_rate": PREMIUM_REFUND_PROCESSING_RATE,
+        "stripe_fee_cents": stripe_fee_cents,
+        "stripe_fee_label": STRIPE_CARD_FEE_LABEL,
         "net_after_fee_cents": net_after_fee_cents,
         "total_days": round(total_days, 4),
         "days_used": round(days_used, 4),

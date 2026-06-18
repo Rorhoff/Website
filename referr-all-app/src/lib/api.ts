@@ -167,6 +167,30 @@ export async function deleteSeekerPost(id: string): Promise<{
   return request(`/seeker-posts/${id}`, { method: 'DELETE' });
 }
 
+export type PremiumRefundPreview = {
+  eligible: boolean;
+  refundCents: number;
+  blockedReason: string | null;
+  reason?: string;
+  breakdown?: {
+    grossPaidCents: number;
+    stripeFeeCents: number;
+    stripeFeeLabel: string;
+    netAfterFeeCents: number;
+    totalDays: number;
+    daysUsed: number;
+    daysRemaining: number;
+    prorationBasis: string;
+    prorationRatio: number;
+    proratedRefundCents: number;
+    minimumRefundCents: number;
+  } | null;
+};
+
+export async function getPremiumRefundPreview(postId: string): Promise<PremiumRefundPreview> {
+  return request<PremiumRefundPreview>(`/seeker-posts/${postId}/premium-refund-preview`);
+}
+
 export async function reportSeekerPost(id: string): Promise<{ ok: boolean; alreadyReported: boolean; removed: boolean }> {
   return request(`/seeker-posts/${id}/report`, { method: 'POST' });
 }

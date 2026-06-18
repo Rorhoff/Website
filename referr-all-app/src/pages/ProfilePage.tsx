@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import CreateSeekerPostModal from '../components/CreateSeekerPostModal';
 import CreateJobPostModal from '../components/CreateJobPostModal';
+import DeleteSeekerPostModal from '../components/DeleteSeekerPostModal';
 import AvatarCropModal from '../components/AvatarCropModal';
 import PostActionDropdown from '../components/PostActionDropdown';
 import * as api from '../lib/api';
@@ -40,7 +41,7 @@ export default function ProfilePage({ userId, onMessage, onOpenSettings, onBack 
   const [bannerUploading, setBannerUploading] = useState(false);
   const [bannerError, setBannerError] = useState('');
   const [upgradeError, setUpgradeError] = useState('');
-  const [deletingPostId, setDeletingPostId] = useState<string | null>(null);
+  const [seekerPostToDelete, setSeekerPostToDelete] = useState<SeekerPost | null>(null);
   const [upgradingPostId, setUpgradingPostId] = useState<string | null>(null);
   const [isBlocked, setIsBlocked] = useState(false);
   const [blockLoading, setBlockLoading] = useState(false);
@@ -242,27 +243,18 @@ export default function ProfilePage({ userId, onMessage, onOpenSettings, onBack 
     return `${Math.floor(hrs / 24)}d ago`;
   }
 
-  async function handleDeleteSeekerPost(postId: string) {
-    const post = seekerPosts.find(p => p.id === postId);
-    const featured = post && isPremiumActive(post);
-    const msg = featured
-      ? 'Delete this featured seeker post? Unused featured time will be refunded minus a 3% processing fee.'
-      : 'Are you sure you want to delete this seeker post? This cannot be undone.';
-    if (!confirm(msg)) return;
-    setDeletingPostId(postId);
+  function openDeleteSeekerPost(post: SeekerPost) {
     setUpgradeError('');
-    try {
-      const result = await api.deleteSeekerPost(postId);
-      setSeekerPosts(prev => prev.filter(p => p.id !== postId));
-      if (result.refundCents && result.refundCents > 0) {
-        setUpgradeError(`Refund issued: $${(result.refundCents / 100).toFixed(2)} for unused featured time.`);
-      }
-    } catch (err) {
-      console.error('Failed to delete seeker post:', err);
-      setUpgradeError(err instanceof Error ? err.message : 'Failed to delete seeker post');
-    } finally {
-      setDeletingPostId(null);
+    setSeekerPostToDelete(post);
+  }
+
+  function handleSeekerPostDeleted(result: { refundCents?: number }) {
+    if (!seekerPostToDelete) return;
+    setSeekerPosts(prev => prev.filter(p => p.id !== seekerPostToDelete.id));
+    if (result.refundCents && result.refundCents > 0) {
+      setUpgradeError(`Refund issued: $${(result.refundCents / 100).toFixed(2)} for unused featured time.`);
     }
+    setSeekerPostToDelete(null);
   }
 
   async function handleRetryFeaturedActivation() {
@@ -747,15 +739,10 @@ export default function ProfilePage({ userId, onMessage, onOpenSettings, onBack 
                           </>
                         )}
                         <button
-                          onClick={() => handleDeleteSeekerPost(post.id)}
-                          disabled={deletingPostId === post.id}
-                          className="flex items-center gap-2 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 text-red-400 font-medium rounded-xl px-4 py-2 text-sm transition disabled:opacity-50 ml-auto"
+                          onClick={() => openDeleteSeekerPost(post)}
+                          className="flex items-center gap-2 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 text-red-400 font-medium rounded-xl px-4 py-2 text-sm transition ml-auto"
                         >
-                          {deletingPostId === post.id ? (
-                            <Loader size={13} className="animate-spin" />
-                          ) : (
-                            <Trash2 size={13} />
-                          )}
+                          <Trash2 size={13} />
                           Delete
                         </button>
                       </div>
@@ -932,6 +919,14 @@ export default function ProfilePage({ userId, onMessage, onOpenSettings, onBack 
             </div>
           </div>
         </div>
+      )}
+
+      {seekerPostToDelete && (
+        <DeleteSeekerPostModal
+          post={seekerPostToDelete}
+          onClose={() => setSeekerPostToDelete(null)}
+          onDeleted={handleSeekerPostDeleted}
+        />
       )}
 
       {showCreateSeeker && (

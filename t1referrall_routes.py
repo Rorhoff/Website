@@ -1803,14 +1803,85 @@ def _resolve_premium_payment_intent(purchase: T1ReferrallPremiumPurchase) -> str
     return None
 
 
-def _refund_premium_for_deleted_seeker_post(
+def _assess_premium_refund_abuse(
+    db: Session,
+    user_id: str,
+    window_start: datetime,
+    purchase: T1ReferrallPremiumPurchase,
+    quote: dict[str, Any],
+) -> str | None:
+    """Same anti-abuse rules as Classifieds Gold seller-delete refunds."""
+    if not quote.get("eligible"):
+        return None
+    age = datetime.utcnow() - window_start
+    if age < stripe_service.SELLER_REFUND_MIN_GOLD_AGE:
+        return "featured_purchase_too_recent"
+    since = datetime.utcnow() - timedelta(hours=24)
+    recent = db.scalar(
+        select(func.count())
+        .select_from(T1ReferrallPremiumPurchase)
+        .where(
+            T1ReferrallPremiumPurchase.user_id == user_id,
+            T1ReferrallPremiumPurchase.refunded_at.isnot(None),
+            T1ReferrallPremiumPurchase.refunded_at >= since,
+        )
+    )
+    if recent and int(recent) >= stripe_service.SELLER_REFUND_MAX_PER_24H:
+        return "refund_rate_limit"
+    if purchase.refunded_at is not None:
+        return "already_refunded"
+    return None
+
+
+def _compute_premium_refund_quote_for_post(
     db: Session,
     row: T1ReferrallSeekerPost,
 ) -> dict[str, Any]:
     if not _post_premium_active(row) or not row.premium_expires_at:
-        return {"refundCents": 0, "refundEligible": False}
+        return {
+            "eligible": False,
+            "refund_cents": 0,
+            "blocked_reason": "not_featured",
+            "breakdown": None,
+        }
     purchase = _premium_purchase_for_post(db, row.id)
     if purchase is None:
+        return {
+            "eligible": False,
+            "refund_cents": 0,
+            "blocked_reason": "no_payment_intent",
+            "breakdown": None,
+        }
+    window_end = row.premium_expires_at
+    window_start = window_end - timedelta(days=PREMIUM_DURATION_DAYS)
+    payment_intent_id = _resolve_premium_payment_intent(purchase)
+    quote = stripe_service.compute_premium_refund_quote(
+        amount_cents=purchase.amount_cents,
+        payment_intent_id=payment_intent_id or "",
+        window_start=window_start,
+        window_end=window_end,
+        already_refunded=purchase.refunded_at is not None,
+    )
+    abuse = _assess_premium_refund_abuse(db, row.author_id, window_start, purchase, quote)
+    if abuse:
+        quote["eligible"] = False
+        quote["blocked_reason"] = abuse
+    return quote
+
+
+def _refund_premium_for_deleted_seeker_post(
+    db: Session,
+    row: T1ReferrallSeekerPost,
+) -> dict[str, Any]:
+    quote = _compute_premium_refund_quote_for_post(db, row)
+    if not quote.get("eligible"):
+        return {
+            "refundCents": 0,
+            "refundEligible": False,
+            "refundBlockedReason": quote.get("blocked_reason"),
+        }
+    purchase = _premium_purchase_for_post(db, row.id)
+    if purchase is None or not row.premium_expires_at:
         return {"refundCents": 0, "refundEligible": False}
     window_end = row.premium_expires_at
     window_start = window_end - timedelta(days=PREMIUM_DURATION_DAYS)
@@ -1836,6 +1907,22 @@ def _refund_premium_for_deleted_seeker_post(
         "refundEligible": bool(outcome.get("eligible")),
         "refundBlockedReason": outcome.get("blocked_reason") or outcome.get("error"),
     }
+
+
+@router.get("/seeker-posts/{post_id}/premium-refund-preview")
+def premium_refund_preview(
+    post_id: str,
+    user: T1ReferrallUser = Depends(get_current_referrall_user),
+    db: Session = Depends(referrall_db),
+):
+    """Refund breakdown for the delete-confirmation modal (featured posts only)."""
+    row = db.get(T1ReferrallSeekerPost, post_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Post not found")
+    if row.author_id != user.id:
+        raise HTTPException(status_code=403, detail="You can only preview refunds for your own posts")
+    quote = _compute_premium_refund_quote_for_post(db, row)
+    return stripe_service.refund_quote_to_api(quote)
 
 
 @router.delete("/seeker-posts/{post_id}")
