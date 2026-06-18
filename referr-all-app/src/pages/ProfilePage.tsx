@@ -290,7 +290,7 @@ export default function ProfilePage({ userId, onMessage, onOpenSettings, onBack 
       const json = await api.createPremiumCheckout({
         seekerPostId: postId,
         successUrl: api.premiumCheckoutSuccessUrl(origin),
-        cancelUrl: `${origin}/referr-all/`,
+        cancelUrl: api.premiumCheckoutCancelUrl(origin),
       });
       if (!json.url) throw new Error('Failed to create checkout session');
       if (json.sessionId) storePendingPremiumSession(json.sessionId);

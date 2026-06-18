@@ -62,7 +62,7 @@ export async function confirmPremiumReturn(): Promise<{
       return {
         confirmed: false,
         featuredReturn,
-        error: 'Payment found but featured status could not be activated. Use Sync payments on Profile or fix the Stripe webhook URL.',
+        error: 'Payment received but featured status could not be activated. Try "Restore featured status" on Profile or contact support.',
       };
     }
     return { confirmed: false, featuredReturn };

@@ -117,7 +117,7 @@ export default function CreateSeekerPostModal({ onClose, onCreated }: Props) {
       const json = await api.createPremiumCheckout({
         seekerPostId: createdPostId,
         successUrl: api.premiumCheckoutSuccessUrl(origin),
-        cancelUrl: `${origin}/referr-all/`,
+        cancelUrl: api.premiumCheckoutCancelUrl(origin),
       });
       if (!json.url) throw new Error('Failed to create checkout session');
       window.location.href = json.url;

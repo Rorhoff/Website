@@ -295,8 +295,20 @@ export async function createPremiumCheckout(input: {
   return request('/premium/checkout', { method: 'POST', body: JSON.stringify(input) });
 }
 
+/** App home URL — "/" on referr-all.com prod, "/referr-all/" on rorhoff dev. */
+export function appHomeUrl(origin = window.location.origin): string {
+  let base = import.meta.env.BASE_URL || '/';
+  if (base !== '/' && !base.endsWith('/')) base += '/';
+  if (base === '/') return `${origin}/`;
+  return `${origin}${base}`;
+}
+
 export function premiumCheckoutSuccessUrl(origin = window.location.origin): string {
-  return `${origin}/referr-all/?featured=1&session_id={CHECKOUT_SESSION_ID}`;
+  return `${appHomeUrl(origin)}?featured=1&session_id={CHECKOUT_SESSION_ID}`;
+}
+
+export function premiumCheckoutCancelUrl(origin = window.location.origin): string {
+  return appHomeUrl(origin);
 }
 
 export async function confirmPremiumCheckout(sessionId: string): Promise<{ seekerPostId: string; isPremium?: boolean }> {

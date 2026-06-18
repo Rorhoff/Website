@@ -807,6 +807,13 @@ elif _REFERR_ALL_ONLY:
     # referr-all.com: serve the Referr-All SPA (built with --base=/) from the domain root.
     # The SPA uses query-param routing (?reset_token=, ?verified=), so no path fallback
     # is needed — unknown paths legitimately 404.
+    @app.get("/referr-all", include_in_schema=False)
+    @app.get("/referr-all/", include_in_schema=False)
+    def referr_all_legacy_path_redirect(request: Request) -> RedirectResponse:
+        """Dev builds used /referr-all/ in Stripe success URLs; prod SPA lives at /."""
+        qs = request.url.query
+        return RedirectResponse(url=f"/?{qs}" if qs else "/", status_code=302)
+
     @app.get("/favicon.ico", include_in_schema=False)
     def referr_all_root_favicon_ico() -> FileResponse:
         icon = STATIC_DIR / "referr-all" / "favicon.svg"
