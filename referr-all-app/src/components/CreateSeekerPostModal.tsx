@@ -31,6 +31,7 @@ export default function CreateSeekerPostModal({ onClose, onCreated }: Props) {
   const [createdPostId, setCreatedPostId] = useState<string | null>(null);
   const [premiumPrice, setPremiumPrice] = useState<number | null>(null);
   const [paymentsConfigured, setPaymentsConfigured] = useState(true);
+  const [paymentsSetupHint, setPaymentsSetupHint] = useState('');
 
   const [form, setForm] = useState({
     about: profile?.bio || '',
@@ -87,13 +88,16 @@ export default function CreateSeekerPostModal({ onClose, onCreated }: Props) {
         ]);
         setPremiumPrice(priceInfo.priceCents);
         setPaymentsConfigured(status.paymentsConfigured);
+        setPaymentsSetupHint(status.paymentsSetupHint || '');
       } catch {
         setPremiumPrice(api.BASE_PREMIUM_PRICE_CENTS);
         try {
           const status = await api.getReferrallStatus();
           setPaymentsConfigured(status.paymentsConfigured);
+          setPaymentsSetupHint(status.paymentsSetupHint || '');
         } catch {
           setPaymentsConfigured(false);
+          setPaymentsSetupHint('');
         }
       }
       setStep('premium');
@@ -291,8 +295,10 @@ export default function CreateSeekerPostModal({ onClose, onCreated }: Props) {
             {!paymentsConfigured && (
               <div className="bg-amber-500/10 border border-amber-400/30 text-amber-200 text-sm rounded-lg px-4 py-3 mb-4">
                 Featured checkout is not enabled on this server yet. Your standard post is already live — use
-                &ldquo;No thanks&rdquo; below, or ask an admin to run{' '}
-                <span className="font-mono text-xs">bash deploy/set-stripe-dev.sh</span> on the server.
+                &ldquo;No thanks&rdquo; below.
+                {paymentsSetupHint ? (
+                  <p className="mt-2 text-amber-200/90 text-xs leading-relaxed">{paymentsSetupHint}</p>
+                ) : null}
               </div>
             )}
 

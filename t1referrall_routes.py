@@ -1169,6 +1169,28 @@ AUTH_SCHEMA_MIGRATE_HINT = (
 )
 
 
+def _is_referrall_prod() -> bool:
+    return os.getenv("SERVICE_MODE", "").lower() == "referrall"
+
+
+def _payments_setup_hint() -> str:
+    if _is_referrall_prod():
+        return (
+            "On EC2, set live Stripe keys in /home/ubuntu/website-referrall/.env.referrall "
+            "(STRIPE_SECRET_KEY, REFERR_ALL_STRIPE_WEBHOOK_SECRET, STRIPE_PUBLIC_BASE_URL="
+            "https://referr-all.com), then run "
+            "bash deploy/set-stripe-referrall-prod.sh and restart webapi-referrall."
+        )
+    return (
+        "On EC2, set test Stripe keys in .env.dev, then run "
+        "bash deploy/set-stripe-dev.sh and restart roryportfolio."
+    )
+
+
+def _payments_not_configured_detail() -> str:
+    return f"Payments not configured. {_payments_setup_hint()}"
+
+
 def _auth_db_ready(db: Session) -> tuple[bool, str | None]:
     """True when login/register can read users and write sessions."""
     try:
@@ -1237,6 +1259,7 @@ def referrall_status():
         "premiumDbError": premium_err,
         "usaOnly": True,
         "missingPaymentEnv": missing,
+        "paymentsSetupHint": _payments_setup_hint(),
     }
 
 
@@ -2503,10 +2526,7 @@ def premium_checkout(
     if not stripe_service.stripe_enabled():
         raise HTTPException(
             status_code=503,
-            detail=(
-                "Payments not configured on this server. An admin must run "
-                "bash deploy/set-stripe-dev.sh on EC2 (test keys + webhook), then restart roryportfolio."
-            ),
+            detail=_payments_not_configured_detail(),
         )
     ready, db_err = _premium_db_ready(db)
     if not ready:

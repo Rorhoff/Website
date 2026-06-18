@@ -594,6 +594,15 @@ service on the same box; `rorhoff.com/referr-all/` keeps running as dev/staging.
    chmod +x ~/commitreferrall.sh
    ```
 
+9. **Stripe (Featured posts):** after the first deploy, configure live keys once:
+
+   ```bash
+   bash /home/ubuntu/website-referrall/deploy/set-stripe-referrall-prod.sh
+   ```
+
+   Webhook URL: `https://referr-all.com/api/referr-all/premium/webhook` → `checkout.session.completed`.
+   Diagnose: `bash deploy/diagnose-t1referrall-prod.sh`.
+
 ### Promoting test → referr-all.com (release)
 
 ```bash

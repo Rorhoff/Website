@@ -263,6 +263,7 @@ export type ReferrallStatus = {
   premiumDbError: string | null;
   usaOnly: boolean;
   missingPaymentEnv: string[];
+  paymentsSetupHint: string;
 };
 
 export async function getReferrallStatus(): Promise<ReferrallStatus> {

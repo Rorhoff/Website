@@ -183,6 +183,10 @@ export ENV_FILE="${REFERRALL_DIR}/.env.referrall"
 bash "$REFERRALL_DIR/deploy/migrate-t1referrall-v10.sh" || warn "v10 migration failed"
 bash "$REFERRALL_DIR/deploy/migrate-t1referrall-v11.sh" || warn "v11 migration failed"
 
+log "Ensuring Stripe public base URL on referr-all.com prod…"
+bash "$REFERRALL_DIR/deploy/ensure-stripe-public-base-referrall-prod.sh" \
+  || warn "Could not update Stripe env — run deploy/set-stripe-referrall-prod.sh manually"
+
 log "Restarting ${REFERRALL_SERVICE}…"
 sudo systemctl restart "$REFERRALL_SERVICE"
 sleep 2
@@ -198,6 +202,11 @@ if command -v curl >/dev/null 2>&1; then
     ok "Health probe ${REFERRALL_HEALTH_URL} responded."
   else
     warn "Health probe ${REFERRALL_HEALTH_URL} did not respond — check the service logs."
+  fi
+  pay_status="$(curl -sS --max-time 5 "http://127.0.0.1:8002/api/referr-all/status" 2>/dev/null || true)"
+  if [[ -n "$pay_status" ]] && echo "$pay_status" | grep -q '"paymentsConfigured": false'; then
+    warn "Stripe live keys not configured — Featured checkout disabled until you run:"
+    warn "  bash ${REFERRALL_DIR}/deploy/set-stripe-referrall-prod.sh"
   fi
 fi
 
