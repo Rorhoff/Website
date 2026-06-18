@@ -809,7 +809,8 @@ elif _REFERR_ALL_ONLY:
     # is needed — unknown paths legitimately 404.
     @app.get("/referr-all", include_in_schema=False)
     @app.get("/referr-all/", include_in_schema=False)
-    def referr_all_legacy_path_redirect(request: Request) -> RedirectResponse:
+    @app.get("/referr-all/{rest:path}", include_in_schema=False)
+    def referr_all_legacy_path_redirect(request: Request, rest: str = "") -> RedirectResponse:
         """Dev builds used /referr-all/ in Stripe success URLs; prod SPA lives at /."""
         qs = request.url.query
         return RedirectResponse(url=f"/?{qs}" if qs else "/", status_code=302)

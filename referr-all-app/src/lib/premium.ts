@@ -17,6 +17,26 @@ export function clearPendingPremiumSession() {
   localStorage.removeItem(PENDING_PREMIUM_SESSION_KEY);
 }
 
+/**
+ * On referr-all.com prod the SPA lives at / but older builds sent Stripe back to /referr-all/.
+ * Redirect before React mounts so the user never sits on a JSON 404 page.
+ * Returns true if a full-page redirect was started.
+ */
+export function redirectLegacyStripeReturnPath(): boolean {
+  const base = import.meta.env.BASE_URL || '/';
+  if (base !== '/') return false;
+  const { pathname, search, origin } = window.location;
+  if (pathname !== '/referr-all' && !pathname.startsWith('/referr-all/')) return false;
+  window.location.replace(`${origin}/${search || ''}`);
+  return true;
+}
+
+/** Persist session_id from the return URL so confirm still works after redirect/login. */
+export function capturePremiumSessionFromUrl(): void {
+  const sessionId = new URLSearchParams(window.location.search).get('session_id');
+  if (sessionId) storePendingPremiumSession(sessionId);
+}
+
 async function tryActivatePremium(sessionId?: string | null): Promise<boolean> {
   if (sessionId) {
     try {
@@ -45,7 +65,7 @@ export async function confirmPremiumReturn(): Promise<{
   const sessionId = params.get('session_id') || localStorage.getItem(PENDING_PREMIUM_SESSION_KEY);
 
   if (featuredReturn) {
-    window.history.replaceState({}, '', window.location.pathname);
+    window.history.replaceState({}, '', new URL(api.appHomeUrl()).pathname);
   }
 
   if (!sessionId && !featuredReturn) {
