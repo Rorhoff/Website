@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import AuthPage from './pages/AuthPage';
 import Layout from './components/Layout';
@@ -9,18 +9,52 @@ import ProfilePage from './pages/ProfilePage';
 import SettingsPage from './pages/SettingsPage';
 import TermsPage from './pages/TermsPage';
 import PrivacyPage from './pages/PrivacyPage';
-
-type Page = 'feed' | 'network' | 'messages' | 'profile' | 'settings' | 'terms' | 'privacy';
-
-type NavSnapshot = { page: Page; viewingUserId: string | null };
+import {
+  type AppNavState,
+  type AppPage,
+  defaultNavState,
+  parseNavHash,
+  pushNavState,
+  readHistoryNavState,
+} from './lib/appNav';
 
 function AppInner() {
   const { user, profile, loading, signOut } = useAuth();
-  const [page, setPage] = useState<Page>('feed');
+  const [page, setPage] = useState<AppPage>('feed');
   const [viewingUserId, setViewingUserId] = useState<string | null>(null);
   const [messageUserId, setMessageUserId] = useState<string | null>(null);
-  const [prevPage, setPrevPage] = useState<Page>('feed');
-  const [returnTo, setReturnTo] = useState<NavSnapshot | null>(null);
+  const navSynced = useRef(false);
+
+  const applyNavState = useCallback((state: AppNavState) => {
+    setPage(state.page);
+    setViewingUserId(state.viewingUserId);
+    setMessageUserId(state.messageUserId);
+  }, []);
+
+  const commitNav = useCallback((next: AppNavState, replace = false) => {
+    applyNavState(next);
+    pushNavState(next, replace);
+  }, [applyNavState]);
+
+  useEffect(() => {
+    if (loading || !user || !profile) return;
+
+    const onPop = (event: PopStateEvent) => {
+      const state = (event.state as AppNavState | null) ?? parseNavHash() ?? defaultNavState();
+      applyNavState(state);
+    };
+
+    window.addEventListener('popstate', onPop);
+
+    if (!navSynced.current) {
+      const initial = readHistoryNavState();
+      applyNavState(initial);
+      pushNavState(initial, !window.history.state?.page);
+      navSynced.current = true;
+    }
+
+    return () => window.removeEventListener('popstate', onPop);
+  }, [loading, user, profile, applyNavState]);
 
   if (loading) {
     return (
@@ -49,7 +83,7 @@ function AppInner() {
           <h1 className="text-xl font-bold text-white mb-2">Account Suspended</h1>
           <p className="text-gray-400 text-sm mb-6">
             Your account has been permanently suspended due to violations of our community guidelines (Ten-Block Rule).
-            This decision is final and not subject to appeal.
+            This decision is final and is not subject to appeal.
           </p>
           <button
             onClick={() => signOut()}
@@ -62,49 +96,44 @@ function AppInner() {
     );
   }
 
-  function navigate(p: Page) {
-    if (p === 'terms' || p === 'privacy') {
-      setPrevPage(page as Page);
-    }
-    setReturnTo(null);
-    setPage(p);
-    // Main nav always shows your own profile; clear any "viewing someone else" id.
-    setViewingUserId(null);
-    if (p !== 'messages') {
-      setMessageUserId(null);
-    }
+  function navigate(p: AppPage) {
+    commitNav({
+      page: p,
+      viewingUserId: null,
+      messageUserId: null,
+      returnTo: null,
+    });
   }
 
   function goBack() {
-    if (returnTo) {
-      setPage(returnTo.page);
-      setViewingUserId(returnTo.viewingUserId);
-      setReturnTo(null);
-      if (returnTo.page !== 'messages') {
-        setMessageUserId(null);
-      }
-      return;
-    }
-    navigate('feed');
+    window.history.back();
   }
 
   function handleViewProfile(userId: string) {
-    if (userId !== user?.id) {
-      setReturnTo({ page, viewingUserId });
-    }
-    setViewingUserId(userId);
-    setPage('profile');
+    commitNav({
+      page: 'profile',
+      viewingUserId: userId === user?.id ? null : userId,
+      messageUserId: null,
+      returnTo: null,
+    });
   }
 
   function openSettings() {
-    setReturnTo({ page, viewingUserId });
-    setPage('settings');
+    commitNav({
+      page: 'settings',
+      viewingUserId,
+      messageUserId: null,
+      returnTo: null,
+    });
   }
 
   function handleMessage(userId: string) {
-    setReturnTo({ page, viewingUserId });
-    setMessageUserId(userId);
-    setPage('messages');
+    commitNav({
+      page: 'messages',
+      viewingUserId: null,
+      messageUserId: userId,
+      returnTo: null,
+    });
   }
 
   return (
@@ -136,10 +165,10 @@ function AppInner() {
         />
       )}
       {page === 'terms' && (
-        <TermsPage onBack={() => setPage(prevPage)} />
+        <TermsPage onBack={goBack} />
       )}
       {page === 'privacy' && (
-        <PrivacyPage onBack={() => setPage(prevPage)} />
+        <PrivacyPage onBack={goBack} />
       )}
     </Layout>
   );

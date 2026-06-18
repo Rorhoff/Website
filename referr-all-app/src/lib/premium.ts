@@ -1,4 +1,5 @@
 import * as api from './api';
+import { defaultNavState, replaceNavAfterExternalReturn } from './appNav';
 import type { SeekerPost } from './types';
 
 export const PENDING_PREMIUM_SESSION_KEY = 'referr_all_pending_premium_session';
@@ -65,7 +66,7 @@ export async function confirmPremiumReturn(): Promise<{
   const sessionId = params.get('session_id') || localStorage.getItem(PENDING_PREMIUM_SESSION_KEY);
 
   if (featuredReturn) {
-    window.history.replaceState({}, '', new URL(api.appHomeUrl()).pathname);
+    replaceNavAfterExternalReturn(defaultNavState());
   }
 
   if (!sessionId && !featuredReturn) {
