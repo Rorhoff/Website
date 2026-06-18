@@ -150,10 +150,18 @@ _SURGE_OVER_CAP = 5.0  # applied to anything beyond the last tier's max
 # --- Stripe SDK glue (lazy import so the app boots without the package in dev) -------
 
 
+def _webhook_secret_configured() -> bool:
+    return bool(
+        os.getenv("STRIPE_WEBHOOK_SECRET")
+        or os.getenv("REFERR_ALL_STRIPE_WEBHOOK_SECRET")
+        or os.getenv("T1REFERRALL_STRIPE_WEBHOOK_SECRET")
+    )
+
+
 def stripe_enabled() -> bool:
     return bool(
         os.getenv("STRIPE_SECRET_KEY")
-        and os.getenv("STRIPE_WEBHOOK_SECRET")
+        and _webhook_secret_configured()
         and os.getenv("STRIPE_PUBLIC_BASE_URL")
     )
 

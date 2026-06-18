@@ -194,6 +194,9 @@ export ROOT="$DEV_DIR"
 bash "$DEV_DIR/deploy/migrate-t1referrall-v10.sh" || warn "v10 migration failed — login may 500 until fixed"
 bash "$DEV_DIR/deploy/migrate-t1referrall-v11.sh" || warn "v11 migration failed"
 
+log "Ensuring Stripe public base URL on dev…"
+bash "$DEV_DIR/deploy/ensure-stripe-public-base-dev.sh" || warn "Could not update Stripe env — run deploy/set-stripe-dev.sh manually"
+
 log "Restarting ${DEV_SERVICE}…"
 sudo systemctl restart "$DEV_SERVICE"
 sleep 2
@@ -209,6 +212,11 @@ if command -v curl >/dev/null 2>&1; then
     ok "Health probe ${DEV_HEALTH_URL} responded."
   else
     warn "Health probe ${DEV_HEALTH_URL} did not respond — check the service logs."
+  fi
+  pay_status="$(curl -sS --max-time 5 "http://127.0.0.1:8000/api/referr-all/status" 2>/dev/null || true)"
+  if [[ -n "$pay_status" ]] && echo "$pay_status" | grep -q '"paymentsConfigured": false'; then
+    warn "Stripe test keys not configured — Featured checkout disabled until you run:"
+    warn "  bash ${DEV_DIR}/deploy/set-stripe-dev.sh"
   fi
 fi
 

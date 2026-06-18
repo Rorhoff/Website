@@ -677,14 +677,33 @@ def _finalize_login(db: Session, user: T1ReferrallUser, request: Request | None)
     return _create_session(db, user.id, request)
 
 
-def _premium_price_cents_for_count(prior_purchases: int) -> int:
-    """Price for the next buyer given how many featured purchases occurred in the last 30 days."""
-    total = max(0, prior_purchases)
+def _premium_price_cents_for_count(active_featured: int) -> int:
+    """Price for the next buyer given how many featured seeker posts are currently active."""
+    total = max(0, active_featured)
     price = BASE_PREMIUM_PRICE_CENTS
     price += min(total, PREMIUM_TIER1_COUNT) * PREMIUM_TIER1_INCREMENT_CENTS
     price += min(max(total - PREMIUM_TIER1_COUNT, 0), PREMIUM_TIER2_COUNT) * PREMIUM_TIER2_INCREMENT_CENTS
     price += max(total - PREMIUM_TIER1_COUNT - PREMIUM_TIER2_COUNT, 0) * PREMIUM_TIER3_INCREMENT_CENTS
     return price
+
+
+def _active_featured_post_count(db: Session) -> int:
+    """Featured seeker posts that are still active (price drops as these expire)."""
+    now = datetime.utcnow()
+    return int(
+        db.scalar(
+            select(func.count())
+            .select_from(T1ReferrallSeekerPost)
+            .where(
+                T1ReferrallSeekerPost.is_premium.is_(True),
+                or_(
+                    T1ReferrallSeekerPost.premium_expires_at.is_(None),
+                    T1ReferrallSeekerPost.premium_expires_at > now,
+                ),
+            )
+        )
+        or 0
+    )
 
 
 def _premium_purchase_count_30d(db: Session) -> int:
@@ -705,7 +724,7 @@ def _premium_purchase_count_30d(db: Session) -> int:
 
 
 def _premium_price_cents(db: Session) -> int:
-    return _premium_price_cents_for_count(_premium_purchase_count_30d(db))
+    return _premium_price_cents_for_count(_active_featured_post_count(db))
 
 
 def _check_block_suspend(db: Session, blocked_id: str) -> None:
@@ -1190,8 +1209,12 @@ def referrall_status():
     missing = []
     if not os.getenv("STRIPE_SECRET_KEY"):
         missing.append("STRIPE_SECRET_KEY")
-    if not os.getenv("STRIPE_WEBHOOK_SECRET"):
-        missing.append("STRIPE_WEBHOOK_SECRET")
+    if not (
+        os.getenv("STRIPE_WEBHOOK_SECRET")
+        or os.getenv("REFERR_ALL_STRIPE_WEBHOOK_SECRET")
+        or os.getenv("T1REFERRALL_STRIPE_WEBHOOK_SECRET")
+    ):
+        missing.append("REFERR_ALL_STRIPE_WEBHOOK_SECRET (or STRIPE_WEBHOOK_SECRET)")
     if not os.getenv("STRIPE_PUBLIC_BASE_URL"):
         missing.append("STRIPE_PUBLIC_BASE_URL")
     premium_ready = False
@@ -2292,8 +2315,8 @@ def premium_price(
     db: Session = Depends(referrall_db),
 ):
     try:
-        cents = _premium_price_cents(db)
-        count = _premium_purchase_count_30d(db)
+        active = _active_featured_post_count(db)
+        cents = _premium_price_cents_for_count(active)
     except ProgrammingError as exc:
         db.rollback()
         log.exception("Premium price DB error")
@@ -2303,14 +2326,10 @@ def premium_price(
         ) from exc
     return {
         "priceCents": cents,
-        "purchaseNumber": count + 1,
-        "priorPurchases30d": count,
+        "activeFeaturedCount": active,
+        "purchaseNumber": active + 1,
+        "priorPurchases30d": active,
         "durationDays": PREMIUM_DURATION_DAYS,
-        "surgeTiers": [
-            {"throughPurchase": 5, "incrementUsd": 10},
-            {"throughPurchase": 10, "incrementUsd": 20},
-            {"throughPurchase": None, "incrementUsd": 50},
-        ],
     }
 
 
@@ -2485,8 +2504,8 @@ def premium_checkout(
         raise HTTPException(
             status_code=503,
             detail=(
-                "Payments not configured. On the server, set STRIPE_SECRET_KEY, "
-                "STRIPE_WEBHOOK_SECRET, and STRIPE_PUBLIC_BASE_URL in .env.dev, then restart roryportfolio."
+                "Payments not configured on this server. An admin must run "
+                "bash deploy/set-stripe-dev.sh on EC2 (test keys + webhook), then restart roryportfolio."
             ),
         )
     ready, db_err = _premium_db_ready(db)
@@ -2502,7 +2521,7 @@ def premium_checkout(
         raise HTTPException(status_code=403, detail="Not your post")
     try:
         price_cents = _premium_price_cents(db)
-        purchase_num = _premium_purchase_count_30d(db) + 1
+        purchase_num = _active_featured_post_count(db) + 1
         stripe = stripe_service._stripe_client()  # noqa: SLF001
         session = stripe.checkout.Session.create(
             mode="payment",

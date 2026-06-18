@@ -254,12 +254,27 @@ export async function uploadBanner(file: File): Promise<{ url: string }> {
   return request<{ url: string }>('/uploads/banner', { method: 'POST', body: form });
 }
 
+export type ReferrallStatus = {
+  paymentsConfigured: boolean;
+  imageStorageConfigured: boolean;
+  authDbReady: boolean;
+  authDbError: string | null;
+  premiumDbReady: boolean;
+  premiumDbError: string | null;
+  usaOnly: boolean;
+  missingPaymentEnv: string[];
+};
+
+export async function getReferrallStatus(): Promise<ReferrallStatus> {
+  return request<ReferrallStatus>('/status', {}, false);
+}
+
 export type PremiumPriceInfo = {
   priceCents: number;
+  activeFeaturedCount: number;
   purchaseNumber: number;
   priorPurchases30d: number;
   durationDays: number;
-  surgeTiers: { throughPurchase: number | null; incrementUsd: number }[];
 };
 
 export async function getPremiumPrice(): Promise<PremiumPriceInfo> {

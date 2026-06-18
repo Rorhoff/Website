@@ -15,6 +15,7 @@ set -euo pipefail
 WEBSITE_DIR="${WEBSITE_DIR:-/home/ubuntu/Website}"
 PUBLIC_BASE="https://rorhoff.com"
 WEBHOOK_URL="${PUBLIC_BASE}/api/referr-all/premium/webhook"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 if [[ -t 1 ]]; then
   GREEN=$'\e[32m'; YELLOW=$'\e[33m'; RED=$'\e[31m'; BLUE=$'\e[34m'; RESET=$'\e[0m'
@@ -27,21 +28,31 @@ warn() { echo "${YELLOW}WARN${RESET} $*"; }
 die()  { echo "${RED}ERR${RESET} $*" >&2; exit 1; }
 
 resolve_env_file() {
-  local candidate=""
-  for candidate in \
-    "${ENV_FILE:-}" \
-    "$WEBSITE_DIR/.env.dev" \
-    "$WEBSITE_DIR/.env" \
-    "$WEBSITE_DIR/.env.local"; do
-    if [[ -n "$candidate" && -f "$candidate" ]]; then
-      echo "$candidate"
-      return 0
-    fi
+  local candidate
+  for candidate in "$@"; do
+    [[ -n "$candidate" && -f "$candidate" ]] && { echo "$candidate"; return 0; }
   done
   return 1
 }
 
-ENV_FILE="$(resolve_env_file || true)"
+# Prefer the same env file the running dev service uses (systemd EnvironmentFile).
+detect_systemd_env_file() {
+  local service part path
+  for service in roryportfolio webapi-dev; do
+    while read -r part; do
+      [[ -z "$part" ]] && continue
+      path="${part#:}"
+      [[ -f "$path" ]] && { echo "$path"; return 0; }
+    done < <(systemctl show "$service" -p EnvironmentFiles --value 2>/dev/null || true)
+  done
+  return 1
+}
+
+if [[ -z "${ENV_FILE:-}" ]]; then
+  ENV_FILE="$(detect_systemd_env_file || true)"
+fi
+
+ENV_FILE="${ENV_FILE:-$(resolve_env_file "$WEBSITE_DIR/.env.dev" "$WEBSITE_DIR/.env" "$WEBSITE_DIR/.env.local" || true)}"
 if [[ -z "$ENV_FILE" ]]; then
   ENV_FILE="$WEBSITE_DIR/.env.dev"
   warn "No env file found — will create ${ENV_FILE}"

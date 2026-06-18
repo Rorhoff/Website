@@ -30,7 +30,7 @@ export default function CreateSeekerPostModal({ onClose, onCreated }: Props) {
   const [step, setStep] = useState<Step>('form');
   const [createdPostId, setCreatedPostId] = useState<string | null>(null);
   const [premiumPrice, setPremiumPrice] = useState<number | null>(null);
-  const [purchaseNumber, setPurchaseNumber] = useState(0);
+  const [paymentsConfigured, setPaymentsConfigured] = useState(true);
 
   const [form, setForm] = useState({
     about: profile?.bio || '',
@@ -81,12 +81,20 @@ export default function CreateSeekerPostModal({ onClose, onCreated }: Props) {
       onCreated();
 
       try {
-        const priceInfo = await getPremiumPrice();
+        const [priceInfo, status] = await Promise.all([
+          getPremiumPrice(),
+          api.getReferrallStatus(),
+        ]);
         setPremiumPrice(priceInfo.priceCents);
-        setPurchaseNumber(priceInfo.purchaseNumber);
+        setPaymentsConfigured(status.paymentsConfigured);
       } catch {
         setPremiumPrice(api.BASE_PREMIUM_PRICE_CENTS);
-        setPurchaseNumber(1);
+        try {
+          const status = await api.getReferrallStatus();
+          setPaymentsConfigured(status.paymentsConfigured);
+        } catch {
+          setPaymentsConfigured(false);
+        }
       }
       setStep('premium');
     } catch (err: unknown) {
@@ -270,21 +278,29 @@ export default function CreateSeekerPostModal({ onClose, onCreated }: Props) {
 
               <div className="bg-amber-500/10 border border-amber-400/20 rounded-lg px-3 py-2 text-xs text-amber-300/70 text-center space-y-1">
                 <p>
-                  Surge pricing: +$10 for purchases 1–5 this month, +$20 for 6–10, then +$50 each after that (no cap).
+                  Variable pricing — depending on how many featured posts there are, the price will vary.
                 </p>
                 <p className="text-amber-200/90 font-medium">
-                  You're purchase #{purchaseNumber} — lock in at ${displayPrice}
+                  Your price today: ${displayPrice}
                 </p>
               </div>
             </div>
 
             {error && <div className="bg-red-500/10 border border-red-500/30 text-red-400 text-sm rounded-lg px-4 py-3 mb-4">{error}</div>}
 
+            {!paymentsConfigured && (
+              <div className="bg-amber-500/10 border border-amber-400/30 text-amber-200 text-sm rounded-lg px-4 py-3 mb-4">
+                Featured checkout is not enabled on this server yet. Your standard post is already live — use
+                &ldquo;No thanks&rdquo; below, or ask an admin to run{' '}
+                <span className="font-mono text-xs">bash deploy/set-stripe-dev.sh</span> on the server.
+              </div>
+            )}
+
             <div className="space-y-3">
               <button
                 onClick={handlePremium}
-                disabled={submitting}
-                className="w-full flex items-center justify-center gap-2 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-gray-900 font-bold rounded-xl py-3.5 text-sm transition shadow-lg shadow-amber-500/20"
+                disabled={submitting || !paymentsConfigured}
+                className="w-full flex items-center justify-center gap-2 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 disabled:cursor-not-allowed text-gray-900 font-bold rounded-xl py-3.5 text-sm transition shadow-lg shadow-amber-500/20"
               >
                 <Star size={16} className="fill-gray-900" />
                 {submitting ? 'Redirecting to payment...' : `Get Featured for $${displayPrice}`}
