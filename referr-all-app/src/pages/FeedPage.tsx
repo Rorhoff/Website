@@ -7,7 +7,7 @@ import { isPremiumActive } from '../lib/premium';
 import {
   Briefcase, MapPin, ExternalLink, MessageSquare,
   Wifi, X, Search, Tag, Building, Star,
-  User, Filter, ChevronRight, Flag
+  User, Filter, ChevronRight, ChevronDown, Flag
 } from 'lucide-react';
 import CreateJobPostModal from '../components/CreateJobPostModal';
 import CreateSeekerPostModal from '../components/CreateSeekerPostModal';

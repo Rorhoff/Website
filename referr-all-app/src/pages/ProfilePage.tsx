@@ -265,23 +265,6 @@ export default function ProfilePage({ userId, onMessage, onOpenSettings, onBack 
     }
   }
 
-  async function handleSyncPremiumPayments() {
-    setUpgradeError('');
-    setUpgradingPostId('sync');
-    try {
-      const result = await api.reconcilePremiumPayments();
-      if (result.activated > 0) {
-        await loadProfile();
-      } else {
-        setUpgradeError('No unfulfilled featured payments found in the last 30 days.');
-      }
-    } catch (err) {
-      setUpgradeError(err instanceof Error ? err.message : 'Could not sync payments');
-    } finally {
-      setUpgradingPostId(null);
-    }
-  }
-
   async function handleRetryFeaturedActivation() {
     setUpgradeError('');
     setUpgradingPostId('retry');
@@ -745,7 +728,7 @@ export default function ProfilePage({ userId, onMessage, onOpenSettings, onBack 
                               ) : (
                                 <Crown size={13} />
                               )}
-                              Upgrade to Premium
+                              Upgrade
                             </button>
                             {(premiumConfirmError || localStorage.getItem(PENDING_PREMIUM_SESSION_KEY)) && (
                               <button
@@ -761,18 +744,6 @@ export default function ProfilePage({ userId, onMessage, onOpenSettings, onBack 
                                 Restore featured status
                               </button>
                             )}
-                            <button
-                              onClick={handleSyncPremiumPayments}
-                              disabled={upgradingPostId === 'sync'}
-                              className="flex items-center gap-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 font-medium rounded-xl px-4 py-2 text-sm transition disabled:opacity-50"
-                            >
-                              {upgradingPostId === 'sync' ? (
-                                <Loader size={13} className="animate-spin" />
-                              ) : (
-                                <Crown size={13} />
-                              )}
-                              Sync payments
-                            </button>
                           </>
                         )}
                         <button
