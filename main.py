@@ -805,6 +805,15 @@ if _CLASSIFIEDS_ONLY:
         return HTMLResponse(html)
 elif _REFERR_ALL_ONLY:
     # referr-all.com: serve the Referr-All SPA (built with --base=/) from the domain root.
+    # Inject data-service-mode so the portfolio cross-links in index.html stay hidden on prod
+    # (same pattern as classifieds on t1classifieds.com).
+    _REFERR_ALL_HTML_ATTR = '<html lang="en" data-service-mode="referrall">'
+    _REFERR_ALL_INDEX_PROD = (
+        (STATIC_DIR / "referr-all" / "index.html")
+        .read_text(encoding="utf-8")
+        .replace("<html lang=\"en\">", _REFERR_ALL_HTML_ATTR, 1)
+    )
+
     # The SPA uses query-param routing (?reset_token=, ?verified=), so no path fallback
     # is needed — unknown paths legitimately 404.
     @app.get("/referr-all", include_in_schema=False)
@@ -824,11 +833,10 @@ elif _REFERR_ALL_ONLY:
 
     @app.get("/", include_in_schema=False)
     @app.get("/index.html", include_in_schema=False)
-    def root_referr_all() -> FileResponse:
-        index = STATIC_DIR / "referr-all" / "index.html"
-        if not index.is_file():
+    def root_referr_all() -> HTMLResponse:
+        if not (STATIC_DIR / "referr-all" / "index.html").is_file():
             raise HTTPException(status_code=503, detail="Referr-All build missing")
-        return FileResponse(index, media_type="text/html")
+        return HTMLResponse(_REFERR_ALL_INDEX_PROD)
 
     # Static build output (/assets/*, /sw.js, /manifest.json, /icon*.svg, …). Mounted at
     # "/" and registered last, so the API routers, /health, /which-app and the routes

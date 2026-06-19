@@ -25,7 +25,7 @@ export default function Layout({ children, currentPage, onNavigate }: Props) {
   return (
     <div className="min-h-screen bg-gray-950 overflow-x-hidden">
       {/* Top nav */}
-      <header className="fixed top-0 left-0 right-0 z-50 bg-gray-950/95 backdrop-blur border-b border-gray-800">
+      <header className="referr-all-fixed-header fixed top-0 left-0 right-0 z-50 bg-gray-950/95 backdrop-blur border-b border-gray-800">
         <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
           {/* Logo */}
           <button
@@ -129,7 +129,7 @@ export default function Layout({ children, currentPage, onNavigate }: Props) {
       </header>
 
       {/* Page content */}
-      <main className="pt-16 overflow-x-hidden">
+      <main className="referr-all-main-offset overflow-x-hidden">
         <div className="max-w-6xl mx-auto px-4 py-6 sm:py-8 min-w-0">
           {children}
         </div>
