@@ -37,14 +37,25 @@ def _load_env_file(path: Path) -> None:
             os.environ[key] = value
 
 
+def _checkout_kind() -> str:
+    """Infer dev (Website) vs prod (website-referrall) from script location."""
+    root = Path(__file__).resolve().parent.parent
+    name = root.name.lower()
+    if name == "website-referrall" or "website-referrall" in str(root).lower():
+        return "prod"
+    return "dev"
+
+
 def _systemd_env_files() -> list[Path]:
     paths: list[Path] = []
-    for service in (
-        os.getenv("REFERRALL_SYSTEMD_SERVICE", ""),
-        "roryportfolio",
-        "webapi-dev",
-        "webapi-referrall",
-    ):
+    preferred = os.getenv("REFERRALL_MIGRATION_SERVICE", "").strip()
+    if preferred:
+        services = [preferred]
+    elif _checkout_kind() == "prod":
+        services = ["webapi-referrall"]
+    else:
+        services = ["roryportfolio", "webapi-dev"]
+    for service in services:
         if not service:
             continue
         try:
@@ -63,28 +74,50 @@ def _systemd_env_files() -> list[Path]:
     return paths
 
 
+def _migration_env_candidates() -> list[Path]:
+    candidates: list[Path] = []
+    seen: set[str] = set()
+
+    def add(raw: str) -> None:
+        if not raw:
+            return
+        path = Path(raw)
+        key = str(path)
+        if key in seen or not path.is_file():
+            return
+        seen.add(key)
+        candidates.append(path)
+
+    add(os.getenv("ENV_FILE", "").strip())
+
+    for path in _systemd_env_files():
+        add(str(path))
+
+    root = Path(__file__).resolve().parent.parent
+    if _checkout_kind() == "prod":
+        for raw in (
+            "/home/ubuntu/website-referrall/.env.referrall",
+            str(root / ".env.referrall"),
+        ):
+            add(raw)
+    else:
+        for raw in (
+            "/home/ubuntu/Website/.env.dev",
+            str(root / ".env.dev"),
+            "/home/ubuntu/Website/.env",
+            str(root / ".env"),
+        ):
+            add(raw)
+
+    return candidates
+
+
 def bootstrap_database_url() -> str:
     url = os.getenv("DATABASE_URL", "").strip()
     if url:
         return url
 
-    candidates: list[Path] = []
-    for raw in (
-        os.getenv("ENV_FILE", "").strip(),
-        "/home/ubuntu/Website/.env.dev",
-        "/home/ubuntu/Website/.env",
-        "/home/ubuntu/website-referrall/.env.referrall",
-        str(Path(__file__).resolve().parent.parent / ".env.dev"),
-        str(Path(__file__).resolve().parent.parent / ".env"),
-    ):
-        if raw:
-            path = Path(raw)
-            if path.is_file() and path not in candidates:
-                candidates.append(path)
-
-    for path in _systemd_env_files():
-        if path not in candidates:
-            candidates.append(path)
+    candidates = _migration_env_candidates()
 
     for path in candidates:
         _load_env_file(path)

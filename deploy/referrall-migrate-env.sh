@@ -23,14 +23,6 @@ referrall_load_migration_env() {
   local root="${ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
   local py="${PYTHON:-python3}"
   local migrate_py="$root/deploy/referrall-migrate-db.py"
-  local candidates=(
-    "${ENV_FILE:-}"
-    /home/ubuntu/Website/.env.dev
-    /home/ubuntu/Website/.env
-    /home/ubuntu/website-referrall/.env.referrall
-    "$root/.env.dev"
-    "$root/.env"
-  )
   local env_file=""
 
   if [[ -n "${DATABASE_URL:-}" ]]; then
@@ -38,7 +30,6 @@ referrall_load_migration_env() {
     return 0
   fi
 
-  # Prefer Python bootstrap: reads env files + systemd EnvironmentFiles for roryportfolio.
   if [[ -f "$migrate_py" ]]; then
     if parsed="$("$py" "$migrate_py" --print-url 2>/dev/null)" && [[ -n "$parsed" ]]; then
       export DATABASE_URL="$parsed"
@@ -47,13 +38,31 @@ referrall_load_migration_env() {
     fi
   fi
 
+  local candidates=()
+  if [[ -n "${ENV_FILE:-}" ]]; then
+    candidates+=("$ENV_FILE")
+  fi
+  if [[ "$root" == *website-referrall* ]]; then
+    candidates+=(
+      /home/ubuntu/website-referrall/.env.referrall
+      "$root/.env.referrall"
+    )
+  else
+    candidates+=(
+      /home/ubuntu/Website/.env.dev
+      "$root/.env.dev"
+      /home/ubuntu/Website/.env
+      "$root/.env"
+    )
+  fi
+
   env_file="$(referrall_resolve_env_file "${candidates[@]}")" || {
     echo "ERR  No env file with DATABASE_URL found. Checked:" >&2
     for candidate in "${candidates[@]}"; do
       [[ -n "$candidate" ]] && echo "       $candidate" >&2
     done
-    echo "       Also tried systemd EnvironmentFiles for roryportfolio/webapi-dev." >&2
-    echo "       Run: grep DATABASE_URL /home/ubuntu/Website/.env*" >&2
+    echo "       Also tried systemd EnvironmentFiles (see referrall-migrate-db.py)." >&2
+    echo "       Run: ENV_FILE=/path/to/.env.dev bash deploy/migrate-t1referrall-v10.sh" >&2
     exit 1
   }
 

@@ -9,14 +9,16 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-if [[ -x /home/ubuntu/app/venv/bin/python ]]; then
-  PYTHON=/home/ubuntu/app/venv/bin/python
-elif [[ -x "$ROOT/.venv/bin/python" ]]; then
-  PYTHON="$ROOT/.venv/bin/python"
-elif [[ -x /home/ubuntu/Website/.venv/bin/python ]]; then
-  PYTHON=/home/ubuntu/Website/.venv/bin/python
-else
-  PYTHON=python3
+if [[ -z "${PYTHON:-}" ]] || [[ ! -x "${PYTHON}" ]]; then
+  if [[ -x /home/ubuntu/app/venv/bin/python ]]; then
+    PYTHON=/home/ubuntu/app/venv/bin/python
+  elif [[ -x "$ROOT/.venv/bin/python" ]]; then
+    PYTHON="$ROOT/.venv/bin/python"
+  elif [[ -x /home/ubuntu/Website/.venv/bin/python ]]; then
+    PYTHON=/home/ubuntu/Website/.venv/bin/python
+  else
+    PYTHON=python3
+  fi
 fi
 
 # shellcheck disable=SC1091

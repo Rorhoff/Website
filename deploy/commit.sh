@@ -196,10 +196,24 @@ if [[ "$needs_pip" -eq 1 ]]; then
 fi
 
 log "Referr-All DB migrations (auth schema v10/v11)…"
-export PYTHON="${DEV_DIR}/.venv/bin/python"
+if [[ -f /home/ubuntu/Website/.env.dev ]]; then
+  export ENV_FILE="/home/ubuntu/Website/.env.dev"
+elif [[ -f /home/ubuntu/Website/.env ]]; then
+  export ENV_FILE="/home/ubuntu/Website/.env"
+else
+  die "No dev env file at ${DEV_DIR}/.env.dev or .env — cannot run Referr-All migrations."
+fi
 export ROOT="$DEV_DIR"
-bash "$DEV_DIR/deploy/migrate-t1referrall-v10.sh" || warn "v10 migration failed — login may 500 until fixed"
-bash "$DEV_DIR/deploy/migrate-t1referrall-v11.sh" || warn "v11 migration failed"
+if [[ -x /home/ubuntu/app/venv/bin/python ]]; then
+  export PYTHON=/home/ubuntu/app/venv/bin/python
+elif [[ -x "$DEV_DIR/.venv/bin/python" ]]; then
+  export PYTHON="$DEV_DIR/.venv/bin/python"
+else
+  export PYTHON=python3
+fi
+log "Migration target env: ${ENV_FILE} (python: ${PYTHON})"
+bash "$DEV_DIR/deploy/migrate-t1referrall-v10.sh" || die "v10 migration failed — login will 503 until fixed"
+bash "$DEV_DIR/deploy/migrate-t1referrall-v11.sh" || die "v11 migration failed — login will 503 until fixed"
 
 log "Ensuring Stripe public base URL on dev…"
 bash "$DEV_DIR/deploy/ensure-stripe-public-base-dev.sh" || warn "Could not update Stripe env — run deploy/set-stripe-dev.sh manually"
