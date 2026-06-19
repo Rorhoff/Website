@@ -212,6 +212,8 @@ else
   export PYTHON=python3
 fi
 log "Migration target env: ${ENV_FILE} (python: ${PYTHON})"
+bash "$DEV_DIR/deploy/migrate-t1referrall-v8.sh" || die "v8 migration failed"
+bash "$DEV_DIR/deploy/migrate-t1referrall-v9.sh" || die "v9 migration failed"
 bash "$DEV_DIR/deploy/migrate-t1referrall-v10.sh" || die "v10 migration failed — login will 503 until fixed"
 bash "$DEV_DIR/deploy/migrate-t1referrall-v11.sh" || die "v11 migration failed — login will 503 until fixed"
 

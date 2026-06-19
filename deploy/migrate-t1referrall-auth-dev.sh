@@ -80,6 +80,8 @@ fi
 MIGRATE_URL="$("$PYTHON" "$ROOT/deploy/referrall-migrate-db.py" --print-url")"
 echo "    Migration database: $(_db_name_from_url "$MIGRATE_URL")"
 
+bash "$ROOT/deploy/migrate-t1referrall-v8.sh"
+bash "$ROOT/deploy/migrate-t1referrall-v9.sh"
 bash "$ROOT/deploy/migrate-t1referrall-v10.sh"
 bash "$ROOT/deploy/migrate-t1referrall-v11.sh"
 
@@ -89,12 +91,18 @@ import os
 from sqlalchemy import create_engine, text
 
 engine = create_engine(os.environ["DATABASE_URL"])
+checks = (
+    ("t1referrall_user", "email_verify_token"),
+    ("t1referrall_user", "password_reset_token"),
+    ("t1referrall_user", "totp_enabled"),
+    ("t1referrall_user", "banner_url"),
+    ("t1referrall_user", "settings"),
+    ("t1referrall_session", "user_agent"),
+    ("t1referrall_session", "ip"),
+    ("t1referrall_session", "last_seen_at"),
+)
 with engine.connect() as conn:
-    for table, col in (
-        ("t1referrall_user", "totp_enabled"),
-        ("t1referrall_user", "banner_url"),
-        ("t1referrall_session", "user_agent"),
-    ):
+    for table, col in checks:
         ok = conn.execute(text(
             "SELECT EXISTS (SELECT 1 FROM information_schema.columns "
             "WHERE table_name = :t AND column_name = :c)"

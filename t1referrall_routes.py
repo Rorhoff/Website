@@ -1017,6 +1017,9 @@ def login(body: LoginBody, request: Request, db: Session = Depends(referrall_db)
     email = body.email.strip().lower()
     _rate_limit(f"login:ip:{_client_ip(request)}", max_attempts=15, window_seconds=900)
     _rate_limit(f"login:email:{email}", max_attempts=7, window_seconds=900)
+    auth_ready, auth_err = _auth_db_ready(db)
+    if not auth_ready:
+        raise HTTPException(status_code=503, detail=auth_err or AUTH_SCHEMA_MIGRATE_HINT)
     try:
         user = db.scalars(
             select(T1ReferrallUser).where(func.lower(T1ReferrallUser.email) == email)
@@ -1164,9 +1167,8 @@ def password_reset(body: ResetPasswordBody, db: Session = Depends(referrall_db))
 
 
 AUTH_SCHEMA_MIGRATE_HINT = (
-    "Run on the server: bash deploy/migrate-t1referrall-v10.sh && "
-    "bash deploy/migrate-t1referrall-v11.sh "
-    "(use the same DATABASE_URL as the running service — check .env vs .env.dev)."
+    "Run on the server: bash deploy/migrate-t1referrall-auth-dev.sh "
+    "(or bash deploy/fix-referr-all-premium.sh for all Referr-All migrations)."
 )
 
 
@@ -1194,10 +1196,20 @@ def _payments_not_configured_detail() -> str:
 
 def _auth_db_ready(db: Session) -> tuple[bool, str | None]:
     """True when login/register can read users and write sessions."""
+    probes = (
+        (T1ReferrallUser, "email_verify_token"),
+        (T1ReferrallUser, "password_reset_token"),
+        (T1ReferrallUser, "phone"),
+        (T1ReferrallUser, "totp_enabled"),
+        (T1ReferrallUser, "settings"),
+        (T1ReferrallUser, "banner_url"),
+        (T1ReferrallSession, "user_agent"),
+        (T1ReferrallSession, "ip"),
+        (T1ReferrallSession, "last_seen_at"),
+    )
     try:
-        db.scalar(select(T1ReferrallUser.totp_enabled).limit(1))
-        db.scalar(select(T1ReferrallUser.banner_url).limit(1))
-        db.scalar(select(T1ReferrallSession.user_agent).limit(1))
+        for model, column_name in probes:
+            db.scalar(select(getattr(model, column_name)).limit(1))
         return True, None
     except ProgrammingError:
         db.rollback()
