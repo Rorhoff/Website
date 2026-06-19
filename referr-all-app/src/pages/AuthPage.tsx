@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import * as api from '../lib/api';
+import { trackSignup, type SignupUserType } from '../lib/analytics';
 import { Briefcase, Users, MessageSquare, TrendingUp, ArrowLeft } from 'lucide-react';
 
 type View = 'login' | 'register' | 'forgot' | 'reset' | 'twofa';
@@ -29,6 +30,7 @@ export default function AuthPage() {
   const [loading, setLoading] = useState(false);
   const [twofaToken, setTwofaToken] = useState('');
   const [twofaCode, setTwofaCode] = useState('');
+  const [signupUserType, setSignupUserType] = useState<SignupUserType>('job_seeker');
 
   function goTo(next: View) {
     setView(next);
@@ -71,6 +73,8 @@ export default function AuthPage() {
           username: usernameClean,
           fullName: fullName.trim(),
         });
+        trackSignup(signupUserType);
+        await new Promise(resolve => setTimeout(resolve, 200));
         window.location.reload();
       }
     } catch (err: unknown) {
@@ -254,6 +258,35 @@ export default function AuthPage() {
               <form onSubmit={handleSubmit} className="space-y-4">
                 {view === 'register' && (
                   <>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-300 mb-1.5">I am a...</label>
+                      <div className="grid grid-cols-2 gap-3">
+                        <button
+                          type="button"
+                          onClick={() => setSignupUserType('job_seeker')}
+                          className={`flex flex-col items-center gap-1.5 rounded-lg border px-3 py-3 text-sm transition ${
+                            signupUserType === 'job_seeker'
+                              ? 'border-blue-500 bg-blue-500/10 text-blue-300'
+                              : 'border-gray-700 bg-gray-800 text-gray-400 hover:border-gray-600'
+                          }`}
+                        >
+                          <Users size={18} />
+                          <span className="font-medium">Job Seeker</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setSignupUserType('employer')}
+                          className={`flex flex-col items-center gap-1.5 rounded-lg border px-3 py-3 text-sm transition ${
+                            signupUserType === 'employer'
+                              ? 'border-blue-500 bg-blue-500/10 text-blue-300'
+                              : 'border-gray-700 bg-gray-800 text-gray-400 hover:border-gray-600'
+                          }`}
+                        >
+                          <Briefcase size={18} />
+                          <span className="font-medium">Employer</span>
+                        </button>
+                      </div>
+                    </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-300 mb-1.5">Full Name</label>
                       <input

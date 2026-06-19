@@ -11,7 +11,8 @@ import AvatarCropModal from '../components/AvatarCropModal';
 import PostActionDropdown from '../components/PostActionDropdown';
 import * as api from '../lib/api';
 import { compressBannerForUpload, compressImageForUpload } from '../lib/resizeImage';
-import { isPremiumActive, storePendingPremiumSession, confirmPremiumReturn, PENDING_PREMIUM_SESSION_KEY } from '../lib/premium';
+import { isPremiumActive, storePendingPremiumSession, storePendingPremiumPrice, confirmPremiumReturn, PENDING_PREMIUM_SESSION_KEY } from '../lib/premium';
+import { trackProfileView } from '../lib/analytics';
 import type { Profile, Post, Connection, SeekerPost } from '../lib/types';
 import { AVAILABILITY_LABELS } from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
@@ -51,6 +52,7 @@ export default function ProfilePage({ userId, onMessage, onOpenSettings, onBack 
   const [avatarCropFile, setAvatarCropFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const bannerInputRef = useRef<HTMLInputElement>(null);
+  const profileViewTrackedRef = useRef<string | null>(null);
 
   const [form, setForm] = useState({
     full_name: '',
@@ -70,6 +72,13 @@ export default function ProfilePage({ userId, onMessage, onOpenSettings, onBack 
   useEffect(() => {
     loadProfile();
   }, [userId]);
+
+  useEffect(() => {
+    if (isOwn || !user || loading || !profile) return;
+    if (profileViewTrackedRef.current === userId) return;
+    profileViewTrackedRef.current = userId;
+    trackProfileView(userId);
+  }, [userId, isOwn, user, loading, profile]);
 
   async function loadProfile() {
     setLoading(true);
@@ -285,6 +294,8 @@ export default function ProfilePage({ userId, onMessage, onOpenSettings, onBack 
         cancelUrl: api.premiumCheckoutCancelUrl(origin),
       });
       if (!json.url) throw new Error('Failed to create checkout session');
+      const priceInfo = await api.getPremiumPrice();
+      storePendingPremiumPrice(priceInfo.priceCents);
       if (json.sessionId) storePendingPremiumSession(json.sessionId);
       window.location.href = json.url;
     } catch (err) {

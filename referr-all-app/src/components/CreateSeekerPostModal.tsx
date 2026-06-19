@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import * as api from '../lib/api';
 import { getPremiumPrice, PREMIUM_DURATION_DAYS } from '../lib/api';
+import { storePendingPremiumSession, storePendingPremiumPrice } from '../lib/premium';
 import { useAuth } from '../contexts/AuthContext';
 import { normalizeHttpUrl } from '../lib/normalizeUrl';
 import { X, Wifi, Star, ChevronRight } from 'lucide-react';
@@ -120,6 +121,8 @@ export default function CreateSeekerPostModal({ onClose, onCreated }: Props) {
         cancelUrl: api.premiumCheckoutCancelUrl(origin),
       });
       if (!json.url) throw new Error('Failed to create checkout session');
+      storePendingPremiumPrice(premiumPrice);
+      if (json.sessionId) storePendingPremiumSession(json.sessionId);
       window.location.href = json.url;
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to start checkout');

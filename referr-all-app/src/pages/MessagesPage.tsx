@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import * as api from '../lib/api';
+import { trackMessageSent } from '../lib/analytics';
 import type { Profile, Message, Conversation } from '../lib/types';
 import { useAuth } from '../contexts/AuthContext';
 import { Send, MessageSquare, ArrowLeft, Search } from 'lucide-react';
@@ -109,6 +110,7 @@ export default function MessagesPage({ initialUserId, onClearInitial }: Props) {
     setNewMsg('');
     try {
       await api.sendMessage(selectedConvId, content);
+      trackMessageSent();
       await loadMessages(selectedConvId);
       await loadConversations();
     } finally {

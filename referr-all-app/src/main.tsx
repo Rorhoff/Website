@@ -2,9 +2,10 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
-import { initGa4 } from './lib/analytics';
+import { initGa4, captureUtmParamsFromUrl } from './lib/analytics';
 import { capturePremiumSessionFromUrl, redirectLegacyStripeReturnPath } from './lib/premium';
 
+captureUtmParamsFromUrl();
 initGa4();
 capturePremiumSessionFromUrl();
 if (redirectLegacyStripeReturnPath()) {

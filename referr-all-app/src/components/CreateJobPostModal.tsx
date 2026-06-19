@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import * as api from '../lib/api';
+import { trackReferralSent } from '../lib/analytics';
 import { useAuth } from '../contexts/AuthContext';
 import { normalizeHttpUrl } from '../lib/normalizeUrl';
 import { X, Wifi } from 'lucide-react';
@@ -38,6 +39,7 @@ export default function CreateJobPostModal({ onClose, onCreated }: Props) {
         tags,
         requiredSkills: required_skills,
       });
+      trackReferralSent();
       onCreated();
       onClose();
     } catch (err: unknown) {

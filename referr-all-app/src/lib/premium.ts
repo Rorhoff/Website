@@ -1,8 +1,13 @@
 import * as api from './api';
+import { trackListingCreated } from './analytics';
 import { defaultNavState, replaceNavAfterExternalReturn } from './appNav';
 import type { SeekerPost } from './types';
 
 export const PENDING_PREMIUM_SESSION_KEY = 'referr_all_pending_premium_session';
+export const PENDING_PREMIUM_PRICE_KEY = 'referr_all_pending_premium_price_cents';
+const TRACKED_PREMIUM_SESSION_KEY = 'referr_all_tracked_premium_session';
+
+export const FEATURED_SEEKER_LISTING_TYPE = 'featured_seeker_post';
 
 export function isPremiumActive(post: Pick<SeekerPost, 'is_premium' | 'premium_expires_at'>): boolean {
   if (!post.is_premium) return false;
@@ -16,6 +21,36 @@ export function storePendingPremiumSession(sessionId: string) {
 
 export function clearPendingPremiumSession() {
   localStorage.removeItem(PENDING_PREMIUM_SESSION_KEY);
+}
+
+export function storePendingPremiumPrice(cents: number) {
+  localStorage.setItem(PENDING_PREMIUM_PRICE_KEY, String(cents));
+}
+
+export function clearPendingPremiumPrice() {
+  localStorage.removeItem(PENDING_PREMIUM_PRICE_KEY);
+}
+
+function readPendingPremiumPriceDollars(): number {
+  const raw = localStorage.getItem(PENDING_PREMIUM_PRICE_KEY);
+  const cents = raw ? parseInt(raw, 10) : 0;
+  return cents > 0 ? cents / 100 : 0;
+}
+
+function trackFeaturedListingOnce(sessionId: string | null | undefined): void {
+  if (!sessionId || sessionStorage.getItem(TRACKED_PREMIUM_SESSION_KEY) === sessionId) return;
+  sessionStorage.setItem(TRACKED_PREMIUM_SESSION_KEY, sessionId);
+  const pricePaid = readPendingPremiumPriceDollars();
+  if (pricePaid > 0) {
+    trackListingCreated(FEATURED_SEEKER_LISTING_TYPE, pricePaid);
+    clearPendingPremiumPrice();
+    return;
+  }
+  void api.getPremiumPrice().then(info => {
+    if (info.priceCents > 0) {
+      trackListingCreated(FEATURED_SEEKER_LISTING_TYPE, info.priceCents / 100);
+    }
+  }).catch(() => { /* best-effort */ });
 }
 
 /**
@@ -75,6 +110,9 @@ export async function confirmPremiumReturn(): Promise<{
 
   try {
     const activated = await tryActivatePremium(sessionId);
+    if (activated) {
+      trackFeaturedListingOnce(sessionId);
+    }
     clearPendingPremiumSession();
     if (activated) {
       return { confirmed: true, featuredReturn };
