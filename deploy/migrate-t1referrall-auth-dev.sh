@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
-# migrate-t1referrall-auth-dev.sh — fix dev login 503 (missing v10/v11 auth columns).
+# migrate-t1referrall-auth-dev.sh - fix dev login 503 (missing v10/v11 auth columns).
 #
 # Run on EC2:
 #   bash ~/Website/deploy/migrate-t1referrall-auth-dev.sh
 #
-# Uses the DATABASE_URL from the roryportfolio / webapi-dev systemd unit (not .env.dev
-# unless that is what the service loads).
+# Uses the DATABASE_URL from the roryportfolio / webapi-dev systemd unit.
 
 set -euo pipefail
 
@@ -75,7 +74,7 @@ echo "    ROOT=$ROOT"
 echo "    PYTHON=$PYTHON"
 echo "    Service env file: $APP_ENV_FILE"
 if [[ -f /home/ubuntu/Website/.env.dev && "$APP_ENV_FILE" != /home/ubuntu/Website/.env.dev ]]; then
-  echo "    NOTE: .env.dev exists but is NOT what ${SERVICE} loads — migrations must use the service file above."
+  echo "    NOTE: .env.dev exists but roryportfolio loads .env - migrations use the service file above."
 fi
 
 MIGRATE_URL="$("$PYTHON" "$ROOT/deploy/referrall-migrate-db.py" --print-url")"
@@ -84,7 +83,7 @@ echo "    Migration database: $(_db_name_from_url "$MIGRATE_URL")"
 bash "$ROOT/deploy/migrate-t1referrall-v10.sh"
 bash "$ROOT/deploy/migrate-t1referrall-v11.sh"
 
-echo "==> Verifying auth columns on migration database…"
+echo "==> Verifying auth columns on migration database..."
 DATABASE_URL="$MIGRATE_URL" "$PYTHON" - <<'PY'
 import os
 from sqlalchemy import create_engine, text
@@ -106,17 +105,20 @@ with engine.connect() as conn:
 PY
 
 if systemctl list-unit-files --type=service 2>/dev/null | grep -q "^${SERVICE}\.service"; then
-  echo "==> Restarting ${SERVICE}…"
+  echo "==> Restarting ${SERVICE}..."
   sudo systemctl restart "$SERVICE"
   sleep 2
 fi
 
-echo "==> Checking live API authDbReady…"
+echo "==> Checking live API authDbReady..."
 STATUS="$(curl -sS --max-time 5 "http://127.0.0.1:8000/api/referr-all/status" 2>/dev/null || true)"
 if [[ -n "$STATUS" ]]; then
-  echo "$STATUS" | "$PYTHON" - <<'PY'
-import json, sys
-d = json.load(sys.stdin)
+  REFERRALL_STATUS_JSON="$STATUS" "$PYTHON" - <<'PY'
+import json
+import os
+import sys
+
+d = json.loads(os.environ.get("REFERRALL_STATUS_JSON", "{}"))
 ready = d.get("authDbReady")
 err = d.get("authDbError")
 print(f"    authDbReady={ready}")
@@ -132,7 +134,7 @@ if ready is not True:
     sys.exit(1)
 PY
 else
-  echo "WARN Could not reach http://127.0.0.1:8000/api/referr-all/status — restart ${SERVICE} and retry login."
+  echo "WARN Could not reach http://127.0.0.1:8000/api/referr-all/status - restart ${SERVICE} and retry login."
 fi
 
 echo "OK  Dev auth migrations complete. Retry login at https://rorhoff.com/referr-all/"
