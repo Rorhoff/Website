@@ -105,6 +105,13 @@ sync_referr_all() {
     return 0
   fi
 
+  if [[ -f "$DEV_DIR/deploy/referrall-vite-env.sh" ]]; then
+    # shellcheck disable=SC1091
+    source "$DEV_DIR/deploy/referrall-vite-env.sh"
+    referrall_export_vite_build_env "${DEV_DIR}/.env.dev"
+    referrall_export_vite_build_env "${DEV_DIR}/.env"
+  fi
+
   log "Building Referr-All for ${vite_base}…"
   if ! (cd "$src_dir" && npm run build -- --base="${vite_base}"); then
     warn "Referr-All build failed."

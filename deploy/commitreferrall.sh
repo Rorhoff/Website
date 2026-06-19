@@ -146,6 +146,13 @@ build_referr_all() {
     return 0
   fi
 
+  # shellcheck disable=SC1091
+  source "$REFERRALL_DIR/deploy/referrall-vite-env.sh"
+  referrall_export_vite_build_env "${REFERRALL_DIR}/.env.referrall"
+  if [[ -n "${VITE_GA4_MEASUREMENT_ID:-}" ]]; then
+    log "GA4 build env loaded (VITE_GA4_MEASUREMENT_ID set)."
+  fi
+
   log "Building Referr-All for base ${VITE_BASE}…"
   if ! (cd "$src_dir" && npm run build -- --base="${VITE_BASE}"); then
     warn "Referr-All build failed — keeping previous static output."

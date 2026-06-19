@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import AuthPage from './pages/AuthPage';
 import Layout from './components/Layout';
@@ -9,10 +9,12 @@ import ProfilePage from './pages/ProfilePage';
 import SettingsPage from './pages/SettingsPage';
 import TermsPage from './pages/TermsPage';
 import PrivacyPage from './pages/PrivacyPage';
+import { usePageTracking } from './hooks/usePageTracking';
 import {
   type AppNavState,
   type AppPage,
   defaultNavState,
+  navStateToUrl,
   parseNavHash,
   pushNavState,
   readHistoryNavState,
@@ -35,6 +37,22 @@ function AppInner() {
     applyNavState(next);
     pushNavState(next, replace);
   }, [applyNavState]);
+
+  const trackingPath = useMemo(() => {
+    if (loading) return '/loading';
+    if (!user || !profile) {
+      return `/auth${window.location.search}`;
+    }
+    if (profile.is_suspended) return '/suspended';
+    return navStateToUrl({
+      page,
+      viewingUserId,
+      messageUserId,
+      returnTo: null,
+    });
+  }, [loading, user, profile, page, viewingUserId, messageUserId]);
+
+  usePageTracking(trackingPath);
 
   useEffect(() => {
     if (loading || !user || !profile) return;

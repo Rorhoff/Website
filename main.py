@@ -286,11 +286,11 @@ async def spa_shell_cache_middleware(request: Request, call_next):
 
 _REFERR_ALL_CSP = (
     "default-src 'self'; "
-    "script-src 'self'; "
+    "script-src 'self' https://www.googletagmanager.com; "
     "style-src 'self' 'unsafe-inline'; "
     "img-src 'self' data: https: blob:; "
     "font-src 'self' data:; "
-    "connect-src 'self' blob:; "
+    "connect-src 'self' blob: https://www.google-analytics.com https://analytics.google.com https://*.google-analytics.com; "
     "manifest-src 'self'; "
     "worker-src 'self'; "
     "base-uri 'self'; "

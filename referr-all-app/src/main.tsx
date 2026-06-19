@@ -2,8 +2,10 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
+import { initGa4 } from './lib/analytics';
 import { capturePremiumSessionFromUrl, redirectLegacyStripeReturnPath } from './lib/premium';
 
+initGa4();
 capturePremiumSessionFromUrl();
 if (redirectLegacyStripeReturnPath()) {
   // Navigation in progress — do not mount the app on the legacy /referr-all/ path.
