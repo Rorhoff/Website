@@ -255,6 +255,10 @@ export async function createConversation(otherUserId: string): Promise<{ id: str
   });
 }
 
+export async function deleteConversation(conversationId: string): Promise<{ ok: boolean }> {
+  return request(`/conversations/${conversationId}`, { method: 'DELETE' });
+}
+
 export async function listMessages(conversationId: string): Promise<Message[]> {
   return request<Message[]>(`/conversations/${conversationId}/messages`);
 }

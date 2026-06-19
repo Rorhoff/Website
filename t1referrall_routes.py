@@ -835,6 +835,27 @@ def _user_participates(db: Session, conversation_id: str, user_id: str) -> bool:
     return row is not None
 
 
+def _conversation_other_user_id(
+    db: Session, conversation_id: str, user_id: str
+) -> str | None:
+    return db.scalar(
+        select(T1ReferrallConversationParticipant.user_id).where(
+            T1ReferrallConversationParticipant.conversation_id == conversation_id,
+            T1ReferrallConversationParticipant.user_id != user_id,
+        )
+    )
+
+
+def _conversation_other_user_deleted(
+    db: Session, conversation_id: str, user_id: str
+) -> bool:
+    """True when the other participant row is gone or their account was deleted."""
+    other_id = _conversation_other_user_id(db, conversation_id, user_id)
+    if other_id is None:
+        return True
+    return db.get(T1ReferrallUser, other_id) is None
+
+
 # --- Request bodies ---
 
 
@@ -2203,6 +2224,7 @@ def list_conversations(
             "created_at": _iso(c.created_at),
             "updated_at": _iso(c.updated_at),
             "otherUser": profiles.get(other_id) if other_id else None,
+            "otherUserDeleted": _conversation_other_user_deleted(db, c.id, user.id),
             "lastMessage": _message_out(last_msg) if last_msg else None,
         }
         out.append(item)
@@ -2248,6 +2270,32 @@ def create_conversation(
     )
     db.commit()
     return {"id": conv_id, "created_at": _iso(conv.created_at)}
+
+
+@router.delete("/conversations/{conversation_id}")
+def delete_conversation(
+    conversation_id: str,
+    user: T1ReferrallUser = Depends(get_current_referrall_user),
+    db: Session = Depends(referrall_db),
+):
+    """Remove an orphaned conversation after the other user deleted their account."""
+    if not _user_participates(db, conversation_id, user.id):
+        raise HTTPException(status_code=403, detail="Not a participant")
+    if not _conversation_other_user_deleted(db, conversation_id, user.id):
+        raise HTTPException(
+            status_code=400,
+            detail="This conversation can only be deleted when the other user no longer has an account.",
+        )
+    db.execute(
+        delete(T1ReferrallConversationParticipant).where(
+            T1ReferrallConversationParticipant.conversation_id == conversation_id
+        )
+    )
+    db.execute(
+        delete(T1ReferrallConversation).where(T1ReferrallConversation.id == conversation_id)
+    )
+    db.commit()
+    return {"ok": True}
 
 
 @router.get("/conversations/{conversation_id}/messages")

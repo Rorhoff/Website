@@ -43,6 +43,7 @@ export default function ProfilePage({ userId, onMessage, onOpenSettings, onBack 
   const [bannerError, setBannerError] = useState('');
   const [upgradeError, setUpgradeError] = useState('');
   const [seekerPostToDelete, setSeekerPostToDelete] = useState<SeekerPost | null>(null);
+  const [deletingReferralPostId, setDeletingReferralPostId] = useState<string | null>(null);
   const [upgradingPostId, setUpgradingPostId] = useState<string | null>(null);
   const [isBlocked, setIsBlocked] = useState(false);
   const [blockLoading, setBlockLoading] = useState(false);
@@ -264,6 +265,20 @@ export default function ProfilePage({ userId, onMessage, onOpenSettings, onBack 
       setUpgradeError(`Refund issued: $${(result.refundCents / 100).toFixed(2)} for unused featured time.`);
     }
     setSeekerPostToDelete(null);
+  }
+
+  async function handleDeleteReferralPost(post: Post) {
+    if (!confirm('Delete this referral post? This cannot be undone.')) return;
+    setDeletingReferralPostId(post.id);
+    setUpgradeError('');
+    try {
+      await api.deletePost(post.id);
+      setPosts(prev => prev.filter(p => p.id !== post.id));
+    } catch (err) {
+      setUpgradeError(err instanceof Error ? err.message : 'Failed to delete post');
+    } finally {
+      setDeletingReferralPostId(null);
+    }
   }
 
   async function handleRetryFeaturedActivation() {
@@ -828,6 +843,24 @@ export default function ProfilePage({ userId, onMessage, onOpenSettings, onBack 
                     className="flex items-center gap-2 justify-center w-full bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/20 text-blue-400 font-medium rounded-xl py-2 text-sm transition">
                     <ExternalLink size={13} /> View Job
                   </a>
+                )}
+
+                {isOwn && (
+                  <div className="flex items-center gap-2 mt-4 pt-4 border-t border-gray-800">
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteReferralPost(post)}
+                      disabled={deletingReferralPostId === post.id}
+                      className="flex items-center gap-2 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 text-red-400 font-medium rounded-xl px-4 py-2 text-sm transition ml-auto disabled:opacity-50"
+                    >
+                      {deletingReferralPostId === post.id ? (
+                        <Loader size={13} className="animate-spin" />
+                      ) : (
+                        <Trash2 size={13} />
+                      )}
+                      Delete
+                    </button>
+                  </div>
                 )}
               </div>
             ))}

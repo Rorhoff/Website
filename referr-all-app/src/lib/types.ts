@@ -87,6 +87,7 @@ export type Conversation = {
   created_at: string;
   updated_at: string;
   otherUser?: Profile;
+  otherUserDeleted?: boolean;
   lastMessage?: Message;
 };
 

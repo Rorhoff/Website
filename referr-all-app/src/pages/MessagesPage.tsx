@@ -3,7 +3,7 @@ import * as api from '../lib/api';
 import { trackMessageSent } from '../lib/analytics';
 import type { Profile, Message, Conversation } from '../lib/types';
 import { useAuth } from '../contexts/AuthContext';
-import { Send, MessageSquare, ArrowLeft, Search } from 'lucide-react';
+import { Send, MessageSquare, ArrowLeft, Search, Trash2 } from 'lucide-react';
 
 type ConversationWithDetails = Conversation & {
   otherUser: Profile | null;
@@ -29,6 +29,7 @@ export default function MessagesPage({ initialUserId, onClearInitial }: Props) {
     typeof window !== 'undefined' && window.innerWidth < 768,
   );
   const [mobileView, setMobileView] = useState<'list' | 'chat'>('list');
+  const [deletingConvId, setDeletingConvId] = useState<string | null>(null);
 
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth < 768);
@@ -118,6 +119,28 @@ export default function MessagesPage({ initialUserId, onClearInitial }: Props) {
     }
   }
 
+  async function deleteOrphanConversation(convId: string) {
+    if (!confirm('Delete this conversation? The other user deleted their account.')) return;
+    setDeletingConvId(convId);
+    try {
+      await api.deleteConversation(convId);
+      if (selectedConvId === convId) {
+        setSelectedConvId(null);
+        setMessages([]);
+        setMobileView('list');
+      }
+      await loadConversations();
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : 'Failed to delete conversation');
+    } finally {
+      setDeletingConvId(null);
+    }
+  }
+
+  function isDeletedAccountConv(conv: ConversationWithDetails): boolean {
+    return conv.otherUserDeleted === true || !conv.otherUser;
+  }
+
   const filteredConversations = conversations.filter(c => {
     const q = search.toLowerCase();
     if (!q) return true;
@@ -161,25 +184,46 @@ export default function MessagesPage({ initialUserId, onClearInitial }: Props) {
               </div>
             ) : (
               filteredConversations.map(conv => (
-                <button
+                <div
                   key={conv.id}
-                  onClick={() => { setSelectedConvId(conv.id); setMobileView('chat'); }}
-                  className={`w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-800/50 transition text-left border-b border-gray-800/50 ${selectedConvId === conv.id ? 'bg-gray-800/80' : ''}`}
+                  className={`flex items-center border-b border-gray-800/50 ${selectedConvId === conv.id ? 'bg-gray-800/80' : ''}`}
                 >
-                  <div className="w-10 h-10 rounded-full bg-blue-500/20 flex items-center justify-center flex-shrink-0 overflow-hidden">
-                    {conv.otherUser?.avatar_url ? (
-                      <img src={conv.otherUser.avatar_url} alt="" className="w-full h-full object-cover" />
-                    ) : (
-                      <span className="text-blue-400 font-semibold text-sm">
-                        {conv.otherUser?.full_name?.charAt(0) || '?'}
-                      </span>
-                    )}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="text-white text-sm font-medium truncate">{conv.otherUser?.full_name || 'Unknown'}</div>
-                    <div className="text-gray-500 text-xs truncate">{conv.lastMessage?.content || 'No messages yet'}</div>
-                  </div>
-                </button>
+                  <button
+                    onClick={() => { setSelectedConvId(conv.id); setMobileView('chat'); }}
+                    className="flex-1 flex items-center gap-3 px-4 py-3 hover:bg-gray-800/50 transition text-left min-w-0"
+                  >
+                    <div className="w-10 h-10 rounded-full bg-blue-500/20 flex items-center justify-center flex-shrink-0 overflow-hidden">
+                      {conv.otherUser?.avatar_url ? (
+                        <img src={conv.otherUser.avatar_url} alt="" className="w-full h-full object-cover" />
+                      ) : (
+                        <span className="text-blue-400 font-semibold text-sm">
+                          {conv.otherUser?.full_name?.charAt(0) || '?'}
+                        </span>
+                      )}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-white text-sm font-medium truncate">
+                        {conv.otherUser?.full_name || 'Deleted account'}
+                      </div>
+                      <div className="text-gray-500 text-xs truncate">
+                        {isDeletedAccountConv(conv)
+                          ? 'Account deleted'
+                          : (conv.lastMessage?.content || 'No messages yet')}
+                      </div>
+                    </div>
+                  </button>
+                  {isDeletedAccountConv(conv) && (
+                    <button
+                      type="button"
+                      onClick={() => deleteOrphanConversation(conv.id)}
+                      disabled={deletingConvId === conv.id}
+                      title="Delete conversation"
+                      className="mr-3 w-8 h-8 flex items-center justify-center text-gray-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition disabled:opacity-50"
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  )}
+                </div>
               ))
             )}
           </div>
@@ -195,7 +239,25 @@ export default function MessagesPage({ initialUserId, onClearInitial }: Props) {
                     <ArrowLeft size={18} />
                   </button>
                 )}
-                <div className="text-white font-semibold text-sm">{selectedConv.otherUser?.full_name}</div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-white font-semibold text-sm truncate">
+                    {selectedConv.otherUser?.full_name || 'Deleted account'}
+                  </div>
+                  {isDeletedAccountConv(selectedConv) && (
+                    <div className="text-gray-500 text-xs">This user deleted their account</div>
+                  )}
+                </div>
+                {isDeletedAccountConv(selectedConv) && (
+                  <button
+                    type="button"
+                    onClick={() => deleteOrphanConversation(selectedConv.id)}
+                    disabled={deletingConvId === selectedConv.id}
+                    className="flex items-center gap-1.5 text-red-400 hover:text-red-300 text-xs font-medium px-2.5 py-1.5 rounded-lg hover:bg-red-500/10 transition disabled:opacity-50"
+                  >
+                    <Trash2 size={14} />
+                    Delete
+                  </button>
+                )}
               </div>
               <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-4 space-y-3">
                 {messages.map(msg => {
@@ -209,21 +271,27 @@ export default function MessagesPage({ initialUserId, onClearInitial }: Props) {
                   );
                 })}
               </div>
-              <form onSubmit={sendMessage} className="p-4 border-t border-gray-800 flex gap-2">
-                <input
-                  value={newMsg}
-                  onChange={e => setNewMsg(e.target.value)}
-                  placeholder="Type a message..."
-                  className="flex-1 bg-gray-800 border border-gray-700 text-white rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-blue-500"
-                />
-                <button
-                  type="submit"
-                  disabled={sending || !newMsg.trim()}
-                  className="w-10 h-10 flex items-center justify-center bg-blue-500 hover:bg-blue-600 disabled:opacity-50 text-white rounded-xl transition"
-                >
-                  <Send size={16} />
-                </button>
-              </form>
+              {isDeletedAccountConv(selectedConv) ? (
+                <div className="p-4 border-t border-gray-800 text-center text-gray-500 text-sm">
+                  You can no longer send messages in this conversation.
+                </div>
+              ) : (
+                <form onSubmit={sendMessage} className="p-4 border-t border-gray-800 flex gap-2">
+                  <input
+                    value={newMsg}
+                    onChange={e => setNewMsg(e.target.value)}
+                    placeholder="Type a message..."
+                    className="flex-1 bg-gray-800 border border-gray-700 text-white rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-blue-500"
+                  />
+                  <button
+                    type="submit"
+                    disabled={sending || !newMsg.trim()}
+                    className="w-10 h-10 flex items-center justify-center bg-blue-500 hover:bg-blue-600 disabled:opacity-50 text-white rounded-xl transition"
+                  >
+                    <Send size={16} />
+                  </button>
+                </form>
+              )}
             </>
           ) : (
             <div className="flex-1 flex items-center justify-center text-gray-600 text-sm">
