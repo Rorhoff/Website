@@ -83,10 +83,40 @@ function trackEvent(
   }
 }
 
-export function trackSignup(userType: SignupUserType): void {
-  trackEvent('sign_up', {
+/** Max wait before reload if GA never calls back (ad blockers, network, etc.). */
+const SIGNUP_EVENT_TIMEOUT_MS = 1500;
+
+export function trackSignup(userType: SignupUserType): Promise<void> {
+  if (!initialized) return Promise.resolve();
+
+  const params: Record<string, string | number | boolean> = {
     user_type: userType,
     ...getUtmParams(),
+  };
+
+  return new Promise(resolve => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      resolve();
+    };
+
+    const timeoutId = window.setTimeout(finish, SIGNUP_EVENT_TIMEOUT_MS);
+
+    try {
+      ReactGA.gtag('event', 'sign_up', {
+        ...params,
+        transport_type: 'beacon',
+        event_callback: () => {
+          window.clearTimeout(timeoutId);
+          finish();
+        },
+      });
+    } catch {
+      window.clearTimeout(timeoutId);
+      finish();
+    }
   });
 }
 

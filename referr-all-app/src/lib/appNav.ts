@@ -78,3 +78,21 @@ export function replaceNavAfterExternalReturn(state: AppNavState = defaultNavSta
   const url = navStateToUrl(state);
   window.history.replaceState(state, '', url);
 }
+
+export type AuthHashView = 'login' | 'register';
+
+/** Logged-out routes: #/login, #/register (UTMs stay in ?query before the hash). */
+export function parseAuthHash(hash = window.location.hash): AuthHashView {
+  const raw = hash.replace(/^#\/?/, '').trim().toLowerCase();
+  if (raw === 'register') return 'register';
+  return 'login';
+}
+
+export function authHashForView(view: AuthHashView): string {
+  return view === 'register' ? '#/register' : '#/login';
+}
+
+export function replaceAuthHash(view: AuthHashView): void {
+  const base = `${window.location.pathname}${window.location.search}`;
+  window.history.replaceState(null, '', `${base}${authHashForView(view)}`);
+}

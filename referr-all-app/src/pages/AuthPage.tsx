@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import * as api from '../lib/api';
 import { trackSignup, type SignupUserType } from '../lib/analytics';
+import { parseAuthHash, replaceAuthHash } from '../lib/appNav';
 import { Briefcase, Users, MessageSquare, TrendingUp, ArrowLeft } from 'lucide-react';
 
 type View = 'login' | 'register' | 'forgot' | 'reset' | 'twofa';
@@ -8,6 +9,11 @@ type View = 'login' | 'register' | 'forgot' | 'reset' | 'twofa';
 function initialResetToken(): string | null {
   if (typeof window === 'undefined') return null;
   return new URLSearchParams(window.location.search).get('reset_token');
+}
+
+function initialAuthView(): View {
+  if (initialResetToken()) return 'reset';
+  return parseAuthHash() === 'register' ? 'register' : 'login';
 }
 
 function passwordIssue(pw: string): string | null {
@@ -19,7 +25,7 @@ function passwordIssue(pw: string): string | null {
 
 export default function AuthPage() {
   const [resetToken] = useState<string | null>(initialResetToken);
-  const [view, setView] = useState<View>(resetToken ? 'reset' : 'login');
+  const [view, setView] = useState<View>(initialAuthView);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -36,7 +42,22 @@ export default function AuthPage() {
     setView(next);
     setError('');
     setInfo('');
+    if (next === 'login' || next === 'register') {
+      replaceAuthHash(next);
+    }
   }
+
+  useEffect(() => {
+    if (view === 'reset' || view === 'twofa' || view === 'forgot') return;
+    const onHashChange = () => {
+      const fromHash = parseAuthHash();
+      setView(fromHash);
+      setError('');
+      setInfo('');
+    };
+    window.addEventListener('hashchange', onHashChange);
+    return () => window.removeEventListener('hashchange', onHashChange);
+  }, [view]);
 
   function clearResetParam() {
     if (typeof window !== 'undefined') {
@@ -73,8 +94,7 @@ export default function AuthPage() {
           username: usernameClean,
           fullName: fullName.trim(),
         });
-        trackSignup(signupUserType);
-        await new Promise(resolve => setTimeout(resolve, 200));
+        await trackSignup(signupUserType);
         window.location.reload();
       }
     } catch (err: unknown) {

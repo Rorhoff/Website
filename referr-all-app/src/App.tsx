@@ -41,7 +41,9 @@ function AppInner() {
   const trackingPath = useMemo(() => {
     if (loading) return '/loading';
     if (!user || !profile) {
-      return `/auth${window.location.search}`;
+      const authHash = window.location.hash.replace(/^#\/?/, '').trim().toLowerCase();
+      const authView = authHash === 'register' ? 'register' : 'login';
+      return `/auth/${authView}${window.location.search}`;
     }
     if (profile.is_suspended) return '/suspended';
     return navStateToUrl({
