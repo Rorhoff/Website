@@ -4,7 +4,8 @@
 # Run on EC2:
 #   bash ~/Website/deploy/migrate-t1referrall-auth-dev.sh
 #
-# Uses the same DATABASE_URL as the roryportfolio / webapi-dev systemd unit when possible.
+# Uses the DATABASE_URL from the roryportfolio / webapi-dev systemd unit (not .env.dev
+# unless that is what the service loads).
 
 set -euo pipefail
 
@@ -22,30 +23,69 @@ if [[ -z "${PYTHON:-}" ]] || [[ ! -x "${PYTHON}" ]]; then
 fi
 export PYTHON ROOT
 
-if [[ -z "${ENV_FILE:-}" ]]; then
-  if [[ -f /home/ubuntu/Website/.env.dev ]]; then
-    export ENV_FILE=/home/ubuntu/Website/.env.dev
-  elif [[ -f /home/ubuntu/Website/.env ]]; then
-    export ENV_FILE=/home/ubuntu/Website/.env
-  fi
+_db_name_from_url() {
+  "$PYTHON" - "$1" <<'PY'
+import sys
+from urllib.parse import urlparse
+print(urlparse(sys.argv[1]).path.lstrip("/") or "?")
+PY
+}
+
+_referrall_service_env_file() {
+  local service path part
+  for service in roryportfolio webapi-dev; do
+    if ! systemctl list-unit-files --type=service 2>/dev/null | grep -q "^${service}\.service"; then
+      continue
+    fi
+    path="$(systemctl show "$service" -p EnvironmentFiles --value 2>/dev/null || true)"
+    for part in $path; do
+      part="${part#:}"
+      if [[ -f "$part" ]]; then
+        echo "$part"
+        return 0
+      fi
+    done
+  done
+  return 1
+}
+
+SERVICE="roryportfolio"
+if ! systemctl is-active --quiet "$SERVICE" 2>/dev/null; then
+  SERVICE="webapi-dev"
+fi
+
+APP_ENV_FILE=""
+if APP_ENV_FILE="$(_referrall_service_env_file)"; then
+  export ENV_FILE="$APP_ENV_FILE"
+elif [[ -n "${ENV_FILE:-}" && -f "${ENV_FILE}" ]]; then
+  APP_ENV_FILE="$ENV_FILE"
+elif [[ -f /home/ubuntu/Website/.env.dev ]]; then
+  APP_ENV_FILE=/home/ubuntu/Website/.env.dev
+  export ENV_FILE="$APP_ENV_FILE"
+elif [[ -f /home/ubuntu/Website/.env ]]; then
+  APP_ENV_FILE=/home/ubuntu/Website/.env
+  export ENV_FILE="$APP_ENV_FILE"
+else
+  echo "ERR  Could not find a dev env file (.env.dev / .env / systemd EnvironmentFile)." >&2
+  exit 1
 fi
 
 echo "==> Dev auth migrations (v10 + v11)"
 echo "    ROOT=$ROOT"
 echo "    PYTHON=$PYTHON"
-echo "    ENV_FILE=${ENV_FILE:-<from systemd via referrall-migrate-db.py>}"
+echo "    Service env file: $APP_ENV_FILE"
+if [[ -f /home/ubuntu/Website/.env.dev && "$APP_ENV_FILE" != /home/ubuntu/Website/.env.dev ]]; then
+  echo "    NOTE: .env.dev exists but is NOT what ${SERVICE} loads — migrations must use the service file above."
+fi
 
-"$PYTHON" "$ROOT/deploy/referrall-migrate-db.py" --print-url | sed 's/:\/\/[^@]*@/:\/\/***@/'
+MIGRATE_URL="$("$PYTHON" "$ROOT/deploy/referrall-migrate-db.py" --print-url")"
+echo "    Migration database: $(_db_name_from_url "$MIGRATE_URL")"
 
 bash "$ROOT/deploy/migrate-t1referrall-v10.sh"
 bash "$ROOT/deploy/migrate-t1referrall-v11.sh"
 
-echo "==> Verifying auth columns…"
-"$PYTHON" "$ROOT/deploy/referrall-migrate-db.py" --print-url >/dev/null
-# shellcheck disable=SC1091
-source "$ROOT/deploy/referrall-migrate-env.sh"
-referrall_load_migration_env
-DATABASE_URL="$DATABASE_URL" "$PYTHON" - <<'PY'
+echo "==> Verifying auth columns on migration database…"
+DATABASE_URL="$MIGRATE_URL" "$PYTHON" - <<'PY'
 import os
 from sqlalchemy import create_engine, text
 
@@ -65,13 +105,34 @@ with engine.connect() as conn:
             raise SystemExit(1)
 PY
 
-SERVICE="roryportfolio"
-if ! systemctl is-active --quiet "$SERVICE" 2>/dev/null; then
-  SERVICE="webapi-dev"
-fi
 if systemctl list-unit-files --type=service 2>/dev/null | grep -q "^${SERVICE}\.service"; then
   echo "==> Restarting ${SERVICE}…"
   sudo systemctl restart "$SERVICE"
+  sleep 2
+fi
+
+echo "==> Checking live API authDbReady…"
+STATUS="$(curl -sS --max-time 5 "http://127.0.0.1:8000/api/referr-all/status" 2>/dev/null || true)"
+if [[ -n "$STATUS" ]]; then
+  echo "$STATUS" | "$PYTHON" - <<'PY'
+import json, sys
+d = json.load(sys.stdin)
+ready = d.get("authDbReady")
+err = d.get("authDbError")
+print(f"    authDbReady={ready}")
+if err:
+    print(f"    authDbError={err}")
+if ready is not True:
+    print()
+    print("ERR  API still reports auth DB not ready.")
+    print("     Migrations ran on a different DATABASE_URL than the running app.")
+    print("     Compare:")
+    print("       grep DATABASE_URL /home/ubuntu/Website/.env.dev /home/ubuntu/Website/.env")
+    print("       systemctl show roryportfolio -p EnvironmentFiles --value")
+    sys.exit(1)
+PY
+else
+  echo "WARN Could not reach http://127.0.0.1:8000/api/referr-all/status — restart ${SERVICE} and retry login."
 fi
 
 echo "OK  Dev auth migrations complete. Retry login at https://rorhoff.com/referr-all/"

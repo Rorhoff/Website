@@ -1165,7 +1165,8 @@ def password_reset(body: ResetPasswordBody, db: Session = Depends(referrall_db))
 
 AUTH_SCHEMA_MIGRATE_HINT = (
     "Run on the server: bash deploy/migrate-t1referrall-v10.sh && "
-    "bash deploy/migrate-t1referrall-v11.sh"
+    "bash deploy/migrate-t1referrall-v11.sh "
+    "(use the same DATABASE_URL as the running service — check .env vs .env.dev)."
 )
 
 
