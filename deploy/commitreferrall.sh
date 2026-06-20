@@ -183,13 +183,16 @@ else
   log "requirements.txt unchanged — skipping pip install."
 fi
 
-log "Referr-All DB migrations (auth schema v10/v11)…"
+log "Referr-All DB migrations (auth schema v8–v12)…"
 export PYTHON="${REFERRALL_DIR}/.venv/bin/python"
 export ROOT="$REFERRALL_DIR"
 export ENV_FILE="${REFERRALL_DIR}/.env.referrall"
-bash "$REFERRALL_DIR/deploy/migrate-t1referrall-v10.sh" || warn "v10 migration failed"
-bash "$REFERRALL_DIR/deploy/migrate-t1referrall-v11.sh" || warn "v11 migration failed"
-bash "$REFERRALL_DIR/deploy/migrate-t1referrall-v12.sh" || warn "v12 migration failed"
+bash "$REFERRALL_DIR/deploy/migrate-t1referrall-v8.sh" || die "v8 migration failed"
+bash "$REFERRALL_DIR/deploy/migrate-t1referrall-v9.sh" || die "v9 migration failed"
+bash "$REFERRALL_DIR/deploy/migrate-t1referrall-v10.sh" || die "v10 migration failed — login will 503 until fixed"
+bash "$REFERRALL_DIR/deploy/migrate-t1referrall-v11.sh" || die "v11 migration failed — login will 503 until fixed"
+bash "$REFERRALL_DIR/deploy/migrate-t1referrall-v12.sh" || die "v12 migration failed — admin/login may 503 until fixed"
+bash "$REFERRALL_DIR/deploy/bootstrap-referrall-admin.sh" || warn "Admin bootstrap skipped (run manually if needed)"
 
 log "Ensuring Stripe public base URL on referr-all.com prod…"
 bash "$REFERRALL_DIR/deploy/ensure-stripe-public-base-referrall-prod.sh" \

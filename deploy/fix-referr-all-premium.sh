@@ -39,6 +39,7 @@ bash "$ROOT/deploy/migrate-t1referrall-v8.sh"
 bash "$ROOT/deploy/migrate-t1referrall-v9.sh"
 bash "$ROOT/deploy/migrate-t1referrall-v10.sh"
 bash "$ROOT/deploy/migrate-t1referrall-v11.sh"
+bash "$ROOT/deploy/migrate-t1referrall-v12.sh"
 
 echo "==> Step 2: create_all fallback (any missing Referr-All tables)…"
 # shellcheck disable=SC1091

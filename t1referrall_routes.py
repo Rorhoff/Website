@@ -1098,7 +1098,7 @@ def login(body: LoginBody, request: Request, db: Session = Depends(referrall_db)
     _rate_limit(f"login:email:{email}", max_attempts=7, window_seconds=900)
     auth_ready, auth_err = _auth_db_ready(db)
     if not auth_ready:
-        raise HTTPException(status_code=503, detail=auth_err or AUTH_SCHEMA_MIGRATE_HINT)
+        raise HTTPException(status_code=503, detail=auth_err or _auth_migrate_hint())
     try:
         user = db.scalars(
             select(T1ReferrallUser).where(func.lower(T1ReferrallUser.email) == email)
@@ -1117,7 +1117,7 @@ def login(body: LoginBody, request: Request, db: Session = Depends(referrall_db)
     except ProgrammingError:
         db.rollback()
         log.exception("Referr-All login failed: database schema out of date")
-        raise HTTPException(status_code=503, detail=AUTH_SCHEMA_MIGRATE_HINT)
+        raise HTTPException(status_code=503, detail=_auth_migrate_hint())
 
 
 @router.post("/login/2fa")
@@ -1246,9 +1246,18 @@ def password_reset(body: ResetPasswordBody, db: Session = Depends(referrall_db))
 
 
 AUTH_SCHEMA_MIGRATE_HINT = (
-    "Run on the server: bash deploy/migrate-t1referrall-auth-dev.sh "
-    "(or bash deploy/fix-referr-all-premium.sh for all Referr-All migrations)."
+    "Run on the server: bash deploy/migrate-t1referrall-auth-prod.sh "
+    "(referr-all.com prod) or bash deploy/migrate-t1referrall-auth-dev.sh (rorhoff.com dev)."
 )
+
+
+def _auth_migrate_hint() -> str:
+    if _is_referrall_prod():
+        return (
+            "Run on the server: bash deploy/migrate-t1referrall-auth-prod.sh "
+            "(applies v8–v12 migrations on ReferrAll_Prod)."
+        )
+    return AUTH_SCHEMA_MIGRATE_HINT
 
 
 def _is_referrall_prod() -> bool:
@@ -1282,6 +1291,7 @@ def _auth_db_ready(db: Session) -> tuple[bool, str | None]:
         (T1ReferrallUser, "totp_enabled"),
         (T1ReferrallUser, "settings"),
         (T1ReferrallUser, "banner_url"),
+        (T1ReferrallUser, "is_admin"),
         (T1ReferrallSession, "user_agent"),
         (T1ReferrallSession, "ip"),
         (T1ReferrallSession, "last_seen_at"),
@@ -1292,7 +1302,7 @@ def _auth_db_ready(db: Session) -> tuple[bool, str | None]:
         return True, None
     except ProgrammingError:
         db.rollback()
-        return False, AUTH_SCHEMA_MIGRATE_HINT
+        return False, _auth_migrate_hint()
     except Exception:
         db.rollback()
         return False, "Auth database schema is out of date."

@@ -98,6 +98,7 @@ checks = (
     ("t1referrall_user", "totp_enabled"),
     ("t1referrall_user", "banner_url"),
     ("t1referrall_user", "settings"),
+    ("t1referrall_user", "is_admin"),
     ("t1referrall_session", "user_agent"),
     ("t1referrall_session", "ip"),
     ("t1referrall_session", "last_seen_at"),
