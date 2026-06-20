@@ -422,6 +422,7 @@ def _profile_out(user: T1ReferrallUser, *, include_email: bool = False) -> dict[
         out["totp_enabled"] = bool(getattr(user, "totp_enabled", False))
         out["is_deactivated"] = bool(getattr(user, "is_deactivated", False))
         out["settings"] = dict(getattr(user, "settings", None) or {})
+        out["is_admin"] = bool(getattr(user, "is_admin", False))
     return out
 
 
@@ -586,6 +587,58 @@ def get_current_referrall_user(
     if user.is_suspended:
         raise HTTPException(status_code=403, detail="Account suspended")
     return user
+
+
+def require_admin(
+    user: T1ReferrallUser = Depends(get_current_referrall_user),
+) -> T1ReferrallUser:
+    if not bool(getattr(user, "is_admin", False)):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return user
+
+
+def _admin_user_counts(db: Session, user_id: str) -> dict[str, int]:
+    job_count = int(
+        db.scalar(
+            select(func.count())
+            .select_from(T1ReferrallPost)
+            .where(T1ReferrallPost.author_id == user_id)
+        )
+        or 0
+    )
+    seeker_count = int(
+        db.scalar(
+            select(func.count())
+            .select_from(T1ReferrallSeekerPost)
+            .where(T1ReferrallSeekerPost.author_id == user_id)
+        )
+        or 0
+    )
+    return {"job_post_count": job_count, "seeker_post_count": seeker_count}
+
+
+def _admin_user_out(user: T1ReferrallUser, db: Session) -> dict[str, Any]:
+    out = _profile_out(user, include_email=True)
+    out.update(_admin_user_counts(db, user.id))
+    return out
+
+
+def _admin_count(db: Session) -> int:
+    return int(
+        db.scalar(
+            select(func.count())
+            .select_from(T1ReferrallUser)
+            .where(T1ReferrallUser.is_admin.is_(True))
+        )
+        or 0
+    )
+
+
+def _is_last_admin(db: Session, user_id: str) -> bool:
+    admin_ids = list(
+        db.scalars(select(T1ReferrallUser.id).where(T1ReferrallUser.is_admin.is_(True))).all()
+    )
+    return len(admin_ids) == 1 and admin_ids[0] == user_id
 
 
 # --- Two-factor auth (TOTP) helpers ---
@@ -991,6 +1044,11 @@ class DeactivateAccountBody(BaseModel):
 class DeleteAccountBody(BaseModel):
     password: str = Field(min_length=1, max_length=256)
     confirm: str = Field(default="", max_length=20)
+
+
+class AdminUserPatchBody(BaseModel):
+    isAdmin: bool | None = None
+    isSuspended: bool | None = None
 
 
 # --- Auth ---
@@ -1613,6 +1671,211 @@ def delete_account(
     db.delete(user)
     db.commit()
     return {"ok": True}
+
+
+# --- Admin (operators only) ---
+
+
+@router.get("/admin/stats")
+def admin_stats(
+    admin: T1ReferrallUser = Depends(require_admin),
+    db: Session = Depends(referrall_db),
+):
+    user_count = int(db.scalar(select(func.count()).select_from(T1ReferrallUser)) or 0)
+    job_post_count = int(db.scalar(select(func.count()).select_from(T1ReferrallPost)) or 0)
+    seeker_post_count = int(
+        db.scalar(select(func.count()).select_from(T1ReferrallSeekerPost)) or 0
+    )
+    suspended_count = int(
+        db.scalar(
+            select(func.count())
+            .select_from(T1ReferrallUser)
+            .where(T1ReferrallUser.is_suspended.is_(True))
+        )
+        or 0
+    )
+    admin_count = _admin_count(db)
+    report_count = int(db.scalar(select(func.count()).select_from(T1ReferrallPostReport)) or 0)
+    return {
+        "userCount": user_count,
+        "jobPostCount": job_post_count,
+        "seekerPostCount": seeker_post_count,
+        "suspendedCount": suspended_count,
+        "adminCount": admin_count,
+        "reportCount": report_count,
+    }
+
+
+@router.get("/admin/users")
+def admin_list_users(
+    q: str = "",
+    limit: int = 50,
+    admin: T1ReferrallUser = Depends(require_admin),
+    db: Session = Depends(referrall_db),
+):
+    limit = max(1, min(limit, 100))
+    term = q.strip()
+    stmt = select(T1ReferrallUser)
+    if term:
+        like = f"%{term.lower()}%"
+        stmt = stmt.where(
+            or_(
+                func.lower(T1ReferrallUser.username).like(like),
+                func.lower(T1ReferrallUser.email).like(like),
+                func.lower(T1ReferrallUser.full_name).like(like),
+            )
+        )
+    rows = db.scalars(
+        stmt.order_by(T1ReferrallUser.created_at.desc()).limit(limit)
+    ).all()
+    return [_admin_user_out(r, db) for r in rows]
+
+
+@router.get("/admin/users/{user_id}")
+def admin_get_user(
+    user_id: str,
+    admin: T1ReferrallUser = Depends(require_admin),
+    db: Session = Depends(referrall_db),
+):
+    row = db.get(T1ReferrallUser, user_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    return _admin_user_out(row, db)
+
+
+@router.patch("/admin/users/{user_id}")
+def admin_patch_user(
+    user_id: str,
+    body: AdminUserPatchBody,
+    admin: T1ReferrallUser = Depends(require_admin),
+    db: Session = Depends(referrall_db),
+):
+    row = db.get(T1ReferrallUser, user_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if body.isAdmin is not None:
+        if body.isAdmin and row.is_suspended:
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot grant admin to a suspended user — unsuspend first.",
+            )
+        if not body.isAdmin and row.id == admin.id and _is_last_admin(db, admin.id):
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot remove admin from yourself when you are the last admin.",
+            )
+        row.is_admin = body.isAdmin
+
+    if body.isSuspended is not None:
+        row.is_suspended = body.isSuspended
+        if body.isSuspended:
+            db.execute(
+                delete(T1ReferrallSession).where(T1ReferrallSession.user_id == row.id)
+            )
+
+    row.updated_at = datetime.utcnow()
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return _admin_user_out(row, db)
+
+
+@router.delete("/admin/users/{user_id}")
+def admin_delete_user(
+    user_id: str,
+    admin: T1ReferrallUser = Depends(require_admin),
+    db: Session = Depends(referrall_db),
+):
+    if user_id == admin.id:
+        raise HTTPException(status_code=400, detail="You cannot delete your own account via admin.")
+    row = db.get(T1ReferrallUser, user_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    if row.is_admin and _is_last_admin(db, row.id):
+        raise HTTPException(status_code=400, detail="Cannot delete the last admin account.")
+    db.delete(row)
+    db.commit()
+    return {"ok": True}
+
+
+@router.delete("/admin/posts/{post_id}")
+def admin_delete_post(
+    post_id: str,
+    admin: T1ReferrallUser = Depends(require_admin),
+    db: Session = Depends(referrall_db),
+):
+    row = db.get(T1ReferrallPost, post_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Post not found")
+    _remove_post_reports(db, _POST_KIND_JOB, post_id)
+    db.delete(row)
+    db.commit()
+    return {"ok": True}
+
+
+@router.delete("/admin/seeker-posts/{post_id}")
+def admin_delete_seeker_post(
+    post_id: str,
+    admin: T1ReferrallUser = Depends(require_admin),
+    db: Session = Depends(referrall_db),
+):
+    row = db.get(T1ReferrallSeekerPost, post_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Post not found")
+    refund_info = _refund_premium_for_deleted_seeker_post(db, row)
+    _remove_post_reports(db, _POST_KIND_SEEKER, post_id)
+    db.delete(row)
+    db.commit()
+    return {"ok": True, **refund_info}
+
+
+@router.get("/admin/reports")
+def admin_list_reports(
+    admin: T1ReferrallUser = Depends(require_admin),
+    db: Session = Depends(referrall_db),
+):
+    grouped = db.execute(
+        select(
+            T1ReferrallPostReport.post_kind,
+            T1ReferrallPostReport.post_id,
+            func.count().label("report_count"),
+        )
+        .group_by(T1ReferrallPostReport.post_kind, T1ReferrallPostReport.post_id)
+        .having(func.count() >= 1)
+        .order_by(func.count().desc())
+        .limit(50)
+    ).all()
+
+    out: list[dict[str, Any]] = []
+    for post_kind, post_id, report_count in grouped:
+        item: dict[str, Any] = {
+            "postKind": post_kind,
+            "postId": post_id,
+            "reportCount": int(report_count),
+        }
+        if post_kind == _POST_KIND_JOB:
+            post = db.get(T1ReferrallPost, post_id)
+            if post is None:
+                continue
+            item["authorId"] = post.author_id
+            item["title"] = f"{post.company} — {post.role_title}"
+            item["preview"] = (post.description or "")[:200]
+        elif post_kind == _POST_KIND_SEEKER:
+            post = db.get(T1ReferrallSeekerPost, post_id)
+            if post is None:
+                continue
+            item["authorId"] = post.author_id
+            item["title"] = post.desired_role or post.headline or "Seeker post"
+            item["preview"] = (post.about or "")[:200]
+        else:
+            continue
+        author = db.get(T1ReferrallUser, item["authorId"])
+        if author is not None:
+            item["authorUsername"] = author.username
+            item["authorName"] = author.full_name
+        out.append(item)
+    return out
 
 
 # --- Profiles (network discovery) ---

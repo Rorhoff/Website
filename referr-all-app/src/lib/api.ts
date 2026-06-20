@@ -1,5 +1,6 @@
 import type {
-  AccountSession, AccountSettings, Connection, Conversation, Message, Post, Profile,
+  AccountSession, AccountSettings, AdminReport, AdminStats, AdminUser,
+  Connection, Conversation, Message, Post, Profile,
   PurchaseRecord, SeekerPost,
 } from './types';
 import {
@@ -408,6 +409,43 @@ export async function deactivateAccount(password: string): Promise<{ ok: boolean
 
 export async function deleteAccount(password: string): Promise<{ ok: boolean }> {
   return request('/account', { method: 'DELETE', body: JSON.stringify({ password, confirm: 'DELETE' }) });
+}
+
+export async function fetchAdminStats(): Promise<AdminStats> {
+  return request<AdminStats>('/admin/stats');
+}
+
+export async function searchAdminUsers(q: string): Promise<AdminUser[]> {
+  const params = new URLSearchParams();
+  if (q.trim()) params.set('q', q.trim());
+  const qs = params.toString();
+  return request<AdminUser[]>(`/admin/users${qs ? `?${qs}` : ''}`);
+}
+
+export async function patchAdminUser(
+  userId: string,
+  patch: { isAdmin?: boolean; isSuspended?: boolean },
+): Promise<AdminUser> {
+  return request<AdminUser>(`/admin/users/${userId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(patch),
+  });
+}
+
+export async function deleteAdminUser(userId: string): Promise<{ ok: boolean }> {
+  return request(`/admin/users/${userId}`, { method: 'DELETE' });
+}
+
+export async function deleteAdminPost(postId: string): Promise<{ ok: boolean }> {
+  return request(`/admin/posts/${postId}`, { method: 'DELETE' });
+}
+
+export async function deleteAdminSeekerPost(postId: string): Promise<{ ok: boolean }> {
+  return request(`/admin/seeker-posts/${postId}`, { method: 'DELETE' });
+}
+
+export async function listAdminReports(): Promise<AdminReport[]> {
+  return request<AdminReport[]>('/admin/reports');
 }
 
 export {

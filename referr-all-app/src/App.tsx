@@ -7,6 +7,7 @@ import NetworkPage from './pages/NetworkPage';
 import MessagesPage from './pages/MessagesPage';
 import ProfilePage from './pages/ProfilePage';
 import SettingsPage from './pages/SettingsPage';
+import AdminPage from './pages/AdminPage';
 import TermsPage from './pages/TermsPage';
 import PrivacyPage from './pages/PrivacyPage';
 import { usePageTracking } from './hooks/usePageTracking';
@@ -55,6 +56,13 @@ function AppInner() {
   }, [loading, user, profile, page, viewingUserId, messageUserId]);
 
   usePageTracking(trackingPath);
+
+  useEffect(() => {
+    if (loading || !user || !profile) return;
+    if (page === 'admin' && !profile.is_admin) {
+      commitNav({ page: 'feed', viewingUserId: null, messageUserId: null, returnTo: null }, true);
+    }
+  }, [loading, user, profile, page, commitNav]);
 
   useEffect(() => {
     if (loading || !user || !profile) return;
@@ -147,6 +155,15 @@ function AppInner() {
     });
   }
 
+  function openAdmin() {
+    commitNav({
+      page: 'admin',
+      viewingUserId: null,
+      messageUserId: null,
+      returnTo: null,
+    });
+  }
+
   function handleMessage(userId: string) {
     commitNav({
       page: 'messages',
@@ -180,6 +197,13 @@ function AppInner() {
       )}
       {page === 'settings' && (
         <SettingsPage
+          onBack={goBack}
+          onViewProfile={handleViewProfile}
+          onOpenAdmin={profile.is_admin ? openAdmin : undefined}
+        />
+      )}
+      {page === 'admin' && profile.is_admin && (
+        <AdminPage
           onBack={goBack}
           onViewProfile={handleViewProfile}
         />

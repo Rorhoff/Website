@@ -14,6 +14,7 @@ export type Profile = {
   skills: string[];
   interests: string[];
   is_suspended: boolean;
+  is_admin?: boolean;
   created_at: string;
   updated_at: string;
   email?: string;
@@ -51,6 +52,31 @@ export type PurchaseRecord = {
   refunded_at: string | null;
   created_at: string;
   description: string;
+};
+
+export type AdminStats = {
+  userCount: number;
+  jobPostCount: number;
+  seekerPostCount: number;
+  suspendedCount: number;
+  adminCount: number;
+  reportCount: number;
+};
+
+export type AdminUser = Profile & {
+  job_post_count: number;
+  seeker_post_count: number;
+};
+
+export type AdminReport = {
+  postKind: 'job' | 'seeker';
+  postId: string;
+  reportCount: number;
+  authorId: string;
+  title: string;
+  preview: string;
+  authorUsername?: string;
+  authorName?: string;
 };
 
 export type Post = {

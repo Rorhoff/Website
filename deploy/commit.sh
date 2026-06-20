@@ -216,6 +216,7 @@ bash "$DEV_DIR/deploy/migrate-t1referrall-v8.sh" || die "v8 migration failed"
 bash "$DEV_DIR/deploy/migrate-t1referrall-v9.sh" || die "v9 migration failed"
 bash "$DEV_DIR/deploy/migrate-t1referrall-v10.sh" || die "v10 migration failed — login will 503 until fixed"
 bash "$DEV_DIR/deploy/migrate-t1referrall-v11.sh" || die "v11 migration failed — login will 503 until fixed"
+bash "$DEV_DIR/deploy/migrate-t1referrall-v12.sh" || die "v12 migration failed"
 
 log "Ensuring Stripe public base URL on dev…"
 bash "$DEV_DIR/deploy/ensure-stripe-public-base-dev.sh" || warn "Could not update Stripe env — run deploy/set-stripe-dev.sh manually"

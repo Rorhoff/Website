@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   ArrowLeft, Ban, Bell, CreditCard, Eye, Fingerprint, KeyRound, LogOut,
-  Mail, Monitor, Phone, ShieldCheck, Smartphone, Trash2, UserCheck,
+  Mail, Monitor, Phone, Shield, ShieldCheck, Smartphone, Trash2, UserCheck,
 } from 'lucide-react';
 import * as api from '../lib/api';
 import type { AccountSession, AccountSettings, BlockEntry, Profile, PurchaseRecord } from '../lib/api';
@@ -10,9 +10,10 @@ import { useAuth } from '../contexts/AuthContext';
 type Props = {
   onBack: () => void;
   onViewProfile: (userId: string) => void;
+  onOpenAdmin?: () => void;
 };
 
-export default function SettingsPage({ onBack, onViewProfile }: Props) {
+export default function SettingsPage({ onBack, onViewProfile, onOpenAdmin }: Props) {
   const { user, profile, refreshProfile, signOut } = useAuth();
   const [blockedList, setBlockedList] = useState<BlockEntry[]>([]);
   const [sessions, setSessions] = useState<AccountSession[]>([]);
@@ -60,6 +61,27 @@ export default function SettingsPage({ onBack, onViewProfile }: Props) {
           <p className="text-gray-500 text-sm mt-0.5">Manage your account, privacy, and security</p>
         </div>
       </div>
+
+      {onOpenAdmin && (
+        <section className="mb-6">
+          <button
+            type="button"
+            onClick={onOpenAdmin}
+            className="w-full flex items-center justify-between gap-3 bg-gray-900 border border-gray-800 hover:border-blue-500/40 rounded-2xl px-5 py-4 transition text-left group"
+          >
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-10 h-10 rounded-xl bg-blue-500/15 flex items-center justify-center flex-shrink-0">
+                <Shield size={18} className="text-blue-400" />
+              </div>
+              <div className="min-w-0">
+                <div className="text-white font-medium text-sm">Administration</div>
+                <div className="text-gray-500 text-xs mt-0.5">Manage users, posts, and reports</div>
+              </div>
+            </div>
+            <span className="text-gray-600 group-hover:text-gray-400 text-sm">→</span>
+          </button>
+        </section>
+      )}
 
       <EmailSection profile={profile} onChanged={refreshProfile} />
       <PhoneSection profile={profile} onChanged={refreshProfile} />

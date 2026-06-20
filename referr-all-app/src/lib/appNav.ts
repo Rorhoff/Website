@@ -1,4 +1,4 @@
-export type AppPage = 'feed' | 'network' | 'messages' | 'profile' | 'settings' | 'terms' | 'privacy';
+export type AppPage = 'feed' | 'network' | 'messages' | 'profile' | 'settings' | 'admin' | 'terms' | 'privacy';
 
 export type NavSnapshot = { page: AppPage; viewingUserId: string | null };
 
@@ -9,7 +9,7 @@ export type AppNavState = {
   returnTo: NavSnapshot | null;
 };
 
-const PAGES: AppPage[] = ['feed', 'network', 'messages', 'profile', 'settings', 'terms', 'privacy'];
+const PAGES: AppPage[] = ['feed', 'network', 'messages', 'profile', 'settings', 'admin', 'terms', 'privacy'];
 
 export function defaultNavState(): AppNavState {
   return { page: 'feed', viewingUserId: null, messageUserId: null, returnTo: null };
