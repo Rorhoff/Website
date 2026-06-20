@@ -61,11 +61,42 @@ export type AdminStats = {
   suspendedCount: number;
   adminCount: number;
   reportCount: number;
+  flaggedPostCount: number;
+  newUsers7d: number;
+  newUsers30d: number;
+  newJobPosts7d: number;
+  newSeekerPosts7d: number;
+  messageCount: number;
+  conversationCount: number;
+  connectionCount: number;
+  premiumPurchaseCount: number;
+  premiumRevenueCents: number;
+  recentSignups: AdminRecentSignup[];
+};
+
+export type AdminRecentSignup = {
+  id: string;
+  username: string;
+  fullName: string;
+  email: string;
+  createdAt: string;
 };
 
 export type AdminUser = Profile & {
   job_post_count: number;
   seeker_post_count: number;
+};
+
+export type AdminJobPost = Post & {
+  authorUsername: string;
+  authorName: string;
+  reportCount: number;
+};
+
+export type AdminSeekerPost = SeekerPost & {
+  authorUsername: string;
+  authorName: string;
+  reportCount: number;
 };
 
 export type AdminReport = {

@@ -1,5 +1,5 @@
 import type {
-  AccountSession, AccountSettings, AdminReport, AdminStats, AdminUser,
+  AccountSession, AccountSettings, AdminJobPost, AdminReport, AdminSeekerPost, AdminStats, AdminUser,
   Connection, Conversation, Message, Post, Profile,
   PurchaseRecord, SeekerPost,
 } from './types';
@@ -415,11 +415,24 @@ export async function fetchAdminStats(): Promise<AdminStats> {
   return request<AdminStats>('/admin/stats');
 }
 
-export async function searchAdminUsers(q: string): Promise<AdminUser[]> {
+export async function searchAdminUsers(
+  q: string,
+  opts?: { filter?: 'admin' | 'suspended'; limit?: number },
+): Promise<AdminUser[]> {
   const params = new URLSearchParams();
   if (q.trim()) params.set('q', q.trim());
+  if (opts?.filter) params.set('filter', opts.filter);
+  if (opts?.limit) params.set('limit', String(opts.limit));
   const qs = params.toString();
   return request<AdminUser[]>(`/admin/users${qs ? `?${qs}` : ''}`);
+}
+
+export async function listAdminJobPosts(): Promise<AdminJobPost[]> {
+  return request<AdminJobPost[]>('/admin/posts');
+}
+
+export async function listAdminSeekerPosts(): Promise<AdminSeekerPost[]> {
+  return request<AdminSeekerPost[]>('/admin/seeker-posts');
 }
 
 export async function patchAdminUser(

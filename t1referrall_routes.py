@@ -1695,27 +1695,124 @@ def admin_stats(
         or 0
     )
     admin_count = _admin_count(db)
-    report_count = int(db.scalar(select(func.count()).select_from(T1ReferrallPostReport)) or 0)
+    total_report_count = int(
+        db.scalar(select(func.count()).select_from(T1ReferrallPostReport)) or 0
+    )
+    flagged_post_count = int(
+        db.scalar(
+            select(func.count())
+            .select_from(
+                select(T1ReferrallPostReport.post_kind, T1ReferrallPostReport.post_id)
+                .distinct()
+                .subquery()
+            )
+        )
+        or 0
+    )
+    now = datetime.utcnow()
+    week_ago = now - timedelta(days=7)
+    month_ago = now - timedelta(days=30)
+    new_users_7d = int(
+        db.scalar(
+            select(func.count())
+            .select_from(T1ReferrallUser)
+            .where(T1ReferrallUser.created_at >= week_ago)
+        )
+        or 0
+    )
+    new_users_30d = int(
+        db.scalar(
+            select(func.count())
+            .select_from(T1ReferrallUser)
+            .where(T1ReferrallUser.created_at >= month_ago)
+        )
+        or 0
+    )
+    new_job_posts_7d = int(
+        db.scalar(
+            select(func.count())
+            .select_from(T1ReferrallPost)
+            .where(T1ReferrallPost.created_at >= week_ago)
+        )
+        or 0
+    )
+    new_seeker_posts_7d = int(
+        db.scalar(
+            select(func.count())
+            .select_from(T1ReferrallSeekerPost)
+            .where(T1ReferrallSeekerPost.created_at >= week_ago)
+        )
+        or 0
+    )
+    message_count = int(
+        db.scalar(select(func.count()).select_from(T1ReferrallMessage)) or 0
+    )
+    conversation_count = int(
+        db.scalar(select(func.count()).select_from(T1ReferrallConversation)) or 0
+    )
+    connection_count = int(
+        db.scalar(select(func.count()).select_from(T1ReferrallConnection)) or 0
+    )
+    premium_purchase_count = int(
+        db.scalar(select(func.count()).select_from(T1ReferrallPremiumPurchase)) or 0
+    )
+    premium_revenue_cents = int(
+        db.scalar(
+            select(func.coalesce(func.sum(T1ReferrallPremiumPurchase.amount_cents), 0))
+            .select_from(T1ReferrallPremiumPurchase)
+            .where(T1ReferrallPremiumPurchase.refunded_at.is_(None))
+        )
+        or 0
+    )
+    recent_signups = [
+        {
+            "id": u.id,
+            "username": u.username,
+            "fullName": u.full_name or "",
+            "email": u.email,
+            "createdAt": _iso(u.created_at),
+        }
+        for u in db.scalars(
+            select(T1ReferrallUser).order_by(T1ReferrallUser.created_at.desc()).limit(5)
+        ).all()
+    ]
     return {
         "userCount": user_count,
         "jobPostCount": job_post_count,
         "seekerPostCount": seeker_post_count,
         "suspendedCount": suspended_count,
         "adminCount": admin_count,
-        "reportCount": report_count,
+        "reportCount": total_report_count,
+        "flaggedPostCount": flagged_post_count,
+        "newUsers7d": new_users_7d,
+        "newUsers30d": new_users_30d,
+        "newJobPosts7d": new_job_posts_7d,
+        "newSeekerPosts7d": new_seeker_posts_7d,
+        "messageCount": message_count,
+        "conversationCount": conversation_count,
+        "connectionCount": connection_count,
+        "premiumPurchaseCount": premium_purchase_count,
+        "premiumRevenueCents": premium_revenue_cents,
+        "recentSignups": recent_signups,
     }
 
 
 @router.get("/admin/users")
 def admin_list_users(
     q: str = "",
-    limit: int = 50,
+    filter: str = "",
+    limit: int = 200,
     admin: T1ReferrallUser = Depends(require_admin),
     db: Session = Depends(referrall_db),
 ):
-    limit = max(1, min(limit, 100))
+    limit = max(1, min(limit, 500))
     term = q.strip()
     stmt = select(T1ReferrallUser)
+    filt = filter.strip().lower()
+    if filt == "admin":
+        stmt = stmt.where(T1ReferrallUser.is_admin.is_(True))
+    elif filt == "suspended":
+        stmt = stmt.where(T1ReferrallUser.is_suspended.is_(True))
     if term:
         like = f"%{term.lower()}%"
         stmt = stmt.where(
@@ -1729,6 +1826,53 @@ def admin_list_users(
         stmt.order_by(T1ReferrallUser.created_at.desc()).limit(limit)
     ).all()
     return [_admin_user_out(r, db) for r in rows]
+
+
+def _admin_post_author(db: Session, author_id: str) -> dict[str, str]:
+    author = db.get(T1ReferrallUser, author_id)
+    if author is None:
+        return {"authorUsername": "", "authorName": ""}
+    return {"authorUsername": author.username, "authorName": author.full_name or ""}
+
+
+@router.get("/admin/posts")
+def admin_list_posts(
+    limit: int = 200,
+    admin: T1ReferrallUser = Depends(require_admin),
+    db: Session = Depends(referrall_db),
+):
+    limit = max(1, min(limit, 500))
+    rows = db.scalars(
+        select(T1ReferrallPost).order_by(T1ReferrallPost.created_at.desc()).limit(limit)
+    ).all()
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        item = _post_out(row)
+        item.update(_admin_post_author(db, row.author_id))
+        item["reportCount"] = _post_report_count(db, _POST_KIND_JOB, row.id)
+        out.append(item)
+    return out
+
+
+@router.get("/admin/seeker-posts")
+def admin_list_seeker_posts(
+    limit: int = 200,
+    admin: T1ReferrallUser = Depends(require_admin),
+    db: Session = Depends(referrall_db),
+):
+    limit = max(1, min(limit, 500))
+    rows = db.scalars(
+        select(T1ReferrallSeekerPost)
+        .order_by(T1ReferrallSeekerPost.created_at.desc())
+        .limit(limit)
+    ).all()
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        item = _seeker_out(row)
+        item.update(_admin_post_author(db, row.author_id))
+        item["reportCount"] = _post_report_count(db, _POST_KIND_SEEKER, row.id)
+        out.append(item)
+    return out
 
 
 @router.get("/admin/users/{user_id}")
