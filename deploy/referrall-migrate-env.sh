@@ -19,9 +19,27 @@ referrall_resolve_env_file() {
   return 1
 }
 
+referrall_resolve_python() {
+  if [[ -n "${PYTHON:-}" && -x "${PYTHON}" ]]; then
+    return 0
+  fi
+  local root="${ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+  if [[ -x /home/ubuntu/app/venv/bin/python ]]; then
+    PYTHON=/home/ubuntu/app/venv/bin/python
+  elif [[ -x "$root/.venv/bin/python" ]]; then
+    PYTHON="$root/.venv/bin/python"
+  elif [[ -x /home/ubuntu/Website/.venv/bin/python ]]; then
+    PYTHON=/home/ubuntu/Website/.venv/bin/python
+  else
+    PYTHON=python3
+  fi
+  export PYTHON
+}
+
 referrall_load_migration_env() {
   local root="${ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
-  local py="${PYTHON:-python3}"
+  referrall_resolve_python
+  local py="${PYTHON}"
   local migrate_py="$root/deploy/referrall-migrate-db.py"
   local env_file=""
 

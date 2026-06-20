@@ -9,20 +9,16 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
-
-if [[ -z "${PYTHON:-}" ]] || [[ ! -x "${PYTHON}" ]]; then
-  if [[ -x "$ROOT/.venv/bin/python" ]]; then
-    PYTHON="$ROOT/.venv/bin/python"
-  else
-    PYTHON=python3
-  fi
-fi
+export ROOT="$ROOT"
 
 # shellcheck disable=SC1091
 source "$ROOT/deploy/referrall-migrate-env.sh"
+referrall_resolve_python
 referrall_load_migration_env
 
 USERNAME="${REFERRALL_ADMIN_USERNAME:-rorhoff}"
+# Strip quotes/apostrophes — value is interpolated into SQL below.
+USERNAME="${USERNAME//[\'\"]/}"
 
 echo "==> Granting Referr-All admin to @${USERNAME}…"
 "$PYTHON" "$ROOT/deploy/referrall-migrate-db.py" \

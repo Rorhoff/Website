@@ -195,28 +195,24 @@ if [[ "$needs_pip" -eq 1 ]]; then
   fi
 fi
 
-log "Referr-All DB migrations (auth schema v10/v11)…"
-if [[ -f /home/ubuntu/Website/.env.dev ]]; then
-  export ENV_FILE="/home/ubuntu/Website/.env.dev"
-elif [[ -f /home/ubuntu/Website/.env ]]; then
-  export ENV_FILE="/home/ubuntu/Website/.env"
-else
-  die "No dev env file at ${DEV_DIR}/.env.dev or .env — cannot run Referr-All migrations."
-fi
+log "Referr-All DB migrations (auth schema v8–v12)…"
+# shellcheck disable=SC1091
+source "$DEV_DIR/deploy/referrall-migrate-env.sh"
+_dev_env_candidates=()
+[[ -f /home/ubuntu/Website/.env.dev ]] && _dev_env_candidates+=("/home/ubuntu/Website/.env.dev")
+[[ -f /home/ubuntu/Website/.env ]] && _dev_env_candidates+=("/home/ubuntu/Website/.env")
+[[ -f "$DEV_DIR/.env.dev" ]] && _dev_env_candidates+=("$DEV_DIR/.env.dev")
+[[ -f "$DEV_DIR/.env" ]] && _dev_env_candidates+=("$DEV_DIR/.env")
+export ENV_FILE="$(referrall_resolve_env_file "${_dev_env_candidates[@]}")" || die "No env file with DATABASE_URL found — cannot run Referr-All migrations."
 export ROOT="$DEV_DIR"
-if [[ -x /home/ubuntu/app/venv/bin/python ]]; then
-  export PYTHON=/home/ubuntu/app/venv/bin/python
-elif [[ -x "$DEV_DIR/.venv/bin/python" ]]; then
-  export PYTHON="$DEV_DIR/.venv/bin/python"
-else
-  export PYTHON=python3
-fi
+referrall_resolve_python
 log "Migration target env: ${ENV_FILE} (python: ${PYTHON})"
 bash "$DEV_DIR/deploy/migrate-t1referrall-v8.sh" || die "v8 migration failed"
 bash "$DEV_DIR/deploy/migrate-t1referrall-v9.sh" || die "v9 migration failed"
 bash "$DEV_DIR/deploy/migrate-t1referrall-v10.sh" || die "v10 migration failed — login will 503 until fixed"
 bash "$DEV_DIR/deploy/migrate-t1referrall-v11.sh" || die "v11 migration failed — login will 503 until fixed"
 bash "$DEV_DIR/deploy/migrate-t1referrall-v12.sh" || die "v12 migration failed"
+bash "$DEV_DIR/deploy/bootstrap-referrall-admin.sh" || warn "Admin bootstrap skipped (run deploy/bootstrap-referrall-admin.sh manually)"
 
 log "Ensuring Stripe public base URL on dev…"
 bash "$DEV_DIR/deploy/ensure-stripe-public-base-dev.sh" || warn "Could not update Stripe env — run deploy/set-stripe-dev.sh manually"

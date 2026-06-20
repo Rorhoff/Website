@@ -22,7 +22,11 @@ fi
 resolve_env_file() {
   local candidate
   for candidate in "$@"; do
-    [[ -n "$candidate" && -f "$candidate" ]] && { echo "$candidate"; return 0; }
+    [[ -n "$candidate" && -f "$candidate" ]] || continue
+    if grep -qE '^[[:space:]]*(export[[:space:]]+)?DATABASE_URL=.+' "$candidate" 2>/dev/null; then
+      echo "$candidate"
+      return 0
+    fi
   done
   return 1
 }
