@@ -150,6 +150,33 @@ def _require_id_verified(user: T1IntheWildUser) -> None:
         )
 
 
+def _match_other_user(match: T1IntheWildMatch, me_id: str, db: Session) -> T1IntheWildUser | None:
+    other_id = match.user_b_id if match.user_a_id == me_id else match.user_a_id
+    return db.get(T1IntheWildUser, other_id)
+
+
+def _chat_send_eligibility(user: T1IntheWildUser, match: T1IntheWildMatch, db: Session) -> dict[str, Any]:
+    other = _match_other_user(match, user.id, db)
+    can_send = bool(user.id_verified and other and other.id_verified)
+    reasons: list[str] = []
+    if not user.id_verified:
+        reasons.append("Verify your identity in Profile before sending messages.")
+    if other and not other.id_verified:
+        reasons.append("Your match must verify their identity before chat unlocks.")
+    return {
+        "can_send": can_send,
+        "can_read": True,
+        "other_id_verified": bool(other and other.id_verified),
+        "block_reason": " ".join(reasons) if reasons else None,
+    }
+
+
+def _require_can_send_message(user: T1IntheWildUser, match: T1IntheWildMatch, db: Session) -> None:
+    elig = _chat_send_eligibility(user, match, db)
+    if not elig["can_send"]:
+        raise HTTPException(status_code=403, detail=elig["block_reason"] or "Chat unavailable")
+
+
 def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     r = 6371000.0
     p1, p2 = math.radians(lat1), math.radians(lat2)
@@ -205,6 +232,8 @@ def _match_dict(m: T1IntheWildMatch, me_id: str, db: Session) -> dict[str, Any]:
     status_val = m.status
     if status_val == "active" and m.chat_expires_at <= now:
         status_val = "expired"
+    me = db.get(T1IntheWildUser, me_id)
+    chat = _chat_send_eligibility(me, m, db) if me else {}
     return {
         "id": m.id,
         "other_user": _profile_dict(other) if other else None,
@@ -213,6 +242,7 @@ def _match_dict(m: T1IntheWildMatch, me_id: str, db: Session) -> dict[str, Any]:
         "chat_expires_at": m.chat_expires_at.isoformat(),
         "status": status_val,
         "seconds_remaining": max(0, int((m.chat_expires_at - now).total_seconds())),
+        **chat,
     }
 
 
@@ -473,6 +503,10 @@ class AdminUserPatchBody(BaseModel):
     id_verified: bool | None = None
     is_suspended: bool | None = None
     is_admin: bool | None = None
+
+
+class AdminReportPatchBody(BaseModel):
+    action: str = Field(pattern="^(dismiss|suspend_reported)$")
 
 
 # --- Routes ---
@@ -926,6 +960,7 @@ def list_messages(
             for m in msgs
         ],
         "chat_expires_at": match.chat_expires_at.isoformat(),
+        **_chat_send_eligibility(user, match, db),
     }
 
 
@@ -937,12 +972,12 @@ def send_message(
     db: Session = Depends(_db),
 ):
     user = _get_user(db, authorization)
-    _require_id_verified(user)
     match = db.get(T1IntheWildMatch, match_id)
     if not match or user.id not in (match.user_a_id, match.user_b_id):
         raise HTTPException(status_code=404, detail="Match not found")
     if match.chat_expires_at <= _now():
         raise HTTPException(status_code=410, detail="Chat window expired")
+    _require_can_send_message(user, match, db)
     msg = T1IntheWildMessage(
         id=str(uuid.uuid4()),
         match_id=match_id,
@@ -1081,6 +1116,7 @@ def verification_status(
         "id_verified": user.id_verified,
         "background_verified": user.background_verified,
         "can_message": user.id_verified,
+        "requires_both_verified": True,
     }
 
 
@@ -1120,7 +1156,12 @@ def admin_stats(
             )
         )
         or 0,
-        "reports": db.scalar(select(func.count()).select_from(T1IntheWildUserReport)) or 0,
+        "reports": db.scalar(
+            select(func.count())
+            .select_from(T1IntheWildUserReport)
+            .where(T1IntheWildUserReport.status == "pending")
+        )
+        or 0,
         "waitlist": db.scalar(select(func.count()).select_from(T1IntheWildWaitlist)) or 0,
     }
 
@@ -1254,11 +1295,45 @@ def admin_list_reports(
         out.append({
             "id": r.id,
             "reason": r.reason,
+            "status": r.status,
+            "reviewed_at": r.reviewed_at.isoformat() if r.reviewed_at else None,
             "created_at": r.created_at.isoformat(),
             "reporter": _profile_dict(reporter) if reporter else None,
             "reported": _profile_dict(reported) if reported else None,
         })
     return {"reports": out}
+
+
+@router.patch("/admin/reports/{report_id}")
+def admin_patch_report(
+    report_id: str,
+    body: AdminReportPatchBody,
+    authorization: Annotated[str | None, Header()] = None,
+    db: Session = Depends(_db),
+):
+    admin = _get_user(db, authorization)
+    _require_admin(admin)
+    report = db.get(T1IntheWildUserReport, report_id)
+    if not report:
+        raise HTTPException(status_code=404, detail="Report not found")
+    if report.status != "pending":
+        return {
+            "ok": True,
+            "message": "Report already reviewed",
+            "status": report.status,
+        }
+    now = _now()
+    if body.action == "dismiss":
+        report.status = "dismissed"
+        report.reviewed_at = now
+    elif body.action == "suspend_reported":
+        target = db.get(T1IntheWildUser, report.reported_id)
+        if target:
+            target.is_suspended = True
+        report.status = "actioned"
+        report.reviewed_at = now
+    db.commit()
+    return {"ok": True, "status": report.status}
 
 
 @router.patch("/admin/users/{user_id}")

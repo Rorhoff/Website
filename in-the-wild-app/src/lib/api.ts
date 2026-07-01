@@ -135,7 +135,14 @@ export async function fetchMatches(): Promise<{ matches: Match[] }> {
   return request('/matches');
 }
 
-export async function fetchMessages(matchId: string): Promise<{ messages: ChatMessage[]; chat_expires_at: string }> {
+export async function fetchMessages(matchId: string): Promise<{
+  messages: ChatMessage[];
+  chat_expires_at: string;
+  can_send?: boolean;
+  can_read?: boolean;
+  other_id_verified?: boolean;
+  block_reason?: string | null;
+}> {
   return request(`/matches/${matchId}/messages`);
 }
 
@@ -202,6 +209,16 @@ export async function fetchAdminUsers(q = ''): Promise<{ users: Profile[] }> {
 
 export async function fetchAdminReports(): Promise<{ reports: AdminReport[] }> {
   return request('/admin/reports');
+}
+
+export async function patchAdminReport(
+  reportId: string,
+  action: 'dismiss' | 'suspend_reported',
+): Promise<{ ok: boolean; status: string }> {
+  return request(`/admin/reports/${reportId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ action }),
+  });
 }
 
 export async function patchAdminUser(

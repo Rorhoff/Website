@@ -749,6 +749,8 @@ class T1IntheWildUserReport(Base):
         String(36), ForeignKey("t1inthewild_user.id", ondelete="CASCADE"), index=True
     )
     reason: Mapped[str] = mapped_column(String(500), default="", server_default="")
+    status: Mapped[str] = mapped_column(String(16), default="pending", server_default="pending")
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     __table_args__ = (

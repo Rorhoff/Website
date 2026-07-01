@@ -45,6 +45,10 @@ export type Match = {
   chat_expires_at: string;
   status: string;
   seconds_remaining: number;
+  can_send?: boolean;
+  can_read?: boolean;
+  other_id_verified?: boolean;
+  block_reason?: string | null;
 };
 
 export type PendingLike = {
@@ -80,6 +84,8 @@ export type AdminStats = {
 export type AdminReport = {
   id: string;
   reason: string;
+  status: 'pending' | 'dismissed' | 'actioned';
+  reviewed_at: string | null;
   created_at: string;
   reporter: Profile | null;
   reported: Profile | null;

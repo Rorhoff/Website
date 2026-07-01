@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import * as api from '../lib/api';
+import { maybeNotifyVenueMatches } from '../lib/browserNotifications';
 import { filterUnseenMatchIds, markMatchesSeen } from '../lib/matchAlerts';
 import type { Match } from '../lib/types';
 
@@ -15,12 +16,14 @@ export function useMatchAlerts(enabled: boolean) {
     const unseen = active.filter(m => unseenIds.includes(m.id));
     if (unseen.length > 0) {
       setAlertMatches(unseen);
+      maybeNotifyVenueMatches(unseen);
     }
   }, []);
 
   const notifyFromResponse = useCallback((matches: Match[]) => {
     if (matches.length > 0) {
       setAlertMatches(matches);
+      maybeNotifyVenueMatches(matches);
     }
   }, []);
 
@@ -49,6 +52,7 @@ export function useMatchAlerts(enabled: boolean) {
           const unseen = newlyActive.filter(m => unseenIds.includes(m.id));
           if (unseen.length > 0) {
             setAlertMatches(unseen);
+            maybeNotifyVenueMatches(unseen);
           }
         }
       } catch {

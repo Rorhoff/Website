@@ -140,6 +140,23 @@ export default function AdminPage({ onBack }: Props) {
     }
   }
 
+  async function handleReportAction(reportId: string, action: 'dismiss' | 'suspend_reported') {
+    const label = action === 'dismiss' ? 'Dismiss this report?' : 'Suspend the reported user?';
+    if (!confirm(label)) return;
+    setBusy(reportId);
+    setError('');
+    try {
+      await api.patchAdminReport(reportId, action);
+      await loadOverview();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Action failed');
+    } finally {
+      setBusy('');
+    }
+  }
+
+  const pendingReports = reports.filter(r => (r.status || 'pending') === 'pending');
+
   const tabs: { id: Tab; label: string; icon: typeof Users }[] = [
     { id: 'overview', label: 'Overview', icon: Shield },
     { id: 'events', label: 'Events', icon: Calendar },
@@ -264,16 +281,55 @@ export default function AdminPage({ onBack }: Props) {
         </div>
       ) : (
         <div className="space-y-2">
-          {reports.length === 0 ? (
-            <p className="text-stone-500 text-sm text-center py-8">No reports yet.</p>
-          ) : reports.map(r => (
+          {pendingReports.length === 0 ? (
+            <p className="text-stone-500 text-sm text-center py-8">No pending reports.</p>
+          ) : pendingReports.map(r => (
             <div key={r.id} className="bg-stone-900 border border-stone-800 rounded-xl p-3">
-              <p className="text-white text-sm">
-                {r.reporter?.username} reported {r.reported?.username}
-              </p>
-              {r.reason && <p className="text-stone-400 text-xs mt-1">{r.reason}</p>}
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-white text-sm">
+                    @{r.reporter?.username} reported @{r.reported?.username}
+                  </p>
+                  {r.reason && <p className="text-stone-400 text-xs mt-1">{r.reason}</p>}
+                  <p className="text-stone-600 text-xs mt-1">
+                    {new Date(r.created_at).toLocaleString()}
+                  </p>
+                </div>
+                <span className="text-xs bg-amber-950 text-amber-400 px-2 py-0.5 rounded-full capitalize">
+                  {r.status}
+                </span>
+              </div>
+              <div className="flex gap-2 mt-3">
+                <button
+                  type="button"
+                  disabled={busy === r.id}
+                  onClick={() => handleReportAction(r.id, 'dismiss')}
+                  className="flex-1 text-xs font-medium py-2 rounded-lg bg-stone-800 text-stone-300 hover:bg-stone-700 disabled:opacity-50"
+                >
+                  Dismiss
+                </button>
+                <button
+                  type="button"
+                  disabled={busy === r.id}
+                  onClick={() => handleReportAction(r.id, 'suspend_reported')}
+                  className="flex-1 text-xs font-medium py-2 rounded-lg bg-red-950 text-red-400 hover:bg-red-900 disabled:opacity-50"
+                >
+                  Suspend user
+                </button>
+              </div>
             </div>
           ))}
+          {reports.some(r => r.status !== 'pending') && (
+            <div className="pt-4 border-t border-stone-800">
+              <p className="text-stone-500 text-xs uppercase tracking-wide mb-2">Reviewed</p>
+              {reports.filter(r => r.status !== 'pending').map(r => (
+                <div key={r.id} className="text-stone-500 text-xs py-1">
+                  @{r.reported?.username} — {r.status}
+                  {r.reviewed_at ? ` · ${new Date(r.reviewed_at).toLocaleDateString()}` : ''}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>
