@@ -16,16 +16,12 @@ export default function AuthPage({ onBack, onSuccess }: Props) {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  async function handleSubmit(e: React.FormEvent) {
+  async function handleRegister(e: React.FormEvent) {
     e.preventDefault();
     setError('');
     setLoading(true);
     try {
-      if (mode === 'register') {
-        await api.register({ email, password, username, display_name: displayName || username });
-      } else {
-        await api.login(email, password);
-      }
+      await api.register({ email, password, username, display_name: displayName || username });
       onSuccess();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Authentication failed');
@@ -34,10 +30,28 @@ export default function AuthPage({ onBack, onSuccess }: Props) {
     }
   }
 
+  async function handleLogin(e: React.FormEvent) {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+    try {
+      await api.login(email, password);
+      onSuccess();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Authentication failed');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const inputClass =
+    'w-full bg-stone-900 border border-stone-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-emerald-600';
+  const labelClass = 'block text-sm font-medium text-stone-300 mb-1.5';
+
   return (
     <div className="min-h-screen bg-stone-950 flex items-center justify-center px-4 py-12">
       <div className="w-full max-w-md">
-        <button onClick={onBack} className="text-stone-500 hover:text-stone-300 text-sm mb-6">
+        <button type="button" onClick={onBack} className="text-stone-500 hover:text-stone-300 text-sm mb-6">
           ← Back
         </button>
         <div className="flex items-center gap-3 mb-8">
@@ -49,11 +63,17 @@ export default function AuthPage({ onBack, onSuccess }: Props) {
           </h1>
         </div>
 
-        <div className="flex gap-2 mb-6">
+        <div className="flex gap-2 mb-6" role="tablist">
           {(['register', 'login'] as const).map(m => (
             <button
               key={m}
-              onClick={() => setMode(m)}
+              type="button"
+              role="tab"
+              aria-selected={mode === m}
+              onClick={() => {
+                setMode(m);
+                setError('');
+              }}
               className={`flex-1 py-2 rounded-lg text-sm font-medium transition ${
                 mode === m ? 'bg-emerald-600 text-white' : 'bg-stone-900 text-stone-400'
               }`}
@@ -63,54 +83,133 @@ export default function AuthPage({ onBack, onSuccess }: Props) {
           ))}
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          {mode === 'register' && (
-            <>
+        {mode === 'register' ? (
+          <form
+            key="register"
+            onSubmit={handleRegister}
+            method="post"
+            autoComplete="on"
+            className="space-y-4"
+          >
+            <div>
+              <label htmlFor="itw-username" className={labelClass}>Username</label>
               <input
+                id="itw-username"
+                name="username"
+                type="text"
                 required
-                placeholder="Username"
+                autoComplete="username"
+                placeholder="janesmith"
                 value={username}
                 onChange={e => setUsername(e.target.value)}
-                className="w-full bg-stone-900 border border-stone-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-emerald-600"
+                className={inputClass}
               />
+            </div>
+            <div>
+              <label htmlFor="itw-display-name" className={labelClass}>Display name</label>
               <input
-                placeholder="Display name"
+                id="itw-display-name"
+                name="name"
+                type="text"
+                autoComplete="name"
+                placeholder="Jane Smith"
                 value={displayName}
                 onChange={e => setDisplayName(e.target.value)}
-                className="w-full bg-stone-900 border border-stone-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-emerald-600"
+                className={inputClass}
               />
-            </>
-          )}
-          <input
-            required
-            type="email"
-            placeholder="Email"
-            value={email}
-            onChange={e => setEmail(e.target.value)}
-            className="w-full bg-stone-900 border border-stone-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-emerald-600"
-          />
-          <input
-            required
-            type="password"
-            minLength={8}
-            placeholder="Password (8+ chars)"
-            value={password}
-            onChange={e => setPassword(e.target.value)}
-            className="w-full bg-stone-900 border border-stone-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-emerald-600"
-          />
-          {error && (
-            <p className="text-red-400 text-sm bg-red-950/30 border border-red-900/50 rounded-xl px-4 py-3">
-              {error}
-            </p>
-          )}
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-semibold rounded-xl py-3.5 transition"
+            </div>
+            <div>
+              <label htmlFor="itw-reg-email" className={labelClass}>Email</label>
+              <input
+                id="itw-reg-email"
+                name="email"
+                type="email"
+                required
+                autoComplete="email"
+                placeholder="jane@example.com"
+                value={email}
+                onChange={e => setEmail(e.target.value)}
+                className={inputClass}
+              />
+            </div>
+            <div>
+              <label htmlFor="itw-reg-password" className={labelClass}>Password</label>
+              <input
+                id="itw-reg-password"
+                name="new-password"
+                type="password"
+                required
+                minLength={8}
+                autoComplete="new-password"
+                placeholder="At least 8 characters"
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                className={inputClass}
+              />
+            </div>
+            {error && (
+              <p className="text-red-400 text-sm bg-red-950/30 border border-red-900/50 rounded-xl px-4 py-3" role="alert">
+                {error}
+              </p>
+            )}
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-semibold rounded-xl py-3.5 transition"
+            >
+              {loading ? 'Please wait…' : 'Create account'}
+            </button>
+          </form>
+        ) : (
+          <form
+            key="login"
+            onSubmit={handleLogin}
+            method="post"
+            autoComplete="on"
+            className="space-y-4"
           >
-            {loading ? 'Please wait…' : mode === 'register' ? 'Create account' : 'Sign in'}
-          </button>
-        </form>
+            <div>
+              <label htmlFor="itw-login-email" className={labelClass}>Email</label>
+              <input
+                id="itw-login-email"
+                name="email"
+                type="email"
+                required
+                autoComplete="username email"
+                placeholder="jane@example.com"
+                value={email}
+                onChange={e => setEmail(e.target.value)}
+                className={inputClass}
+              />
+            </div>
+            <div>
+              <label htmlFor="itw-login-password" className={labelClass}>Password</label>
+              <input
+                id="itw-login-password"
+                name="password"
+                type="password"
+                required
+                autoComplete="current-password"
+                placeholder="Your password"
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                className={inputClass}
+              />
+            </div>
+            {error && (
+              <p className="text-red-400 text-sm bg-red-950/30 border border-red-900/50 rounded-xl px-4 py-3" role="alert">
+                {error}
+              </p>
+            )}
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-semibold rounded-xl py-3.5 transition"
+            >
+              {loading ? 'Please wait…' : 'Sign in'}
+            </button>
+          </form>
+        )}
       </div>
     </div>
   );
