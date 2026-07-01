@@ -191,7 +191,7 @@ sync_in_the_wild() {
 git -C "$DEV_DIR" checkout -- static/referr-all 2>/dev/null || true
 git -C "$DEV_DIR" checkout -- static/in-the-wild 2>/dev/null || true
 rm -rf "$DEV_DIR/static/t1-referrall" "$DEV_DIR/static/t1-referral"
-_diff_paths=':!static/referr-all' ':!static/in-the-wild'
+_diff_paths=(':!static/referr-all' ':!static/in-the-wild')
 if ! git -C "$DEV_DIR" diff --quiet HEAD -- . "$_diff_paths" \
   || ! git -C "$DEV_DIR" diff --cached --quiet HEAD -- . "$_diff_paths"; then
   git -C "$DEV_DIR" status --short
