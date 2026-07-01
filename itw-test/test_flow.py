@@ -69,15 +69,23 @@ def test_venue_match_flow_and_emails(client, db_session, monkeypatch):
     verify_user_id(db_session, profile_a["id"])
     verify_user_id(db_session, profile_b["id"])
 
-    for token, other_id in ((token_a, profile_b["id"]), (token_b, profile_a["id"])):
-        res = client.post(
-            "/api/in-the-wild/swipe",
-            headers=auth_headers(token),
-            json={"target_id": other_id, "action": "like"},
-        )
-        assert res.status_code == 200
-        assert res.json()["mutual_like"] is True
-        assert res.json()["new_matches"] == []
+    res_first = client.post(
+        "/api/in-the-wild/swipe",
+        headers=auth_headers(token_a),
+        json={"target_id": profile_b["id"], "action": "like"},
+    )
+    assert res_first.status_code == 200
+    assert res_first.json()["mutual_like"] is False
+    assert res_first.json()["new_matches"] == []
+
+    res_second = client.post(
+        "/api/in-the-wild/swipe",
+        headers=auth_headers(token_b),
+        json={"target_id": profile_a["id"], "action": "like"},
+    )
+    assert res_second.status_code == 200
+    assert res_second.json()["mutual_like"] is True
+    assert res_second.json()["new_matches"] == []
 
     event = seed_dev_lounge_event(db_session)
 
