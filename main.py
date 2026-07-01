@@ -44,6 +44,7 @@ from classifieds_routes import router as classifieds_router
 from sss_routes import router as sss_router
 from t1prod_routes import router as t1prod_router
 from t1referrall_routes import router as referr_all_router
+from t1inthewild_routes import router as in_the_wild_router
 from credential_service import COOKIE_NAME
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -193,6 +194,7 @@ elif not _CLASSIFIEDS_ONLY:
     app.include_router(sss_router)
     app.include_router(t1prod_router)
     app.include_router(referr_all_router)
+    app.include_router(in_the_wild_router)
 
 # --- Product-domain HTML (hide portfolio nav on t1airevolution.com) ---
 
@@ -878,6 +880,11 @@ else:
         name="referr_all",
     )
     app.mount(
+        "/in-the-wild",
+        StaticFiles(directory=str(STATIC_DIR / "in-the-wild"), html=True),
+        name="in_the_wild",
+    )
+    app.mount(
         "/t1-prod",
         StaticFiles(directory=str(STATIC_DIR / "t1-prod"), html=True),
         name="t1_prod",
@@ -899,6 +906,10 @@ else:
     @app.get("/referr-all", include_in_schema=False)
     def referr_all_redirect() -> RedirectResponse:
         return RedirectResponse(url="/referr-all/", status_code=301)
+
+    @app.get("/in-the-wild", include_in_schema=False)
+    def in_the_wild_redirect() -> RedirectResponse:
+        return RedirectResponse(url="/in-the-wild/", status_code=301)
 
     @app.get("/t1-referrall", include_in_schema=False)
     @app.get("/t1-referrall/", include_in_schema=False)

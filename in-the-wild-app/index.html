@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="%BASE_URL%favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>In the Wild — Match where you actually are</title>
+    <meta name="description" content="Swipe interest, meet at verified events, chat for 6 hours — then say hello in person." />
+    <meta name="theme-color" content="#0c0a09" />
+    <style>
+      .site-nav {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.65rem 1.25rem;
+        padding: 0.75rem 1.5rem;
+        border-bottom: 1px solid #292524;
+        background: #0c0a09;
+        align-items: center;
+        font-family: "Segoe UI", system-ui, sans-serif;
+        position: sticky;
+        top: 0;
+        z-index: 60;
+      }
+      .site-nav a {
+        color: #a8a29e;
+        text-decoration: none;
+        font-size: 0.9rem;
+        font-weight: 500;
+        border-bottom: 2px solid transparent;
+        padding-bottom: 0.1rem;
+      }
+      .site-nav a:hover { color: #10b981; }
+      .site-nav a.active { color: #fafaf9; border-bottom-color: #10b981; }
+    </style>
+  </head>
+  <body>
+    <nav class="site-nav" aria-label="Primary">
+      <a href="../index.html">About</a>
+      <a href="../api-testing/">API Testing</a>
+      <a href="../classifieds/">Classifieds</a>
+      <a href="../airevolution/">AI Revolution</a>
+      <a href="../referr-all/">Referr-All</a>
+      <a href="./" class="active">In the Wild</a>
+      <a href="../sss/">SSS</a>
+    </nav>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

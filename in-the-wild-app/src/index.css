@@ -1,0 +1,30 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+
+  body {
+    background-color: #0c0a09;
+    color: #fafaf9;
+    overflow-x: hidden;
+  }
+
+  html:not([data-service-mode="referrall"]) .itw-fixed-header {
+    top: 3rem;
+  }
+
+  html:not([data-service-mode="referrall"]) .itw-main-offset {
+    padding-top: calc(4rem + 3rem);
+  }
+
+  @media (max-width: 767px) {
+    input, select, textarea {
+      font-size: 16px;
+    }
+  }
+}

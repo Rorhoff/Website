@@ -1,0 +1,746 @@
+"""
+In the Wild REST API — event-based dating with venue-unlocked matches.
+
+Mounted at /api/in-the-wild on rorhoff.com (SERVICE_MODE=full).
+"""
+
+from __future__ import annotations
+
+import logging
+import math
+import re
+import secrets
+import uuid
+from datetime import datetime, timedelta
+from typing import Annotated, Any
+
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
+from passlib.hash import bcrypt as bcrypt_hasher
+from pydantic import BaseModel, Field
+from sqlalchemy import and_, func, or_, select
+from sqlalchemy.exc import IntegrityError, ProgrammingError
+from sqlalchemy.orm import Session
+
+from credential_service import truncate_for_bcrypt
+from database import SessionLocal
+from models import (
+    T1IntheWildCheckIn,
+    T1IntheWildEvent,
+    T1IntheWildLike,
+    T1IntheWildMatch,
+    T1IntheWildMessage,
+    T1IntheWildSession,
+    T1IntheWildUser,
+    T1IntheWildWaitlist,
+)
+
+log = logging.getLogger("webapi-testing")
+
+router = APIRouter(prefix="/api/in-the-wild", tags=["in-the-wild"])
+
+SESSION_HOURS = 24 * 30
+MATCH_CHAT_HOURS = 6
+PASS_COOLDOWN_DAYS = 30
+USERNAME_RE = re.compile(r"^[a-zA-Z0-9_]{3,32}$")
+
+
+def _db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+def _now() -> datetime:
+    return datetime.utcnow()
+
+
+def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    r = 6371000.0
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlmb = math.radians(lon2 - lon1)
+    a = math.sin(dphi / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dlmb / 2) ** 2
+    return 2 * r * math.asin(math.sqrt(a))
+
+
+def _profile_dict(u: T1IntheWildUser) -> dict[str, Any]:
+    age = None
+    if u.birth_year:
+        age = _now().year - u.birth_year
+    return {
+        "id": u.id,
+        "username": u.username,
+        "display_name": u.display_name or u.username,
+        "bio": u.bio,
+        "avatar_url": u.avatar_url,
+        "birth_year": u.birth_year,
+        "age": age,
+        "gender": u.gender,
+        "looking_for": u.looking_for,
+        "interests": u.interests or [],
+        "city": u.city,
+        "id_verified": u.id_verified,
+        "background_verified": u.background_verified,
+    }
+
+
+def _event_dict(e: T1IntheWildEvent) -> dict[str, Any]:
+    return {
+        "id": e.id,
+        "name": e.name,
+        "description": e.description,
+        "venue_name": e.venue_name,
+        "city": e.city,
+        "latitude": e.latitude,
+        "longitude": e.longitude,
+        "radius_m": e.radius_m,
+        "category": e.category,
+        "starts_at": e.starts_at.isoformat() if e.starts_at else None,
+        "ends_at": e.ends_at.isoformat() if e.ends_at else None,
+    }
+
+
+def _match_dict(m: T1IntheWildMatch, me_id: str, db: Session) -> dict[str, Any]:
+    other_id = m.user_b_id if m.user_a_id == me_id else m.user_a_id
+    other = db.get(T1IntheWildUser, other_id)
+    event = db.get(T1IntheWildEvent, m.event_id)
+    now = _now()
+    status_val = m.status
+    if status_val == "active" and m.chat_expires_at <= now:
+        status_val = "expired"
+    return {
+        "id": m.id,
+        "other_user": _profile_dict(other) if other else None,
+        "event": _event_dict(event) if event else None,
+        "matched_at": m.matched_at.isoformat(),
+        "chat_expires_at": m.chat_expires_at.isoformat(),
+        "status": status_val,
+        "seconds_remaining": max(0, int((m.chat_expires_at - now).total_seconds())),
+    }
+
+
+def _create_session(db: Session, user_id: str, request: Request) -> str:
+    token = secrets.token_urlsafe(32)
+    db.add(
+        T1IntheWildSession(
+            token=token,
+            user_id=user_id,
+            expires_at=_now() + timedelta(hours=SESSION_HOURS),
+            user_agent=(request.headers.get("user-agent") or "")[:400],
+            ip=(request.client.host if request.client else "")[:64],
+        )
+    )
+    db.commit()
+    return token
+
+
+def _get_user(
+    db: Session,
+    authorization: str | None,
+) -> T1IntheWildUser:
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    token = authorization[7:].strip()
+    if not token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    sess = db.get(T1IntheWildSession, token)
+    if not sess or sess.expires_at <= _now():
+        raise HTTPException(status_code=401, detail="Session expired")
+    user = db.get(T1IntheWildUser, sess.user_id)
+    if not user or user.is_suspended:
+        raise HTTPException(status_code=401, detail="Account unavailable")
+    return user
+
+
+def _mutual_like(db: Session, a_id: str, b_id: str) -> bool:
+    like_ab = db.scalar(
+        select(T1IntheWildLike).where(
+            T1IntheWildLike.from_user_id == a_id,
+            T1IntheWildLike.to_user_id == b_id,
+            T1IntheWildLike.action == "like",
+        )
+    )
+    like_ba = db.scalar(
+        select(T1IntheWildLike).where(
+            T1IntheWildLike.from_user_id == b_id,
+            T1IntheWildLike.to_user_id == a_id,
+            T1IntheWildLike.action == "like",
+        )
+    )
+    return like_ab is not None and like_ba is not None
+
+
+def _ordered_pair(a: str, b: str) -> tuple[str, str]:
+    return (a, b) if a < b else (b, a)
+
+
+def _try_venue_matches(db: Session, user_id: str, event_id: str) -> list[str]:
+    """Create matches when mutual likes + both opted in at same event. Returns new match ids."""
+    my_checkin = db.scalar(
+        select(T1IntheWildCheckIn).where(
+            T1IntheWildCheckIn.user_id == user_id,
+            T1IntheWildCheckIn.event_id == event_id,
+            T1IntheWildCheckIn.open_to_meet.is_(True),
+            T1IntheWildCheckIn.expires_at > _now(),
+        )
+    )
+    if not my_checkin:
+        return []
+
+    others = db.scalars(
+        select(T1IntheWildCheckIn).where(
+            T1IntheWildCheckIn.event_id == event_id,
+            T1IntheWildCheckIn.user_id != user_id,
+            T1IntheWildCheckIn.open_to_meet.is_(True),
+            T1IntheWildCheckIn.expires_at > _now(),
+        )
+    ).all()
+
+    created: list[str] = []
+    for other in others:
+        if not _mutual_like(db, user_id, other.user_id):
+            continue
+        ua, ub = _ordered_pair(user_id, other.user_id)
+        existing = db.scalar(
+            select(T1IntheWildMatch).where(
+                T1IntheWildMatch.user_a_id == ua,
+                T1IntheWildMatch.user_b_id == ub,
+                T1IntheWildMatch.event_id == event_id,
+            )
+        )
+        if existing:
+            continue
+        match_id = str(uuid.uuid4())
+        expires = _now() + timedelta(hours=MATCH_CHAT_HOURS)
+        db.add(
+            T1IntheWildMatch(
+                id=match_id,
+                user_a_id=ua,
+                user_b_id=ub,
+                event_id=event_id,
+                status="active",
+                matched_at=_now(),
+                chat_expires_at=expires,
+            )
+        )
+        created.append(match_id)
+    if created:
+        db.commit()
+    return created
+
+
+def _schema_ready(db: Session) -> tuple[bool, str | None]:
+    try:
+        db.scalar(select(T1IntheWildUser.id).limit(1))
+        db.scalar(select(T1IntheWildEvent.id).limit(1))
+        return True, None
+    except ProgrammingError:
+        db.rollback()
+        return False, "Run bash deploy/migrate-t1inthewild-v1.sh on the server."
+    except Exception:
+        db.rollback()
+        return False, "Database schema is out of date."
+
+
+# --- Request bodies ---
+
+
+class WaitlistBody(BaseModel):
+    email: str = Field(min_length=3, max_length=255)
+    name: str = Field(default="", max_length=120)
+    city: str = Field(default="", max_length=120)
+
+
+class RegisterBody(BaseModel):
+    email: str = Field(min_length=3, max_length=255)
+    password: str = Field(min_length=8, max_length=128)
+    username: str = Field(min_length=3, max_length=32)
+    display_name: str = Field(default="", max_length=120)
+
+
+class LoginBody(BaseModel):
+    email: str
+    password: str
+
+
+class ProfilePatchBody(BaseModel):
+    display_name: str | None = None
+    bio: str | None = None
+    avatar_url: str | None = None
+    birth_year: int | None = None
+    gender: str | None = None
+    looking_for: str | None = None
+    interests: list[str] | None = None
+    city: str | None = None
+
+
+class SwipeBody(BaseModel):
+    target_id: str
+    action: str = Field(pattern="^(like|pass)$")
+
+
+class CheckInBody(BaseModel):
+    lat: float
+    lng: float
+
+
+class CheckInPatchBody(BaseModel):
+    open_to_meet: bool
+
+
+class MessageBody(BaseModel):
+    body: str = Field(min_length=1, max_length=2000)
+
+
+# --- Routes ---
+
+
+@router.get("/status")
+def status(db: Session = Depends(_db)):
+    ready, err = _schema_ready(db)
+    event_count = 0
+    if ready:
+        event_count = db.scalar(select(func.count()).select_from(T1IntheWildEvent)) or 0
+    return {
+        "ok": True,
+        "schemaReady": ready,
+        "schemaError": err,
+        "eventCount": event_count,
+        "matchChatHours": MATCH_CHAT_HOURS,
+    }
+
+
+@router.post("/waitlist")
+def waitlist(body: WaitlistBody, db: Session = Depends(_db)):
+    ready, err = _schema_ready(db)
+    if not ready:
+        raise HTTPException(status_code=503, detail=err)
+    email = body.email.strip().lower()
+    if "@" not in email:
+        raise HTTPException(status_code=400, detail="Invalid email")
+    existing = db.scalar(select(T1IntheWildWaitlist).where(T1IntheWildWaitlist.email == email))
+    if existing:
+        return {"ok": True, "message": "You're already on the list!"}
+    db.add(
+        T1IntheWildWaitlist(
+            id=str(uuid.uuid4()),
+            email=email,
+            name=(body.name or "").strip()[:120],
+            city=(body.city or "").strip()[:120],
+        )
+    )
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+    return {"ok": True, "message": "Thanks — we'll be in touch!"}
+
+
+@router.post("/register")
+def register(body: RegisterBody, request: Request, db: Session = Depends(_db)):
+    ready, err = _schema_ready(db)
+    if not ready:
+        raise HTTPException(status_code=503, detail=err)
+    email = body.email.strip().lower()
+    username = body.username.strip()
+    if not USERNAME_RE.match(username):
+        raise HTTPException(status_code=400, detail="Username must be 3–32 chars (letters, numbers, underscore)")
+    user_id = str(uuid.uuid4())
+    user = T1IntheWildUser(
+        id=user_id,
+        email=email,
+        username=username,
+        password_hash=bcrypt_hasher.hash(truncate_for_bcrypt(body.password)),
+        display_name=(body.display_name or username).strip()[:120],
+    )
+    db.add(user)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Email or username already taken")
+    db.refresh(user)
+    token = _create_session(db, user_id, request)
+    return {"token": token, "profile": _profile_dict(user)}
+
+
+@router.post("/login")
+def login(body: LoginBody, request: Request, db: Session = Depends(_db)):
+    ready, err = _schema_ready(db)
+    if not ready:
+        raise HTTPException(status_code=503, detail=err)
+    email = body.email.strip().lower()
+    user = db.scalars(select(T1IntheWildUser).where(func.lower(T1IntheWildUser.email) == email)).first()
+    if not user or not bcrypt_hasher.verify(truncate_for_bcrypt(body.password), user.password_hash):
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    if user.is_suspended:
+        raise HTTPException(status_code=403, detail="Account suspended")
+    token = _create_session(db, user.id, request)
+    return {"token": token, "profile": _profile_dict(user)}
+
+
+@router.post("/logout")
+def logout(
+    authorization: Annotated[str | None, Header()] = None,
+    db: Session = Depends(_db),
+):
+    if authorization and authorization.lower().startswith("bearer "):
+        token = authorization[7:].strip()
+        sess = db.get(T1IntheWildSession, token)
+        if sess:
+            db.delete(sess)
+            db.commit()
+    return {"ok": True}
+
+
+@router.get("/me")
+def me(
+    authorization: Annotated[str | None, Header()] = None,
+    db: Session = Depends(_db),
+):
+    user = _get_user(db, authorization)
+    checkin = db.scalar(
+        select(T1IntheWildCheckIn)
+        .where(
+            T1IntheWildCheckIn.user_id == user.id,
+            T1IntheWildCheckIn.expires_at > _now(),
+        )
+        .order_by(T1IntheWildCheckIn.checked_in_at.desc())
+        .limit(1)
+    )
+    profile = _profile_dict(user)
+    if checkin:
+        event = db.get(T1IntheWildEvent, checkin.event_id)
+        profile["active_check_in"] = {
+            "event_id": checkin.event_id,
+            "event_name": event.name if event else "",
+            "open_to_meet": checkin.open_to_meet,
+            "checked_in_at": checkin.checked_in_at.isoformat(),
+        }
+    else:
+        profile["active_check_in"] = None
+    return profile
+
+
+@router.patch("/me")
+def patch_me(
+    body: ProfilePatchBody,
+    authorization: Annotated[str | None, Header()] = None,
+    db: Session = Depends(_db),
+):
+    user = _get_user(db, authorization)
+    if body.display_name is not None:
+        user.display_name = body.display_name.strip()[:120]
+    if body.bio is not None:
+        user.bio = body.bio.strip()[:2000]
+    if body.avatar_url is not None:
+        user.avatar_url = body.avatar_url.strip()[:2000]
+    if body.birth_year is not None:
+        if body.birth_year < 1940 or body.birth_year > _now().year - 18:
+            raise HTTPException(status_code=400, detail="Must be 18 or older")
+        user.birth_year = body.birth_year
+    if body.gender is not None:
+        user.gender = body.gender.strip()[:32]
+    if body.looking_for is not None:
+        user.looking_for = body.looking_for.strip()[:32]
+    if body.interests is not None:
+        user.interests = [i.strip()[:64] for i in body.interests if i.strip()][:20]
+    if body.city is not None:
+        user.city = body.city.strip()[:120]
+    db.commit()
+    db.refresh(user)
+    return _profile_dict(user)
+
+
+@router.get("/events")
+def list_events(db: Session = Depends(_db)):
+    ready, err = _schema_ready(db)
+    if not ready:
+        raise HTTPException(status_code=503, detail=err)
+    now = _now()
+    events = db.scalars(
+        select(T1IntheWildEvent)
+        .where(
+            T1IntheWildEvent.is_active.is_(True),
+            T1IntheWildEvent.ends_at >= now - timedelta(hours=12),
+        )
+        .order_by(T1IntheWildEvent.starts_at)
+    ).all()
+    return {"events": [_event_dict(e) for e in events]}
+
+
+@router.get("/discover")
+def discover(
+    authorization: Annotated[str | None, Header()] = None,
+    db: Session = Depends(_db),
+    limit: int = 10,
+):
+    user = _get_user(db, authorization)
+    limit = min(max(limit, 1), 20)
+    cutoff = _now() - timedelta(days=PASS_COOLDOWN_DAYS)
+    seen_ids = db.scalars(
+        select(T1IntheWildLike.to_user_id).where(
+            T1IntheWildLike.from_user_id == user.id,
+            or_(
+                T1IntheWildLike.action == "like",
+                and_(T1IntheWildLike.action == "pass", T1IntheWildLike.created_at >= cutoff),
+            ),
+        )
+    ).all()
+    exclude = set(seen_ids) | {user.id}
+    q = select(T1IntheWildUser).where(
+        T1IntheWildUser.is_suspended.is_(False),
+        T1IntheWildUser.id.notin_(exclude) if exclude else True,
+    )
+    candidates = db.scalars(q.limit(limit * 3)).all()
+    profiles = [_profile_dict(u) for u in candidates[:limit]]
+    return {"profiles": profiles}
+
+
+@router.post("/swipe")
+def swipe(
+    body: SwipeBody,
+    authorization: Annotated[str | None, Header()] = None,
+    db: Session = Depends(_db),
+):
+    user = _get_user(db, authorization)
+    if body.target_id == user.id:
+        raise HTTPException(status_code=400, detail="Cannot swipe on yourself")
+    target = db.get(T1IntheWildUser, body.target_id)
+    if not target or target.is_suspended:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    existing = db.scalar(
+        select(T1IntheWildLike).where(
+            T1IntheWildLike.from_user_id == user.id,
+            T1IntheWildLike.to_user_id == body.target_id,
+        )
+    )
+    if existing:
+        existing.action = body.action
+        existing.created_at = _now()
+    else:
+        db.add(
+            T1IntheWildLike(
+                id=str(uuid.uuid4()),
+                from_user_id=user.id,
+                to_user_id=body.target_id,
+                action=body.action,
+            )
+        )
+    db.commit()
+    mutual = body.action == "like" and _mutual_like(db, user.id, body.target_id)
+    return {"ok": True, "mutual_like": mutual, "message": "Like saved — meet at an event to connect!" if mutual else None}
+
+
+@router.get("/likes/pending")
+def pending_likes(
+    authorization: Annotated[str | None, Header()] = None,
+    db: Session = Depends(_db),
+):
+    user = _get_user(db, authorization)
+    likes = db.scalars(
+        select(T1IntheWildLike).where(
+            T1IntheWildLike.from_user_id == user.id,
+            T1IntheWildLike.action == "like",
+        )
+    ).all()
+    out = []
+    for like in likes:
+        other = db.get(T1IntheWildUser, like.to_user_id)
+        if not other:
+            continue
+        out.append({
+            "user": _profile_dict(other),
+            "mutual": _mutual_like(db, user.id, like.to_user_id),
+            "liked_at": like.created_at.isoformat(),
+        })
+    return {"likes": out}
+
+
+@router.post("/events/{event_id}/check-in")
+def check_in(
+    event_id: str,
+    body: CheckInBody,
+    authorization: Annotated[str | None, Header()] = None,
+    db: Session = Depends(_db),
+):
+    user = _get_user(db, authorization)
+    event = db.get(T1IntheWildEvent, event_id)
+    if not event or not event.is_active:
+        raise HTTPException(status_code=404, detail="Event not found")
+    now = _now()
+    if event.ends_at < now - timedelta(hours=1):
+        raise HTTPException(status_code=400, detail="Event has ended")
+    dist = _haversine_m(body.lat, body.lng, event.latitude, event.longitude)
+    if dist > event.radius_m:
+        raise HTTPException(
+            status_code=400,
+            detail=f"You must be within {event.radius_m}m of the venue to check in",
+        )
+    expires = min(event.ends_at + timedelta(hours=1), now + timedelta(hours=12))
+    checkin = db.scalar(
+        select(T1IntheWildCheckIn).where(
+            T1IntheWildCheckIn.user_id == user.id,
+            T1IntheWildCheckIn.event_id == event_id,
+        )
+    )
+    if checkin:
+        checkin.latitude = body.lat
+        checkin.longitude = body.lng
+        checkin.checked_in_at = now
+        checkin.expires_at = expires
+    else:
+        checkin = T1IntheWildCheckIn(
+            id=str(uuid.uuid4()),
+            user_id=user.id,
+            event_id=event_id,
+            open_to_meet=False,
+            latitude=body.lat,
+            longitude=body.lng,
+            checked_in_at=now,
+            expires_at=expires,
+        )
+        db.add(checkin)
+    db.commit()
+    return {
+        "ok": True,
+        "check_in": {
+            "event_id": event_id,
+            "open_to_meet": checkin.open_to_meet,
+            "checked_in_at": checkin.checked_in_at.isoformat(),
+        },
+        "event": _event_dict(event),
+    }
+
+
+@router.patch("/check-in")
+def patch_check_in(
+    body: CheckInPatchBody,
+    authorization: Annotated[str | None, Header()] = None,
+    db: Session = Depends(_db),
+):
+    user = _get_user(db, authorization)
+    checkin = db.scalar(
+        select(T1IntheWildCheckIn)
+        .where(
+            T1IntheWildCheckIn.user_id == user.id,
+            T1IntheWildCheckIn.expires_at > _now(),
+        )
+        .order_by(T1IntheWildCheckIn.checked_in_at.desc())
+        .limit(1)
+    )
+    if not checkin:
+        raise HTTPException(status_code=400, detail="Check in to an event first")
+    checkin.open_to_meet = body.open_to_meet
+    db.commit()
+    new_matches: list[str] = []
+    if body.open_to_meet:
+        new_matches = _try_venue_matches(db, user.id, checkin.event_id)
+    return {
+        "ok": True,
+        "open_to_meet": checkin.open_to_meet,
+        "new_matches": new_matches,
+    }
+
+
+@router.delete("/check-in")
+def leave_check_in(
+    authorization: Annotated[str | None, Header()] = None,
+    db: Session = Depends(_db),
+):
+    user = _get_user(db, authorization)
+    checkin = db.scalar(
+        select(T1IntheWildCheckIn)
+        .where(
+            T1IntheWildCheckIn.user_id == user.id,
+            T1IntheWildCheckIn.expires_at > _now(),
+        )
+        .order_by(T1IntheWildCheckIn.checked_in_at.desc())
+        .limit(1)
+    )
+    if checkin:
+        checkin.open_to_meet = False
+        checkin.expires_at = _now()
+        db.commit()
+    return {"ok": True}
+
+
+@router.get("/matches")
+def list_matches(
+    authorization: Annotated[str | None, Header()] = None,
+    db: Session = Depends(_db),
+):
+    user = _get_user(db, authorization)
+    matches = db.scalars(
+        select(T1IntheWildMatch).where(
+            or_(
+                T1IntheWildMatch.user_a_id == user.id,
+                T1IntheWildMatch.user_b_id == user.id,
+            )
+        ).order_by(T1IntheWildMatch.matched_at.desc())
+    ).all()
+    return {"matches": [_match_dict(m, user.id, db) for m in matches]}
+
+
+@router.get("/matches/{match_id}/messages")
+def list_messages(
+    match_id: str,
+    authorization: Annotated[str | None, Header()] = None,
+    db: Session = Depends(_db),
+):
+    user = _get_user(db, authorization)
+    match = db.get(T1IntheWildMatch, match_id)
+    if not match or user.id not in (match.user_a_id, match.user_b_id):
+        raise HTTPException(status_code=404, detail="Match not found")
+    if match.chat_expires_at <= _now():
+        raise HTTPException(status_code=410, detail="Chat window expired — say hi in person next time!")
+    msgs = db.scalars(
+        select(T1IntheWildMessage)
+        .where(T1IntheWildMessage.match_id == match_id)
+        .order_by(T1IntheWildMessage.created_at)
+    ).all()
+    return {
+        "messages": [
+            {
+                "id": m.id,
+                "sender_id": m.sender_id,
+                "body": m.body,
+                "created_at": m.created_at.isoformat(),
+                "mine": m.sender_id == user.id,
+            }
+            for m in msgs
+        ],
+        "chat_expires_at": match.chat_expires_at.isoformat(),
+    }
+
+
+@router.post("/matches/{match_id}/messages")
+def send_message(
+    match_id: str,
+    body: MessageBody,
+    authorization: Annotated[str | None, Header()] = None,
+    db: Session = Depends(_db),
+):
+    user = _get_user(db, authorization)
+    match = db.get(T1IntheWildMatch, match_id)
+    if not match or user.id not in (match.user_a_id, match.user_b_id):
+        raise HTTPException(status_code=404, detail="Match not found")
+    if match.chat_expires_at <= _now():
+        raise HTTPException(status_code=410, detail="Chat window expired")
+    msg = T1IntheWildMessage(
+        id=str(uuid.uuid4()),
+        match_id=match_id,
+        sender_id=user.id,
+        body=body.body.strip(),
+    )
+    db.add(msg)
+    db.commit()
+    return {
+        "id": msg.id,
+        "sender_id": msg.sender_id,
+        "body": msg.body,
+        "created_at": msg.created_at.isoformat(),
+        "mine": True,
+    }

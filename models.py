@@ -556,3 +556,164 @@ class T1ReferrallPostReport(Base):
         UniqueConstraint("reporter_id", "post_kind", "post_id", name="uq_t1ref_post_report"),
         Index("ix_t1ref_post_report_target", "post_kind", "post_id"),
     )
+
+
+# --- In the Wild (event-based dating on rorhoff.com /in-the-wild/) ----------------
+
+
+class T1IntheWildUser(Base):
+    """Auth + dating profile."""
+
+    __tablename__ = "t1inthewild_user"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    username: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    password_hash: Mapped[str] = mapped_column(String(255))
+    display_name: Mapped[str] = mapped_column(String(120), default="", server_default="")
+    bio: Mapped[str] = mapped_column(Text(), default="", server_default="")
+    avatar_url: Mapped[str] = mapped_column(Text(), default="", server_default="")
+    birth_year: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    gender: Mapped[str] = mapped_column(String(32), default="", server_default="")
+    looking_for: Mapped[str] = mapped_column(String(32), default="", server_default="")
+    interests: Mapped[list[Any]] = mapped_column(JSONB, default=list, server_default="[]")
+    city: Mapped[str] = mapped_column(String(120), default="", server_default="")
+    id_verified: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    background_verified: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    is_suspended: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class T1IntheWildSession(Base):
+    __tablename__ = "t1inthewild_session"
+
+    token: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("t1inthewild_user.id", ondelete="CASCADE"), index=True
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    user_agent: Mapped[str] = mapped_column(String(400), default="", server_default="")
+    ip: Mapped[str] = mapped_column(String(64), default="", server_default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class T1IntheWildWaitlist(Base):
+    __tablename__ = "t1inthewild_waitlist"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(120), default="", server_default="")
+    city: Mapped[str] = mapped_column(String(120), default="", server_default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class T1IntheWildLike(Base):
+    __tablename__ = "t1inthewild_like"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    from_user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("t1inthewild_user.id", ondelete="CASCADE"), index=True
+    )
+    to_user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("t1inthewild_user.id", ondelete="CASCADE"), index=True
+    )
+    action: Mapped[str] = mapped_column(String(8), index=True)  # like | pass
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("from_user_id", "to_user_id", name="uq_itw_like_pair"),
+        Index("ix_itw_like_to_action", "to_user_id", "action"),
+    )
+
+
+class T1IntheWildEvent(Base):
+    __tablename__ = "t1inthewild_event"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    name: Mapped[str] = mapped_column(String(200))
+    description: Mapped[str] = mapped_column(Text(), default="", server_default="")
+    venue_name: Mapped[str] = mapped_column(String(200), default="", server_default="")
+    city: Mapped[str] = mapped_column(String(120), default="", server_default="")
+    latitude: Mapped[float] = mapped_column(Float)
+    longitude: Mapped[float] = mapped_column(Float)
+    radius_m: Mapped[int] = mapped_column(Integer, default=300, server_default="300")
+    category: Mapped[str] = mapped_column(String(32), default="", server_default="")
+    starts_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    ends_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class T1IntheWildCheckIn(Base):
+    __tablename__ = "t1inthewild_check_in"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("t1inthewild_user.id", ondelete="CASCADE"), index=True
+    )
+    event_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("t1inthewild_event.id", ondelete="CASCADE"), index=True
+    )
+    open_to_meet: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    latitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    checked_in_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "event_id", name="uq_itw_checkin_user_event"),
+        Index("ix_itw_checkin_event_open", "event_id", "open_to_meet"),
+    )
+
+
+class T1IntheWildMatch(Base):
+    __tablename__ = "t1inthewild_match"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    user_a_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("t1inthewild_user.id", ondelete="CASCADE"), index=True
+    )
+    user_b_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("t1inthewild_user.id", ondelete="CASCADE"), index=True
+    )
+    event_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("t1inthewild_event.id", ondelete="CASCADE"), index=True
+    )
+    status: Mapped[str] = mapped_column(String(16), default="active", server_default="active")
+    matched_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    chat_expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+
+    __table_args__ = (
+        UniqueConstraint("user_a_id", "user_b_id", "event_id", name="uq_itw_match_pair_event"),
+    )
+
+
+class T1IntheWildMessage(Base):
+    __tablename__ = "t1inthewild_message"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    match_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("t1inthewild_match.id", ondelete="CASCADE"), index=True
+    )
+    sender_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("t1inthewild_user.id", ondelete="CASCADE"), index=True
+    )
+    body: Mapped[str] = mapped_column(Text())
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class T1IntheWildVerification(Base):
+    __tablename__ = "t1inthewild_verification"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("t1inthewild_user.id", ondelete="CASCADE"), index=True
+    )
+    kind: Mapped[str] = mapped_column(String(16), index=True)  # id | background
+    status: Mapped[str] = mapped_column(String(16), default="pending", server_default="pending")
+    provider_ref: Mapped[str] = mapped_column(String(200), default="", server_default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
