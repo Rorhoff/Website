@@ -125,7 +125,7 @@ function AppInner() {
   }
 
   const content =
-    page === 'discover' ? <DiscoverPage onNewMatches={notifyFromResponse} /> :
+    page === 'discover' ? <DiscoverPage onNewMatches={notifyFromResponse} onOpenProfile={() => navigateTo('profile')} /> :
     page === 'events' ? <EventsPage onNewMatches={notifyFromResponse} /> :
     page === 'matches' ? <MatchesPage onOpenChat={openChat} /> :
     page === 'chat' && matchId ? <ChatPage matchId={matchId} onBack={() => navigateTo('matches')} /> :

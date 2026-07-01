@@ -24,6 +24,7 @@ from sqlalchemy.exc import IntegrityError, ProgrammingError
 from sqlalchemy.orm import Session
 
 import image_storage
+import email_service
 from credential_service import truncate_for_bcrypt
 from database import SessionLocal
 from models import (
@@ -50,6 +51,8 @@ USERNAME_RE = re.compile(r"^[a-zA-Z0-9_]{3,32}$")
 MAX_AVATAR_BYTES = 4 * 1024 * 1024
 _INLINE_AVATAR_MAX_BYTES = 512 * 1024
 _DEV_LOUNGE_CATEGORY = "dev_lounge"
+_VALID_GENDERS = frozenset({"man", "woman", "nonbinary", "other"})
+_VALID_LOOKING_FOR = frozenset({"men", "women", "everyone", "nonbinary"})
 
 
 def _db():
@@ -73,6 +76,46 @@ def _validate_birth_year(birth_year: int) -> None:
     max_year = _now().year - 18
     if birth_year < min_year or birth_year > max_year:
         raise HTTPException(status_code=400, detail="You must be 18 or older to use In the Wild")
+
+
+def _validate_gender(value: str) -> str:
+    v = value.strip().lower()
+    if v not in _VALID_GENDERS:
+        raise HTTPException(status_code=400, detail="Invalid gender selection")
+    return v
+
+
+def _validate_looking_for(value: str) -> str:
+    v = value.strip().lower()
+    if v not in _VALID_LOOKING_FOR:
+        raise HTTPException(status_code=400, detail="Invalid preference selection")
+    return v
+
+
+def _profile_preferences_complete(u: T1IntheWildUser) -> bool:
+    return bool(u.gender and u.looking_for)
+
+
+def _gender_matches_preference(gender: str, looking_for: str) -> bool:
+    if looking_for == "everyone":
+        return True
+    if not gender:
+        return False
+    if looking_for == "men":
+        return gender == "man"
+    if looking_for == "women":
+        return gender == "woman"
+    if looking_for == "nonbinary":
+        return gender in ("nonbinary", "other")
+    return False
+
+
+def _profiles_compatible(a: T1IntheWildUser, b: T1IntheWildUser) -> bool:
+    if not _profile_preferences_complete(a) or not _profile_preferences_complete(b):
+        return False
+    return _gender_matches_preference(b.gender, a.looking_for) and _gender_matches_preference(
+        a.gender, b.looking_for
+    )
 
 
 def _shrink_avatar_for_inline(content: bytes, content_type: str) -> tuple[bytes, str]:
@@ -293,7 +336,36 @@ def _try_venue_matches(db: Session, user_id: str, event_id: str) -> list[str]:
         created.append(match_id)
     if created:
         db.commit()
+        _notify_venue_match_emails(db, created)
     return created
+
+
+def _notify_venue_match_emails(db: Session, match_ids: list[str]) -> None:
+    for match_id in match_ids:
+        match = db.get(T1IntheWildMatch, match_id)
+        if not match:
+            continue
+        user_a = db.get(T1IntheWildUser, match.user_a_id)
+        user_b = db.get(T1IntheWildUser, match.user_b_id)
+        event = db.get(T1IntheWildEvent, match.event_id)
+        if not user_a or not user_b or not event:
+            continue
+        event_name = event.name
+        pairs = (
+            (user_a, user_b.display_name or user_b.username),
+            (user_b, user_a.display_name or user_a.username),
+        )
+        for recipient, other_name in pairs:
+            try:
+                email_service.send_itw_venue_match_email(
+                    to=recipient.email,
+                    recipient_name=recipient.display_name or recipient.username,
+                    other_name=other_name,
+                    event_name=event_name,
+                    chat_hours=MATCH_CHAT_HOURS,
+                )
+            except Exception:
+                log.exception("Venue match email failed for match=%s user=%s", match_id, recipient.id)
 
 
 def _try_all_venue_matches(db: Session, user_id: str) -> list[str]:
@@ -349,6 +421,8 @@ class RegisterBody(BaseModel):
     username: str = Field(min_length=3, max_length=32)
     display_name: str = Field(default="", max_length=120)
     birth_year: int
+    gender: str = Field(min_length=1, max_length=32)
+    looking_for: str = Field(min_length=1, max_length=32)
 
 
 class LoginBody(BaseModel):
@@ -468,6 +542,8 @@ def register(body: RegisterBody, request: Request, db: Session = Depends(_db)):
     if not USERNAME_RE.match(username):
         raise HTTPException(status_code=400, detail="Username must be 3–32 chars (letters, numbers, underscore)")
     _validate_birth_year(body.birth_year)
+    gender = _validate_gender(body.gender)
+    looking_for = _validate_looking_for(body.looking_for)
     user_id = str(uuid.uuid4())
     user = T1IntheWildUser(
         id=user_id,
@@ -476,6 +552,8 @@ def register(body: RegisterBody, request: Request, db: Session = Depends(_db)):
         password_hash=bcrypt_hasher.hash(truncate_for_bcrypt(body.password)),
         display_name=(body.display_name or username).strip()[:120],
         birth_year=body.birth_year,
+        gender=gender,
+        looking_for=looking_for,
     )
     db.add(user)
     try:
@@ -563,9 +641,9 @@ def patch_me(
         _validate_birth_year(body.birth_year)
         user.birth_year = body.birth_year
     if body.gender is not None:
-        user.gender = body.gender.strip()[:32]
+        user.gender = _validate_gender(body.gender)
     if body.looking_for is not None:
-        user.looking_for = body.looking_for.strip()[:32]
+        user.looking_for = _validate_looking_for(body.looking_for)
     if body.interests is not None:
         user.interests = [i.strip()[:64] for i in body.interests if i.strip()][:20]
     if body.city is not None:
@@ -600,6 +678,12 @@ def discover(
 ):
     user = _get_user(db, authorization)
     limit = min(max(limit, 1), 20)
+    if not _profile_preferences_complete(user):
+        return {
+            "profiles": [],
+            "needs_preferences": True,
+            "message": "Set your gender and who you're looking for in Profile to start discovering.",
+        }
     cutoff = _now() - timedelta(days=PASS_COOLDOWN_DAYS)
     seen_ids = db.scalars(
         select(T1IntheWildLike.to_user_id).where(
@@ -615,9 +699,10 @@ def discover(
         T1IntheWildUser.is_suspended.is_(False),
         T1IntheWildUser.id.notin_(exclude) if exclude else True,
     )
-    candidates = db.scalars(q.limit(limit * 3)).all()
-    profiles = [_profile_dict(u) for u in candidates[:limit]]
-    return {"profiles": profiles}
+    candidates = db.scalars(q.limit(limit * 8)).all()
+    compatible = [u for u in candidates if _profiles_compatible(user, u)]
+    profiles = [_profile_dict(u) for u in compatible[:limit]]
+    return {"profiles": profiles, "needs_preferences": False}
 
 
 @router.post("/swipe")
@@ -627,11 +712,18 @@ def swipe(
     db: Session = Depends(_db),
 ):
     user = _get_user(db, authorization)
+    if not _profile_preferences_complete(user):
+        raise HTTPException(
+            status_code=400,
+            detail="Complete your gender and preferences in Profile before swiping.",
+        )
     if body.target_id == user.id:
         raise HTTPException(status_code=400, detail="Cannot swipe on yourself")
     target = db.get(T1IntheWildUser, body.target_id)
     if not target or target.is_suspended:
         raise HTTPException(status_code=404, detail="Profile not found")
+    if not _profiles_compatible(user, target):
+        raise HTTPException(status_code=400, detail="This profile is not in your discovery preferences")
     existing = db.scalar(
         select(T1IntheWildLike).where(
             T1IntheWildLike.from_user_id == user.id,

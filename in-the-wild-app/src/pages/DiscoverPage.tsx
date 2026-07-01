@@ -2,22 +2,28 @@ import { useCallback, useEffect, useState } from 'react';
 import { Heart, X, Ban, Flag } from 'lucide-react';
 import * as api from '../lib/api';
 import type { Match, Profile } from '../lib/types';
+import { genderLabel } from '../lib/preferences';
 
 type Props = {
   onNewMatches: (matches: Match[]) => void;
+  onOpenProfile?: () => void;
 };
 
-export default function DiscoverPage({ onNewMatches }: Props) {
+export default function DiscoverPage({ onNewMatches, onOpenProfile }: Props) {
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [index, setIndex] = useState(0);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState('');
+  const [needsPreferences, setNeedsPreferences] = useState(false);
+  const [prefMessage, setPrefMessage] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const { profiles: p } = await api.fetchDiscover();
-      setProfiles(p);
+      const data = await api.fetchDiscover();
+      setProfiles(data.profiles);
+      setNeedsPreferences(Boolean(data.needs_preferences));
+      setPrefMessage(data.message || '');
       setIndex(0);
     } finally {
       setLoading(false);
@@ -69,8 +75,27 @@ export default function DiscoverPage({ onNewMatches }: Props) {
     }
   }
 
-  if (loading && !current) {
+  if (loading && !current && !needsPreferences) {
     return <div className="text-center text-stone-500 py-20">Loading profiles…</div>;
+  }
+
+  if (needsPreferences) {
+    return (
+      <div className="text-center py-20 px-4">
+        <p className="text-stone-300 mb-2">Complete your preferences first</p>
+        <p className="text-stone-500 text-sm mb-6">
+          {prefMessage || 'Set your gender and who you are interested in to start discovering.'}
+        </p>
+        {onOpenProfile && (
+          <button
+            onClick={onOpenProfile}
+            className="text-emerald-400 text-sm font-medium hover:text-emerald-300"
+          >
+            Go to Profile →
+          </button>
+        )}
+      </div>
+    );
   }
 
   if (!current) {
@@ -106,6 +131,9 @@ export default function DiscoverPage({ onNewMatches }: Props) {
               {current.age ? `, ${current.age}` : ''}
             </h2>
             {current.city && <p className="text-stone-400 text-sm">{current.city}</p>}
+            {current.gender && (
+              <p className="text-stone-500 text-xs mt-1">{genderLabel(current.gender)}</p>
+            )}
             {current.bio && <p className="text-stone-300 text-sm mt-2 line-clamp-2">{current.bio}</p>}
             {current.interests?.length > 0 && (
               <div className="flex flex-wrap gap-2 mt-3">

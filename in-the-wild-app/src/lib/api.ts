@@ -52,6 +52,8 @@ export async function register(input: {
   username: string;
   display_name?: string;
   birth_year: number;
+  gender: string;
+  looking_for: string;
 }): Promise<{ token: string; profile: Profile }> {
   const data = await request<{ token: string; profile: Profile }>(
     '/register',
@@ -88,7 +90,11 @@ export async function updateProfile(patch: Partial<Profile>): Promise<Profile> {
   return request('/me', { method: 'PATCH', body: JSON.stringify(patch) });
 }
 
-export async function fetchDiscover(): Promise<{ profiles: Profile[] }> {
+export async function fetchDiscover(): Promise<{
+  profiles: Profile[];
+  needs_preferences?: boolean;
+  message?: string;
+}> {
   return request('/discover');
 }
 

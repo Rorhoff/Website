@@ -196,3 +196,209 @@ def send_contact_shared_to_buyer(
         "</p>"
     )
     return send_email(to=to, subject=subject, html_body=html, text_body=text)
+
+
+# --- In the Wild (portfolio app) ---
+
+_ITW_HEADER_HTML = (
+    '<div style="color:#059669;font-size:24px;font-weight:bold;">In the Wild</div>'
+    '<div style="color:#64748b;font-size:14px;margin-top:4px;">Match where you actually are.</div>'
+)
+_ITW_FOOTER_HTML = (
+    "<p style=\"color:#64748b;font-size:12px;line-height:1.5;\">"
+    "Replies to this email are not monitored. Open the app to chat."
+    "</p>"
+)
+
+
+def itw_public_base_url() -> str:
+    raw = (os.environ.get("ITW_PUBLIC_URL") or "https://rorhoff.com/in-the-wild").strip()
+    return raw.rstrip("/")
+
+
+def _itw_from_address() -> str:
+    return (
+        os.environ.get("ITW_EMAIL_FROM")
+        or os.environ.get("CLASSIFIEDS_EMAIL_FROM")
+        or "noreply@rorhoff.com"
+    ).strip()
+
+
+def _wrap_itw_html(body_html: str) -> str:
+    return (
+        f'<div style="font-family:system-ui,sans-serif;max-width:560px;margin:0 auto;">'
+        f"{_ITW_HEADER_HTML}<div style=\"margin:24px 0;\">{body_html}</div>{_ITW_FOOTER_HTML}</div>"
+    )
+
+
+def _itw_button(href: str, label: str) -> str:
+    return (
+        f'<p style="margin:24px 0;">'
+        f'<a href="{href}" style="display:inline-block;background:#059669;color:#ffffff;'
+        f'font-weight:700;text-decoration:none;padding:12px 20px;border-radius:8px;">'
+        f"{label}</a></p>"
+    )
+
+
+def send_itw_email(*, to: str, subject: str, html_body: str, text_body: str) -> bool:
+    to = to.strip()
+    if not to:
+        return False
+    if os.environ.get("EMAIL_DEV_LOG_ONLY", "").strip().lower() in ("1", "true", "yes"):
+        log.info("ITW EMAIL_DEV_LOG_ONLY to=%s subject=%s\n%s", to, subject, text_body)
+        return True
+    region = (os.environ.get("AWS_SES_REGION") or "us-west-1").strip()
+    try:
+        import boto3
+    except ImportError:
+        log.warning("boto3 not installed; cannot send In the Wild email to %s", to)
+        return False
+    client = boto3.client("ses", region_name=region)
+    try:
+        client.send_email(
+            Source=_itw_from_address(),
+            Destination={"ToAddresses": [to]},
+            Message={
+                "Subject": {"Data": subject, "Charset": "UTF-8"},
+                "Body": {
+                    "Html": {"Data": _wrap_itw_html(html_body), "Charset": "UTF-8"},
+                    "Text": {"Data": text_body, "Charset": "UTF-8"},
+                },
+            },
+        )
+        log.info("ITW SES sent subject=%r to=%s", subject, to)
+        return True
+    except Exception as exc:
+        log.error("ITW SES send failed to=%s subject=%s: %s", to, subject, exc)
+        log.exception("ITW SES send failed (full traceback)")
+        return False
+
+
+def send_itw_venue_match_email(
+    *,
+    to: str,
+    recipient_name: str,
+    other_name: str,
+    event_name: str,
+    chat_hours: int = 6,
+) -> bool:
+    matches_url = f"{itw_public_base_url()}/#/matches"
+    subject = f"You're both at {event_name}!"
+    text = (
+        f"Hi {recipient_name},\n\n"
+        f"You and {other_name} are both at {event_name} with Open to Meeting on. "
+        f"Say hello in person — you have {chat_hours} hours to coordinate in the app.\n\n"
+        f"Open matches: {matches_url}\n"
+    )
+    html = (
+        f"<p>Hi <strong>{recipient_name}</strong>,</p>"
+        f"<p>You and <strong>{other_name}</strong> are both at "
+        f"<strong>{event_name}</strong> with &quot;Open to Meeting&quot; on.</p>"
+        f"<p>Say hello in person — you have <strong>{chat_hours} hours</strong> "
+        f"to coordinate in the app.</p>"
+        f"{_itw_button(matches_url, 'Open matches')}"
+    )
+    return send_itw_email(to=to, subject=subject, html_body=html, text_body=text)
+
+
+# --- In the Wild (portfolio app) ---
+
+_ITW_HEADER_HTML = (
+    '<div style="color:#059669;font-size:24px;font-weight:bold;">In the Wild</div>'
+    '<div style="color:#64748b;font-size:14px;margin-top:4px;">Match where you actually are.</div>'
+)
+_ITW_FOOTER_HTML = (
+    "<p style=\"color:#64748b;font-size:12px;line-height:1.5;\">"
+    "Replies to this email are not monitored. Open the app to chat."
+    "</p>"
+)
+
+
+def itw_public_base_url() -> str:
+    raw = (os.environ.get("ITW_PUBLIC_URL") or "https://rorhoff.com/in-the-wild").strip()
+    return raw.rstrip("/")
+
+
+def _itw_from_address() -> str:
+    return (
+        os.environ.get("ITW_EMAIL_FROM")
+        or os.environ.get("CLASSIFIEDS_EMAIL_FROM")
+        or "noreply@rorhoff.com"
+    ).strip()
+
+
+def _wrap_itw_html(body_html: str) -> str:
+    return (
+        f'<div style="font-family:system-ui,sans-serif;max-width:560px;margin:0 auto;">'
+        f"{_ITW_HEADER_HTML}<div style=\"margin:24px 0;\">{body_html}</div>{_ITW_FOOTER_HTML}</div>"
+    )
+
+
+def _itw_button(href: str, label: str) -> str:
+    return (
+        f'<p style="margin:24px 0;">'
+        f'<a href="{href}" style="display:inline-block;background:#059669;color:#ffffff;'
+        f'font-weight:700;text-decoration:none;padding:12px 20px;border-radius:8px;">'
+        f"{label}</a></p>"
+    )
+
+
+def send_itw_email(*, to: str, subject: str, html_body: str, text_body: str) -> bool:
+    to = to.strip()
+    if not to:
+        return False
+    if os.environ.get("EMAIL_DEV_LOG_ONLY", "").strip().lower() in ("1", "true", "yes"):
+        log.info("ITW EMAIL_DEV_LOG_ONLY to=%s subject=%s\n%s", to, subject, text_body)
+        return True
+    region = (os.environ.get("AWS_SES_REGION") or "us-west-1").strip()
+    try:
+        import boto3
+    except ImportError:
+        log.warning("boto3 not installed; cannot send In the Wild email to %s", to)
+        return False
+    client = boto3.client("ses", region_name=region)
+    try:
+        client.send_email(
+            Source=_itw_from_address(),
+            Destination={"ToAddresses": [to]},
+            Message={
+                "Subject": {"Data": subject, "Charset": "UTF-8"},
+                "Body": {
+                    "Html": {"Data": _wrap_itw_html(html_body), "Charset": "UTF-8"},
+                    "Text": {"Data": text_body, "Charset": "UTF-8"},
+                },
+            },
+        )
+        log.info("ITW SES sent subject=%r to=%s", subject, to)
+        return True
+    except Exception as exc:
+        log.error("ITW SES send failed to=%s subject=%s: %s", to, subject, exc)
+        log.exception("ITW SES send failed (full traceback)")
+        return False
+
+
+def send_itw_venue_match_email(
+    *,
+    to: str,
+    recipient_name: str,
+    other_name: str,
+    event_name: str,
+    chat_hours: int = 6,
+) -> bool:
+    matches_url = f"{itw_public_base_url()}/#/matches"
+    subject = f"You're both at {event_name}!"
+    text = (
+        f"Hi {recipient_name},\n\n"
+        f"You and {other_name} are both at {event_name} with Open to Meeting on. "
+        f"Say hello in person — you have {chat_hours} hours to coordinate in the app.\n\n"
+        f"Open matches: {matches_url}\n"
+    )
+    html = (
+        f"<p>Hi <strong>{recipient_name}</strong>,</p>"
+        f"<p>You and <strong>{other_name}</strong> are both at "
+        f"<strong>{event_name}</strong> with &quot;Open to Meeting&quot; on.</p>"
+        f"<p>Say hello in person — you have <strong>{chat_hours} hours</strong> "
+        f"to coordinate in the app.</p>"
+        f"{_itw_button(matches_url, 'Open matches')}"
+    )
+    return send_itw_email(to=to, subject=subject, html_body=html, text_body=text)

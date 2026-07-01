@@ -3,6 +3,7 @@ import { Camera, Shield, CheckCircle, Settings } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import * as api from '../lib/api';
 import { compressImageForUpload } from '../lib/resizeImage';
+import { GENDER_OPTIONS, LOOKING_FOR_OPTIONS } from '../lib/preferences';
 
 type Props = {
   onOpenAdmin?: () => void;
@@ -13,6 +14,8 @@ export default function ProfilePage({ onOpenAdmin }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [bio, setBio] = useState(profile?.bio || '');
   const [city, setCity] = useState(profile?.city || '');
+  const [gender, setGender] = useState(profile?.gender || '');
+  const [lookingFor, setLookingFor] = useState(profile?.looking_for || '');
   const [interests, setInterests] = useState((profile?.interests || []).join(', '));
   const [saved, setSaved] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -54,6 +57,8 @@ export default function ProfilePage({ onOpenAdmin }: Props) {
       await api.updateProfile({
         bio,
         city,
+        gender,
+        looking_for: lookingFor,
         interests: interests.split(',').map(s => s.trim()).filter(Boolean),
       });
       await refreshProfile();
@@ -135,6 +140,34 @@ export default function ProfilePage({ onOpenAdmin }: Props) {
       </div>
 
       <form onSubmit={handleSave} className="space-y-4">
+        <div>
+          <label className="text-stone-400 text-xs block mb-1">I am</label>
+          <select
+            value={gender}
+            onChange={e => setGender(e.target.value)}
+            required
+            className="w-full bg-stone-900 border border-stone-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-emerald-600"
+          >
+            <option value="">Select…</option>
+            {GENDER_OPTIONS.map(o => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="text-stone-400 text-xs block mb-1">Interested in</label>
+          <select
+            value={lookingFor}
+            onChange={e => setLookingFor(e.target.value)}
+            required
+            className="w-full bg-stone-900 border border-stone-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-emerald-600"
+          >
+            <option value="">Select…</option>
+            {LOOKING_FOR_OPTIONS.map(o => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+        </div>
         <div>
           <label className="text-stone-400 text-xs block mb-1">Bio</label>
           <textarea

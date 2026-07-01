@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Leaf } from 'lucide-react';
 import * as api from '../lib/api';
+import { GENDER_OPTIONS, LOOKING_FOR_OPTIONS } from '../lib/preferences';
 
 type Props = {
   onBack: () => void;
@@ -14,6 +15,8 @@ export default function AuthPage({ onBack, onSuccess }: Props) {
   const [username, setUsername] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [birthYear, setBirthYear] = useState('');
+  const [gender, setGender] = useState('');
+  const [lookingFor, setLookingFor] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -28,6 +31,8 @@ export default function AuthPage({ onBack, onSuccess }: Props) {
         username,
         display_name: displayName || username,
         birth_year: parseInt(birthYear, 10),
+        gender,
+        looking_for: lookingFor,
       });
       onSuccess();
     } catch (err) {
@@ -139,6 +144,38 @@ export default function AuthPage({ onBack, onSuccess }: Props) {
                 <option value="">Select year — must be 18+</option>
                 {Array.from({ length: 82 }, (_, i) => new Date().getFullYear() - 18 - i).map(y => (
                   <option key={y} value={y}>{y}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label htmlFor="itw-gender" className={labelClass}>I am</label>
+              <select
+                id="itw-gender"
+                name="gender"
+                required
+                value={gender}
+                onChange={e => setGender(e.target.value)}
+                className={inputClass}
+              >
+                <option value="">Select…</option>
+                {GENDER_OPTIONS.map(o => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label htmlFor="itw-looking-for" className={labelClass}>Interested in</label>
+              <select
+                id="itw-looking-for"
+                name="looking_for"
+                required
+                value={lookingFor}
+                onChange={e => setLookingFor(e.target.value)}
+                className={inputClass}
+              >
+                <option value="">Select…</option>
+                {LOOKING_FOR_OPTIONS.map(o => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
                 ))}
               </select>
             </div>
