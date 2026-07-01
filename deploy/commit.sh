@@ -225,22 +225,22 @@ fi
 
 # Install deps when requirements.txt changed, or when key packages are missing
 # (e.g. passlib for Referr-All) so migrate scripts and the API don't fail.
+# shellcheck disable=SC1091
+source "$DEV_DIR/deploy/ensure-venv.sh"
+ensure_project_venv "$DEV_DIR"
+DEV_VENV_PIP="$PIP"
+
 needs_pip=0
 if [[ "$before" != "$after" ]] && ! git -C "$DEV_DIR" diff --quiet "$before" "$after" -- requirements.txt; then
   needs_pip=1
-elif [[ -x "$DEV_DIR/.venv/bin/python" ]] && ! "$DEV_DIR/.venv/bin/python" -c "import passlib" 2>/dev/null; then
+elif ! "$PYTHON" -c "import passlib" 2>/dev/null; then
   needs_pip=1
-elif [[ -x "$DEV_DIR/.venv/bin/python" ]] && ! "$DEV_DIR/.venv/bin/python" -c "import pytest" 2>/dev/null; then
+elif ! "$PYTHON" -c "import pytest" 2>/dev/null; then
   needs_pip=1
 fi
 if [[ "$needs_pip" -eq 1 ]]; then
-  if [[ -x "$DEV_VENV_PIP" ]]; then
-    log "Installing Python dependencies in dev venv…"
-    "$DEV_VENV_PIP" install -r "$DEV_DIR/requirements.txt"
-  else
-    warn "Dev venv pip missing at ${DEV_VENV_PIP} — run:"
-    warn "  python3 -m venv $DEV_DIR/.venv && $DEV_VENV_PIP install -r $DEV_DIR/requirements.txt"
-  fi
+  log "Installing Python dependencies in dev venv…"
+  "$DEV_VENV_PIP" install -r "$DEV_DIR/requirements.txt"
 fi
 
 log "Referr-All DB migrations (auth schema v8–v12)…"

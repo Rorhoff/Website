@@ -10,34 +10,18 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-if [[ -x "$ROOT/.venv/bin/python" ]]; then
-  PYTHON="$ROOT/.venv/bin/python"
-  PIP="$ROOT/.venv/bin/pip"
-elif [[ -x /home/ubuntu/Website/.venv/bin/python ]]; then
-  PYTHON=/home/ubuntu/Website/.venv/bin/python
-  PIP=/home/ubuntu/Website/.venv/bin/pip
-else
-  echo "ERR  .venv not found — run: python3 -m venv $ROOT/.venv && $ROOT/.venv/bin/pip install -r requirements.txt" >&2
-  exit 1
-fi
+# shellcheck disable=SC1091
+source "$ROOT/deploy/ensure-venv.sh"
+ensure_project_venv "$ROOT"
 
-if ! "$PYTHON" -c "import pytest" 2>/dev/null; then
-  echo "==> Installing test dependencies (pytest)…"
-  "$PIP" install -r "$ROOT/requirements.txt"
-fi
-
-PYTEST="$ROOT/.venv/bin/pytest"
+PYTEST="$(dirname "$PYTHON")/pytest"
 if [[ ! -x "$PYTEST" ]]; then
-  PYTEST="$(dirname "$PYTHON")/pytest"
-fi
-if [[ ! -x "$PYTEST" ]]; then
-  echo "ERR  pytest still missing after pip install — check $ROOT/requirements.txt" >&2
+  echo "ERR  pytest missing — check $ROOT/requirements.txt" >&2
   exit 1
 fi
 
 # shellcheck disable=SC1091
 source "$ROOT/deploy/referrall-migrate-env.sh"
-referrall_resolve_python
 referrall_load_migration_env
 
 if [[ -z "${DATABASE_URL:-}" ]]; then
