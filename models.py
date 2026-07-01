@@ -580,6 +580,7 @@ class T1IntheWildUser(Base):
     city: Mapped[str] = mapped_column(String(120), default="", server_default="")
     id_verified: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     background_verified: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    is_admin: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     is_suspended: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
@@ -717,3 +718,40 @@ class T1IntheWildVerification(Base):
     provider_ref: Mapped[str] = mapped_column(String(200), default="", server_default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class T1IntheWildUserBlock(Base):
+    __tablename__ = "t1inthewild_user_block"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    blocker_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("t1inthewild_user.id", ondelete="CASCADE"), index=True
+    )
+    blocked_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("t1inthewild_user.id", ondelete="CASCADE"), index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("blocker_id", "blocked_id", name="uq_itw_block_pair"),
+        Index("ix_itw_block_blocked_id", "blocked_id"),
+    )
+
+
+class T1IntheWildUserReport(Base):
+    __tablename__ = "t1inthewild_user_report"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    reporter_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("t1inthewild_user.id", ondelete="CASCADE"), index=True
+    )
+    reported_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("t1inthewild_user.id", ondelete="CASCADE"), index=True
+    )
+    reason: Mapped[str] = mapped_column(String(500), default="", server_default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("reporter_id", "reported_id", name="uq_itw_report_pair"),
+        Index("ix_itw_report_reported_id", "reported_id"),
+    )

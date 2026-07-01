@@ -1,18 +1,50 @@
-import { useState } from 'react';
-import { Shield, CheckCircle } from 'lucide-react';
+import { useRef, useState } from 'react';
+import { Camera, Shield, CheckCircle, Settings } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import * as api from '../lib/api';
+import { compressImageForUpload } from '../lib/resizeImage';
 
-export default function ProfilePage() {
+type Props = {
+  onOpenAdmin?: () => void;
+};
+
+export default function ProfilePage({ onOpenAdmin }: Props) {
   const { profile, refreshProfile } = useAuth();
+  const fileRef = useRef<HTMLInputElement>(null);
   const [bio, setBio] = useState(profile?.bio || '');
   const [city, setCity] = useState(profile?.city || '');
-  const [avatarUrl, setAvatarUrl] = useState(profile?.avatar_url || '');
   const [interests, setInterests] = useState((profile?.interests || []).join(', '));
   const [saved, setSaved] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [verifyMsg, setVerifyMsg] = useState('');
 
   if (!profile) return null;
+
+  async function handlePhotoChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    try {
+      const compressed = await compressImageForUpload(file);
+      await api.uploadAvatar(compressed);
+      await refreshProfile();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Upload failed');
+    } finally {
+      setUploading(false);
+      if (fileRef.current) fileRef.current.value = '';
+    }
+  }
+
+  async function handleVerify() {
+    try {
+      const res = await api.startIdVerification();
+      setVerifyMsg(res.message);
+    } catch (err) {
+      setVerifyMsg(err instanceof Error ? err.message : 'Could not start verification');
+    }
+  }
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
@@ -22,7 +54,6 @@ export default function ProfilePage() {
       await api.updateProfile({
         bio,
         city,
-        avatar_url: avatarUrl,
         interests: interests.split(',').map(s => s.trim()).filter(Boolean),
       });
       await refreshProfile();
@@ -34,10 +65,25 @@ export default function ProfilePage() {
 
   return (
     <div>
-      <h1 className="text-xl font-bold text-white mb-6">Profile</h1>
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-xl font-bold text-white">Profile</h1>
+        {profile.is_admin && onOpenAdmin && (
+          <button
+            type="button"
+            onClick={onOpenAdmin}
+            className="flex items-center gap-1.5 text-emerald-400 text-sm font-medium"
+          >
+            <Settings size={16} /> Admin
+          </button>
+        )}
+      </div>
 
       <div className="flex items-center gap-4 mb-6">
-        <div className="w-20 h-20 rounded-2xl bg-stone-800 overflow-hidden flex items-center justify-center">
+        <button
+          type="button"
+          onClick={() => fileRef.current?.click()}
+          className="relative w-20 h-20 rounded-2xl bg-stone-800 overflow-hidden flex items-center justify-center group"
+        >
           {profile.avatar_url ? (
             <img src={profile.avatar_url} alt="" className="w-full h-full object-cover" />
           ) : (
@@ -45,31 +91,47 @@ export default function ProfilePage() {
               {(profile.display_name || '?').charAt(0)}
             </span>
           )}
-        </div>
+          <span className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center transition">
+            <Camera size={20} className="text-white" />
+          </span>
+        </button>
+        <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handlePhotoChange} />
         <div>
           <p className="text-white font-bold text-lg">{profile.display_name}</p>
-          <p className="text-stone-500 text-sm">@{profile.username}</p>
-          <div className="flex gap-2 mt-2">
-            {profile.id_verified && (
+          <p className="text-stone-500 text-sm">@{profile.username}{profile.age ? ` · ${profile.age}` : ''}</p>
+          <p className="text-stone-600 text-xs mt-1">{uploading ? 'Uploading…' : 'Tap photo to upload'}</p>
+          <div className="flex gap-2 mt-2 flex-wrap">
+            {profile.id_verified ? (
               <span className="text-xs bg-emerald-950 text-emerald-400 px-2 py-0.5 rounded-full flex items-center gap-1">
                 <CheckCircle size={12} /> ID verified
               </span>
-            )}
-            {profile.background_verified && (
-              <span className="text-xs bg-stone-800 text-stone-300 px-2 py-0.5 rounded-full flex items-center gap-1">
-                <Shield size={12} /> Background check
-              </span>
+            ) : (
+              <span className="text-xs bg-amber-950 text-amber-400 px-2 py-0.5 rounded-full">ID required to chat</span>
             )}
           </div>
         </div>
       </div>
 
       <div className="bg-stone-900 border border-stone-800 rounded-2xl p-4 mb-6">
-        <p className="text-stone-400 text-sm mb-2">Trust & safety (coming soon)</p>
-        <p className="text-stone-500 text-xs">
-          ID verification via Stripe Identity and optional background checks will be required before
-          venue chat unlocks in production.
-        </p>
+        <div className="flex items-start gap-3">
+          <Shield size={18} className="text-emerald-400 mt-0.5 flex-shrink-0" />
+          <div className="flex-1">
+            <p className="text-white text-sm font-medium">Identity verification</p>
+            <p className="text-stone-500 text-xs mt-1">
+              Required before venue chat. Stripe Identity coming soon — admins can verify manually during beta.
+            </p>
+            {!profile.id_verified && (
+              <button
+                type="button"
+                onClick={handleVerify}
+                className="mt-3 text-sm text-emerald-400 font-medium hover:text-emerald-300"
+              >
+                Start verification →
+              </button>
+            )}
+            {verifyMsg && <p className="text-stone-400 text-xs mt-2">{verifyMsg}</p>}
+          </div>
+        </div>
       </div>
 
       <form onSubmit={handleSave} className="space-y-4">
@@ -87,15 +149,6 @@ export default function ProfilePage() {
           <input
             value={city}
             onChange={e => setCity(e.target.value)}
-            className="w-full bg-stone-900 border border-stone-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-emerald-600"
-          />
-        </div>
-        <div>
-          <label className="text-stone-400 text-xs block mb-1">Photo URL</label>
-          <input
-            value={avatarUrl}
-            onChange={e => setAvatarUrl(e.target.value)}
-            placeholder="https://…"
             className="w-full bg-stone-900 border border-stone-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-emerald-600"
           />
         </div>

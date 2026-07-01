@@ -19,6 +19,7 @@ export type Profile = {
   city: string;
   id_verified: boolean;
   background_verified: boolean;
+  is_admin: boolean;
   active_check_in?: ActiveCheckIn | null;
 };
 
@@ -65,6 +66,23 @@ export const CATEGORY_LABELS: Record<string, string> = {
   church: 'Community',
   sports: 'Sports',
   concert: 'Concert',
+  dev_lounge: 'Dev test',
+};
+
+export type AdminStats = {
+  users: number;
+  events: number;
+  activeMatches: number;
+  reports: number;
+  waitlist: number;
+};
+
+export type AdminReport = {
+  id: string;
+  reason: string;
+  created_at: string;
+  reporter: Profile | null;
+  reported: Profile | null;
 };
 
 export function formatCountdown(seconds: number): string {

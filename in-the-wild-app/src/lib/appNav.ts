@@ -1,4 +1,4 @@
-export type AppPage = 'discover' | 'events' | 'matches' | 'chat' | 'profile';
+export type AppPage = 'discover' | 'events' | 'matches' | 'chat' | 'profile' | 'admin';
 
 export type AppNavState = {
   page: AppPage;
@@ -17,7 +17,7 @@ export function parseNavHash(): AppNavState | null {
   if (page === 'chat' && parts[1]) {
     return { page: 'chat', matchId: parts[1] };
   }
-  if (['discover', 'events', 'matches', 'profile'].includes(page)) {
+  if (['discover', 'events', 'matches', 'profile', 'admin'].includes(page)) {
     return { page, matchId: null };
   }
   return null;

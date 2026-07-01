@@ -262,6 +262,8 @@ bash "$DEV_DIR/deploy/bootstrap-referrall-admin.sh" || warn "Admin bootstrap ski
 
 log "In the Wild DB migration (v1)…"
 bash "$DEV_DIR/deploy/migrate-t1inthewild-v1.sh" || die "In the Wild v1 migration failed"
+bash "$DEV_DIR/deploy/migrate-t1inthewild-v2.sh" || die "In the Wild v2 migration failed"
+bash "$DEV_DIR/deploy/bootstrap-itw-admin.sh" || warn "In the Wild admin bootstrap skipped"
 
 log "Ensuring Stripe public base URL on dev…"
 bash "$DEV_DIR/deploy/ensure-stripe-public-base-dev.sh" || warn "Could not update Stripe env — run deploy/set-stripe-dev.sh manually"

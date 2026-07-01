@@ -57,6 +57,17 @@ DEMO_EVENTS = [
         "radius_m": 200,
         "category": "concert",
     },
+    {
+        "slug": "dev-lounge",
+        "name": "Portfolio Dev Lounge",
+        "description": "Dev-only test venue on rorhoff.com — check in from anywhere to demo venue matching.",
+        "venue_name": "Virtual (dev)",
+        "city": "Anywhere",
+        "latitude": 45.5152,
+        "longitude": -122.6784,
+        "radius_m": 500,
+        "category": "dev_lounge",
+    },
 ]
 
 

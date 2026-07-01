@@ -27,9 +27,22 @@ export default function EventsPage({ onNewMatches }: Props) {
 
   useEffect(() => { load(); }, [load]);
 
-  async function handleCheckIn(event: WildEvent) {
+  async function handleCheckIn(event: WildEvent, devQuick = false) {
     setBusy(event.id);
     setMsg('');
+    if (devQuick && event.category === 'dev_lounge') {
+      try {
+        const res = await api.checkIn(event.id, event.latitude, event.longitude);
+        if (res.new_matches?.length) onNewMatches(res.new_matches);
+        await refreshProfile();
+        setMsg(`Checked in to ${event.name} (dev mode)`);
+      } catch (err) {
+        setMsg(err instanceof Error ? err.message : 'Check-in failed');
+      } finally {
+        setBusy('');
+      }
+      return;
+    }
     if (!navigator.geolocation) {
       setMsg('Location is required to check in.');
       setBusy('');
@@ -38,7 +51,8 @@ export default function EventsPage({ onNewMatches }: Props) {
     navigator.geolocation.getCurrentPosition(
       async pos => {
         try {
-          await api.checkIn(event.id, pos.coords.latitude, pos.coords.longitude);
+          const res = await api.checkIn(event.id, pos.coords.latitude, pos.coords.longitude);
+          if (res.new_matches?.length) onNewMatches(res.new_matches);
           await refreshProfile();
           setMsg(`Checked in to ${event.name}`);
         } catch (err) {
@@ -143,6 +157,14 @@ export default function EventsPage({ onNewMatches }: Props) {
                 <p className="mt-4 text-emerald-400 text-sm flex items-center gap-2">
                   <Radio size={14} /> You&apos;re here
                 </p>
+              ) : event.category === 'dev_lounge' ? (
+                <button
+                  onClick={() => handleCheckIn(event, true)}
+                  disabled={busy === event.id}
+                  className="mt-4 w-full bg-emerald-900/50 hover:bg-emerald-800/50 disabled:opacity-50 text-emerald-300 text-sm font-medium rounded-xl py-2.5 transition border border-emerald-800/50"
+                >
+                  {busy === event.id ? 'Checking in…' : 'Dev check-in (no GPS)'}
+                </button>
               ) : (
                 <button
                   onClick={() => handleCheckIn(event)}

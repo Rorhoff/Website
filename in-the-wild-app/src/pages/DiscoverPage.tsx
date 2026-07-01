@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Heart, X } from 'lucide-react';
+import { Heart, X, Ban, Flag } from 'lucide-react';
 import * as api from '../lib/api';
 import type { Match, Profile } from '../lib/types';
 
@@ -43,6 +43,29 @@ export default function DiscoverPage({ onNewMatches }: Props) {
       if (index + 1 >= profiles.length - 2) load();
     } catch (err) {
       setToast(err instanceof Error ? err.message : 'Swipe failed');
+    }
+  }
+
+  async function handleBlock() {
+    if (!current || !confirm(`Block @${current.username}?`)) return;
+    try {
+      await api.blockUser(current.id);
+      setToast('Blocked.');
+      setIndex(i => i + 1);
+    } catch (err) {
+      setToast(err instanceof Error ? err.message : 'Block failed');
+    }
+  }
+
+  async function handleReport() {
+    if (!current) return;
+    const reason = window.prompt('Report reason (optional):') ?? '';
+    try {
+      await api.reportUser(current.id, reason);
+      setToast('Report submitted.');
+      setIndex(i => i + 1);
+    } catch (err) {
+      setToast(err instanceof Error ? err.message : 'Report failed');
     }
   }
 
@@ -97,7 +120,21 @@ export default function DiscoverPage({ onNewMatches }: Props) {
         </div>
       </div>
 
-      <div className="flex justify-center gap-8 mt-8">
+      <div className="flex justify-center gap-4 mt-8">
+        <button
+          onClick={handleReport}
+          title="Report"
+          className="w-12 h-12 rounded-full bg-stone-900 border border-stone-700 flex items-center justify-center text-stone-500 hover:text-amber-400 transition"
+        >
+          <Flag size={18} />
+        </button>
+        <button
+          onClick={handleBlock}
+          title="Block"
+          className="w-12 h-12 rounded-full bg-stone-900 border border-stone-700 flex items-center justify-center text-stone-500 hover:text-red-400 transition"
+        >
+          <Ban size={18} />
+        </button>
         <button
           onClick={() => handleSwipe('pass')}
           className="w-16 h-16 rounded-full bg-stone-900 border-2 border-stone-700 flex items-center justify-center text-stone-400 hover:border-red-500 hover:text-red-400 transition"

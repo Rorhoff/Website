@@ -1,4 +1,4 @@
-import type { ChatMessage, Match, PendingLike, Profile, WildEvent } from './types';
+import type { AdminReport, AdminStats, ChatMessage, Match, PendingLike, Profile, WildEvent } from './types';
 
 export * from './types';
 
@@ -51,6 +51,7 @@ export async function register(input: {
   password: string;
   username: string;
   display_name?: string;
+  birth_year: number;
 }): Promise<{ token: string; profile: Profile }> {
   const data = await request<{ token: string; profile: Profile }>(
     '/register',
@@ -107,7 +108,7 @@ export async function fetchEvents(): Promise<{ events: WildEvent[] }> {
 }
 
 export async function checkIn(eventId: string, lat: number, lng: number) {
-  return request(`/events/${eventId}/check-in`, {
+  return request<{ new_matches?: Match[] }>(`/events/${eventId}/check-in`, {
     method: 'POST',
     body: JSON.stringify({ lat, lng }),
   });
@@ -141,4 +142,65 @@ export async function sendMessage(matchId: string, body: string): Promise<ChatMe
 
 export async function fetchStatus(): Promise<{ schemaReady: boolean; eventCount: number }> {
   return request('/status', {}, false);
+}
+
+export async function uploadAvatar(file: File): Promise<{ url: string }> {
+  const form = new FormData();
+  form.append('file', file);
+  return request('/uploads/avatar', { method: 'POST', body: form });
+}
+
+export async function blockUser(blockedId: string): Promise<void> {
+  await request('/blocks', { method: 'POST', body: JSON.stringify({ blocked_id: blockedId }) });
+}
+
+export async function reportUser(reportedId: string, reason: string): Promise<void> {
+  await request('/reports', {
+    method: 'POST',
+    body: JSON.stringify({ reported_id: reportedId, reason }),
+  });
+}
+
+export async function startIdVerification(): Promise<{ status: string; message: string }> {
+  return request('/verification/id/start', { method: 'POST' });
+}
+
+export async function fetchVerificationStatus(): Promise<{ id_verified: boolean; can_message: boolean }> {
+  return request('/verification/status');
+}
+
+export async function fetchAdminStats(): Promise<AdminStats> {
+  return request('/admin/stats');
+}
+
+export async function fetchAdminEvents(): Promise<{ events: WildEvent[] }> {
+  return request('/admin/events');
+}
+
+export async function createAdminEvent(body: Record<string, unknown>): Promise<WildEvent> {
+  return request('/admin/events', { method: 'POST', body: JSON.stringify(body) });
+}
+
+export async function updateAdminEvent(id: string, body: Record<string, unknown>): Promise<WildEvent> {
+  return request(`/admin/events/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+}
+
+export async function deleteAdminEvent(id: string): Promise<void> {
+  await request(`/admin/events/${id}`, { method: 'DELETE' });
+}
+
+export async function fetchAdminUsers(q = ''): Promise<{ users: Profile[] }> {
+  const qs = q ? `?q=${encodeURIComponent(q)}` : '';
+  return request(`/admin/users${qs}`);
+}
+
+export async function fetchAdminReports(): Promise<{ reports: AdminReport[] }> {
+  return request('/admin/reports');
+}
+
+export async function patchAdminUser(
+  userId: string,
+  patch: { id_verified?: boolean; is_suspended?: boolean; is_admin?: boolean },
+): Promise<Profile> {
+  return request(`/admin/users/${userId}`, { method: 'PATCH', body: JSON.stringify(patch) });
 }

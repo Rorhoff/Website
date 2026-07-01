@@ -6,21 +6,24 @@ Mounted at /api/in-the-wild on rorhoff.com (SERVICE_MODE=full).
 
 from __future__ import annotations
 
+import base64
 import logging
 import math
+import os
 import re
 import secrets
 import uuid
 from datetime import datetime, timedelta
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
+from fastapi import APIRouter, Depends, File, Header, HTTPException, Request, UploadFile, status
 from passlib.hash import bcrypt as bcrypt_hasher
 from pydantic import BaseModel, Field
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import IntegrityError, ProgrammingError
 from sqlalchemy.orm import Session
 
+import image_storage
 from credential_service import truncate_for_bcrypt
 from database import SessionLocal
 from models import (
@@ -31,6 +34,8 @@ from models import (
     T1IntheWildMessage,
     T1IntheWildSession,
     T1IntheWildUser,
+    T1IntheWildUserBlock,
+    T1IntheWildUserReport,
     T1IntheWildWaitlist,
 )
 
@@ -42,6 +47,9 @@ SESSION_HOURS = 24 * 30
 MATCH_CHAT_HOURS = 6
 PASS_COOLDOWN_DAYS = 30
 USERNAME_RE = re.compile(r"^[a-zA-Z0-9_]{3,32}$")
+MAX_AVATAR_BYTES = 4 * 1024 * 1024
+_INLINE_AVATAR_MAX_BYTES = 512 * 1024
+_DEV_LOUNGE_CATEGORY = "dev_lounge"
 
 
 def _db():
@@ -54,6 +62,62 @@ def _db():
 
 def _now() -> datetime:
     return datetime.utcnow()
+
+
+def _is_full_dev_mode() -> bool:
+    return os.getenv("SERVICE_MODE", "full").lower() == "full"
+
+
+def _validate_birth_year(birth_year: int) -> None:
+    min_year = _now().year - 100
+    max_year = _now().year - 18
+    if birth_year < min_year or birth_year > max_year:
+        raise HTTPException(status_code=400, detail="You must be 18 or older to use In the Wild")
+
+
+def _shrink_avatar_for_inline(content: bytes, content_type: str) -> tuple[bytes, str]:
+    import io
+
+    from PIL import Image
+
+    img = Image.open(io.BytesIO(content))
+    if img.mode not in ("RGB", "L"):
+        img = img.convert("RGB")
+    img.thumbnail((800, 800), Image.Resampling.LANCZOS)
+    quality = 85
+    while quality >= 40:
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=quality, optimize=True)
+        data = buf.getvalue()
+        if len(data) <= _INLINE_AVATAR_MAX_BYTES:
+            return data, "image/jpeg"
+        quality -= 10
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=40, optimize=True)
+    return buf.getvalue(), "image/jpeg"
+
+
+def _hidden_user_ids(db: Session, user_id: str) -> set[str]:
+    blocked = db.scalars(
+        select(T1IntheWildUserBlock.blocked_id).where(T1IntheWildUserBlock.blocker_id == user_id)
+    ).all()
+    blockers = db.scalars(
+        select(T1IntheWildUserBlock.blocker_id).where(T1IntheWildUserBlock.blocked_id == user_id)
+    ).all()
+    return set(blocked) | set(blockers)
+
+
+def _require_admin(user: T1IntheWildUser) -> None:
+    if not user.is_admin:
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+
+def _require_id_verified(user: T1IntheWildUser) -> None:
+    if not user.id_verified:
+        raise HTTPException(
+            status_code=403,
+            detail="Verify your identity before messaging. Go to Profile → Identity verification.",
+        )
 
 
 def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -83,6 +147,7 @@ def _profile_dict(u: T1IntheWildUser) -> dict[str, Any]:
         "city": u.city,
         "id_verified": u.id_verified,
         "background_verified": u.background_verified,
+        "is_admin": u.is_admin,
     }
 
 
@@ -283,6 +348,7 @@ class RegisterBody(BaseModel):
     password: str = Field(min_length=8, max_length=128)
     username: str = Field(min_length=3, max_length=32)
     display_name: str = Field(default="", max_length=120)
+    birth_year: int
 
 
 class LoginBody(BaseModel):
@@ -317,6 +383,35 @@ class CheckInPatchBody(BaseModel):
 
 class MessageBody(BaseModel):
     body: str = Field(min_length=1, max_length=2000)
+
+
+class BlockBody(BaseModel):
+    blocked_id: str = Field(min_length=36, max_length=36)
+
+
+class ReportBody(BaseModel):
+    reported_id: str = Field(min_length=36, max_length=36)
+    reason: str = Field(default="", max_length=500)
+
+
+class AdminEventBody(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    description: str = Field(default="", max_length=5000)
+    venue_name: str = Field(default="", max_length=200)
+    city: str = Field(default="", max_length=120)
+    latitude: float
+    longitude: float
+    radius_m: int = Field(default=300, ge=50, le=500_000)
+    category: str = Field(default="", max_length=32)
+    starts_at: datetime
+    ends_at: datetime
+    is_active: bool = True
+
+
+class AdminUserPatchBody(BaseModel):
+    id_verified: bool | None = None
+    is_suspended: bool | None = None
+    is_admin: bool | None = None
 
 
 # --- Routes ---
@@ -372,6 +467,7 @@ def register(body: RegisterBody, request: Request, db: Session = Depends(_db)):
     username = body.username.strip()
     if not USERNAME_RE.match(username):
         raise HTTPException(status_code=400, detail="Username must be 3–32 chars (letters, numbers, underscore)")
+    _validate_birth_year(body.birth_year)
     user_id = str(uuid.uuid4())
     user = T1IntheWildUser(
         id=user_id,
@@ -379,6 +475,7 @@ def register(body: RegisterBody, request: Request, db: Session = Depends(_db)):
         username=username,
         password_hash=bcrypt_hasher.hash(truncate_for_bcrypt(body.password)),
         display_name=(body.display_name or username).strip()[:120],
+        birth_year=body.birth_year,
     )
     db.add(user)
     try:
@@ -463,8 +560,7 @@ def patch_me(
     if body.avatar_url is not None:
         user.avatar_url = body.avatar_url.strip()[:2000]
     if body.birth_year is not None:
-        if body.birth_year < 1940 or body.birth_year > _now().year - 18:
-            raise HTTPException(status_code=400, detail="Must be 18 or older")
+        _validate_birth_year(body.birth_year)
         user.birth_year = body.birth_year
     if body.gender is not None:
         user.gender = body.gender.strip()[:32]
@@ -514,7 +610,7 @@ def discover(
             ),
         )
     ).all()
-    exclude = set(seen_ids) | {user.id}
+    exclude = _hidden_user_ids(db, user.id) | set(seen_ids) | {user.id}
     q = select(T1IntheWildUser).where(
         T1IntheWildUser.is_suspended.is_(False),
         T1IntheWildUser.id.notin_(exclude) if exclude else True,
@@ -607,7 +703,8 @@ def check_in(
     if event.ends_at < now - timedelta(hours=1):
         raise HTTPException(status_code=400, detail="Event has ended")
     dist = _haversine_m(body.lat, body.lng, event.latitude, event.longitude)
-    if dist > event.radius_m:
+    skip_geofence = event.category == _DEV_LOUNGE_CATEGORY and _is_full_dev_mode()
+    if not skip_geofence and dist > event.radius_m:
         raise HTTPException(
             status_code=400,
             detail=f"You must be within {event.radius_m}m of the venue to check in",
@@ -761,6 +858,7 @@ def send_message(
     db: Session = Depends(_db),
 ):
     user = _get_user(db, authorization)
+    _require_id_verified(user)
     match = db.get(T1IntheWildMatch, match_id)
     if not match or user.id not in (match.user_a_id, match.user_b_id):
         raise HTTPException(status_code=404, detail="Match not found")
@@ -781,3 +879,326 @@ def send_message(
         "created_at": msg.created_at.isoformat(),
         "mine": True,
     }
+
+
+# --- Avatar upload ---
+
+
+@router.post("/uploads/avatar")
+async def upload_avatar(
+    file: UploadFile = File(...),
+    authorization: Annotated[str | None, Header()] = None,
+    db: Session = Depends(_db),
+):
+    user = _get_user(db, authorization)
+    content = await file.read()
+    if len(content) > MAX_AVATAR_BYTES:
+        raise HTTPException(status_code=400, detail="Image too large (max 4 MB)")
+    ct = (file.content_type or "").lower()
+    if not ct or ct == "application/octet-stream":
+        ct = "image/jpeg"
+    if not image_storage.allowed_content_type(ct):
+        raise HTTPException(status_code=400, detail="Unsupported image type")
+
+    url: str | None = None
+    if image_storage.storage_enabled():
+        ext_map = {"image/jpeg": "jpg", "image/jpg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif"}
+        ext = ext_map.get(ct, "jpg")
+        key = f"itw/{user.id}/avatar.{ext}"
+        try:
+            url = image_storage.upload_image_at_key(key, content, ct)
+        except Exception:
+            log.exception("In the Wild avatar S3 upload failed for user=%s", user.id)
+            url = None
+
+    if url is None:
+        if len(content) > _INLINE_AVATAR_MAX_BYTES:
+            try:
+                content, ct = _shrink_avatar_for_inline(content, ct)
+            except Exception:
+                log.exception("Avatar resize failed for user=%s", user.id)
+                raise HTTPException(status_code=503, detail="Could not process image")
+        b64 = base64.b64encode(content).decode("ascii")
+        url = f"data:{ct};base64,{b64}"
+
+    user.avatar_url = url
+    db.commit()
+    return {"url": url}
+
+
+# --- Block / report ---
+
+
+@router.post("/blocks")
+def create_block(
+    body: BlockBody,
+    authorization: Annotated[str | None, Header()] = None,
+    db: Session = Depends(_db),
+):
+    user = _get_user(db, authorization)
+    if body.blocked_id == user.id:
+        raise HTTPException(status_code=400, detail="Cannot block yourself")
+    if db.get(T1IntheWildUser, body.blocked_id) is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    existing = db.scalar(
+        select(T1IntheWildUserBlock).where(
+            T1IntheWildUserBlock.blocker_id == user.id,
+            T1IntheWildUserBlock.blocked_id == body.blocked_id,
+        )
+    )
+    if not existing:
+        db.add(
+            T1IntheWildUserBlock(
+                id=str(uuid.uuid4()),
+                blocker_id=user.id,
+                blocked_id=body.blocked_id,
+            )
+        )
+        db.commit()
+    return {"ok": True}
+
+
+@router.post("/reports")
+def create_report(
+    body: ReportBody,
+    authorization: Annotated[str | None, Header()] = None,
+    db: Session = Depends(_db),
+):
+    user = _get_user(db, authorization)
+    if body.reported_id == user.id:
+        raise HTTPException(status_code=400, detail="Cannot report yourself")
+    if db.get(T1IntheWildUser, body.reported_id) is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    existing = db.scalar(
+        select(T1IntheWildUserReport).where(
+            T1IntheWildUserReport.reporter_id == user.id,
+            T1IntheWildUserReport.reported_id == body.reported_id,
+        )
+    )
+    if existing:
+        return {"ok": True, "message": "Report already submitted"}
+    db.add(
+        T1IntheWildUserReport(
+            id=str(uuid.uuid4()),
+            reporter_id=user.id,
+            reported_id=body.reported_id,
+            reason=(body.reason or "").strip()[:500],
+        )
+    )
+    db.commit()
+    return {"ok": True, "message": "Report submitted — thank you"}
+
+
+# --- Identity verification (stub; Stripe Identity in v0.2) ---
+
+
+@router.get("/verification/status")
+def verification_status(
+    authorization: Annotated[str | None, Header()] = None,
+    db: Session = Depends(_db),
+):
+    user = _get_user(db, authorization)
+    return {
+        "id_verified": user.id_verified,
+        "background_verified": user.background_verified,
+        "can_message": user.id_verified,
+    }
+
+
+@router.post("/verification/id/start")
+def start_id_verification(
+    authorization: Annotated[str | None, Header()] = None,
+    db: Session = Depends(_db),
+):
+    user = _get_user(db, authorization)
+    if user.id_verified:
+        return {"status": "verified", "message": "Your identity is already verified."}
+    return {
+        "status": "pending",
+        "message": (
+            "Stripe Identity verification is coming soon. During beta, an admin can verify "
+            "your account manually after review."
+        ),
+    }
+
+
+# --- Admin ---
+
+
+@router.get("/admin/stats")
+def admin_stats(
+    authorization: Annotated[str | None, Header()] = None,
+    db: Session = Depends(_db),
+):
+    user = _get_user(db, authorization)
+    _require_admin(user)
+    return {
+        "users": db.scalar(select(func.count()).select_from(T1IntheWildUser)) or 0,
+        "events": db.scalar(select(func.count()).select_from(T1IntheWildEvent)) or 0,
+        "activeMatches": db.scalar(
+            select(func.count()).select_from(T1IntheWildMatch).where(
+                T1IntheWildMatch.chat_expires_at > _now()
+            )
+        )
+        or 0,
+        "reports": db.scalar(select(func.count()).select_from(T1IntheWildUserReport)) or 0,
+        "waitlist": db.scalar(select(func.count()).select_from(T1IntheWildWaitlist)) or 0,
+    }
+
+
+@router.get("/admin/events")
+def admin_list_events(
+    authorization: Annotated[str | None, Header()] = None,
+    db: Session = Depends(_db),
+):
+    user = _get_user(db, authorization)
+    _require_admin(user)
+    events = db.scalars(select(T1IntheWildEvent).order_by(T1IntheWildEvent.starts_at.desc())).all()
+    return {"events": [_event_dict(e) for e in events]}
+
+
+@router.post("/admin/events")
+def admin_create_event(
+    body: AdminEventBody,
+    authorization: Annotated[str | None, Header()] = None,
+    db: Session = Depends(_db),
+):
+    user = _get_user(db, authorization)
+    _require_admin(user)
+    if body.ends_at <= body.starts_at:
+        raise HTTPException(status_code=400, detail="ends_at must be after starts_at")
+    ev = T1IntheWildEvent(
+        id=str(uuid.uuid4()),
+        name=body.name.strip(),
+        description=body.description.strip(),
+        venue_name=body.venue_name.strip(),
+        city=body.city.strip(),
+        latitude=body.latitude,
+        longitude=body.longitude,
+        radius_m=body.radius_m,
+        category=body.category.strip(),
+        starts_at=body.starts_at,
+        ends_at=body.ends_at,
+        is_active=body.is_active,
+    )
+    db.add(ev)
+    db.commit()
+    return _event_dict(ev)
+
+
+@router.patch("/admin/events/{event_id}")
+def admin_update_event(
+    event_id: str,
+    body: AdminEventBody,
+    authorization: Annotated[str | None, Header()] = None,
+    db: Session = Depends(_db),
+):
+    user = _get_user(db, authorization)
+    _require_admin(user)
+    ev = db.get(T1IntheWildEvent, event_id)
+    if not ev:
+        raise HTTPException(status_code=404, detail="Event not found")
+    ev.name = body.name.strip()
+    ev.description = body.description.strip()
+    ev.venue_name = body.venue_name.strip()
+    ev.city = body.city.strip()
+    ev.latitude = body.latitude
+    ev.longitude = body.longitude
+    ev.radius_m = body.radius_m
+    ev.category = body.category.strip()
+    ev.starts_at = body.starts_at
+    ev.ends_at = body.ends_at
+    ev.is_active = body.is_active
+    db.commit()
+    return _event_dict(ev)
+
+
+@router.delete("/admin/events/{event_id}")
+def admin_delete_event(
+    event_id: str,
+    authorization: Annotated[str | None, Header()] = None,
+    db: Session = Depends(_db),
+):
+    user = _get_user(db, authorization)
+    _require_admin(user)
+    ev = db.get(T1IntheWildEvent, event_id)
+    if not ev:
+        raise HTTPException(status_code=404, detail="Event not found")
+    db.delete(ev)
+    db.commit()
+    return {"ok": True}
+
+
+@router.get("/admin/users")
+def admin_list_users(
+    authorization: Annotated[str | None, Header()] = None,
+    db: Session = Depends(_db),
+    q: str = "",
+    limit: int = 50,
+):
+    user = _get_user(db, authorization)
+    _require_admin(user)
+    limit = min(max(limit, 1), 100)
+    stmt = select(T1IntheWildUser).order_by(T1IntheWildUser.created_at.desc())
+    if q.strip():
+        term = f"%{q.strip().lower()}%"
+        stmt = stmt.where(
+            or_(
+                func.lower(T1IntheWildUser.username).like(term),
+                func.lower(T1IntheWildUser.email).like(term),
+                func.lower(T1IntheWildUser.display_name).like(term),
+            )
+        )
+    rows = db.scalars(stmt.limit(limit)).all()
+    out = []
+    for u in rows:
+        p = _profile_dict(u)
+        p["email"] = u.email
+        out.append(p)
+    return {"users": out}
+
+
+@router.get("/admin/reports")
+def admin_list_reports(
+    authorization: Annotated[str | None, Header()] = None,
+    db: Session = Depends(_db),
+):
+    user = _get_user(db, authorization)
+    _require_admin(user)
+    reports = db.scalars(
+        select(T1IntheWildUserReport).order_by(T1IntheWildUserReport.created_at.desc()).limit(100)
+    ).all()
+    out = []
+    for r in reports:
+        reporter = db.get(T1IntheWildUser, r.reporter_id)
+        reported = db.get(T1IntheWildUser, r.reported_id)
+        out.append({
+            "id": r.id,
+            "reason": r.reason,
+            "created_at": r.created_at.isoformat(),
+            "reporter": _profile_dict(reporter) if reporter else None,
+            "reported": _profile_dict(reported) if reported else None,
+        })
+    return {"reports": out}
+
+
+@router.patch("/admin/users/{user_id}")
+def admin_patch_user(
+    user_id: str,
+    body: AdminUserPatchBody,
+    authorization: Annotated[str | None, Header()] = None,
+    db: Session = Depends(_db),
+):
+    admin = _get_user(db, authorization)
+    _require_admin(admin)
+    target = db.get(T1IntheWildUser, user_id)
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    if body.id_verified is not None:
+        target.id_verified = body.id_verified
+    if body.is_suspended is not None:
+        target.is_suspended = body.is_suspended
+    if body.is_admin is not None:
+        target.is_admin = body.is_admin
+    db.commit()
+    return _profile_dict(target)

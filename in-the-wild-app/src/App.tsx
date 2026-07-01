@@ -9,6 +9,7 @@ import EventsPage from './pages/EventsPage';
 import MatchesPage from './pages/MatchesPage';
 import ChatPage from './pages/ChatPage';
 import ProfilePage from './pages/ProfilePage';
+import AdminPage from './pages/AdminPage';
 import { useMatchAlerts } from './hooks/useMatchAlerts';
 import { markMatchesSeen } from './lib/matchAlerts';
 import type { Match } from './lib/types';
@@ -54,6 +55,13 @@ function AppInner() {
       setScreen('auth');
     }
   }, [loading, profile]);
+
+  useEffect(() => {
+    if (loading || !profile) return;
+    if (page === 'admin' && !profile.is_admin) {
+      commitNav({ page: 'discover', matchId: null }, true);
+    }
+  }, [loading, profile, page, commitNav]);
 
   useEffect(() => {
     if (loading || !profile) return;
@@ -121,7 +129,8 @@ function AppInner() {
     page === 'events' ? <EventsPage onNewMatches={notifyFromResponse} /> :
     page === 'matches' ? <MatchesPage onOpenChat={openChat} /> :
     page === 'chat' && matchId ? <ChatPage matchId={matchId} onBack={() => navigateTo('matches')} /> :
-    page === 'profile' ? <ProfilePage /> :
+    page === 'profile' ? <ProfilePage onOpenAdmin={() => navigateTo('admin')} /> :
+    page === 'admin' ? <AdminPage onBack={() => navigateTo('profile')} /> :
     <DiscoverPage onNewMatches={notifyFromResponse} />;
 
   return (

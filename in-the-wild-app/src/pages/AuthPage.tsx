@@ -13,6 +13,7 @@ export default function AuthPage({ onBack, onSuccess }: Props) {
   const [password, setPassword] = useState('');
   const [username, setUsername] = useState('');
   const [displayName, setDisplayName] = useState('');
+  const [birthYear, setBirthYear] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -21,7 +22,13 @@ export default function AuthPage({ onBack, onSuccess }: Props) {
     setError('');
     setLoading(true);
     try {
-      await api.register({ email, password, username, display_name: displayName || username });
+      await api.register({
+        email,
+        password,
+        username,
+        display_name: displayName || username,
+        birth_year: parseInt(birthYear, 10),
+      });
       onSuccess();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Authentication failed');
@@ -117,6 +124,23 @@ export default function AuthPage({ onBack, onSuccess }: Props) {
                 onChange={e => setDisplayName(e.target.value)}
                 className={inputClass}
               />
+            </div>
+            <div>
+              <label htmlFor="itw-birth-year" className={labelClass}>Birth year</label>
+              <select
+                id="itw-birth-year"
+                name="bday-year"
+                required
+                autoComplete="bday-year"
+                value={birthYear}
+                onChange={e => setBirthYear(e.target.value)}
+                className={inputClass}
+              >
+                <option value="">Select year — must be 18+</option>
+                {Array.from({ length: 82 }, (_, i) => new Date().getFullYear() - 18 - i).map(y => (
+                  <option key={y} value={y}>{y}</option>
+                ))}
+              </select>
             </div>
             <div>
               <label htmlFor="itw-reg-email" className={labelClass}>Email</label>
