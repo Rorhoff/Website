@@ -2,15 +2,18 @@ import { useCallback, useEffect, useState } from 'react';
 import { MapPin, Radio } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import * as api from '../lib/api';
-import { CATEGORY_LABELS, type WildEvent } from '../lib/types';
+import { CATEGORY_LABELS, type Match, type WildEvent } from '../lib/types';
 
-export default function EventsPage() {
+type Props = {
+  onNewMatches: (matches: Match[]) => void;
+};
+
+export default function EventsPage({ onNewMatches }: Props) {
   const { profile, refreshProfile } = useAuth();
   const [events, setEvents] = useState<WildEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState('');
   const [msg, setMsg] = useState('');
-  const [newMatches, setNewMatches] = useState<string[]>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -27,7 +30,6 @@ export default function EventsPage() {
   async function handleCheckIn(event: WildEvent) {
     setBusy(event.id);
     setMsg('');
-    setNewMatches([]);
     if (!navigator.geolocation) {
       setMsg('Location is required to check in.');
       setBusy('');
@@ -62,8 +64,7 @@ export default function EventsPage() {
       const res = await api.setOpenToMeet(next);
       await refreshProfile();
       if (res.new_matches.length > 0) {
-        setNewMatches(res.new_matches);
-        setMsg("You're both here! Check Matches to chat.");
+        onNewMatches(res.new_matches);
       } else {
         setMsg(next ? "Open to meeting — we'll notify you if a mutual like is here too." : 'Opt-in turned off.');
       }
@@ -104,11 +105,6 @@ export default function EventsPage() {
               />
             </button>
           </div>
-          {newMatches.length > 0 && (
-            <p className="mt-3 text-amber-400 text-sm font-medium">
-              🎉 {newMatches.length} new venue match{newMatches.length > 1 ? 'es' : ''}!
-            </p>
-          )}
         </div>
       )}
 

@@ -231,6 +231,31 @@ def _try_venue_matches(db: Session, user_id: str, event_id: str) -> list[str]:
     return created
 
 
+def _try_all_venue_matches(db: Session, user_id: str) -> list[str]:
+    """Scan every active opted-in check-in for possible venue matches."""
+    checkins = db.scalars(
+        select(T1IntheWildCheckIn).where(
+            T1IntheWildCheckIn.user_id == user_id,
+            T1IntheWildCheckIn.open_to_meet.is_(True),
+            T1IntheWildCheckIn.expires_at > _now(),
+        )
+    ).all()
+    created: list[str] = []
+    for checkin in checkins:
+        created.extend(_try_venue_matches(db, user_id, checkin.event_id))
+    return list(dict.fromkeys(created))
+
+
+def _matches_by_ids(db: Session, match_ids: list[str], me_id: str) -> list[dict[str, Any]]:
+    if not match_ids:
+        return []
+    rows = db.scalars(
+        select(T1IntheWildMatch).where(T1IntheWildMatch.id.in_(match_ids))
+    ).all()
+    by_id = {m.id: m for m in rows}
+    return [_match_dict(by_id[mid], me_id, db) for mid in match_ids if mid in by_id]
+
+
 def _schema_ready(db: Session) -> tuple[bool, str | None]:
     try:
         db.scalar(select(T1IntheWildUser.id).limit(1))
@@ -531,7 +556,15 @@ def swipe(
         )
     db.commit()
     mutual = body.action == "like" and _mutual_like(db, user.id, body.target_id)
-    return {"ok": True, "mutual_like": mutual, "message": "Like saved — meet at an event to connect!" if mutual else None}
+    new_ids: list[str] = []
+    if mutual:
+        new_ids = _try_all_venue_matches(db, user.id)
+    return {
+        "ok": True,
+        "mutual_like": mutual,
+        "message": "Like saved — meet at an event to connect!" if mutual and not new_ids else None,
+        "new_matches": _matches_by_ids(db, new_ids, user.id),
+    }
 
 
 @router.get("/likes/pending")
@@ -604,6 +637,9 @@ def check_in(
         )
         db.add(checkin)
     db.commit()
+    new_ids: list[str] = []
+    if checkin.open_to_meet:
+        new_ids = _try_venue_matches(db, user.id, event_id)
     return {
         "ok": True,
         "check_in": {
@@ -612,6 +648,7 @@ def check_in(
             "checked_in_at": checkin.checked_in_at.isoformat(),
         },
         "event": _event_dict(event),
+        "new_matches": _matches_by_ids(db, new_ids, user.id),
     }
 
 
@@ -635,13 +672,13 @@ def patch_check_in(
         raise HTTPException(status_code=400, detail="Check in to an event first")
     checkin.open_to_meet = body.open_to_meet
     db.commit()
-    new_matches: list[str] = []
+    new_ids: list[str] = []
     if body.open_to_meet:
-        new_matches = _try_venue_matches(db, user.id, checkin.event_id)
+        new_ids = _try_venue_matches(db, user.id, checkin.event_id)
     return {
         "ok": True,
         "open_to_meet": checkin.open_to_meet,
-        "new_matches": new_matches,
+        "new_matches": _matches_by_ids(db, new_ids, user.id),
     }
 
 

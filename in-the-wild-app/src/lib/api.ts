@@ -1,4 +1,4 @@
-import type { ChatMessage, Match, Profile, WildEvent } from './types';
+import type { ChatMessage, Match, PendingLike, Profile, WildEvent } from './types';
 
 export * from './types';
 
@@ -91,8 +91,15 @@ export async function fetchDiscover(): Promise<{ profiles: Profile[] }> {
   return request('/discover');
 }
 
-export async function swipe(targetId: string, action: 'like' | 'pass'): Promise<{ mutual_like: boolean; message?: string }> {
+export async function swipe(
+  targetId: string,
+  action: 'like' | 'pass',
+): Promise<{ mutual_like: boolean; message?: string; new_matches: Match[] }> {
   return request('/swipe', { method: 'POST', body: JSON.stringify({ target_id: targetId, action }) });
+}
+
+export async function fetchPendingLikes(): Promise<{ likes: PendingLike[] }> {
+  return request('/likes/pending');
 }
 
 export async function fetchEvents(): Promise<{ events: WildEvent[] }> {
@@ -106,7 +113,7 @@ export async function checkIn(eventId: string, lat: number, lng: number) {
   });
 }
 
-export async function setOpenToMeet(openToMeet: boolean): Promise<{ new_matches: string[] }> {
+export async function setOpenToMeet(openToMeet: boolean): Promise<{ new_matches: Match[] }> {
   return request('/check-in', {
     method: 'PATCH',
     body: JSON.stringify({ open_to_meet: openToMeet }),

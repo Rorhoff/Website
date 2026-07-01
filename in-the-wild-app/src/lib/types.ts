@@ -46,6 +46,12 @@ export type Match = {
   seconds_remaining: number;
 };
 
+export type PendingLike = {
+  user: Profile;
+  mutual: boolean;
+  liked_at: string;
+};
+
 export type ChatMessage = {
   id: string;
   sender_id: string;

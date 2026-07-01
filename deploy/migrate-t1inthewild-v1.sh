@@ -51,7 +51,7 @@ for t in tables:
 print("OK  create_all finished")
 PY
 
-echo "==> Seeding demo events (if empty)…"
+echo "==> Seeding / refreshing demo events…"
 "$PYTHON" "$ROOT/deploy/seed-t1inthewild-events.py"
 
 echo "OK  In the Wild v1 migration complete."

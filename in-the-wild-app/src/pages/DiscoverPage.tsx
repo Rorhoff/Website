@@ -1,9 +1,13 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Heart, X } from 'lucide-react';
 import * as api from '../lib/api';
-import type { Profile } from '../lib/types';
+import type { Match, Profile } from '../lib/types';
 
-export default function DiscoverPage() {
+type Props = {
+  onNewMatches: (matches: Match[]) => void;
+};
+
+export default function DiscoverPage({ onNewMatches }: Props) {
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [index, setIndex] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -28,8 +32,10 @@ export default function DiscoverPage() {
     if (!current) return;
     try {
       const res = await api.swipe(current.id, action);
-      if (res.mutual_like) {
-        setToast('Mutual like! Check in at an event to connect.');
+      if (res.new_matches?.length) {
+        onNewMatches(res.new_matches);
+      } else if (res.mutual_like) {
+        setToast('Mutual like! Check in at an event and turn on Open to Meeting.');
       } else if (action === 'like') {
         setToast('Like saved — meet at a verified event to unlock chat.');
       }

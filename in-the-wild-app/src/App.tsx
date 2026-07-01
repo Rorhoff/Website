@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import Layout from './components/Layout';
+import VenueMatchModal from './components/VenueMatchModal';
 import LandingPage from './pages/LandingPage';
 import AuthPage from './pages/AuthPage';
 import DiscoverPage from './pages/DiscoverPage';
@@ -8,6 +9,9 @@ import EventsPage from './pages/EventsPage';
 import MatchesPage from './pages/MatchesPage';
 import ChatPage from './pages/ChatPage';
 import ProfilePage from './pages/ProfilePage';
+import { useMatchAlerts } from './hooks/useMatchAlerts';
+import { markMatchesSeen } from './lib/matchAlerts';
+import type { Match } from './lib/types';
 import { Leaf } from 'lucide-react';
 import {
   type AppNavState,
@@ -20,12 +24,17 @@ import {
 
 type Screen = 'landing' | 'auth' | 'app';
 
+export type MatchAlertBridge = {
+  onNewMatches: (matches: Match[]) => void;
+};
+
 function AppInner() {
   const { profile, loading, refreshProfile } = useAuth();
   const [screen, setScreen] = useState<Screen>('landing');
   const [page, setPage] = useState<AppPage>('discover');
   const [matchId, setMatchId] = useState<string | null>(null);
   const navSynced = useRef(false);
+  const { alertMatches, notifyFromResponse, dismissAlerts } = useMatchAlerts(!!profile);
 
   const applyNav = useCallback((state: AppNavState) => {
     setPage(state.page);
@@ -70,7 +79,13 @@ function AppInner() {
   }
 
   function openChat(id: string) {
+    markMatchesSeen([id]);
+    dismissAlerts();
     commitNav({ page: 'chat', matchId: id });
+  }
+
+  function handleOpenChatFromModal(id: string) {
+    openChat(id);
   }
 
   if (loading) {
@@ -102,17 +117,26 @@ function AppInner() {
   }
 
   const content =
-    page === 'discover' ? <DiscoverPage /> :
-    page === 'events' ? <EventsPage /> :
+    page === 'discover' ? <DiscoverPage onNewMatches={notifyFromResponse} /> :
+    page === 'events' ? <EventsPage onNewMatches={notifyFromResponse} /> :
     page === 'matches' ? <MatchesPage onOpenChat={openChat} /> :
     page === 'chat' && matchId ? <ChatPage matchId={matchId} onBack={() => navigateTo('matches')} /> :
     page === 'profile' ? <ProfilePage /> :
-    <DiscoverPage />;
+    <DiscoverPage onNewMatches={notifyFromResponse} />;
 
   return (
-    <Layout currentPage={page} onNavigate={navigateTo}>
-      {content}
-    </Layout>
+    <>
+      <Layout currentPage={page} onNavigate={navigateTo}>
+        {content}
+      </Layout>
+      {alertMatches.length > 0 && (
+        <VenueMatchModal
+          matches={alertMatches}
+          onClose={dismissAlerts}
+          onOpenChat={handleOpenChatFromModal}
+        />
+      )}
+    </>
   );
 }
 
