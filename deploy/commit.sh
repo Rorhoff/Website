@@ -230,6 +230,8 @@ if [[ "$before" != "$after" ]] && ! git -C "$DEV_DIR" diff --quiet "$before" "$a
   needs_pip=1
 elif [[ -x "$DEV_DIR/.venv/bin/python" ]] && ! "$DEV_DIR/.venv/bin/python" -c "import passlib" 2>/dev/null; then
   needs_pip=1
+elif [[ -x "$DEV_DIR/.venv/bin/python" ]] && ! "$DEV_DIR/.venv/bin/python" -c "import pytest" 2>/dev/null; then
+  needs_pip=1
 fi
 if [[ "$needs_pip" -eq 1 ]]; then
   if [[ -x "$DEV_VENV_PIP" ]]; then

@@ -10,12 +10,28 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-if [[ -x "$ROOT/.venv/bin/pytest" ]]; then
-  PYTEST="$ROOT/.venv/bin/pytest"
-elif [[ -x /home/ubuntu/Website/.venv/bin/pytest ]]; then
-  PYTEST=/home/ubuntu/Website/.venv/bin/pytest
+if [[ -x "$ROOT/.venv/bin/python" ]]; then
+  PYTHON="$ROOT/.venv/bin/python"
+  PIP="$ROOT/.venv/bin/pip"
+elif [[ -x /home/ubuntu/Website/.venv/bin/python ]]; then
+  PYTHON=/home/ubuntu/Website/.venv/bin/python
+  PIP=/home/ubuntu/Website/.venv/bin/pip
 else
-  echo "ERR  pytest not found in .venv — run: $ROOT/.venv/bin/pip install -r requirements.txt" >&2
+  echo "ERR  .venv not found — run: python3 -m venv $ROOT/.venv && $ROOT/.venv/bin/pip install -r requirements.txt" >&2
+  exit 1
+fi
+
+if ! "$PYTHON" -c "import pytest" 2>/dev/null; then
+  echo "==> Installing test dependencies (pytest)…"
+  "$PIP" install -r "$ROOT/requirements.txt"
+fi
+
+PYTEST="$ROOT/.venv/bin/pytest"
+if [[ ! -x "$PYTEST" ]]; then
+  PYTEST="$(dirname "$PYTHON")/pytest"
+fi
+if [[ ! -x "$PYTEST" ]]; then
+  echo "ERR  pytest still missing after pip install — check $ROOT/requirements.txt" >&2
   exit 1
 fi
 

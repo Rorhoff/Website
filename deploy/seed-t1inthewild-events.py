@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import sys
 import uuid
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -79,7 +79,7 @@ DEMO_EVENTS = [
 def main() -> None:
     db = SessionLocal()
     try:
-        now = datetime.utcnow()
+        now = datetime.now(UTC).replace(tzinfo=None)
         created = 0
         updated = 0
         for ev in DEMO_EVENTS:
