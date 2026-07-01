@@ -27,6 +27,13 @@ import image_storage
 import email_service
 from credential_service import truncate_for_bcrypt
 from database import SessionLocal
+from itw_preferences import (
+    normalize_gender,
+    normalize_looking_for,
+    profile_preferences_complete,
+    profiles_compatible,
+    validate_birth_year as validate_birth_year_value,
+)
 from models import (
     T1IntheWildCheckIn,
     T1IntheWildEvent,
@@ -51,8 +58,6 @@ USERNAME_RE = re.compile(r"^[a-zA-Z0-9_]{3,32}$")
 MAX_AVATAR_BYTES = 4 * 1024 * 1024
 _INLINE_AVATAR_MAX_BYTES = 512 * 1024
 _DEV_LOUNGE_CATEGORY = "dev_lounge"
-_VALID_GENDERS = frozenset({"man", "woman", "nonbinary", "other"})
-_VALID_LOOKING_FOR = frozenset({"men", "women", "everyone", "nonbinary"})
 
 
 def _db():
@@ -72,50 +77,32 @@ def _is_full_dev_mode() -> bool:
 
 
 def _validate_birth_year(birth_year: int) -> None:
-    min_year = _now().year - 100
-    max_year = _now().year - 18
-    if birth_year < min_year or birth_year > max_year:
-        raise HTTPException(status_code=400, detail="You must be 18 or older to use In the Wild")
+    try:
+        validate_birth_year_value(birth_year)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 def _validate_gender(value: str) -> str:
-    v = value.strip().lower()
-    if v not in _VALID_GENDERS:
-        raise HTTPException(status_code=400, detail="Invalid gender selection")
-    return v
+    try:
+        return normalize_gender(value)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 def _validate_looking_for(value: str) -> str:
-    v = value.strip().lower()
-    if v not in _VALID_LOOKING_FOR:
-        raise HTTPException(status_code=400, detail="Invalid preference selection")
-    return v
+    try:
+        return normalize_looking_for(value)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 def _profile_preferences_complete(u: T1IntheWildUser) -> bool:
-    return bool(u.gender and u.looking_for)
-
-
-def _gender_matches_preference(gender: str, looking_for: str) -> bool:
-    if looking_for == "everyone":
-        return True
-    if not gender:
-        return False
-    if looking_for == "men":
-        return gender == "man"
-    if looking_for == "women":
-        return gender == "woman"
-    if looking_for == "nonbinary":
-        return gender in ("nonbinary", "other")
-    return False
+    return profile_preferences_complete(u.gender, u.looking_for)
 
 
 def _profiles_compatible(a: T1IntheWildUser, b: T1IntheWildUser) -> bool:
-    if not _profile_preferences_complete(a) or not _profile_preferences_complete(b):
-        return False
-    return _gender_matches_preference(b.gender, a.looking_for) and _gender_matches_preference(
-        a.gender, b.looking_for
-    )
+    return profiles_compatible(a.gender, a.looking_for, b.gender, b.looking_for)
 
 
 def _shrink_avatar_for_inline(content: bytes, content_type: str) -> tuple[bytes, str]:
