@@ -52,6 +52,6 @@ print("OK  create_all finished")
 PY
 
 echo "==> Seeding / refreshing demo events…"
-"$PYTHON" "$ROOT/deploy/seed-t1inthewild-events.py"
+PYTHONPATH="$ROOT" "$PYTHON" "$ROOT/deploy/seed-t1inthewild-events.py"
 
 echo "OK  In the Wild v1 migration complete."
