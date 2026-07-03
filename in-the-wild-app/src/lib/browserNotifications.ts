@@ -30,6 +30,11 @@ export function disableNotifications(): void {
   localStorage.removeItem(ENABLED_KEY);
 }
 
+export function syncNotificationsPreference(enabled: boolean): void {
+  if (enabled) localStorage.setItem(ENABLED_KEY, '1');
+  else localStorage.removeItem(ENABLED_KEY);
+}
+
 export function maybeNotifyVenueMatches(matches: Match[]): void {
   if (!notificationsSupported()) return;
   if (!notificationsEnabled() || Notification.permission !== 'granted') return;
@@ -38,8 +43,8 @@ export function maybeNotifyVenueMatches(matches: Match[]): void {
     if (match.status !== 'active' || match.seconds_remaining <= 0) continue;
     const name = match.other_user?.display_name || 'Someone';
     const eventName = match.event?.name || 'your event';
-    const notification = new Notification("You're both here!", {
-      body: `You and ${name} are both at ${eventName}. Say hello in person!`,
+    const notification = new Notification("You're both nearby!", {
+      body: `You and ${name} are within 100 feet at ${eventName}. Say hello in person!`,
       tag: `itw-match-${match.id}`,
     });
     notification.onclick = () => {

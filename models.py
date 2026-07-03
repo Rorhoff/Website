@@ -580,6 +580,7 @@ class T1IntheWildUser(Base):
     city: Mapped[str] = mapped_column(String(120), default="", server_default="")
     id_verified: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     background_verified: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    venue_match_alerts: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     is_suspended: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
@@ -688,6 +689,22 @@ class T1IntheWildEventPlanAlert(Base):
     __table_args__ = (
         UniqueConstraint("user_a_id", "user_b_id", "event_id", name="uq_itw_event_plan_alert"),
     )
+
+
+class T1IntheWildPushSubscription(Base):
+    """Web push subscription for venue proximity alerts (PWA / mobile browser)."""
+
+    __tablename__ = "t1inthewild_push_subscription"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("t1inthewild_user.id", ondelete="CASCADE"), index=True
+    )
+    endpoint: Mapped[str] = mapped_column(Text(), unique=True)
+    p256dh: Mapped[str] = mapped_column(String(200))
+    auth: Mapped[str] = mapped_column(String(100))
+    platform: Mapped[str] = mapped_column(String(32), default="web", server_default="web")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
 class T1IntheWildCheckIn(Base):

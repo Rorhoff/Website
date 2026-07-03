@@ -21,6 +21,7 @@ ITW_TABLES = (
     "t1inthewild_verification",
     "t1inthewild_user_report",
     "t1inthewild_user_block",
+    "t1inthewild_push_subscription",
     "t1inthewild_event_plan_alert",
     "t1inthewild_event_plan",
     "t1inthewild_match",

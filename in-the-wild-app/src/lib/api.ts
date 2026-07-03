@@ -196,8 +196,33 @@ export async function startIdVerification(): Promise<{ status: string; message: 
   return request('/verification/id/start', { method: 'POST' });
 }
 
-export async function fetchVerificationStatus(): Promise<{ id_verified: boolean; can_message: boolean }> {
+export async function fetchVerificationStatus(): Promise<{
+  id_verified: boolean;
+  can_message: boolean;
+  requires_both_verified?: boolean;
+}> {
   return request('/verification/status');
+}
+
+export async function fetchNotificationConfig(): Promise<{
+  push_enabled: boolean;
+  vapid_public_key: string | null;
+  proximity_feet: number;
+}> {
+  return request('/notifications/config', {}, false);
+}
+
+export async function subscribePush(body: {
+  endpoint: string;
+  p256dh: string;
+  auth: string;
+  platform?: string;
+}): Promise<{ ok: boolean }> {
+  return request('/notifications/push/subscribe', { method: 'POST', body: JSON.stringify(body) });
+}
+
+export async function unsubscribePush(): Promise<{ ok: boolean }> {
+  return request('/notifications/push/subscribe', { method: 'DELETE' });
 }
 
 export async function fetchAdminStats(): Promise<AdminStats> {

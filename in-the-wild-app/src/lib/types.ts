@@ -19,6 +19,7 @@ export type Profile = {
   city: string;
   id_verified: boolean;
   background_verified: boolean;
+  venue_match_alerts?: boolean;
   is_admin: boolean;
   active_check_in?: ActiveCheckIn | null;
 };

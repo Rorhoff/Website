@@ -1,14 +1,13 @@
-import { useRef, useState } from 'react';
-import { Bell, Camera, Shield, CheckCircle, Settings } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Bell, Camera, Shield, Settings } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import * as api from '../lib/api';
 import {
   disableNotifications,
   enableNotifications,
-  notificationPermission,
-  notificationsEnabled,
-  notificationsSupported,
+  syncNotificationsPreference,
 } from '../lib/browserNotifications';
+import { subscribeToPushNotifications, unsubscribeFromPushNotifications } from '../lib/pushNotifications';
 import { compressImageForUpload } from '../lib/resizeImage';
 import { GENDER_OPTIONS, LOOKING_FOR_OPTIONS } from '../lib/preferences';
 
@@ -28,8 +27,14 @@ export default function ProfilePage({ onOpenAdmin }: Props) {
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [verifyMsg, setVerifyMsg] = useState('');
-  const [notifyOn, setNotifyOn] = useState(notificationsEnabled());
+  const [notifyOn, setNotifyOn] = useState(Boolean(profile?.venue_match_alerts));
+  const [notifyBusy, setNotifyBusy] = useState(false);
   const [notifyMsg, setNotifyMsg] = useState('');
+
+  useEffect(() => {
+    setNotifyOn(Boolean(profile?.venue_match_alerts));
+    syncNotificationsPreference(Boolean(profile?.venue_match_alerts));
+  }, [profile?.venue_match_alerts]);
 
   if (!profile) return null;
 
@@ -59,21 +64,27 @@ export default function ProfilePage({ onOpenAdmin }: Props) {
   }
 
   async function handleNotifyToggle() {
+    if (notifyBusy) return;
     setNotifyMsg('');
-    if (notifyOn) {
-      disableNotifications();
-      setNotifyOn(false);
-      return;
-    }
-    const ok = await enableNotifications();
-    setNotifyOn(ok);
-    if (!ok) {
-      const perm = notificationPermission();
-      setNotifyMsg(
-        perm === 'denied'
-          ? 'Notifications blocked in browser settings.'
-          : 'Could not enable notifications.',
-      );
+    setNotifyBusy(true);
+    const next = !notifyOn;
+    try {
+      await api.updateProfile({ venue_match_alerts: next });
+      await refreshProfile();
+      setNotifyOn(next);
+      if (next) {
+        enableNotifications();
+        const push = await subscribeToPushNotifications();
+        if (push.message) setNotifyMsg(push.message);
+      } else {
+        disableNotifications();
+        await unsubscribeFromPushNotifications();
+      }
+    } catch (err) {
+      setNotifyMsg(err instanceof Error ? err.message : 'Could not update alerts');
+      setNotifyOn(Boolean(profile?.venue_match_alerts));
+    } finally {
+      setNotifyBusy(false);
     }
   }
 
@@ -133,47 +144,43 @@ export default function ProfilePage({ onOpenAdmin }: Props) {
           <p className="text-white font-bold text-lg">{profile.display_name}</p>
           <p className="text-stone-500 text-sm">@{profile.username}{profile.age ? ` · ${profile.age}` : ''}</p>
           <p className="text-stone-600 text-xs mt-1">{uploading ? 'Uploading…' : 'Tap photo to upload'}</p>
-          <div className="flex gap-2 mt-2 flex-wrap">
-            {profile.id_verified ? (
-              <span className="text-xs bg-emerald-950 text-emerald-400 px-2 py-0.5 rounded-full flex items-center gap-1">
-                <CheckCircle size={12} /> ID verified
-              </span>
-            ) : (
-              <span className="text-xs bg-amber-950 text-amber-400 px-2 py-0.5 rounded-full">ID required to chat</span>
-            )}
-          </div>
+          {profile.id_verified && (
+            <span className="inline-flex mt-2 text-xs bg-emerald-950 text-emerald-400 px-2 py-0.5 rounded-full items-center gap-1">
+              ID verified
+            </span>
+          )}
         </div>
       </div>
 
-      {notificationsSupported() && (
-        <div className="bg-stone-900 border border-stone-800 rounded-2xl p-4 mb-6">
-          <div className="flex items-center justify-between gap-4">
-            <div className="flex items-start gap-3">
-              <Bell size={18} className="text-emerald-400 mt-0.5 flex-shrink-0" />
-              <div>
-                <p className="text-white text-sm font-medium">Venue match alerts</p>
-                <p className="text-stone-500 text-xs mt-1">
-                  Browser notification when you and a mutual like are both at an event.
-                </p>
-              </div>
+      <div className="bg-stone-900 border border-stone-800 rounded-2xl p-4 mb-6">
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-start gap-3">
+            <Bell size={18} className="text-emerald-400 mt-0.5 flex-shrink-0" />
+            <div>
+              <p className="text-white text-sm font-medium">Venue match alerts</p>
+              <p className="text-stone-500 text-xs mt-1">
+                Push notification when a mutual match is within 100 feet at an event.
+                On iPhone/Android, add the app to your home screen first.
+              </p>
             </div>
-            <button
-              type="button"
-              onClick={handleNotifyToggle}
-              className={`relative w-14 h-8 rounded-full transition flex-shrink-0 ${
-                notifyOn ? 'bg-emerald-500' : 'bg-stone-700'
-              }`}
-            >
-              <span
-                className={`absolute top-1 w-6 h-6 bg-white rounded-full transition ${
-                  notifyOn ? 'left-7' : 'left-1'
-                }`}
-              />
-            </button>
           </div>
-          {notifyMsg && <p className="text-stone-400 text-xs mt-2">{notifyMsg}</p>}
+          <button
+            type="button"
+            onClick={handleNotifyToggle}
+            disabled={notifyBusy}
+            className={`relative w-14 h-8 rounded-full transition flex-shrink-0 disabled:opacity-50 ${
+              notifyOn ? 'bg-emerald-500' : 'bg-stone-700'
+            }`}
+          >
+            <span
+              className={`absolute top-1 w-6 h-6 bg-white rounded-full transition ${
+                notifyOn ? 'left-7' : 'left-1'
+              }`}
+            />
+          </button>
         </div>
-      )}
+        {notifyMsg && <p className="text-stone-400 text-xs mt-2">{notifyMsg}</p>}
+      </div>
 
       <div className="bg-stone-900 border border-stone-800 rounded-2xl p-4 mb-6">
         <div className="flex items-start gap-3">
@@ -181,7 +188,7 @@ export default function ProfilePage({ onOpenAdmin }: Props) {
           <div className="flex-1">
             <p className="text-white text-sm font-medium">Identity verification</p>
             <p className="text-stone-500 text-xs mt-1">
-              Both people must verify before venue chat unlocks. Stripe Identity coming soon — admins can verify manually during beta.
+              Optional during beta. Stripe Identity coming soon — admins can verify manually.
             </p>
             {!profile.id_verified && (
               <button

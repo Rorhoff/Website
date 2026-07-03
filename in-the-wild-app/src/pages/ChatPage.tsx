@@ -80,13 +80,10 @@ export default function ChatPage({ matchId, onBack }: Props) {
         <p className="text-red-400 text-sm mb-3 bg-red-950/30 rounded-xl px-3 py-2">{error}</p>
       )}
 
-      {sendBlocked && (
+      {sendBlocked && blockReason && (
         <div className="mb-4 flex items-start gap-2 bg-amber-950/40 border border-amber-800/50 rounded-xl px-3 py-3 text-amber-200 text-sm">
           <Shield size={16} className="flex-shrink-0 mt-0.5" />
-          <span>
-            {blockReason ||
-              'Verify your identity in Profile before sending messages. Both people must be verified to chat.'}
-          </span>
+          <span>{blockReason}</span>
         </div>
       )}
 
@@ -117,7 +114,7 @@ export default function ChatPage({ matchId, onBack }: Props) {
           disabled={secondsLeft <= 0 || sendBlocked}
           placeholder={
             sendBlocked
-              ? 'Chat locked until both verify ID'
+              ? 'Chat unavailable'
               : secondsLeft > 0
                 ? 'Quick hello…'
                 : 'Chat expired'

@@ -25,6 +25,7 @@ from sqlalchemy.orm import Session
 
 import image_storage
 import email_service
+import itw_push
 from credential_service import truncate_for_bcrypt
 from database import SessionLocal
 from itw_preferences import (
@@ -42,6 +43,7 @@ from models import (
     T1IntheWildLike,
     T1IntheWildMatch,
     T1IntheWildMessage,
+    T1IntheWildPushSubscription,
     T1IntheWildSession,
     T1IntheWildUser,
     T1IntheWildUserBlock,
@@ -60,6 +62,8 @@ USERNAME_RE = re.compile(r"^[a-zA-Z0-9_]{3,32}$")
 MAX_AVATAR_BYTES = 4 * 1024 * 1024
 _INLINE_AVATAR_MAX_BYTES = 512 * 1024
 _DEV_LOUNGE_CATEGORY = "dev_lounge"
+ID_VERIFY_REQUIRED_FOR_CHAT = False
+VENUE_MATCH_PROXIMITY_M = 30.48  # ~100 feet
 
 
 def _db():
@@ -159,6 +163,13 @@ def _match_other_user(match: T1IntheWildMatch, me_id: str, db: Session) -> T1Int
 
 def _chat_send_eligibility(user: T1IntheWildUser, match: T1IntheWildMatch, db: Session) -> dict[str, Any]:
     other = _match_other_user(match, user.id, db)
+    if not ID_VERIFY_REQUIRED_FOR_CHAT:
+        return {
+            "can_send": True,
+            "can_read": True,
+            "other_id_verified": bool(other and other.id_verified),
+            "block_reason": None,
+        }
     can_send = bool(user.id_verified and other and other.id_verified)
     reasons: list[str] = []
     if not user.id_verified:
@@ -206,6 +217,7 @@ def _profile_dict(u: T1IntheWildUser) -> dict[str, Any]:
         "city": u.city,
         "id_verified": u.id_verified,
         "background_verified": u.background_verified,
+        "venue_match_alerts": u.venue_match_alerts,
         "is_admin": u.is_admin,
     }
 
@@ -331,6 +343,21 @@ def _try_venue_matches(db: Session, user_id: str, event_id: str) -> list[str]:
     for other in others:
         if not _mutual_like(db, user_id, other.user_id):
             continue
+        event = db.get(T1IntheWildEvent, event_id)
+        skip_proximity = event and event.category == _DEV_LOUNGE_CATEGORY and _is_full_dev_mode()
+        if not skip_proximity:
+            if my_checkin.latitude is None or my_checkin.longitude is None:
+                continue
+            if other.latitude is None or other.longitude is None:
+                continue
+            dist = _haversine_m(
+                my_checkin.latitude,
+                my_checkin.longitude,
+                other.latitude,
+                other.longitude,
+            )
+            if dist > VENUE_MATCH_PROXIMITY_M:
+                continue
         ua, ub = _ordered_pair(user_id, other.user_id)
         existing = db.scalar(
             select(T1IntheWildMatch).where(
@@ -362,6 +389,7 @@ def _try_venue_matches(db: Session, user_id: str, event_id: str) -> list[str]:
 
 
 def _notify_venue_match_emails(db: Session, match_ids: list[str]) -> None:
+    base_url = email_service.itw_public_base_url()
     for match_id in match_ids:
         match = db.get(T1IntheWildMatch, match_id)
         if not match:
@@ -387,6 +415,29 @@ def _notify_venue_match_emails(db: Session, match_ids: list[str]) -> None:
                 )
             except Exception:
                 log.exception("Venue match email failed for match=%s user=%s", match_id, recipient.id)
+            if not recipient.venue_match_alerts:
+                continue
+            subs = db.scalars(
+                select(T1IntheWildPushSubscription).where(
+                    T1IntheWildPushSubscription.user_id == recipient.id
+                )
+            ).all()
+            push_title = f"{other_name} is nearby!"
+            push_body = (
+                f"You and {other_name} are both within 100 feet at {event_name}. "
+                "Say hello in person!"
+            )
+            push_url = f"{base_url}/#/matches"
+            for sub in subs:
+                itw_push.send_web_push(
+                    endpoint=sub.endpoint,
+                    p256dh=sub.p256dh,
+                    auth=sub.auth,
+                    title=push_title,
+                    body=push_body,
+                    url=push_url,
+                    tag=f"itw-match-{match_id}",
+                )
 
 
 def _event_plan_eligible(event: T1IntheWildEvent) -> bool:
@@ -578,6 +629,14 @@ class ProfilePatchBody(BaseModel):
     looking_for: str | None = None
     interests: list[str] | None = None
     city: str | None = None
+    venue_match_alerts: bool | None = None
+
+
+class PushSubscribeBody(BaseModel):
+    endpoint: str = Field(min_length=8, max_length=4000)
+    p256dh: str = Field(min_length=8, max_length=200)
+    auth: str = Field(min_length=8, max_length=100)
+    platform: str = Field(default="web", max_length=32)
 
 
 class SwipeBody(BaseModel):
@@ -791,6 +850,8 @@ def patch_me(
         user.interests = [i.strip()[:64] for i in body.interests if i.strip()][:20]
     if body.city is not None:
         user.city = body.city.strip()[:120]
+    if body.venue_match_alerts is not None:
+        user.venue_match_alerts = body.venue_match_alerts
     db.commit()
     db.refresh(user)
     return _profile_dict(user)
@@ -1352,9 +1413,68 @@ def verification_status(
     return {
         "id_verified": user.id_verified,
         "background_verified": user.background_verified,
-        "can_message": user.id_verified,
-        "requires_both_verified": True,
+        "can_message": True,
+        "requires_both_verified": ID_VERIFY_REQUIRED_FOR_CHAT,
     }
+
+
+@router.get("/notifications/config")
+def notifications_config():
+    return {
+        "push_enabled": itw_push.push_configured(),
+        "vapid_public_key": itw_push.vapid_public_key(),
+        "proximity_feet": 100,
+    }
+
+
+@router.post("/notifications/push/subscribe")
+def subscribe_push(
+    body: PushSubscribeBody,
+    authorization: Annotated[str | None, Header()] = None,
+    db: Session = Depends(_db),
+):
+    user = _get_user(db, authorization)
+    existing = db.scalar(
+        select(T1IntheWildPushSubscription).where(
+            T1IntheWildPushSubscription.endpoint == body.endpoint
+        )
+    )
+    if existing:
+        existing.user_id = user.id
+        existing.p256dh = body.p256dh
+        existing.auth = body.auth
+        existing.platform = body.platform.strip()[:32] or "web"
+    else:
+        db.add(
+            T1IntheWildPushSubscription(
+                id=str(uuid.uuid4()),
+                user_id=user.id,
+                endpoint=body.endpoint,
+                p256dh=body.p256dh,
+                auth=body.auth,
+                platform=body.platform.strip()[:32] or "web",
+            )
+        )
+    user.venue_match_alerts = True
+    db.commit()
+    return {"ok": True}
+
+
+@router.delete("/notifications/push/subscribe")
+def unsubscribe_push(
+    authorization: Annotated[str | None, Header()] = None,
+    db: Session = Depends(_db),
+):
+    user = _get_user(db, authorization)
+    subs = db.scalars(
+        select(T1IntheWildPushSubscription).where(
+            T1IntheWildPushSubscription.user_id == user.id
+        )
+    ).all()
+    for sub in subs:
+        db.delete(sub)
+    db.commit()
+    return {"ok": True}
 
 
 @router.post("/verification/id/start")

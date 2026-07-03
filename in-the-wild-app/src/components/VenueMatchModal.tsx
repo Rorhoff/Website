@@ -30,10 +30,10 @@ export default function VenueMatchModal({ matches, onClose, onOpenChat }: Props)
           <div className="w-16 h-16 bg-emerald-600/20 rounded-full flex items-center justify-center mx-auto mb-4">
             <Heart size={32} className="text-emerald-400" fill="currentColor" />
           </div>
-          <h2 className="text-2xl font-bold text-white mb-2">You&apos;re both here!</h2>
+          <h2 className="text-2xl font-bold text-white mb-2">You&apos;re both nearby!</h2>
           <p className="text-stone-400 text-sm leading-relaxed">
-            You and <span className="text-white font-medium">{name}</span> both liked each other
-            and opted in at <span className="text-emerald-400">{eventName}</span>.
+            You and <span className="text-white font-medium">{name}</span> are within 100 feet at{' '}
+            <span className="text-emerald-400">{eventName}</span>.
           </p>
         </div>
 
