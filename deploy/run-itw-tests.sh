@@ -31,4 +31,9 @@ fi
 export SERVICE_MODE="${SERVICE_MODE:-full}"
 export EMAIL_DEV_LOG_ONLY="${EMAIL_DEV_LOG_ONLY:-1}"
 
+if [[ -n "${DATABASE_URL:-}" ]]; then
+  echo "==> Ensuring In the Wild schema is up to date…"
+  "$PYTHON" -c "from database import engine; from itw_schema_upgrade import ensure_itw_schema; ensure_itw_schema(engine)"
+fi
+
 exec "$PYTEST" itw-test/ "$@"

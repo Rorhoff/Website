@@ -43,16 +43,14 @@ def itw_db_engine():
     if not database_configured():
         pytest.skip("DATABASE_URL not set — skipping In the Wild integration tests")
     import models  # noqa: F401
-    from database import Base, engine
+    from database import engine
+    from itw_schema_upgrade import ensure_itw_schema
     from sqlalchemy import inspect
 
     if engine is None:
         pytest.skip("Database engine unavailable")
 
-    itw_table_objects = [
-        t for t in Base.metadata.sorted_tables if t.name.startswith("t1inthewild_")
-    ]
-    Base.metadata.create_all(engine, tables=itw_table_objects)
+    ensure_itw_schema(engine)
 
     missing = [
         name
@@ -60,7 +58,7 @@ def itw_db_engine():
         if name not in inspect(engine).get_table_names()
     ]
     if missing:
-        pytest.skip(f"In the Wild tables missing after create_all: {missing}")
+        pytest.skip(f"In the Wild tables missing after schema upgrade: {missing}")
 
     yield engine
 

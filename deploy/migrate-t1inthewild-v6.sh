@@ -15,34 +15,13 @@ referrall_load_migration_env
 
 echo "==> In the Wild v6 (city geocode + user events)…"
 "$PYTHON" - <<'PY'
-import models  # noqa: F401
-from database import Base, engine
-from sqlalchemy import inspect, text
+from database import engine
+from itw_schema_upgrade import ensure_itw_schema
+from sqlalchemy import inspect
 
 if engine is None:
     raise SystemExit("DATABASE_URL not set")
-Base.metadata.create_all(bind=engine)
-
-with engine.begin() as conn:
-    conn.execute(
-        text(
-            "ALTER TABLE t1inthewild_user "
-            "ADD COLUMN IF NOT EXISTS city_latitude DOUBLE PRECISION"
-        )
-    )
-    conn.execute(
-        text(
-            "ALTER TABLE t1inthewild_user "
-            "ADD COLUMN IF NOT EXISTS city_longitude DOUBLE PRECISION"
-        )
-    )
-    conn.execute(
-        text(
-            "ALTER TABLE t1inthewild_event "
-            "ADD COLUMN IF NOT EXISTS created_by_user_id VARCHAR(36) "
-            "REFERENCES t1inthewild_user(id) ON DELETE SET NULL"
-        )
-    )
+ensure_itw_schema(engine)
 
 user_cols = {c["name"] for c in inspect(engine).get_columns("t1inthewild_user")}
 event_cols = {c["name"] for c in inspect(engine).get_columns("t1inthewild_event")}
