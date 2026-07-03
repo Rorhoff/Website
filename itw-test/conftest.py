@@ -134,6 +134,24 @@ def verify_user_id(db_session, user_id: str) -> None:
     db_session.commit()
 
 
+def set_user_city_coords(
+    db_session,
+    user_id: str,
+    latitude: float,
+    longitude: float,
+    *,
+    city: str = "Portland",
+) -> None:
+    from models import T1IntheWildUser
+
+    user = db_session.get(T1IntheWildUser, user_id)
+    assert user is not None
+    user.city = city
+    user.city_latitude = latitude
+    user.city_longitude = longitude
+    db_session.commit()
+
+
 def seed_dev_lounge_event(db_session) -> dict:
     from models import T1IntheWildEvent
 

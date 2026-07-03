@@ -578,6 +578,8 @@ class T1IntheWildUser(Base):
     looking_for: Mapped[str] = mapped_column(String(32), default="", server_default="")
     interests: Mapped[list[Any]] = mapped_column(JSONB, default=list, server_default="[]")
     city: Mapped[str] = mapped_column(String(120), default="", server_default="")
+    city_latitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    city_longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
     id_verified: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     background_verified: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     venue_match_alerts: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
@@ -646,6 +648,9 @@ class T1IntheWildEvent(Base):
     starts_at: Mapped[datetime] = mapped_column(DateTime, index=True)
     ends_at: Mapped[datetime] = mapped_column(DateTime, index=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    created_by_user_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("t1inthewild_user.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 

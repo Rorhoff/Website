@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import base64
 import logging
-import math
 import os
 import re
 import secrets
@@ -25,9 +24,16 @@ from sqlalchemy.orm import Session
 
 import image_storage
 import email_service
+import itw_geocode
 import itw_push
 from credential_service import truncate_for_bcrypt
 from database import SessionLocal
+from itw_events import (
+    EVENT_DISCOVERY_RADIUS_M,
+    EVENT_DISCOVERY_RADIUS_MILES,
+    event_within_radius,
+    is_duplicate_submission,
+)
 from itw_preferences import (
     compatibility_pct,
     interest_overlap_pct,
@@ -194,12 +200,94 @@ def _require_can_send_message(user: T1IntheWildUser, match: T1IntheWildMatch, db
 
 
 def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-    r = 6371000.0
-    p1, p2 = math.radians(lat1), math.radians(lat2)
-    dphi = math.radians(lat2 - lat1)
-    dlmb = math.radians(lon2 - lon1)
-    a = math.sin(dphi / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dlmb / 2) ** 2
-    return 2 * r * math.asin(math.sqrt(a))
+    from itw_events import haversine_m
+
+    return haversine_m(lat1, lon1, lat2, lon2)
+
+
+def _sync_user_city_coords(user: T1IntheWildUser, db: Session) -> None:
+    city = (user.city or "").strip()
+    if not city:
+        user.city_latitude = None
+        user.city_longitude = None
+        db.commit()
+        return
+    coords = itw_geocode.geocode_city(city)
+    if coords:
+        user.city_latitude, user.city_longitude = coords
+    else:
+        user.city_latitude = None
+        user.city_longitude = None
+    db.commit()
+    db.refresh(user)
+
+
+def _find_duplicate_event(
+    db: Session,
+    *,
+    name: str,
+    venue_name: str,
+    city: str,
+    starts_at: datetime,
+) -> T1IntheWildEvent | None:
+    candidates = db.scalars(
+        select(T1IntheWildEvent).where(
+            T1IntheWildEvent.is_active.is_(True),
+            T1IntheWildEvent.ends_at >= _now() - timedelta(days=1),
+        )
+    ).all()
+    for event in candidates:
+        if is_duplicate_submission(
+            existing_name=event.name,
+            existing_venue=event.venue_name,
+            existing_city=event.city,
+            existing_starts=event.starts_at,
+            submit_name=name,
+            submit_venue=venue_name,
+            submit_city=city,
+            submit_starts=starts_at,
+        ):
+            return event
+    return None
+
+
+def _filter_events_for_user(
+    events: list[T1IntheWildEvent],
+    user: T1IntheWildUser | None,
+    going_ids: set[str],
+) -> tuple[list[T1IntheWildEvent], dict[str, Any]]:
+    meta: dict[str, Any] = {
+        "radius_miles": EVENT_DISCOVERY_RADIUS_MILES,
+        "city": (user.city or "").strip() if user else "",
+        "needs_city": False,
+        "geocode_ok": False,
+    }
+    if not user or not (user.city or "").strip():
+        meta["needs_city"] = True
+        visible = [e for e in events if e.category == _DEV_LOUNGE_CATEGORY or e.id in going_ids]
+        return visible, meta
+
+    if user.city_latitude is None or user.city_longitude is None:
+        meta["geocode_ok"] = False
+        visible = [e for e in events if e.category == _DEV_LOUNGE_CATEGORY or e.id in going_ids]
+        return visible, meta
+
+    lat, lng = user.city_latitude, user.city_longitude
+    meta["geocode_ok"] = True
+    visible: list[T1IntheWildEvent] = []
+    seen: set[str] = set()
+    for event in events:
+        if event.id in seen:
+            continue
+        include = (
+            event.category == _DEV_LOUNGE_CATEGORY
+            or event.id in going_ids
+            or event_within_radius(event.latitude, event.longitude, lat, lng, EVENT_DISCOVERY_RADIUS_M)
+        )
+        if include:
+            visible.append(event)
+            seen.add(event.id)
+    return visible, meta
 
 
 def _profile_dict(u: T1IntheWildUser) -> dict[str, Any]:
@@ -225,8 +313,14 @@ def _profile_dict(u: T1IntheWildUser) -> dict[str, Any]:
     }
 
 
-def _event_dict(e: T1IntheWildEvent, *, is_going: bool = False, can_plan: bool = False) -> dict[str, Any]:
-    return {
+def _event_dict(
+    e: T1IntheWildEvent,
+    *,
+    is_going: bool = False,
+    can_plan: bool = False,
+    distance_miles: float | None = None,
+) -> dict[str, Any]:
+    out = {
         "id": e.id,
         "name": e.name,
         "description": e.description,
@@ -240,7 +334,11 @@ def _event_dict(e: T1IntheWildEvent, *, is_going: bool = False, can_plan: bool =
         "ends_at": e.ends_at.isoformat() if e.ends_at else None,
         "is_going": is_going,
         "can_plan": can_plan,
+        "user_submitted": bool(e.created_by_user_id),
     }
+    if distance_miles is not None:
+        out["distance_miles"] = round(distance_miles, 1)
+    return out
 
 
 def _match_dict(m: T1IntheWildMatch, me_id: str, db: Session) -> dict[str, Any]:
@@ -642,6 +740,18 @@ class PushSubscribeBody(BaseModel):
     platform: str = Field(default="web", max_length=32)
 
 
+class UserSubmitEventBody(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    description: str = Field(default="", max_length=5000)
+    venue_name: str = Field(min_length=1, max_length=200)
+    city: str = Field(min_length=1, max_length=120)
+    latitude: float | None = None
+    longitude: float | None = None
+    starts_at: datetime
+    ends_at: datetime
+    category: str = Field(default="community", max_length=32)
+
+
 class SwipeBody(BaseModel):
     target_id: str
     action: str = Field(pattern="^(like|pass)$")
@@ -853,10 +963,15 @@ def patch_me(
         user.interests = [i.strip()[:64] for i in body.interests if i.strip()][:20]
     if body.city is not None:
         user.city = body.city.strip()[:120]
+        user.city_latitude = None
+        user.city_longitude = None
     if body.venue_match_alerts is not None:
         user.venue_match_alerts = body.venue_match_alerts
     db.commit()
-    db.refresh(user)
+    if body.city is not None and user.city:
+        _sync_user_city_coords(user, db)
+    else:
+        db.refresh(user)
     return _profile_dict(user)
 
 
@@ -877,11 +992,15 @@ def list_events(
         )
         .order_by(T1IntheWildEvent.starts_at)
     ).all()
+    user: T1IntheWildUser | None = None
     going_ids: set[str] = set()
     if authorization and authorization.lower().startswith("bearer "):
         token = authorization[7:].strip()
         sess = db.get(T1IntheWildSession, token)
         if sess and sess.expires_at > now:
+            user = db.get(T1IntheWildUser, sess.user_id)
+            if user and user.city and (user.city_latitude is None or user.city_longitude is None):
+                _sync_user_city_coords(user, db)
             going_ids = set(
                 db.scalars(
                     select(T1IntheWildEventPlan.event_id).where(
@@ -889,15 +1008,87 @@ def list_events(
                     )
                 ).all()
             )
-    return {
-        "events": [
+    visible, meta = _filter_events_for_user(events, user, going_ids)
+    center_lat = user.city_latitude if user else None
+    center_lng = user.city_longitude if user else None
+    out_events = []
+    for e in visible:
+        dist_miles = None
+        if center_lat is not None and center_lng is not None:
+            dist_miles = _haversine_m(center_lat, center_lng, e.latitude, e.longitude) / 1609.344
+        out_events.append(
             _event_dict(
                 e,
                 is_going=e.id in going_ids,
                 can_plan=_event_plan_eligible(e),
+                distance_miles=dist_miles,
             )
-            for e in events
-        ]
+        )
+    return {"events": out_events, "filter": meta}
+
+
+@router.post("/events")
+def submit_event(
+    body: UserSubmitEventBody,
+    authorization: Annotated[str | None, Header()] = None,
+    db: Session = Depends(_db),
+):
+    user = _get_user(db, authorization)
+    if body.ends_at <= body.starts_at:
+        raise HTTPException(status_code=400, detail="End time must be after start time")
+    if body.ends_at <= _now():
+        raise HTTPException(status_code=400, detail="Event must end in the future")
+
+    duplicate = _find_duplicate_event(
+        db,
+        name=body.name,
+        venue_name=body.venue_name,
+        city=body.city,
+        starts_at=body.starts_at,
+    )
+    if duplicate:
+        return {
+            "ok": True,
+            "already_exists": True,
+            "message": "This event is already on the list.",
+            "event": _event_dict(duplicate, can_plan=_event_plan_eligible(duplicate)),
+        }
+
+    lat, lng = body.latitude, body.longitude
+    if lat is None or lng is None:
+        coords = itw_geocode.geocode_city(f"{body.venue_name}, {body.city}")
+        if not coords:
+            coords = itw_geocode.geocode_city(body.city)
+        if not coords:
+            raise HTTPException(
+                status_code=400,
+                detail="Could not locate that city. Try adding latitude and longitude.",
+            )
+        lat, lng = coords
+
+    event = T1IntheWildEvent(
+        id=str(uuid.uuid4()),
+        name=body.name.strip()[:200],
+        description=body.description.strip()[:5000],
+        venue_name=body.venue_name.strip()[:200],
+        city=body.city.strip()[:120],
+        latitude=lat,
+        longitude=lng,
+        radius_m=300,
+        category=(body.category or "community").strip()[:32],
+        starts_at=body.starts_at,
+        ends_at=body.ends_at,
+        is_active=True,
+        created_by_user_id=user.id,
+    )
+    db.add(event)
+    db.commit()
+    db.refresh(event)
+    return {
+        "ok": True,
+        "already_exists": False,
+        "message": "Event added — you and others nearby can mark that you're going.",
+        "event": _event_dict(event, can_plan=_event_plan_eligible(event)),
     }
 
 

@@ -1,4 +1,4 @@
-import type { AdminReport, AdminStats, ChatMessage, EventPlanOverlap, Match, PendingLike, Profile, WildEvent } from './types';
+import type { AdminReport, AdminStats, ChatMessage, EventPlanOverlap, EventsFilterMeta, Match, PendingLike, Profile, WildEvent } from './types';
 
 export * from './types';
 
@@ -131,8 +131,22 @@ export async function fetchPendingLikes(): Promise<{ likes: PendingLike[] }> {
   return request('/likes/pending');
 }
 
-export async function fetchEvents(): Promise<{ events: WildEvent[] }> {
+export async function fetchEvents(): Promise<{ events: WildEvent[]; filter: EventsFilterMeta }> {
   return request('/events');
+}
+
+export async function submitEvent(body: {
+  name: string;
+  description?: string;
+  venue_name: string;
+  city: string;
+  starts_at: string;
+  ends_at: string;
+  latitude?: number;
+  longitude?: number;
+  category?: string;
+}): Promise<{ ok: boolean; already_exists: boolean; message: string; event: WildEvent }> {
+  return request('/events', { method: 'POST', body: JSON.stringify(body) });
 }
 
 export async function checkIn(eventId: string, lat: number, lng: number) {

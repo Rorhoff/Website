@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { CalendarCheck, MapPin, Radio } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import * as api from '../lib/api';
-import { CATEGORY_LABELS, type EventPlanOverlap, type Match, type WildEvent } from '../lib/types';
+import { CATEGORY_LABELS, type EventPlanOverlap, type EventsFilterMeta, type Match, type WildEvent } from '../lib/types';
 
 type Props = {
   onNewMatches: (matches: Match[]) => void;
@@ -12,6 +12,7 @@ type Props = {
 export default function EventsPage({ onNewMatches, onNewOverlaps }: Props) {
   const { profile, refreshProfile } = useAuth();
   const [events, setEvents] = useState<WildEvent[]>([]);
+  const [eventsFilter, setEventsFilter] = useState<EventsFilterMeta | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState('');
   const [msg, setMsg] = useState('');
@@ -19,8 +20,9 @@ export default function EventsPage({ onNewMatches, onNewOverlaps }: Props) {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const { events: e } = await api.fetchEvents();
+      const { events: e, filter } = await api.fetchEvents();
       setEvents(e);
+      setEventsFilter(filter);
     } finally {
       setLoading(false);
     }
@@ -198,6 +200,16 @@ export default function EventsPage({ onNewMatches, onNewOverlaps }: Props) {
       <h1 className="text-xl font-bold text-white mb-1">Events</h1>
       <p className="text-stone-500 text-sm mb-6">
         Mark events you&apos;re attending, then check in when you arrive. Opt in only when you want to meet.
+        {eventsFilter && !eventsFilter.needs_city && eventsFilter.geocode_ok && eventsFilter.city && (
+          <span className="block mt-1 text-stone-600 text-xs">
+            Showing events within {eventsFilter.radius_miles} miles of {eventsFilter.city}.
+          </span>
+        )}
+        {eventsFilter?.needs_city && (
+          <span className="block mt-1 text-amber-500/90 text-xs">
+            Set your city in Profile to see events within 50 miles.
+          </span>
+        )}
       </p>
 
       {checkIn && (

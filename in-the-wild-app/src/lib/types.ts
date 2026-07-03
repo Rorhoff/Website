@@ -42,6 +42,15 @@ export type WildEvent = {
   ends_at: string | null;
   is_going?: boolean;
   can_plan?: boolean;
+  distance_miles?: number;
+  user_submitted?: boolean;
+};
+
+export type EventsFilterMeta = {
+  radius_miles: number;
+  city: string;
+  needs_city: boolean;
+  geocode_ok: boolean;
 };
 
 export type EventPlanOverlap = {

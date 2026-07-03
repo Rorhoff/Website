@@ -10,7 +10,7 @@ import {
 import { subscribeToPushNotifications, unsubscribeFromPushNotifications } from '../lib/pushNotifications';
 import { compressImageForUpload } from '../lib/resizeImage';
 import { GENDER_OPTIONS, LOOKING_FOR_OPTIONS } from '../lib/preferences';
-import { CATEGORY_LABELS, type EventPlanOverlap, type WildEvent } from '../lib/types';
+import { CATEGORY_LABELS, type EventPlanOverlap, type EventsFilterMeta, type WildEvent } from '../lib/types';
 
 function formatEventDate(iso: string | null | undefined): string {
   if (!iso) return 'Date TBA';
@@ -47,14 +47,26 @@ export default function ProfilePage({ onOpenAdmin, onNewOverlaps }: Props) {
   const [eventBusy, setEventBusy] = useState('');
   const [eventMsg, setEventMsg] = useState('');
   const [showAddEvents, setShowAddEvents] = useState(false);
+  const [showSubmitEvent, setShowSubmitEvent] = useState(false);
+  const [submitBusy, setSubmitBusy] = useState(false);
+  const [eventsFilter, setEventsFilter] = useState<EventsFilterMeta | null>(null);
+  const [submitForm, setSubmitForm] = useState({
+    name: '',
+    venue_name: '',
+    city: profile?.city || '',
+    description: '',
+    starts_at: '',
+    ends_at: '',
+  });
 
   const loadEventPlans = useCallback(async () => {
     setEventsLoading(true);
     try {
-      const [{ plans }, { events }] = await Promise.all([
+      const [{ plans }, { events, filter }] = await Promise.all([
         api.fetchEventPlans(),
         api.fetchEvents(),
       ]);
+      setEventsFilter(filter);
       const planned = plans.map(p => p.event);
       const plannedIds = new Set(planned.map(e => e.id));
       setPlannedEvents(planned);
@@ -72,6 +84,12 @@ export default function ProfilePage({ onOpenAdmin, onNewOverlaps }: Props) {
     setNotifyOn(Boolean(profile?.venue_match_alerts));
     syncNotificationsPreference(Boolean(profile?.venue_match_alerts));
   }, [profile?.venue_match_alerts]);
+
+  useEffect(() => {
+    if (profile?.city) {
+      setSubmitForm(f => ({ ...f, city: profile.city }));
+    }
+  }, [profile?.city]);
 
   if (!profile) return null;
 
@@ -155,6 +173,37 @@ export default function ProfilePage({ onOpenAdmin, onNewOverlaps }: Props) {
       setEventMsg(err instanceof Error ? err.message : 'Could not remove event');
     } finally {
       setEventBusy('');
+    }
+  }
+
+  async function handleSubmitEvent(e: React.FormEvent) {
+    e.preventDefault();
+    setSubmitBusy(true);
+    setEventMsg('');
+    try {
+      const res = await api.submitEvent({
+        name: submitForm.name,
+        venue_name: submitForm.venue_name,
+        city: submitForm.city,
+        description: submitForm.description,
+        starts_at: new Date(submitForm.starts_at).toISOString(),
+        ends_at: new Date(submitForm.ends_at).toISOString(),
+      });
+      await loadEventPlans();
+      setShowSubmitEvent(false);
+      setSubmitForm(f => ({ ...f, name: '', venue_name: '', description: '', starts_at: '', ends_at: '' }));
+      setEventMsg(res.message);
+      if (!res.already_exists && res.event.can_plan) {
+        const planRes = await api.addEventPlan(res.event.id);
+        if (planRes.new_overlaps?.length) onNewOverlaps?.(planRes.new_overlaps);
+        else if (!res.already_exists) {
+          setEventMsg(`${res.message} Added to your calendar.`);
+        }
+      }
+    } catch (err) {
+      setEventMsg(err instanceof Error ? err.message : 'Could not submit event');
+    } finally {
+      setSubmitBusy(false);
     }
   }
 
@@ -280,7 +329,8 @@ export default function ProfilePage({ onOpenAdmin, onNewOverlaps }: Props) {
           <div className="flex-1">
             <p className="text-white text-sm font-medium">Upcoming events</p>
             <p className="text-stone-500 text-xs mt-1">
-              Events you&apos;re planning to attend. Mutual matches going to the same event get notified.
+              Events within 50 miles of your city that you&apos;re planning to attend.
+              {eventsFilter?.needs_city && ' Set your city below to see nearby events.'}
             </p>
           </div>
         </div>
@@ -355,8 +405,77 @@ export default function ProfilePage({ onOpenAdmin, onNewOverlaps }: Props) {
         )}
 
         {!eventsLoading && addableEvents.length === 0 && plannedEvents.length > 0 && (
-          <p className="text-stone-600 text-xs">All available events are on your calendar.</p>
+          <p className="text-stone-600 text-xs">All nearby events are on your calendar.</p>
         )}
+
+        <div className="mt-4 pt-4 border-t border-stone-800">
+          <button
+            type="button"
+            onClick={() => setShowSubmitEvent(v => !v)}
+            className="flex items-center gap-1.5 text-sm text-emerald-400 font-medium hover:text-emerald-300"
+          >
+            {showSubmitEvent ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+            Submit your own event
+          </button>
+          {showSubmitEvent && (
+            <form onSubmit={handleSubmitEvent} className="mt-3 space-y-3">
+              <input
+                required
+                value={submitForm.name}
+                onChange={e => setSubmitForm(f => ({ ...f, name: e.target.value }))}
+                placeholder="Event name"
+                className="w-full bg-stone-950 border border-stone-700 rounded-xl px-3 py-2.5 text-white text-sm"
+              />
+              <input
+                required
+                value={submitForm.venue_name}
+                onChange={e => setSubmitForm(f => ({ ...f, venue_name: e.target.value }))}
+                placeholder="Venue"
+                className="w-full bg-stone-950 border border-stone-700 rounded-xl px-3 py-2.5 text-white text-sm"
+              />
+              <input
+                required
+                value={submitForm.city}
+                onChange={e => setSubmitForm(f => ({ ...f, city: e.target.value }))}
+                placeholder="City"
+                className="w-full bg-stone-950 border border-stone-700 rounded-xl px-3 py-2.5 text-white text-sm"
+              />
+              <textarea
+                value={submitForm.description}
+                onChange={e => setSubmitForm(f => ({ ...f, description: e.target.value }))}
+                placeholder="Description (optional)"
+                rows={2}
+                className="w-full bg-stone-950 border border-stone-700 rounded-xl px-3 py-2.5 text-white text-sm"
+              />
+              <div className="grid grid-cols-2 gap-2">
+                <input
+                  required
+                  type="datetime-local"
+                  value={submitForm.starts_at}
+                  onChange={e => setSubmitForm(f => ({ ...f, starts_at: e.target.value }))}
+                  className="w-full bg-stone-950 border border-stone-700 rounded-xl px-3 py-2.5 text-white text-sm"
+                />
+                <input
+                  required
+                  type="datetime-local"
+                  value={submitForm.ends_at}
+                  onChange={e => setSubmitForm(f => ({ ...f, ends_at: e.target.value }))}
+                  className="w-full bg-stone-950 border border-stone-700 rounded-xl px-3 py-2.5 text-white text-sm"
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={submitBusy}
+                className="w-full bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 text-white text-sm font-medium rounded-xl py-2.5"
+              >
+                {submitBusy ? 'Submitting…' : 'Add event to list'}
+              </button>
+              <p className="text-stone-600 text-xs">
+                We&apos;ll check if someone already added this event before creating a duplicate.
+              </p>
+            </form>
+          )}
+        </div>
 
         {eventMsg && <p className="text-stone-400 text-xs mt-3">{eventMsg}</p>}
       </div>
