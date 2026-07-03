@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Heart, X, Ban, Flag } from 'lucide-react';
+import { Heart, MapPin, Sparkles, X, Ban, Flag } from 'lucide-react';
 import * as api from '../lib/api';
 import type { EventPlanOverlap, Match, Profile } from '../lib/types';
 import { genderLabel } from '../lib/preferences';
@@ -129,7 +129,29 @@ export default function DiscoverPage({ onNewMatches, onNewOverlaps, onOpenProfil
               {(current.display_name || '?').charAt(0)}
             </div>
           )}
+          <div className="absolute top-4 right-4 flex flex-col items-end gap-1">
+            {typeof current.compatibility_pct === 'number' && (
+              <div className="bg-stone-950/90 border border-emerald-700/50 rounded-2xl px-3 py-2 text-right backdrop-blur-sm">
+                <p className="text-emerald-400 text-lg font-bold leading-none flex items-center gap-1.5 justify-end">
+                  <Sparkles size={16} />
+                  {current.compatibility_pct}%
+                </p>
+                <p className="text-stone-400 text-[10px] mt-1 uppercase tracking-wide">match</p>
+              </div>
+            )}
+          </div>
           <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-stone-950 via-stone-950/80 to-transparent p-6 pt-20">
+            {typeof current.compatibility_pct === 'number' && (
+              <div className="flex flex-wrap gap-2 mb-3 text-xs">
+                <span className="bg-stone-900/80 text-stone-300 px-2.5 py-1 rounded-full">
+                  Interests {current.interest_match_pct ?? 0}%
+                </span>
+                <span className="bg-stone-900/80 text-stone-300 px-2.5 py-1 rounded-full flex items-center gap-1">
+                  <MapPin size={11} />
+                  Vicinity {current.vicinity_pct ?? 0}%
+                </span>
+              </div>
+            )}
             <h2 className="text-2xl font-bold text-white">
               {current.display_name}
               {current.age ? `, ${current.age}` : ''}
@@ -141,11 +163,23 @@ export default function DiscoverPage({ onNewMatches, onNewOverlaps, onOpenProfil
             {current.bio && <p className="text-stone-300 text-sm mt-2 line-clamp-2">{current.bio}</p>}
             {current.interests?.length > 0 && (
               <div className="flex flex-wrap gap-2 mt-3">
-                {current.interests.slice(0, 5).map(i => (
-                  <span key={i} className="text-xs bg-stone-800 text-stone-300 px-2.5 py-1 rounded-full">
-                    {i}
-                  </span>
-                ))}
+                {current.interests.slice(0, 5).map(i => {
+                  const shared = current.shared_interests?.some(
+                    s => s.toLowerCase() === i.toLowerCase(),
+                  );
+                  return (
+                    <span
+                      key={i}
+                      className={`text-xs px-2.5 py-1 rounded-full ${
+                        shared
+                          ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-700/50'
+                          : 'bg-stone-800 text-stone-300'
+                      }`}
+                    >
+                      {i}
+                    </span>
+                  );
+                })}
               </div>
             )}
           </div>

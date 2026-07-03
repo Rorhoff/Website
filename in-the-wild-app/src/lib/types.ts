@@ -21,6 +21,10 @@ export type Profile = {
   background_verified: boolean;
   venue_match_alerts?: boolean;
   is_admin: boolean;
+  compatibility_pct?: number;
+  interest_match_pct?: number;
+  vicinity_pct?: number;
+  shared_interests?: string[];
   active_check_in?: ActiveCheckIn | null;
 };
 

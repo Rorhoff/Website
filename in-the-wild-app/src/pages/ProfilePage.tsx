@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
-import { Bell, Camera, Shield, Settings } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Bell, Calendar, Camera, ChevronDown, ChevronUp, MapPin, Shield, Settings, X } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import * as api from '../lib/api';
 import {
@@ -10,12 +10,23 @@ import {
 import { subscribeToPushNotifications, unsubscribeFromPushNotifications } from '../lib/pushNotifications';
 import { compressImageForUpload } from '../lib/resizeImage';
 import { GENDER_OPTIONS, LOOKING_FOR_OPTIONS } from '../lib/preferences';
+import { CATEGORY_LABELS, type EventPlanOverlap, type WildEvent } from '../lib/types';
+
+function formatEventDate(iso: string | null | undefined): string {
+  if (!iso) return 'Date TBA';
+  return new Date(iso).toLocaleDateString(undefined, {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+  });
+}
 
 type Props = {
   onOpenAdmin?: () => void;
+  onNewOverlaps?: (overlaps: EventPlanOverlap[]) => void;
 };
 
-export default function ProfilePage({ onOpenAdmin }: Props) {
+export default function ProfilePage({ onOpenAdmin, onNewOverlaps }: Props) {
   const { profile, refreshProfile } = useAuth();
   const fileRef = useRef<HTMLInputElement>(null);
   const [bio, setBio] = useState(profile?.bio || '');
@@ -30,6 +41,32 @@ export default function ProfilePage({ onOpenAdmin }: Props) {
   const [notifyOn, setNotifyOn] = useState(Boolean(profile?.venue_match_alerts));
   const [notifyBusy, setNotifyBusy] = useState(false);
   const [notifyMsg, setNotifyMsg] = useState('');
+  const [plannedEvents, setPlannedEvents] = useState<WildEvent[]>([]);
+  const [addableEvents, setAddableEvents] = useState<WildEvent[]>([]);
+  const [eventsLoading, setEventsLoading] = useState(true);
+  const [eventBusy, setEventBusy] = useState('');
+  const [eventMsg, setEventMsg] = useState('');
+  const [showAddEvents, setShowAddEvents] = useState(false);
+
+  const loadEventPlans = useCallback(async () => {
+    setEventsLoading(true);
+    try {
+      const [{ plans }, { events }] = await Promise.all([
+        api.fetchEventPlans(),
+        api.fetchEvents(),
+      ]);
+      const planned = plans.map(p => p.event);
+      const plannedIds = new Set(planned.map(e => e.id));
+      setPlannedEvents(planned);
+      setAddableEvents(events.filter(e => e.can_plan && !plannedIds.has(e.id)));
+    } finally {
+      setEventsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadEventPlans();
+  }, [loadEventPlans]);
 
   useEffect(() => {
     setNotifyOn(Boolean(profile?.venue_match_alerts));
@@ -85,6 +122,39 @@ export default function ProfilePage({ onOpenAdmin }: Props) {
       setNotifyOn(Boolean(profile?.venue_match_alerts));
     } finally {
       setNotifyBusy(false);
+    }
+  }
+
+  async function handleAddEventPlan(event: WildEvent) {
+    setEventBusy(event.id);
+    setEventMsg('');
+    try {
+      const res = await api.addEventPlan(event.id);
+      await loadEventPlans();
+      setShowAddEvents(false);
+      if (res.new_overlaps?.length) {
+        onNewOverlaps?.(res.new_overlaps);
+      } else {
+        setEventMsg(`Added ${event.name} — we'll notify you if a match is going too.`);
+      }
+    } catch (err) {
+      setEventMsg(err instanceof Error ? err.message : 'Could not add event');
+    } finally {
+      setEventBusy('');
+    }
+  }
+
+  async function handleRemoveEventPlan(event: WildEvent) {
+    setEventBusy(event.id);
+    setEventMsg('');
+    try {
+      await api.removeEventPlan(event.id);
+      await loadEventPlans();
+      setEventMsg(`Removed ${event.name}.`);
+    } catch (err) {
+      setEventMsg(err instanceof Error ? err.message : 'Could not remove event');
+    } finally {
+      setEventBusy('');
     }
   }
 
@@ -202,6 +272,93 @@ export default function ProfilePage({ onOpenAdmin }: Props) {
             {verifyMsg && <p className="text-stone-400 text-xs mt-2">{verifyMsg}</p>}
           </div>
         </div>
+      </div>
+
+      <div className="bg-stone-900 border border-stone-800 rounded-2xl p-4 mb-6">
+        <div className="flex items-start gap-3 mb-4">
+          <Calendar size={18} className="text-sky-400 mt-0.5 flex-shrink-0" />
+          <div className="flex-1">
+            <p className="text-white text-sm font-medium">Upcoming events</p>
+            <p className="text-stone-500 text-xs mt-1">
+              Events you&apos;re planning to attend. Mutual matches going to the same event get notified.
+            </p>
+          </div>
+        </div>
+
+        {eventsLoading ? (
+          <p className="text-stone-500 text-sm">Loading events…</p>
+        ) : plannedEvents.length === 0 ? (
+          <p className="text-stone-500 text-sm mb-3">No events on your calendar yet.</p>
+        ) : (
+          <ul className="space-y-2 mb-3">
+            {plannedEvents.map(event => (
+              <li
+                key={event.id}
+                className="flex items-start gap-3 bg-stone-950/60 border border-sky-900/40 rounded-xl px-3 py-3"
+              >
+                <MapPin size={16} className="text-sky-400 mt-0.5 flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-white text-sm font-medium truncate">{event.name}</p>
+                  <p className="text-stone-500 text-xs">
+                    {formatEventDate(event.starts_at)} · {event.venue_name || event.city}
+                  </p>
+                  {event.category && (
+                    <span className="inline-block mt-1 text-xs bg-stone-800 text-stone-400 px-2 py-0.5 rounded-full">
+                      {CATEGORY_LABELS[event.category] || event.category}
+                    </span>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleRemoveEventPlan(event)}
+                  disabled={eventBusy === event.id}
+                  className="text-stone-500 hover:text-stone-300 p-1 disabled:opacity-50"
+                  aria-label={`Remove ${event.name}`}
+                >
+                  <X size={16} />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {addableEvents.length > 0 && (
+          <div>
+            <button
+              type="button"
+              onClick={() => setShowAddEvents(v => !v)}
+              className="flex items-center gap-1.5 text-sm text-sky-400 font-medium hover:text-sky-300"
+            >
+              {showAddEvents ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+              Add an event
+            </button>
+            {showAddEvents && (
+              <ul className="mt-3 space-y-2 max-h-48 overflow-y-auto">
+                {addableEvents.map(event => (
+                  <li key={event.id}>
+                    <button
+                      type="button"
+                      onClick={() => handleAddEventPlan(event)}
+                      disabled={eventBusy === event.id}
+                      className="w-full text-left bg-stone-950 border border-stone-800 hover:border-stone-700 disabled:opacity-50 rounded-xl px-3 py-3 transition"
+                    >
+                      <p className="text-white text-sm font-medium">{event.name}</p>
+                      <p className="text-stone-500 text-xs">
+                        {formatEventDate(event.starts_at)} · {event.venue_name || event.city}
+                      </p>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+
+        {!eventsLoading && addableEvents.length === 0 && plannedEvents.length > 0 && (
+          <p className="text-stone-600 text-xs">All available events are on your calendar.</p>
+        )}
+
+        {eventMsg && <p className="text-stone-400 text-xs mt-3">{eventMsg}</p>}
       </div>
 
       <form onSubmit={handleSave} className="space-y-4">

@@ -29,11 +29,14 @@ import itw_push
 from credential_service import truncate_for_bcrypt
 from database import SessionLocal
 from itw_preferences import (
+    compatibility_pct,
+    interest_overlap_pct,
     normalize_gender,
     normalize_looking_for,
     profile_preferences_complete,
     profiles_compatible,
     validate_birth_year as validate_birth_year_value,
+    vicinity_score_pct,
 )
 from models import (
     T1IntheWildCheckIn,
@@ -1016,8 +1019,56 @@ def discover(
         T1IntheWildUser.id.notin_(exclude) if exclude else True,
     )
     candidates = db.scalars(q.limit(limit * 8)).all()
-    compatible = [u for u in candidates if _profiles_compatible(user, u)]
-    profiles = [_profile_dict(u) for u in compatible[:limit]]
+    compatible = [u for u in candidates if _profiles_compatible(user, u)][:limit]
+    if not compatible:
+        return {"profiles": [], "needs_preferences": False}
+
+    candidate_ids = [u.id for u in compatible]
+    viewer_plan_ids = set(
+        db.scalars(
+            select(T1IntheWildEventPlan.event_id).where(T1IntheWildEventPlan.user_id == user.id)
+        ).all()
+    )
+    plan_rows = db.execute(
+        select(T1IntheWildEventPlan.user_id, T1IntheWildEventPlan.event_id).where(
+            T1IntheWildEventPlan.user_id.in_(candidate_ids)
+        )
+    ).all()
+    plans_by_user: dict[str, set[str]] = {uid: set() for uid in candidate_ids}
+    for uid, event_id in plan_rows:
+        plans_by_user.setdefault(uid, set()).add(event_id)
+
+    now = _now()
+    checkin_rows = db.execute(
+        select(T1IntheWildCheckIn.user_id, T1IntheWildCheckIn.event_id).where(
+            T1IntheWildCheckIn.user_id.in_([user.id, *candidate_ids]),
+            T1IntheWildCheckIn.expires_at > now,
+        )
+    ).all()
+    checkin_event_by_user = {uid: eid for uid, eid in checkin_rows}
+    viewer_checkin_event = checkin_event_by_user.get(user.id)
+
+    profiles: list[dict[str, Any]] = []
+    for u in compatible:
+        profile = _profile_dict(u)
+        interest_pct, shared_interests = interest_overlap_pct(user.interests, u.interests)
+        shared_plans = len(viewer_plan_ids & plans_by_user.get(u.id, set()))
+        same_event = bool(
+            viewer_checkin_event
+            and checkin_event_by_user.get(u.id) == viewer_checkin_event
+        )
+        vicinity_pct = vicinity_score_pct(
+            viewer_city=user.city or "",
+            candidate_city=u.city or "",
+            shared_planned_events=shared_plans,
+            same_check_in_event=same_event,
+        )
+        profile["interest_match_pct"] = interest_pct
+        profile["vicinity_pct"] = vicinity_pct
+        profile["compatibility_pct"] = compatibility_pct(interest_pct, vicinity_pct)
+        profile["shared_interests"] = shared_interests
+        profiles.append(profile)
+
     return {"profiles": profiles, "needs_preferences": False}
 
 

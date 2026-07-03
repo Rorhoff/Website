@@ -123,6 +123,10 @@ export async function removeEventPlan(eventId: string): Promise<{ ok: boolean; i
   return request(`/events/${eventId}/plan`, { method: 'DELETE' });
 }
 
+export async function fetchEventPlans(): Promise<{ plans: Array<{ event_id: string; event: WildEvent }> }> {
+  return request('/event-plans');
+}
+
 export async function fetchPendingLikes(): Promise<{ likes: PendingLike[] }> {
   return request('/likes/pending');
 }

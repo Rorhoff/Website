@@ -147,7 +147,12 @@ function AppInner() {
     ) :
     page === 'matches' ? <MatchesPage onOpenChat={openChat} /> :
     page === 'chat' && matchId ? <ChatPage matchId={matchId} onBack={() => navigateTo('matches')} /> :
-    page === 'profile' ? <ProfilePage onOpenAdmin={() => navigateTo('admin')} /> :
+    page === 'profile' ? (
+      <ProfilePage
+        onOpenAdmin={() => navigateTo('admin')}
+        onNewOverlaps={notifyOverlapsFromResponse}
+      />
+    ) :
     page === 'admin' ? <AdminPage onBack={() => navigateTo('profile')} /> :
     <DiscoverPage
       onNewMatches={notifyFromResponse}

@@ -61,3 +61,59 @@ def profiles_compatible(
     return gender_matches_preference(b_gender, a_looking_for) and gender_matches_preference(
         a_gender, b_looking_for
     )
+
+
+def _normalize_interests(interests: list[str] | None) -> set[str]:
+    return {i.strip().lower() for i in (interests or []) if i and i.strip()}
+
+
+def interest_overlap_pct(
+    a_interests: list[str] | None,
+    b_interests: list[str] | None,
+) -> tuple[int, list[str]]:
+    """Jaccard similarity 0–100 plus shared interest labels (original casing from b)."""
+    sa = _normalize_interests(a_interests)
+    sb_raw = [i.strip() for i in (b_interests or []) if i and i.strip()]
+    sb = {i.lower() for i in sb_raw}
+    if not sa and not sb:
+        return 50, []
+    if not sa or not sb:
+        return 0, []
+    shared_keys = sa & sb
+    union = sa | sb
+    pct = round(len(shared_keys) / len(union) * 100)
+    shared_display = [i for i in sb_raw if i.lower() in shared_keys]
+    return pct, shared_display
+
+
+def vicinity_score_pct(
+    *,
+    viewer_city: str,
+    candidate_city: str,
+    shared_planned_events: int = 0,
+    same_check_in_event: bool = False,
+) -> int:
+    """City + shared event plans + same active check-in."""
+    if same_check_in_event:
+        return 100
+    city_a = (viewer_city or "").strip().lower()
+    city_b = (candidate_city or "").strip().lower()
+    if city_a and city_b:
+        city_pct = 100 if city_a == city_b else 0
+    elif city_a or city_b:
+        city_pct = 40
+    else:
+        city_pct = 50
+
+    if shared_planned_events >= 2:
+        event_pct = 100
+    elif shared_planned_events == 1:
+        event_pct = 85
+    else:
+        event_pct = city_pct
+
+    return round(0.6 * city_pct + 0.4 * event_pct)
+
+
+def compatibility_pct(interests_pct: int, vicinity_pct: int) -> int:
+    return round(0.55 * interests_pct + 0.45 * vicinity_pct)

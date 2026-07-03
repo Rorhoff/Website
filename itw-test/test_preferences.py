@@ -3,12 +3,15 @@
 import pytest
 
 from itw_preferences import (
+    compatibility_pct,
     gender_matches_preference,
+    interest_overlap_pct,
     normalize_gender,
     normalize_looking_for,
     profile_preferences_complete,
     profiles_compatible,
     validate_birth_year,
+    vicinity_score_pct,
 )
 
 
@@ -87,3 +90,38 @@ class TestProfilesCompatible:
 
     def test_nonbinary_seeking_nonbinary(self):
         assert profiles_compatible("nonbinary", "nonbinary", "other", "nonbinary")
+
+
+class TestCompatibilityScoring:
+    def test_interest_overlap_jaccard(self):
+        pct, shared = interest_overlap_pct(
+            ["Hiking", "Coffee", "Live Music"],
+            ["coffee", "yoga", "Live music"],
+        )
+        assert pct == 50
+        assert "coffee" in [s.lower() for s in shared]
+        assert "Live music" in shared
+
+    def test_interest_overlap_empty_both_neutral(self):
+        assert interest_overlap_pct([], []) == (50, [])
+
+    def test_vicinity_same_city(self):
+        assert vicinity_score_pct(viewer_city="Salt Lake City", candidate_city="salt lake city") == 100
+
+    def test_vicinity_shared_event_plan(self):
+        score = vicinity_score_pct(
+            viewer_city="Denver",
+            candidate_city="Boulder",
+            shared_planned_events=1,
+        )
+        assert score >= 34
+
+    def test_vicinity_same_check_in(self):
+        assert vicinity_score_pct(
+            viewer_city="",
+            candidate_city="",
+            same_check_in_event=True,
+        ) == 100
+
+    def test_compatibility_blend(self):
+        assert compatibility_pct(80, 60) == 71
