@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import Layout from './components/Layout';
+import EventPlanOverlapModal from './components/EventPlanOverlapModal';
 import VenueMatchModal from './components/VenueMatchModal';
 import LandingPage from './pages/LandingPage';
 import AuthPage from './pages/AuthPage';
@@ -10,6 +11,7 @@ import MatchesPage from './pages/MatchesPage';
 import ChatPage from './pages/ChatPage';
 import ProfilePage from './pages/ProfilePage';
 import AdminPage from './pages/AdminPage';
+import { useEventPlanAlerts } from './hooks/useEventPlanAlerts';
 import { useMatchAlerts } from './hooks/useMatchAlerts';
 import { markMatchesSeen } from './lib/matchAlerts';
 import type { Match } from './lib/types';
@@ -36,6 +38,11 @@ function AppInner() {
   const [matchId, setMatchId] = useState<string | null>(null);
   const navSynced = useRef(false);
   const { alertMatches, notifyFromResponse, dismissAlerts } = useMatchAlerts(!!profile);
+  const {
+    alertOverlaps,
+    notifyFromResponse: notifyOverlapsFromResponse,
+    dismissAlerts: dismissOverlapAlerts,
+  } = useEventPlanAlerts();
 
   const applyNav = useCallback((state: AppNavState) => {
     setPage(state.page);
@@ -125,13 +132,27 @@ function AppInner() {
   }
 
   const content =
-    page === 'discover' ? <DiscoverPage onNewMatches={notifyFromResponse} onOpenProfile={() => navigateTo('profile')} /> :
-    page === 'events' ? <EventsPage onNewMatches={notifyFromResponse} /> :
+    page === 'discover' ? (
+      <DiscoverPage
+        onNewMatches={notifyFromResponse}
+        onNewOverlaps={notifyOverlapsFromResponse}
+        onOpenProfile={() => navigateTo('profile')}
+      />
+    ) :
+    page === 'events' ? (
+      <EventsPage
+        onNewMatches={notifyFromResponse}
+        onNewOverlaps={notifyOverlapsFromResponse}
+      />
+    ) :
     page === 'matches' ? <MatchesPage onOpenChat={openChat} /> :
     page === 'chat' && matchId ? <ChatPage matchId={matchId} onBack={() => navigateTo('matches')} /> :
     page === 'profile' ? <ProfilePage onOpenAdmin={() => navigateTo('admin')} /> :
     page === 'admin' ? <AdminPage onBack={() => navigateTo('profile')} /> :
-    <DiscoverPage onNewMatches={notifyFromResponse} />;
+    <DiscoverPage
+      onNewMatches={notifyFromResponse}
+      onNewOverlaps={notifyOverlapsFromResponse}
+    />;
 
   return (
     <>
@@ -143,6 +164,16 @@ function AppInner() {
           matches={alertMatches}
           onClose={dismissAlerts}
           onOpenChat={handleOpenChatFromModal}
+        />
+      )}
+      {alertOverlaps.length > 0 && (
+        <EventPlanOverlapModal
+          overlaps={alertOverlaps}
+          onClose={dismissOverlapAlerts}
+          onViewEvents={() => {
+            dismissOverlapAlerts();
+            navigateTo('events');
+          }}
         />
       )}
     </>

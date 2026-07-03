@@ -21,6 +21,8 @@ ITW_TABLES = (
     "t1inthewild_verification",
     "t1inthewild_user_report",
     "t1inthewild_user_block",
+    "t1inthewild_event_plan_alert",
+    "t1inthewild_event_plan",
     "t1inthewild_match",
     "t1inthewild_check_in",
     "t1inthewild_like",
@@ -153,3 +155,27 @@ def seed_dev_lounge_event(db_session) -> dict:
     db_session.add(event)
     db_session.commit()
     return {"id": event_id, "latitude": event.latitude, "longitude": event.longitude}
+
+
+def seed_future_event(db_session, *, name: str = "Summer Fest") -> dict:
+    from models import T1IntheWildEvent
+
+    event_id = str(uuid.uuid4())
+    now = datetime.utcnow()
+    event = T1IntheWildEvent(
+        id=event_id,
+        name=name,
+        description="Future integration test event",
+        venue_name="Park Pavilion",
+        city="Test City",
+        latitude=40.7608,
+        longitude=-111.8910,
+        radius_m=300,
+        category="festival",
+        starts_at=now + timedelta(days=14),
+        ends_at=now + timedelta(days=14, hours=8),
+        is_active=True,
+    )
+    db_session.add(event)
+    db_session.commit()
+    return {"id": event_id, "name": name}

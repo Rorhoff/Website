@@ -648,6 +648,48 @@ class T1IntheWildEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
+class T1IntheWildEventPlan(Base):
+    """User marked as planning to attend a future event."""
+
+    __tablename__ = "t1inthewild_event_plan"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("t1inthewild_user.id", ondelete="CASCADE"), index=True
+    )
+    event_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("t1inthewild_event.id", ondelete="CASCADE"), index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "event_id", name="uq_itw_event_plan_user_event"),
+        Index("ix_itw_event_plan_event_id", "event_id"),
+    )
+
+
+class T1IntheWildEventPlanAlert(Base):
+    """Tracks event-plan overlap notifications sent to a mutual-like pair."""
+
+    __tablename__ = "t1inthewild_event_plan_alert"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    user_a_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("t1inthewild_user.id", ondelete="CASCADE"), index=True
+    )
+    user_b_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("t1inthewild_user.id", ondelete="CASCADE"), index=True
+    )
+    event_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("t1inthewild_event.id", ondelete="CASCADE"), index=True
+    )
+    notified_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("user_a_id", "user_b_id", "event_id", name="uq_itw_event_plan_alert"),
+    )
+
+
 class T1IntheWildCheckIn(Base):
     __tablename__ = "t1inthewild_check_in"
 

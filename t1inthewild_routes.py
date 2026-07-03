@@ -37,6 +37,8 @@ from itw_preferences import (
 from models import (
     T1IntheWildCheckIn,
     T1IntheWildEvent,
+    T1IntheWildEventPlan,
+    T1IntheWildEventPlanAlert,
     T1IntheWildLike,
     T1IntheWildMatch,
     T1IntheWildMessage,
@@ -208,7 +210,7 @@ def _profile_dict(u: T1IntheWildUser) -> dict[str, Any]:
     }
 
 
-def _event_dict(e: T1IntheWildEvent) -> dict[str, Any]:
+def _event_dict(e: T1IntheWildEvent, *, is_going: bool = False, can_plan: bool = False) -> dict[str, Any]:
     return {
         "id": e.id,
         "name": e.name,
@@ -221,6 +223,8 @@ def _event_dict(e: T1IntheWildEvent) -> dict[str, Any]:
         "category": e.category,
         "starts_at": e.starts_at.isoformat() if e.starts_at else None,
         "ends_at": e.ends_at.isoformat() if e.ends_at else None,
+        "is_going": is_going,
+        "can_plan": can_plan,
     }
 
 
@@ -383,6 +387,124 @@ def _notify_venue_match_emails(db: Session, match_ids: list[str]) -> None:
                 )
             except Exception:
                 log.exception("Venue match email failed for match=%s user=%s", match_id, recipient.id)
+
+
+def _event_plan_eligible(event: T1IntheWildEvent) -> bool:
+    if event.category == _DEV_LOUNGE_CATEGORY:
+        return False
+    return bool(event.is_active and event.ends_at > _now())
+
+
+def _format_event_starts(event: T1IntheWildEvent) -> str:
+    if not event.starts_at:
+        return "soon"
+    return event.starts_at.strftime("%b %d, %Y")
+
+
+def _send_event_plan_overlap_emails(
+    user_a: T1IntheWildUser,
+    user_b: T1IntheWildUser,
+    event: T1IntheWildEvent,
+) -> None:
+    starts = _format_event_starts(event)
+    pairs = (
+        (user_a, user_b.display_name or user_b.username),
+        (user_b, user_a.display_name or user_a.username),
+    )
+    for recipient, other_name in pairs:
+        try:
+            email_service.send_itw_event_plan_overlap_email(
+                to=recipient.email,
+                recipient_name=recipient.display_name or recipient.username,
+                other_name=other_name,
+                event_name=event.name,
+                event_starts=starts,
+            )
+        except Exception:
+            log.exception(
+                "Event plan overlap email failed event=%s user=%s",
+                event.id,
+                recipient.id,
+            )
+
+
+def _overlap_dict(event: T1IntheWildEvent, other: T1IntheWildUser) -> dict[str, Any]:
+    return {
+        "event": _event_dict(event),
+        "other_user": _profile_dict(other),
+    }
+
+
+def _try_event_plan_overlaps(
+    db: Session,
+    user_id: str,
+    event_id: str | None = None,
+) -> list[dict[str, Any]]:
+    """Notify mutual likes who share a planned event. Returns new overlaps for this user."""
+    hidden = _hidden_user_ids(db, user_id)
+    me = db.get(T1IntheWildUser, user_id)
+    if not me:
+        return []
+
+    if event_id:
+        event_ids = [event_id]
+    else:
+        event_ids = list(
+            db.scalars(
+                select(T1IntheWildEventPlan.event_id).where(T1IntheWildEventPlan.user_id == user_id)
+            ).all()
+        )
+
+    created: list[dict[str, Any]] = []
+    for eid in event_ids:
+        if not db.scalar(
+            select(T1IntheWildEventPlan.id).where(
+                T1IntheWildEventPlan.user_id == user_id,
+                T1IntheWildEventPlan.event_id == eid,
+            )
+        ):
+            continue
+        event = db.get(T1IntheWildEvent, eid)
+        if not event or not _event_plan_eligible(event):
+            continue
+
+        others = db.scalars(
+            select(T1IntheWildEventPlan.user_id).where(
+                T1IntheWildEventPlan.event_id == eid,
+                T1IntheWildEventPlan.user_id != user_id,
+            )
+        ).all()
+        for other_id in others:
+            if other_id in hidden:
+                continue
+            if not _mutual_like(db, user_id, other_id):
+                continue
+            ua, ub = _ordered_pair(user_id, other_id)
+            existing = db.scalar(
+                select(T1IntheWildEventPlanAlert.id).where(
+                    T1IntheWildEventPlanAlert.user_a_id == ua,
+                    T1IntheWildEventPlanAlert.user_b_id == ub,
+                    T1IntheWildEventPlanAlert.event_id == eid,
+                )
+            )
+            if existing:
+                continue
+            other = db.get(T1IntheWildUser, other_id)
+            if not other or other.is_suspended:
+                continue
+            db.add(
+                T1IntheWildEventPlanAlert(
+                    id=str(uuid.uuid4()),
+                    user_a_id=ua,
+                    user_b_id=ub,
+                    event_id=eid,
+                    notified_at=_now(),
+                )
+            )
+            db.commit()
+            _send_event_plan_overlap_emails(me, other, event)
+            created.append(_overlap_dict(event, other))
+    return created
 
 
 def _try_all_venue_matches(db: Session, user_id: str) -> list[str]:
@@ -675,7 +797,10 @@ def patch_me(
 
 
 @router.get("/events")
-def list_events(db: Session = Depends(_db)):
+def list_events(
+    authorization: Annotated[str | None, Header()] = None,
+    db: Session = Depends(_db),
+):
     ready, err = _schema_ready(db)
     if not ready:
         raise HTTPException(status_code=503, detail=err)
@@ -688,7 +813,116 @@ def list_events(db: Session = Depends(_db)):
         )
         .order_by(T1IntheWildEvent.starts_at)
     ).all()
-    return {"events": [_event_dict(e) for e in events]}
+    going_ids: set[str] = set()
+    if authorization and authorization.lower().startswith("bearer "):
+        token = authorization[7:].strip()
+        sess = db.get(T1IntheWildSession, token)
+        if sess and sess.expires_at > now:
+            going_ids = set(
+                db.scalars(
+                    select(T1IntheWildEventPlan.event_id).where(
+                        T1IntheWildEventPlan.user_id == sess.user_id
+                    )
+                ).all()
+            )
+    return {
+        "events": [
+            _event_dict(
+                e,
+                is_going=e.id in going_ids,
+                can_plan=_event_plan_eligible(e),
+            )
+            for e in events
+        ]
+    }
+
+
+@router.get("/event-plans")
+def list_event_plans(
+    authorization: Annotated[str | None, Header()] = None,
+    db: Session = Depends(_db),
+):
+    user = _get_user(db, authorization)
+    plans = db.scalars(
+        select(T1IntheWildEventPlan)
+        .where(T1IntheWildEventPlan.user_id == user.id)
+        .order_by(T1IntheWildEventPlan.created_at.desc())
+    ).all()
+    out = []
+    for plan in plans:
+        event = db.get(T1IntheWildEvent, plan.event_id)
+        if not event:
+            continue
+        out.append(
+            {
+                "event_id": plan.event_id,
+                "created_at": plan.created_at.isoformat(),
+                "event": _event_dict(event, is_going=True, can_plan=_event_plan_eligible(event)),
+            }
+        )
+    return {"plans": out}
+
+
+@router.post("/events/{event_id}/plan")
+def add_event_plan(
+    event_id: str,
+    authorization: Annotated[str | None, Header()] = None,
+    db: Session = Depends(_db),
+):
+    user = _get_user(db, authorization)
+    event = db.get(T1IntheWildEvent, event_id)
+    if not event or not event.is_active:
+        raise HTTPException(status_code=404, detail="Event not found")
+    if not _event_plan_eligible(event):
+        raise HTTPException(status_code=400, detail="This event cannot be added to your plans")
+    existing = db.scalar(
+        select(T1IntheWildEventPlan).where(
+            T1IntheWildEventPlan.user_id == user.id,
+            T1IntheWildEventPlan.event_id == event_id,
+        )
+    )
+    if not existing:
+        db.add(
+            T1IntheWildEventPlan(
+                id=str(uuid.uuid4()),
+                user_id=user.id,
+                event_id=event_id,
+            )
+        )
+        db.commit()
+    overlaps = _try_event_plan_overlaps(db, user.id, event_id)
+    return {
+        "ok": True,
+        "is_going": True,
+        "event": _event_dict(event, is_going=True, can_plan=True),
+        "new_overlaps": overlaps,
+    }
+
+
+@router.delete("/events/{event_id}/plan")
+def remove_event_plan(
+    event_id: str,
+    authorization: Annotated[str | None, Header()] = None,
+    db: Session = Depends(_db),
+):
+    user = _get_user(db, authorization)
+    plan = db.scalar(
+        select(T1IntheWildEventPlan).where(
+            T1IntheWildEventPlan.user_id == user.id,
+            T1IntheWildEventPlan.event_id == event_id,
+        )
+    )
+    if plan:
+        db.delete(plan)
+        db.commit()
+    event = db.get(T1IntheWildEvent, event_id)
+    return {
+        "ok": True,
+        "is_going": False,
+        "event": _event_dict(event, is_going=False, can_plan=_event_plan_eligible(event))
+        if event
+        else None,
+    }
 
 
 @router.get("/discover")
@@ -766,13 +1000,16 @@ def swipe(
     db.commit()
     mutual = body.action == "like" and _mutual_like(db, user.id, body.target_id)
     new_ids: list[str] = []
+    new_overlaps: list[dict[str, Any]] = []
     if mutual:
         new_ids = _try_all_venue_matches(db, user.id)
+        new_overlaps = _try_event_plan_overlaps(db, user.id)
     return {
         "ok": True,
         "mutual_like": mutual,
         "message": "Like saved — meet at an event to connect!" if mutual and not new_ids else None,
         "new_matches": _matches_by_ids(db, new_ids, user.id),
+        "new_overlaps": new_overlaps,
     }
 
 

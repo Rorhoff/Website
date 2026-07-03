@@ -1,4 +1,4 @@
-import type { AdminReport, AdminStats, ChatMessage, Match, PendingLike, Profile, WildEvent } from './types';
+import type { AdminReport, AdminStats, ChatMessage, EventPlanOverlap, Match, PendingLike, Profile, WildEvent } from './types';
 
 export * from './types';
 
@@ -101,8 +101,26 @@ export async function fetchDiscover(): Promise<{
 export async function swipe(
   targetId: string,
   action: 'like' | 'pass',
-): Promise<{ mutual_like: boolean; message?: string; new_matches: Match[] }> {
+): Promise<{
+  mutual_like: boolean;
+  message?: string;
+  new_matches: Match[];
+  new_overlaps?: EventPlanOverlap[];
+}> {
   return request('/swipe', { method: 'POST', body: JSON.stringify({ target_id: targetId, action }) });
+}
+
+export async function addEventPlan(eventId: string): Promise<{
+  ok: boolean;
+  is_going: boolean;
+  event: WildEvent;
+  new_overlaps: EventPlanOverlap[];
+}> {
+  return request(`/events/${eventId}/plan`, { method: 'POST' });
+}
+
+export async function removeEventPlan(eventId: string): Promise<{ ok: boolean; is_going: boolean }> {
+  return request(`/events/${eventId}/plan`, { method: 'DELETE' });
 }
 
 export async function fetchPendingLikes(): Promise<{ likes: PendingLike[] }> {
@@ -110,7 +128,7 @@ export async function fetchPendingLikes(): Promise<{ likes: PendingLike[] }> {
 }
 
 export async function fetchEvents(): Promise<{ events: WildEvent[] }> {
-  return request('/events', {}, false);
+  return request('/events');
 }
 
 export async function checkIn(eventId: string, lat: number, lng: number) {

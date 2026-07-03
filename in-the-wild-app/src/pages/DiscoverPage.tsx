@@ -1,15 +1,16 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Heart, X, Ban, Flag } from 'lucide-react';
 import * as api from '../lib/api';
-import type { Match, Profile } from '../lib/types';
+import type { EventPlanOverlap, Match, Profile } from '../lib/types';
 import { genderLabel } from '../lib/preferences';
 
 type Props = {
   onNewMatches: (matches: Match[]) => void;
+  onNewOverlaps: (overlaps: EventPlanOverlap[]) => void;
   onOpenProfile?: () => void;
 };
 
-export default function DiscoverPage({ onNewMatches, onOpenProfile }: Props) {
+export default function DiscoverPage({ onNewMatches, onNewOverlaps, onOpenProfile }: Props) {
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [index, setIndex] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -40,6 +41,9 @@ export default function DiscoverPage({ onNewMatches, onOpenProfile }: Props) {
       const res = await api.swipe(current.id, action);
       if (res.new_matches?.length) {
         onNewMatches(res.new_matches);
+      }
+      if (res.new_overlaps?.length) {
+        onNewOverlaps(res.new_overlaps);
       } else if (res.mutual_like) {
         setToast('Mutual like! Check in at an event and turn on Open to Meeting.');
       } else if (action === 'like') {

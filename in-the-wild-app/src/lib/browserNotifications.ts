@@ -50,3 +50,26 @@ export function maybeNotifyVenueMatches(matches: Match[]): void {
     };
   }
 }
+
+export function maybeNotifyEventPlanOverlaps(
+  overlaps: Array<{ event: { id: string; name?: string }; other_user: { id: string; display_name?: string } | null }>,
+): void {
+  if (!notificationsSupported()) return;
+  if (!notificationsEnabled() || Notification.permission !== 'granted') return;
+
+  for (const overlap of overlaps) {
+    const name = overlap.other_user?.display_name || 'Someone';
+    const eventName = overlap.event?.name || 'an event';
+    const tag = `itw-plan-${overlap.event.id}-${overlap.other_user?.id || 'x'}`;
+    const notification = new Notification("You're both going!", {
+      body: `You and ${name} are both planning to attend ${eventName}.`,
+      tag,
+    });
+    notification.onclick = () => {
+      window.focus();
+      const url = `${window.location.pathname}${navStateToUrl({ page: 'events', matchId: null })}`;
+      window.history.pushState({ page: 'events', matchId: null }, '', url);
+      notification.close();
+    };
+  }
+}

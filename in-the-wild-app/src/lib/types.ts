@@ -35,6 +35,13 @@ export type WildEvent = {
   category: string;
   starts_at: string | null;
   ends_at: string | null;
+  is_going?: boolean;
+  can_plan?: boolean;
+};
+
+export type EventPlanOverlap = {
+  event: WildEvent;
+  other_user: Profile | null;
 };
 
 export type Match = {
