@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Fragment } from 'react';
 import * as api from '../lib/api';
 import type { Post, Profile, SeekerPost } from '../lib/types';
 import { AVAILABILITY_LABELS } from '../lib/types';
@@ -7,7 +7,7 @@ import { isPremiumActive } from '../lib/premium';
 import {
   Briefcase, MapPin, ExternalLink, MessageSquare,
   Wifi, X, Search, Tag, Building, Star,
-  User, Filter, ChevronRight, ChevronDown, Flag
+  User, Filter, ChevronRight, ChevronDown, Flag, Zap
 } from 'lucide-react';
 import CreateJobPostModal from '../components/CreateJobPostModal';
 import CreateSeekerPostModal from '../components/CreateSeekerPostModal';
@@ -122,6 +122,9 @@ export default function FeedPage({ onViewProfile, onMessage }: Props) {
   );
 
   const hasActiveFilters = filterState || filterField || filterRemote;
+
+  // Index of the first non-featured seeker post, i.e. where free listings begin.
+  const firstFreeSeekerIndex = filteredSeekers.findIndex(p => !isPremiumActive(p));
 
   return (
     <div className="max-w-2xl mx-auto pb-20 md:pb-0 min-w-0 w-full">
@@ -271,8 +274,11 @@ export default function FeedPage({ onViewProfile, onMessage }: Props) {
           <EmptyState icon={User} title="No job seekers found" desc="Try adjusting your filters, or post yourself as available!" />
         ) : (
           <div className="space-y-4">
-            {filteredSeekers.map(post => (
-              <SeekerPostCard key={post.id} post={post} currentUserId={user?.id} onViewProfile={onViewProfile} onDeleted={fetchAll} onBoostDone={fetchAll} matchScore={matchPercent(computeMatchScore(profile, post))} />
+            {filteredSeekers.map((post, idx) => (
+              <Fragment key={post.id}>
+                {idx === firstFreeSeekerIndex && <BoltAd />}
+                <SeekerPostCard post={post} currentUserId={user?.id} onViewProfile={onViewProfile} onDeleted={fetchAll} onBoostDone={fetchAll} matchScore={matchPercent(computeMatchScore(profile, post))} />
+              </Fragment>
             ))}
           </div>
         )
@@ -488,6 +494,29 @@ function SeekerPostCard({
         </div>
       </div>
     </div>
+  );
+}
+
+// ─── Sponsored Ad (sits between featured/paid and free listings) ─────────────
+
+function BoltAd() {
+  return (
+    <a
+      href="https://bolt.cello.so/Hds1u4Liyy8"
+      target="_blank"
+      rel="noopener noreferrer sponsored"
+      className="flex items-center gap-3 bg-gray-900/60 border border-dashed border-gray-700 hover:border-gray-600 rounded-2xl px-4 py-3 transition-colors group"
+    >
+      <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-indigo-500 to-blue-600 flex items-center justify-center flex-shrink-0">
+        <Zap size={16} className="text-white" fill="white" />
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-white text-sm font-medium truncate">Build your idea fast with Bolt.new</p>
+        <p className="text-gray-500 text-xs truncate">Use our link and get 20% off</p>
+      </div>
+      <span className="flex-shrink-0 text-[10px] font-medium text-gray-600 uppercase tracking-wide">Ad</span>
+      <ExternalLink size={13} className="text-gray-500 group-hover:text-gray-300 transition flex-shrink-0" />
+    </a>
   );
 }
 
