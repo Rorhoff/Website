@@ -17,6 +17,7 @@ export default function DiscoverPage({ onNewMatches, onNewOverlaps, onOpenProfil
   const [toast, setToast] = useState('');
   const [needsPreferences, setNeedsPreferences] = useState(false);
   const [prefMessage, setPrefMessage] = useState('');
+  const [emptyHint, setEmptyHint] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -25,6 +26,7 @@ export default function DiscoverPage({ onNewMatches, onNewOverlaps, onOpenProfil
       setProfiles(data.profiles);
       setNeedsPreferences(Boolean(data.needs_preferences));
       setPrefMessage(data.message || '');
+      setEmptyHint(data.hint || '');
       setIndex(0);
     } finally {
       setLoading(false);
@@ -104,8 +106,11 @@ export default function DiscoverPage({ onNewMatches, onNewOverlaps, onOpenProfil
 
   if (!current) {
     return (
-      <div className="text-center py-20">
+      <div className="text-center py-20 px-4">
         <p className="text-stone-400 mb-4">No more profiles right now.</p>
+        {emptyHint && (
+          <p className="text-stone-500 text-sm mb-4 max-w-sm mx-auto leading-relaxed">{emptyHint}</p>
+        )}
         <button onClick={load} className="text-emerald-400 text-sm font-medium">Refresh</button>
       </div>
     );

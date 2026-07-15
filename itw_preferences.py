@@ -72,6 +72,8 @@ def discover_visible(
     """Whether a candidate may appear in the viewer's discover stack."""
     if not profile_preferences_complete(viewer_gender, viewer_looking_for):
         return False
+    if not (candidate_gender or "").strip():
+        return True
     if not gender_matches_preference(candidate_gender, viewer_looking_for):
         return False
     if profile_preferences_complete(candidate_gender, candidate_looking_for):

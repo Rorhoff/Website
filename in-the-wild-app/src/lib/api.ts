@@ -94,6 +94,7 @@ export async function fetchDiscover(): Promise<{
   profiles: Profile[];
   needs_preferences?: boolean;
   message?: string;
+  hint?: string;
 }> {
   return request('/discover');
 }

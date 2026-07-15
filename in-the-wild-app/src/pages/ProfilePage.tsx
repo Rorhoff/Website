@@ -14,7 +14,7 @@ import {
 } from '../lib/pushNotifications';
 import { compressImageForUpload } from '../lib/resizeImage';
 import { GENDER_OPTIONS, LOOKING_FOR_OPTIONS } from '../lib/preferences';
-import { CATEGORY_LABELS, type EventPlanOverlap, type EventsFilterMeta, type WildEvent } from '../lib/types';
+import { CATEGORY_LABELS, type EventPlanOverlap, type WildEvent } from '../lib/types';
 import { formatEventDate } from '../lib/eventFormat';
 
 type Props = {
@@ -39,14 +39,11 @@ export default function ProfilePage({ onOpenAdmin, onNewOverlaps }: Props) {
   const [notifyMsg, setNotifyMsg] = useState('');
   const [showPushHelp, setShowPushHelp] = useState(false);
   const [plannedEvents, setPlannedEvents] = useState<WildEvent[]>([]);
-  const [addableEvents, setAddableEvents] = useState<WildEvent[]>([]);
   const [eventsLoading, setEventsLoading] = useState(true);
   const [eventBusy, setEventBusy] = useState('');
   const [eventMsg, setEventMsg] = useState('');
-  const [showAddEvents, setShowAddEvents] = useState(false);
   const [showSubmitEvent, setShowSubmitEvent] = useState(false);
   const [submitBusy, setSubmitBusy] = useState(false);
-  const [eventsFilter, setEventsFilter] = useState<EventsFilterMeta | null>(null);
   const [selectedEvent, setSelectedEvent] = useState<WildEvent | null>(null);
   const [submitForm, setSubmitForm] = useState({
     name: '',
@@ -60,15 +57,8 @@ export default function ProfilePage({ onOpenAdmin, onNewOverlaps }: Props) {
   const loadEventPlans = useCallback(async () => {
     setEventsLoading(true);
     try {
-      const [{ plans }, { events, filter }] = await Promise.all([
-        api.fetchEventPlans(),
-        api.fetchEvents(),
-      ]);
-      setEventsFilter(filter);
-      const planned = plans.map(p => p.event);
-      const plannedIds = new Set(planned.map(e => e.id));
-      setPlannedEvents(planned);
-      setAddableEvents(events.filter(e => e.can_plan && !plannedIds.has(e.id)));
+      const { plans } = await api.fetchEventPlans();
+      setPlannedEvents(plans.map(p => p.event));
     } finally {
       setEventsLoading(false);
     }
@@ -154,7 +144,6 @@ export default function ProfilePage({ onOpenAdmin, onNewOverlaps }: Props) {
       } else {
         const res = await api.addEventPlan(event.id);
         await loadEventPlans();
-        setShowAddEvents(false);
         setSelectedEvent(prev => (prev?.id === event.id ? { ...res.event, is_going: true } : prev));
         if (res.new_overlaps?.length) {
           onNewOverlaps?.(res.new_overlaps);
@@ -380,8 +369,7 @@ export default function ProfilePage({ onOpenAdmin, onNewOverlaps }: Props) {
           <div className="flex-1">
             <p className="text-white text-sm font-medium">Upcoming events</p>
             <p className="text-stone-500 text-xs mt-1">
-              Events within 50 miles of your city that you&apos;re planning to attend.
-              {eventsFilter?.needs_city && ' Set your city below to see nearby events.'}
+              Events you&apos;re planning to attend. Use the Events tab to browse and mark &quot;I&apos;m going.&quot;
             </p>
           </div>
         </div>
@@ -416,44 +404,6 @@ export default function ProfilePage({ onOpenAdmin, onNewOverlaps }: Props) {
               </li>
             ))}
           </ul>
-        )}
-
-        {addableEvents.length > 0 && (
-          <div>
-            <button
-              type="button"
-              onClick={() => setShowAddEvents(v => !v)}
-              className="flex items-center gap-1.5 text-sm text-sky-400 font-medium hover:text-sky-300"
-            >
-              {showAddEvents ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-              Add an event
-            </button>
-            {showAddEvents && (
-              <ul className="mt-3 space-y-2 max-h-48 overflow-y-auto">
-                {addableEvents.map(event => (
-                  <li key={event.id}>
-                    <button
-                      type="button"
-                      onClick={() => setSelectedEvent(event)}
-                      className="w-full text-left bg-stone-950 border border-stone-800 hover:border-stone-700 rounded-xl px-3 py-3 transition flex items-center gap-2"
-                    >
-                      <div className="flex-1 min-w-0">
-                        <p className="text-white text-sm font-medium">{event.name}</p>
-                        <p className="text-stone-500 text-xs">
-                          {formatEventDate(event.starts_at)} · {event.venue_name || event.city}
-                        </p>
-                      </div>
-                      <ChevronRight size={16} className="text-stone-600 shrink-0" />
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        )}
-
-        {!eventsLoading && addableEvents.length === 0 && plannedEvents.length > 0 && (
-          <p className="text-stone-600 text-xs">All nearby events are on your calendar.</p>
         )}
 
         <div className="mt-4 pt-4 border-t border-stone-800">

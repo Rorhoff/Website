@@ -1396,7 +1396,15 @@ def discover(
         if discover_visible(user.gender, user.looking_for, u.gender, u.looking_for)
     ][:limit]
     if not compatible:
-        return {"profiles": [], "needs_preferences": False}
+        return {
+            "profiles": [],
+            "needs_preferences": False,
+            "hint": (
+                "No profiles to show. People are hidden if they don't match your "
+                "'Interested in' setting, haven't set gender yet, or you've already "
+                "swiped them (likes stay hidden; passes return after 30 days)."
+            ),
+        }
 
     candidate_ids = [u.id for u in compatible]
     viewer_plan_ids = set(
@@ -2142,6 +2150,8 @@ def admin_list_users(
         p = _profile_dict(u)
         p["email"] = u.email
         p["created_at"] = u.created_at.isoformat() if u.created_at else None
+        p["gender"] = u.gender
+        p["looking_for"] = u.looking_for
         out.append(p)
     return {"users": out}
 

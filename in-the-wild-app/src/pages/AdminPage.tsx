@@ -3,6 +3,7 @@ import { ArrowLeft, Calendar, Flag, Loader, MessageSquare, Shield, Trash2, Users
 import * as api from '../lib/api';
 import type { AdminMessage, AdminReport, AdminStats, Profile, WildEvent } from '../lib/types';
 import { CATEGORY_LABELS } from '../lib/types';
+import { genderLabel, lookingForLabel } from '../lib/preferences';
 
 type Props = {
   onBack: () => void;
@@ -32,7 +33,7 @@ export default function AdminPage({ onBack }: Props) {
   const [tab, setTab] = useState<Tab>('overview');
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [events, setEvents] = useState<WildEvent[]>([]);
-  const [users, setUsers] = useState<Array<Profile & { email?: string; created_at?: string }>>([]);
+  const [users, setUsers] = useState<Array<Profile & { email?: string; created_at?: string; gender?: string; looking_for?: string }>>([]);
   const [messages, setMessages] = useState<AdminMessage[]>([]);
   const [messageUserFilter, setMessageUserFilter] = useState('');
   const [reports, setReports] = useState<AdminReport[]>([]);
@@ -291,6 +292,11 @@ export default function AdminPage({ onBack }: Props) {
                   <p className="text-stone-500 text-xs truncate">
                     {u.email || 'no email'}
                     {u.created_at ? ` · joined ${new Date(u.created_at).toLocaleDateString()}` : ''}
+                  </p>
+                  <p className="text-stone-600 text-xs mt-0.5">
+                    {u.gender ? genderLabel(u.gender) : 'gender not set'}
+                    {' · '}
+                    {u.looking_for ? `into ${lookingForLabel(u.looking_for).toLowerCase()}` : 'prefs not set'}
                   </p>
                 </div>
                 <button

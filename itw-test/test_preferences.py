@@ -107,6 +107,9 @@ class TestDiscoverVisible:
     def test_everyone_sees_nonbinary_candidate(self):
         assert discover_visible("man", "everyone", "nonbinary", "")
 
+    def test_shows_candidate_with_no_gender_set(self):
+        assert discover_visible("man", "women", "", "")
+
 
 class TestCompatibilityScoring:
     def test_interest_overlap_jaccard(self):
