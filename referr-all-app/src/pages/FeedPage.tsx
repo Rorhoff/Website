@@ -7,7 +7,8 @@ import { isPremiumActive } from '../lib/premium';
 import {
   Briefcase, MapPin, ExternalLink, MessageSquare,
   Wifi, X, Search, Tag, Building, Star,
-  User, Filter, ChevronRight, ChevronDown, Flag, Zap
+  User, Filter, ChevronRight, ChevronDown, Flag, Zap,
+  Pencil, RefreshCw, Send
 } from 'lucide-react';
 import CreateJobPostModal from '../components/CreateJobPostModal';
 import CreateSeekerPostModal from '../components/CreateSeekerPostModal';
@@ -29,13 +30,19 @@ type Props = {
 };
 
 export default function FeedPage({ onViewProfile, onMessage }: Props) {
-  const { user, profile, featuredReturn, premiumConfirmError, premiumConfirmed } = useAuth();
+  const { user, profile, featuredReturn, featuredKind, premiumConfirmError, premiumConfirmed } = useAuth();
   const [tab, setTab] = useState<FeedTab>('openings');
   const [posts, setPosts] = useState<(Post & { profiles: Profile })[]>([]);
   const [seekerPosts, setSeekerPosts] = useState<(SeekerPost & { profiles: Profile })[]>([]);
+  const [hasMoreJobs, setHasMoreJobs] = useState(false);
+  const [hasMoreSeekers, setHasMoreSeekers] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [loading, setLoading] = useState(true);
   const [showCreateJob, setShowCreateJob] = useState(false);
   const [showCreateSeeker, setShowCreateSeeker] = useState(false);
+  const [editJobPost, setEditJobPost] = useState<Post | null>(null);
+  const [editSeekerPost, setEditSeekerPost] = useState<SeekerPost | null>(null);
+  const [referralPost, setReferralPost] = useState<Post | null>(null);
   const hasOwnSeekerPost = !!user?.id && seekerPosts.some(p => p.author_id === user.id);
   const [showFilters, setShowFilters] = useState(false);
   const [showFeaturedBanner, setShowFeaturedBanner] = useState(false);
@@ -51,16 +58,16 @@ export default function FeedPage({ onViewProfile, onMessage }: Props) {
 
   useEffect(() => {
     if (!featuredReturn || loading) return;
-    setTab('seekers');
-    const ownFeatured = seekerPosts.some(
-      p => p.author_id === user?.id && isPremiumActive(p),
-    );
+    setTab(featuredKind === 'job' ? 'openings' : 'seekers');
+    const ownFeatured = featuredKind === 'job'
+      ? posts.some(p => p.author_id === user?.id && isPremiumActive(p))
+      : seekerPosts.some(p => p.author_id === user?.id && isPremiumActive(p));
     if (premiumConfirmed && ownFeatured) {
       setShowFeaturedBanner(true);
       const timer = setTimeout(() => setShowFeaturedBanner(false), 6000);
       return () => clearTimeout(timer);
     }
-  }, [featuredReturn, premiumConfirmError, premiumConfirmed, loading, seekerPosts, user?.id]);
+  }, [featuredReturn, featuredKind, premiumConfirmError, premiumConfirmed, loading, posts, seekerPosts, user?.id]);
 
   async function fetchAll() {
     setLoading(true);
@@ -72,12 +79,39 @@ export default function FeedPage({ onViewProfile, onMessage }: Props) {
       }
     }
     const [jobData, seekerData] = await Promise.all([
-      api.listPosts(),
-      api.listSeekerPosts(),
+      api.listPosts(api.FEED_PAGE_SIZE, 0),
+      api.listSeekerPosts(api.FEED_PAGE_SIZE, 0),
     ]);
-    setPosts((jobData as (Post & { profiles: Profile })[]) || []);
-    setSeekerPosts((seekerData as (SeekerPost & { profiles: Profile })[]) || []);
+    const jobs = (jobData as (Post & { profiles: Profile })[]) || [];
+    const seekers = (seekerData as (SeekerPost & { profiles: Profile })[]) || [];
+    setPosts(jobs);
+    setSeekerPosts(seekers);
+    setHasMoreJobs(jobs.length >= api.FEED_PAGE_SIZE);
+    setHasMoreSeekers(seekers.length >= api.FEED_PAGE_SIZE);
     setLoading(false);
+  }
+
+  async function loadMore(kind: FeedTab) {
+    setLoadingMore(true);
+    try {
+      if (kind === 'openings') {
+        const page = (await api.listPosts(api.FEED_PAGE_SIZE, posts.length)) as (Post & { profiles: Profile })[];
+        setPosts(prev => {
+          const seen = new Set(prev.map(p => p.id));
+          return [...prev, ...page.filter(p => !seen.has(p.id))];
+        });
+        setHasMoreJobs(page.length >= api.FEED_PAGE_SIZE);
+      } else {
+        const page = (await api.listSeekerPosts(api.FEED_PAGE_SIZE, seekerPosts.length)) as (SeekerPost & { profiles: Profile })[];
+        setSeekerPosts(prev => {
+          const seen = new Set(prev.map(p => p.id));
+          return [...prev, ...page.filter(p => !seen.has(p.id))];
+        });
+        setHasMoreSeekers(page.length >= api.FEED_PAGE_SIZE);
+      }
+    } finally {
+      setLoadingMore(false);
+    }
   }
 
   function matchesFilters(location: string, field: string, isRemote: boolean) {
@@ -91,7 +125,7 @@ export default function FeedPage({ onViewProfile, onMessage }: Props) {
     return true;
   }
 
-  function sortByMatch<T extends { is_premium?: boolean; premium_expires_at?: string | null }>(
+  function sortByMatch<T extends { is_premium: boolean; premium_expires_at: string | null }>(
     items: T[],
     scoreFor: (item: T) => number,
   ): T[] {
@@ -132,7 +166,9 @@ export default function FeedPage({ onViewProfile, onMessage }: Props) {
       {showFeaturedBanner && (
         <div className="mb-5 flex items-center gap-3 bg-amber-500/10 border border-amber-400/30 rounded-xl px-4 py-3 min-w-0">
           <Star size={16} className="text-amber-400 fill-amber-400 flex-shrink-0" />
-          <p className="text-amber-300 text-sm font-medium flex-1 min-w-0">Your post is now featured! It will appear at the top of the Seekers feed for 30 days.</p>
+          <p className="text-amber-300 text-sm font-medium flex-1 min-w-0">
+            Your post is now featured! It will appear at the top of the {featuredKind === 'job' ? 'Openings' : 'Seekers'} feed for 30 days.
+          </p>
           <button onClick={() => setShowFeaturedBanner(false)} className="text-amber-400/60 hover:text-amber-300 transition"><X size={16} /></button>
         </div>
       )}
@@ -265,8 +301,22 @@ export default function FeedPage({ onViewProfile, onMessage }: Props) {
         ) : (
           <div className="space-y-4">
             {filteredJobs.map(post => (
-              <JobPostCard key={post.id} post={post} currentUserId={user?.id} onViewProfile={onViewProfile} onMessage={onMessage} onDeleted={fetchAll} matchScore={matchPercent(computeMatchScore(profile, post))} />
+              <JobPostCard
+                key={post.id}
+                post={post}
+                currentUserId={user?.id}
+                onViewProfile={onViewProfile}
+                onMessage={onMessage}
+                onDeleted={fetchAll}
+                onEdit={() => setEditJobPost(post)}
+                onRenewed={fetchAll}
+                onRequestReferral={() => setReferralPost(post)}
+                matchScore={matchPercent(computeMatchScore(profile, post))}
+              />
             ))}
+            {hasMoreJobs && (
+              <LoadMoreButton loading={loadingMore} onClick={() => loadMore('openings')} />
+            )}
           </div>
         )
       ) : (
@@ -277,15 +327,116 @@ export default function FeedPage({ onViewProfile, onMessage }: Props) {
             {filteredSeekers.map((post, idx) => (
               <Fragment key={post.id}>
                 {idx === firstFreeSeekerIndex && <BoltAd />}
-                <SeekerPostCard post={post} currentUserId={user?.id} onViewProfile={onViewProfile} onDeleted={fetchAll} onBoostDone={fetchAll} matchScore={matchPercent(computeMatchScore(profile, post))} />
+                <SeekerPostCard
+                  post={post}
+                  currentUserId={user?.id}
+                  onViewProfile={onViewProfile}
+                  onDeleted={fetchAll}
+                  onEdit={() => setEditSeekerPost(post)}
+                  matchScore={matchPercent(computeMatchScore(profile, post))}
+                />
               </Fragment>
             ))}
+            {hasMoreSeekers && (
+              <LoadMoreButton loading={loadingMore} onClick={() => loadMore('seekers')} />
+            )}
           </div>
         )
       )}
 
       {showCreateJob && <CreateJobPostModal onClose={() => setShowCreateJob(false)} onCreated={fetchAll} />}
       {showCreateSeeker && <CreateSeekerPostModal onClose={() => setShowCreateSeeker(false)} onCreated={fetchAll} />}
+      {editJobPost && <CreateJobPostModal post={editJobPost} onClose={() => setEditJobPost(null)} onCreated={fetchAll} />}
+      {editSeekerPost && <CreateSeekerPostModal post={editSeekerPost} onClose={() => setEditSeekerPost(null)} onCreated={fetchAll} />}
+      {referralPost && (
+        <RequestReferralModal post={referralPost} onClose={() => setReferralPost(null)} />
+      )}
+    </div>
+  );
+}
+
+function LoadMoreButton({ loading, onClick }: { loading: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={loading}
+      className="w-full bg-gray-900 hover:bg-gray-800 border border-gray-800 hover:border-gray-700 text-gray-400 hover:text-white font-medium rounded-xl py-3 text-sm transition disabled:opacity-50"
+    >
+      {loading ? 'Loading…' : 'Load more'}
+    </button>
+  );
+}
+
+// ─── Request Referral Modal ───────────────────────────────────────────────────
+
+function RequestReferralModal({ post, onClose }: { post: Post; onClose: () => void }) {
+  const [message, setMessage] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+  const [done, setDone] = useState(false);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError('');
+    setSubmitting(true);
+    try {
+      await api.createReferralRequest(post.id, message.trim());
+      setDone(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not send request');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-end sm:items-center justify-center p-4">
+      <div className="bg-gray-900 rounded-2xl border border-gray-800 w-full max-w-md shadow-2xl">
+        <div className="flex items-center justify-between p-6 border-b border-gray-800">
+          <h2 className="text-lg font-bold text-white">Request a Referral</h2>
+          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition"><X size={18} /></button>
+        </div>
+        {done ? (
+          <div className="p-6 text-center">
+            <div className="w-14 h-14 bg-emerald-500/10 border border-emerald-500/30 rounded-full flex items-center justify-center mx-auto mb-4">
+              <Send size={22} className="text-emerald-400" />
+            </div>
+            <p className="text-white font-semibold mb-1">Request sent!</p>
+            <p className="text-gray-400 text-sm mb-6">
+              {post.profiles?.full_name || 'The poster'} will see your request under Network → Referrals.
+            </p>
+            <button onClick={onClose} className="bg-gray-800 hover:bg-gray-700 text-gray-300 font-medium rounded-xl px-6 py-2.5 text-sm transition">
+              Done
+            </button>
+          </div>
+        ) : (
+          <form onSubmit={handleSubmit} className="p-6 space-y-4">
+            <p className="text-gray-400 text-sm">
+              Ask <span className="text-white font-medium">{post.profiles?.full_name || 'the poster'}</span> to
+              refer you for <span className="text-blue-400 font-medium">{post.role_title}</span> at{' '}
+              <span className="text-blue-400 font-medium">{post.company}</span>. They can accept and mark you as
+              referred — you can track it under Network → Referrals.
+            </p>
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-1.5">Message (optional)</label>
+              <textarea
+                value={message}
+                onChange={e => setMessage(e.target.value)}
+                placeholder="Briefly explain why you're a great fit and share anything they'd need (resume link, portfolio)…"
+                rows={4}
+                maxLength={2000}
+                className="w-full bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-2.5 text-sm placeholder-gray-600 focus:outline-none focus:border-blue-500 transition resize-none"
+              />
+            </div>
+            {error && <div className="bg-red-500/10 border border-red-500/30 text-red-400 text-sm rounded-lg px-4 py-3">{error}</div>}
+            <button type="submit" disabled={submitting} className="w-full flex items-center justify-center gap-2 bg-blue-500 hover:bg-blue-600 disabled:opacity-50 text-white font-semibold rounded-xl py-3 text-sm transition">
+              <Send size={14} />
+              {submitting ? 'Sending…' : 'Send Referral Request'}
+            </button>
+          </form>
+        )}
+      </div>
     </div>
   );
 }
@@ -293,17 +444,23 @@ export default function FeedPage({ onViewProfile, onMessage }: Props) {
 // ─── Job Post Card ────────────────────────────────────────────────────────────
 
 function JobPostCard({
-  post, currentUserId, onViewProfile, onMessage, onDeleted, matchScore = 0
+  post, currentUserId, onViewProfile, onMessage, onDeleted, onEdit, onRenewed, onRequestReferral, matchScore = 0
 }: {
   post: Post & { profiles: Profile };
   currentUserId?: string;
   onViewProfile: (id: string) => void;
   onMessage: (id: string) => void;
   onDeleted: () => void;
+  onEdit: () => void;
+  onRenewed: () => void;
+  onRequestReferral: () => void;
   matchScore?: number;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [renewing, setRenewing] = useState(false);
   const p = post.profiles;
+  const isOwn = currentUserId === post.author_id;
+  const premiumActive = isPremiumActive(post);
 
   function timeAgo(date: string) {
     const diff = Date.now() - new Date(date).getTime();
@@ -315,8 +472,46 @@ function JobPostCard({
     return `${Math.floor(hrs / 24)}d ago`;
   }
 
+  async function handleRenew() {
+    setRenewing(true);
+    try {
+      await api.renewPost(post.id);
+      onRenewed();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Could not renew post');
+    } finally {
+      setRenewing(false);
+    }
+  }
+
   return (
-    <div className="bg-gray-900 rounded-2xl border border-gray-800 hover:border-gray-700 transition-colors overflow-hidden">
+    <div className={`rounded-2xl overflow-hidden transition-all ${
+      premiumActive
+        ? 'border-2 border-amber-400/60 shadow-lg shadow-amber-500/10 bg-gradient-to-b from-amber-500/5 to-gray-900'
+        : 'bg-gray-900 border border-gray-800 hover:border-gray-700'
+    }`}>
+      {premiumActive && (
+        <div className="flex items-center gap-2 px-5 py-2 bg-gradient-to-r from-amber-500/20 to-amber-400/10 border-b border-amber-400/20">
+          <Star size={13} className="text-amber-400 fill-amber-400" />
+          <span className="text-amber-300 text-xs font-semibold tracking-wide">FEATURED OPENING</span>
+        </div>
+      )}
+      {isOwn && post.is_expired && (
+        <div className="flex items-center gap-3 px-5 py-2.5 bg-red-500/10 border-b border-red-500/20">
+          <span className="text-red-300 text-xs font-medium flex-1">
+            This post expired and is hidden from other users.
+          </span>
+          <button
+            type="button"
+            onClick={handleRenew}
+            disabled={renewing}
+            className="flex items-center gap-1.5 text-xs font-semibold text-emerald-400 hover:text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 rounded-lg px-3 py-1.5 transition disabled:opacity-50"
+          >
+            <RefreshCw size={12} className={renewing ? 'animate-spin' : ''} />
+            {renewing ? 'Renewing…' : 'Renew for 60 days'}
+          </button>
+        </div>
+      )}
       <div className="p-6">
         <div className="flex items-start justify-between mb-4">
           <button onClick={() => onViewProfile(post.author_id)} className="flex items-center gap-3 group">
@@ -333,13 +528,18 @@ function JobPostCard({
               <span className="text-xs font-semibold text-cyan-300 bg-cyan-500/10 border border-cyan-500/30 px-2 py-0.5 rounded-full">{matchScore}% match</span>
             )}
             <span className="text-gray-600 text-xs">{timeAgo(post.created_at)}</span>
-            {currentUserId && currentUserId !== post.author_id && (
+            {currentUserId && !isOwn && (
               <ReportFlagButton postId={post.id} kind="job" onRemoved={onDeleted} />
             )}
-            {currentUserId === post.author_id && (
-              <button onClick={async () => { if (confirm('Delete this post?')) { await api.deletePost(post.id); onDeleted(); } }} className="w-7 h-7 flex items-center justify-center text-gray-600 hover:text-red-400 hover:bg-gray-800 rounded-lg transition">
-                <X size={14} />
-              </button>
+            {isOwn && (
+              <>
+                <button onClick={onEdit} title="Edit post" className="w-7 h-7 flex items-center justify-center text-gray-600 hover:text-blue-400 hover:bg-gray-800 rounded-lg transition">
+                  <Pencil size={13} />
+                </button>
+                <button onClick={async () => { if (confirm('Delete this post?')) { await api.deletePost(post.id); onDeleted(); } }} className="w-7 h-7 flex items-center justify-center text-gray-600 hover:text-red-400 hover:bg-gray-800 rounded-lg transition">
+                  <X size={14} />
+                </button>
+              </>
             )}
           </div>
         </div>
@@ -375,16 +575,21 @@ function JobPostCard({
           </div>
         )}
 
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           {post.job_url && (
-            <a href={post.job_url} target="_blank" rel="noopener noreferrer" className="flex-1 flex items-center justify-center gap-2 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/20 hover:border-blue-500/40 text-blue-400 font-medium rounded-xl py-2.5 text-sm transition-all">
+            <a href={post.job_url} target="_blank" rel="noopener noreferrer" className="flex-1 min-w-[140px] flex items-center justify-center gap-2 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/20 hover:border-blue-500/40 text-blue-400 font-medium rounded-xl py-2.5 text-sm transition-all">
               <ExternalLink size={14} />View Job Posting
             </a>
           )}
-          {currentUserId && currentUserId !== post.author_id && (
-            <button onClick={() => onMessage(post.author_id)} className="flex-1 flex items-center justify-center gap-2 bg-gray-800 hover:bg-gray-700 text-gray-300 font-medium rounded-xl py-2.5 text-sm transition">
-              <MessageSquare size={14} />Message
-            </button>
+          {currentUserId && !isOwn && (
+            <>
+              <button onClick={onRequestReferral} className="flex-1 min-w-[140px] flex items-center justify-center gap-2 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 hover:border-emerald-500/40 text-emerald-400 font-medium rounded-xl py-2.5 text-sm transition-all">
+                <Send size={13} />Request Referral
+              </button>
+              <button onClick={() => onMessage(post.author_id)} className="flex-1 min-w-[120px] flex items-center justify-center gap-2 bg-gray-800 hover:bg-gray-700 text-gray-300 font-medium rounded-xl py-2.5 text-sm transition">
+                <MessageSquare size={14} />Message
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -395,13 +600,13 @@ function JobPostCard({
 // ─── Seeker Post Card ─────────────────────────────────────────────────────────
 
 function SeekerPostCard({
-  post, currentUserId, onViewProfile, onDeleted, onBoostDone, matchScore = 0
+  post, currentUserId, onViewProfile, onDeleted, onEdit, matchScore = 0
 }: {
   post: SeekerPost & { profiles: Profile };
   currentUserId?: string;
   onViewProfile: (id: string) => void;
   onDeleted: () => void;
-  onBoostDone: () => void;
+  onEdit: () => void;
   matchScore?: number;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -450,9 +655,14 @@ function SeekerPostCard({
               <ReportFlagButton postId={post.id} kind="seeker" onRemoved={onDeleted} />
             )}
             {currentUserId === post.author_id && (
-              <button onClick={async () => { if (confirm('Delete this post?')) { await api.deleteSeekerPost(post.id); onDeleted(); } }} className="w-7 h-7 flex items-center justify-center text-gray-600 hover:text-red-400 hover:bg-gray-800 rounded-lg transition">
-                <X size={14} />
-              </button>
+              <>
+                <button onClick={onEdit} title="Edit post" className="w-7 h-7 flex items-center justify-center text-gray-600 hover:text-blue-400 hover:bg-gray-800 rounded-lg transition">
+                  <Pencil size={13} />
+                </button>
+                <button onClick={async () => { if (confirm('Delete this post?')) { await api.deleteSeekerPost(post.id); onDeleted(); } }} className="w-7 h-7 flex items-center justify-center text-gray-600 hover:text-red-400 hover:bg-gray-800 rounded-lg transition">
+                  <X size={14} />
+                </button>
+              </>
             )}
           </div>
         </div>

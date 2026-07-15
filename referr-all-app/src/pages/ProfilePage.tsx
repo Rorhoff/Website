@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import {
   Briefcase, Building, Camera, Crown, Edit2, ExternalLink, Link, Loader,
   MapPin, MessageSquare, MoreVertical, Save, Settings, ShieldBan, Star, Tag, Trash2,
-  User, UserCheck, UserPlus, Wifi, X, ArrowLeft,
+  UserCheck, UserPlus, Wifi, X, ArrowLeft,
 } from 'lucide-react';
 import CreateSeekerPostModal from '../components/CreateSeekerPostModal';
 import CreateJobPostModal from '../components/CreateJobPostModal';
@@ -25,7 +25,7 @@ type Props = {
 };
 
 export default function ProfilePage({ userId, onMessage, onOpenSettings, onBack }: Props) {
-  const { user, profile: myProfile, refreshProfile, premiumConfirmError } = useAuth();
+  const { user, refreshProfile, premiumConfirmError } = useAuth();
   const isOwn = user?.id === userId;
 
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -85,14 +85,12 @@ export default function ProfilePage({ userId, onMessage, onOpenSettings, onBack 
     setLoading(true);
     try {
       const p = await api.getProfile(userId);
-      const [allPosts, allSeeker, allConns, blockCheck] = await Promise.all([
-        api.listPosts(),
-        api.listSeekerPosts(),
+      const [userPosts, userSeekerPosts, allConns, blockCheck] = await Promise.all([
+        api.listPosts(100, 0, userId),
+        api.listSeekerPosts(100, 0, userId),
         user && !isOwn ? api.listConnections() : Promise.resolve([] as Connection[]),
         user && !isOwn ? api.checkBlock(userId) : Promise.resolve({ blocked: false, id: null }),
       ]);
-      const userPosts = allPosts.filter(x => x.author_id === userId);
-      const userSeekerPosts = allSeeker.filter(x => x.author_id === userId);
       const conn = user && !isOwn
         ? allConns.find(c =>
             (c.requester_id === user.id || c.addressee_id === user.id) &&
@@ -110,8 +108,8 @@ export default function ProfilePage({ userId, onMessage, onOpenSettings, onBack 
         try {
           const synced = await api.reconcilePremiumPayments();
           if (synced.activated > 0) {
-            const refreshedSeeker = await api.listSeekerPosts();
-            setSeekerPosts(refreshedSeeker.filter(x => x.author_id === userId));
+            const refreshedSeeker = await api.listSeekerPosts(100, 0, userId);
+            setSeekerPosts(refreshedSeeker);
           }
         } catch {
           /* Stripe sync is best-effort */

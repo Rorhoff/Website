@@ -24,10 +24,13 @@ type Step = 'form' | 'premium';
 type Props = {
   onClose: () => void;
   onCreated: () => void;
+  /** When provided, the modal edits this post instead of creating a new one. */
+  post?: import('../lib/types').SeekerPost;
 };
 
-export default function CreateSeekerPostModal({ onClose, onCreated }: Props) {
+export default function CreateSeekerPostModal({ onClose, onCreated, post }: Props) {
   const { user, profile } = useAuth();
+  const isEdit = !!post;
   const [step, setStep] = useState<Step>('form');
   const [createdPostId, setCreatedPostId] = useState<string | null>(null);
   const [premiumPrice, setPremiumPrice] = useState<number | null>(null);
@@ -35,16 +38,18 @@ export default function CreateSeekerPostModal({ onClose, onCreated }: Props) {
   const [paymentsSetupHint, setPaymentsSetupHint] = useState('');
 
   const [form, setForm] = useState({
-    about: profile?.bio || '',
-    desired_role: '',
-    desired_location: profile?.location || '',
-    open_to_remote: false,
-    field_of_work: '',
-    skills: (profile?.skills || []).join(', '),
-    experience_years: profile?.years_experience ? String(profile.years_experience) : '',
-    resume_url: profile?.linkedin_url || '',
-    portfolio_url: profile?.portfolio_url || '',
-    availability: 'immediately',
+    about: post?.about ?? profile?.bio ?? '',
+    desired_role: post?.desired_role ?? '',
+    desired_location: post?.desired_location ?? profile?.location ?? '',
+    open_to_remote: post?.open_to_remote ?? false,
+    field_of_work: post?.field_of_work ?? '',
+    skills: (post?.skills ?? profile?.skills ?? []).join(', '),
+    experience_years: post
+      ? String(post.experience_years || '')
+      : profile?.years_experience ? String(profile.years_experience) : '',
+    resume_url: post?.resume_url ?? profile?.linkedin_url ?? '',
+    portfolio_url: post?.portfolio_url ?? profile?.portfolio_url ?? '',
+    availability: (post?.availability ?? 'immediately') as string,
   });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -65,7 +70,7 @@ export default function CreateSeekerPostModal({ onClose, onCreated }: Props) {
       const skills = form.skills.split(',').map(s => s.trim()).filter(Boolean);
       const resumeUrl = normalizeHttpUrl(form.resume_url);
       const portfolioUrl = normalizeHttpUrl(form.portfolio_url);
-      const data = await api.createSeekerPost({
+      const body = {
         headline: form.desired_role.trim(),
         about: form.about.trim(),
         desiredRole: form.desired_role.trim(),
@@ -77,7 +82,14 @@ export default function CreateSeekerPostModal({ onClose, onCreated }: Props) {
         resumeUrl,
         portfolioUrl,
         availability: form.availability,
-      });
+      };
+      if (isEdit && post) {
+        await api.updateSeekerPost(post.id, body);
+        onCreated();
+        onClose();
+        return;
+      }
+      const data = await api.createSeekerPost(body);
 
       setCreatedPostId(data.id);
       onCreated();
@@ -144,7 +156,7 @@ export default function CreateSeekerPostModal({ onClose, onCreated }: Props) {
         {step === 'form' ? (
           <>
             <div className="flex items-center justify-between p-6 border-b border-gray-800 sticky top-0 bg-gray-900 z-10">
-              <h2 className="text-lg font-bold text-white">Post Yourself</h2>
+              <h2 className="text-lg font-bold text-white">{isEdit ? 'Edit Your Post' : 'Post Yourself'}</h2>
               <button onClick={onClose} className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition"><X size={18} /></button>
             </div>
 
@@ -240,7 +252,7 @@ export default function CreateSeekerPostModal({ onClose, onCreated }: Props) {
               </div>
 
               <button type="submit" disabled={submitting} className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-semibold rounded-xl py-3 text-sm transition">
-                {submitting ? 'Posting...' : 'Post & Continue'}
+                {submitting ? (isEdit ? 'Saving...' : 'Posting...') : (isEdit ? 'Save Changes' : 'Post & Continue')}
               </button>
             </form>
           </>

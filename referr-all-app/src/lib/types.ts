@@ -71,6 +71,13 @@ export type AdminStats = {
   connectionCount: number;
   premiumPurchaseCount: number;
   premiumRevenueCents: number;
+  messages7d: number;
+  activeUsers7d: number;
+  activeFeaturedSeekerPosts: number;
+  activeFeaturedJobPosts: number;
+  expiredJobPosts: number;
+  referralRequestCount: number;
+  referralRequestsByStatus: Record<string, number>;
   recentSignups: AdminRecentSignup[];
 };
 
@@ -123,9 +130,45 @@ export type Post = {
   is_remote: boolean;
   tags: string[];
   required_skills: string[];
+  expires_at: string | null;
+  is_expired: boolean;
+  is_premium: boolean;
+  premium_expires_at: string | null;
+  premium_order: number;
   created_at: string;
   updated_at: string;
   profiles?: Profile;
+};
+
+export type ReferralRequestStatus = 'pending' | 'accepted' | 'declined' | 'referred' | 'hired' | 'cancelled';
+
+export type ReferralRequest = {
+  id: string;
+  post_id: string;
+  requester_id: string;
+  referrer_id: string;
+  message: string;
+  status: ReferralRequestStatus;
+  created_at: string;
+  updated_at: string;
+  post?: {
+    id: string;
+    company: string;
+    role_title: string;
+    location: string;
+    is_remote: boolean;
+  };
+  requester?: Profile;
+  referrer?: Profile;
+};
+
+export const REFERRAL_STATUS_LABELS: Record<ReferralRequestStatus, string> = {
+  pending: 'Pending',
+  accepted: 'Accepted',
+  declined: 'Declined',
+  referred: 'Referred',
+  hired: 'Hired',
+  cancelled: 'Cancelled',
 };
 
 export type Connection = {

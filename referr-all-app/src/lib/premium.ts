@@ -8,6 +8,9 @@ export const PENDING_PREMIUM_PRICE_KEY = 'referr_all_pending_premium_price_cents
 const TRACKED_PREMIUM_SESSION_KEY = 'referr_all_tracked_premium_session';
 
 export const FEATURED_SEEKER_LISTING_TYPE = 'featured_seeker_post';
+export const FEATURED_JOB_LISTING_TYPE = 'featured_job_post';
+
+export type FeaturedKind = 'seeker' | 'job';
 
 export function isPremiumActive(post: Pick<SeekerPost, 'is_premium' | 'premium_expires_at'>): boolean {
   if (!post.is_premium) return false;
@@ -37,18 +40,20 @@ function readPendingPremiumPriceDollars(): number {
   return cents > 0 ? cents / 100 : 0;
 }
 
-function trackFeaturedListingOnce(sessionId: string | null | undefined): void {
+function trackFeaturedListingOnce(sessionId: string | null | undefined, kind: FeaturedKind = 'seeker'): void {
   if (!sessionId || sessionStorage.getItem(TRACKED_PREMIUM_SESSION_KEY) === sessionId) return;
   sessionStorage.setItem(TRACKED_PREMIUM_SESSION_KEY, sessionId);
+  const listingType = kind === 'job' ? FEATURED_JOB_LISTING_TYPE : FEATURED_SEEKER_LISTING_TYPE;
   const pricePaid = readPendingPremiumPriceDollars();
   if (pricePaid > 0) {
-    trackListingCreated(FEATURED_SEEKER_LISTING_TYPE, pricePaid);
+    trackListingCreated(listingType, pricePaid);
     clearPendingPremiumPrice();
     return;
   }
-  void api.getPremiumPrice().then(info => {
+  const fetchPrice = kind === 'job' ? api.getJobPremiumPrice() : api.getPremiumPrice();
+  void fetchPrice.then(info => {
     if (info.priceCents > 0) {
-      trackListingCreated(FEATURED_SEEKER_LISTING_TYPE, info.priceCents / 100);
+      trackListingCreated(listingType, info.priceCents / 100);
     }
   }).catch(() => { /* best-effort */ });
 }
@@ -94,10 +99,12 @@ async function tryActivatePremium(sessionId?: string | null): Promise<boolean> {
 export async function confirmPremiumReturn(): Promise<{
   confirmed: boolean;
   featuredReturn: boolean;
+  featuredKind: FeaturedKind;
   error?: string;
 }> {
   const params = new URLSearchParams(window.location.search);
   const featuredReturn = params.get('featured') === '1';
+  const featuredKind: FeaturedKind = params.get('kind') === 'job' ? 'job' : 'seeker';
   const sessionId = params.get('session_id') || localStorage.getItem(PENDING_PREMIUM_SESSION_KEY);
 
   if (featuredReturn) {
@@ -105,28 +112,29 @@ export async function confirmPremiumReturn(): Promise<{
   }
 
   if (!sessionId && !featuredReturn) {
-    return { confirmed: false, featuredReturn: false };
+    return { confirmed: false, featuredReturn: false, featuredKind };
   }
 
   try {
     const activated = await tryActivatePremium(sessionId);
     if (activated) {
-      trackFeaturedListingOnce(sessionId);
+      trackFeaturedListingOnce(sessionId, featuredKind);
     }
     clearPendingPremiumSession();
     if (activated) {
-      return { confirmed: true, featuredReturn };
+      return { confirmed: true, featuredReturn, featuredKind };
     }
     if (featuredReturn || sessionId) {
       return {
         confirmed: false,
         featuredReturn,
+        featuredKind,
         error: 'Payment received but featured status could not be activated. Try "Restore featured status" on Profile or contact support.',
       };
     }
-    return { confirmed: false, featuredReturn };
+    return { confirmed: false, featuredReturn, featuredKind };
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Could not activate featured status';
-    return { confirmed: false, featuredReturn, error: message };
+    return { confirmed: false, featuredReturn, featuredKind, error: message };
   }
 }

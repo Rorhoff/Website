@@ -1,7 +1,7 @@
 import type {
   AccountSession, AccountSettings, AdminJobPost, AdminReport, AdminSeekerPost, AdminStats, AdminUser,
   Connection, Conversation, Message, Post, Profile,
-  PurchaseRecord, SeekerPost,
+  PurchaseRecord, ReferralRequest, SeekerPost,
 } from './types';
 import {
   BASE_PREMIUM_PRICE_CENTS,
@@ -131,12 +131,31 @@ export async function getProfile(id: string): Promise<Profile> {
   return request<Profile>(`/profiles/${id}`);
 }
 
-export async function listPosts(): Promise<Post[]> {
-  return request<Post[]>('/posts');
+export const FEED_PAGE_SIZE = 30;
+
+function pageQuery(limit?: number, offset?: number, author?: string): string {
+  const params = new URLSearchParams();
+  if (limit !== undefined) params.set('limit', String(limit));
+  if (offset !== undefined) params.set('offset', String(offset));
+  if (author) params.set('author', author);
+  const qs = params.toString();
+  return qs ? `?${qs}` : '';
+}
+
+export async function listPosts(limit?: number, offset?: number, author?: string): Promise<Post[]> {
+  return request<Post[]>(`/posts${pageQuery(limit, offset, author)}`);
 }
 
 export async function createPost(body: Record<string, unknown>): Promise<Post> {
   return request<Post>('/posts', { method: 'POST', body: JSON.stringify(body) });
+}
+
+export async function updatePost(id: string, body: Record<string, unknown>): Promise<Post> {
+  return request<Post>(`/posts/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+}
+
+export async function renewPost(id: string): Promise<Post> {
+  return request<Post>(`/posts/${id}/renew`, { method: 'POST' });
 }
 
 export async function deletePost(id: string) {
@@ -151,12 +170,16 @@ export async function checkPostReported(id: string): Promise<{ reported: boolean
   return request(`/posts/${id}/reported`);
 }
 
-export async function listSeekerPosts(): Promise<SeekerPost[]> {
-  return request<SeekerPost[]>('/seeker-posts');
+export async function listSeekerPosts(limit?: number, offset?: number, author?: string): Promise<SeekerPost[]> {
+  return request<SeekerPost[]>(`/seeker-posts${pageQuery(limit, offset, author)}`);
 }
 
 export async function createSeekerPost(body: Record<string, unknown>): Promise<SeekerPost> {
   return request<SeekerPost>('/seeker-posts', { method: 'POST', body: JSON.stringify(body) });
+}
+
+export async function updateSeekerPost(id: string, body: Record<string, unknown>): Promise<SeekerPost> {
+  return request<SeekerPost>(`/seeker-posts/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
 }
 
 export async function deleteSeekerPost(id: string): Promise<{
@@ -324,6 +347,38 @@ export async function createPremiumCheckout(input: {
   return request('/premium/checkout', { method: 'POST', body: JSON.stringify(input) });
 }
 
+export async function getJobPremiumPrice(): Promise<PremiumPriceInfo> {
+  return request<PremiumPriceInfo>('/premium/job-price');
+}
+
+export async function createJobPremiumCheckout(input: {
+  jobPostId: string;
+  successUrl: string;
+  cancelUrl: string;
+}): Promise<{ url: string; sessionId: string }> {
+  return request('/premium/job-checkout', { method: 'POST', body: JSON.stringify(input) });
+}
+
+// --- Referral requests ---
+
+export async function createReferralRequest(postId: string, message: string): Promise<ReferralRequest> {
+  return request<ReferralRequest>(`/posts/${postId}/referral-requests`, {
+    method: 'POST',
+    body: JSON.stringify({ message }),
+  });
+}
+
+export async function listReferralRequests(): Promise<ReferralRequest[]> {
+  return request<ReferralRequest[]>('/referral-requests');
+}
+
+export async function updateReferralRequest(id: string, status: string): Promise<ReferralRequest> {
+  return request<ReferralRequest>(`/referral-requests/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status }),
+  });
+}
+
 /** App home URL — "/" on referr-all.com prod, "/referr-all/" on rorhoff dev. */
 export function appHomeUrl(origin = window.location.origin): string {
   let base = import.meta.env.BASE_URL || '/';
@@ -334,6 +389,10 @@ export function appHomeUrl(origin = window.location.origin): string {
 
 export function premiumCheckoutSuccessUrl(origin = window.location.origin): string {
   return `${appHomeUrl(origin)}?featured=1&session_id={CHECKOUT_SESSION_ID}`;
+}
+
+export function jobPremiumCheckoutSuccessUrl(origin = window.location.origin): string {
+  return `${appHomeUrl(origin)}?featured=1&kind=job&session_id={CHECKOUT_SESSION_ID}`;
 }
 
 export function premiumCheckoutCancelUrl(origin = window.location.origin): string {

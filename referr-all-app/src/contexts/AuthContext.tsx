@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import * as api from '../lib/api';
-import { confirmPremiumReturn } from '../lib/premium';
+import { confirmPremiumReturn, type FeaturedKind } from '../lib/premium';
 import type { Profile } from '../lib/types';
 
 type AuthContextType = {
@@ -9,6 +9,7 @@ type AuthContextType = {
   loading: boolean;
   premiumConfirmError: string | null;
   featuredReturn: boolean;
+  featuredKind: FeaturedKind;
   premiumConfirmed: boolean;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
@@ -20,6 +21,7 @@ const AuthContext = createContext<AuthContextType>({
   loading: true,
   premiumConfirmError: null,
   featuredReturn: false,
+  featuredKind: 'seeker',
   premiumConfirmed: false,
   signOut: async () => {},
   refreshProfile: async () => {},
@@ -30,6 +32,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [premiumConfirmError, setPremiumConfirmError] = useState<string | null>(null);
   const [featuredReturn, setFeaturedReturn] = useState(false);
+  const [featuredKind, setFeaturedKind] = useState<FeaturedKind>('seeker');
   const [premiumConfirmed, setPremiumConfirmed] = useState(false);
 
   async function refreshProfile() {
@@ -57,6 +60,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setProfile(me);
         const premium = await confirmPremiumReturn();
         setFeaturedReturn(premium.featuredReturn);
+        setFeaturedKind(premium.featuredKind);
         setPremiumConfirmed(premium.confirmed);
         setPremiumConfirmError(premium.error ?? null);
       } catch {
@@ -79,6 +83,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       loading,
       premiumConfirmError,
       featuredReturn,
+      featuredKind,
       premiumConfirmed,
       signOut,
       refreshProfile,

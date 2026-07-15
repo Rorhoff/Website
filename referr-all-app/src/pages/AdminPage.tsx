@@ -335,16 +335,24 @@ export default function AdminPage({ onBack, onViewProfile }: Props) {
               <div className="text-white text-lg font-semibold mt-1">{stats.newUsers7d} / {stats.newUsers30d}</div>
             </div>
             <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+              <div className="text-gray-500 text-xs uppercase tracking-wide">Active users (7d)</div>
+              <div className="text-white text-lg font-semibold mt-1">{stats.activeUsers7d ?? 0}</div>
+            </div>
+            <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
               <div className="text-gray-500 text-xs uppercase tracking-wide">New posts (7d)</div>
               <div className="text-white text-lg font-semibold mt-1">{stats.newJobPosts7d} job · {stats.newSeekerPosts7d} seeker</div>
             </div>
             <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
-              <div className="text-gray-500 text-xs uppercase tracking-wide">Messages / conversations</div>
-              <div className="text-white text-lg font-semibold mt-1">{stats.messageCount} / {stats.conversationCount}</div>
+              <div className="text-gray-500 text-xs uppercase tracking-wide">Messages (7d / total)</div>
+              <div className="text-white text-lg font-semibold mt-1">{stats.messages7d ?? 0} / {stats.messageCount}</div>
             </div>
             <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
               <div className="text-gray-500 text-xs uppercase tracking-wide">Connections</div>
               <div className="text-white text-lg font-semibold mt-1">{stats.connectionCount}</div>
+            </div>
+            <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+              <div className="text-gray-500 text-xs uppercase tracking-wide">Conversations</div>
+              <div className="text-white text-lg font-semibold mt-1">{stats.conversationCount}</div>
             </div>
             <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
               <div className="text-gray-500 text-xs uppercase tracking-wide">Premium purchases</div>
@@ -353,6 +361,24 @@ export default function AdminPage({ onBack, onViewProfile }: Props) {
             <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
               <div className="text-gray-500 text-xs uppercase tracking-wide">Premium revenue</div>
               <div className="text-white text-lg font-semibold mt-1">{formatMoney(stats.premiumRevenueCents)}</div>
+            </div>
+            <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+              <div className="text-gray-500 text-xs uppercase tracking-wide">Featured now (job / seeker)</div>
+              <div className="text-white text-lg font-semibold mt-1">{stats.activeFeaturedJobPosts ?? 0} / {stats.activeFeaturedSeekerPosts ?? 0}</div>
+            </div>
+            <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+              <div className="text-gray-500 text-xs uppercase tracking-wide">Expired job posts</div>
+              <div className="text-white text-lg font-semibold mt-1">{stats.expiredJobPosts ?? 0}</div>
+            </div>
+            <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+              <div className="text-gray-500 text-xs uppercase tracking-wide">Referral requests</div>
+              <div className="text-white text-lg font-semibold mt-1">{stats.referralRequestCount ?? 0}</div>
+            </div>
+            <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+              <div className="text-gray-500 text-xs uppercase tracking-wide">Referral outcomes</div>
+              <div className="text-white text-lg font-semibold mt-1">
+                {stats.referralRequestsByStatus?.referred ?? 0} referred · {stats.referralRequestsByStatus?.hired ?? 0} hired
+              </div>
             </div>
           </div>
           {stats.recentSignups.length > 0 && (

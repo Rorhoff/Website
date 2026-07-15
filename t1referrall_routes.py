@@ -23,7 +23,7 @@ from fastapi import APIRouter, Depends, File, Header, HTTPException, Request, Up
 from fastapi.responses import RedirectResponse
 from passlib.hash import bcrypt as bcrypt_hasher
 from pydantic import BaseModel, Field
-from sqlalchemy import delete, func, or_, select, update
+from sqlalchemy import and_, delete, func, or_, select, update
 from sqlalchemy.exc import IntegrityError, ProgrammingError
 from sqlalchemy.orm import Session
 
@@ -39,6 +39,7 @@ from models import (
     T1ReferrallMessage,
     T1ReferrallPost,
     T1ReferrallPremiumPurchase,
+    T1ReferrallReferralRequest,
     T1ReferrallSeekerPost,
     T1ReferrallSession,
     T1ReferrallUser,
@@ -71,6 +72,25 @@ MAX_BANNER_BYTES = 4 * 1024 * 1024
 
 _AVAILABILITY = frozenset({"immediately", "2weeks", "1month", "3months"})
 _CONN_STATUS = frozenset({"pending", "accepted", "declined"})
+
+# Job posts auto-expire after this many days; owners can renew for free.
+JOB_POST_TTL_DAYS = 60
+# Feed pagination caps.
+FEED_DEFAULT_LIMIT = 50
+FEED_MAX_LIMIT = 100
+# Referral request lifecycle.
+_REFERRAL_STATUSES = frozenset({"pending", "accepted", "declined", "referred", "hired", "cancelled"})
+# status transitions the job-post author (referrer) may perform
+_REFERRAL_REFERRER_TRANSITIONS = {
+    "pending": {"accepted", "declined"},
+    "accepted": {"referred", "declined"},
+}
+# status transitions the seeker (requester) may perform
+_REFERRAL_REQUESTER_TRANSITIONS = {
+    "pending": {"cancelled"},
+    "referred": {"hired"},
+}
+V13_MIGRATE_HINT = "Run bash deploy/migrate-t1referrall-v13.sh on the server"
 _INLINE_AVATAR_MAX_BYTES = 512 * 1024
 _INLINE_BANNER_MAX_BYTES = 768 * 1024
 
@@ -427,6 +447,8 @@ def _profile_out(user: T1ReferrallUser, *, include_email: bool = False) -> dict[
 
 
 def _post_out(row: T1ReferrallPost, profiles: dict[str, dict[str, Any]] | None = None) -> dict[str, Any]:
+    now = datetime.utcnow()
+    expires_at = getattr(row, "expires_at", None)
     out: dict[str, Any] = {
         "id": row.id,
         "author_id": row.author_id,
@@ -440,11 +462,50 @@ def _post_out(row: T1ReferrallPost, profiles: dict[str, dict[str, Any]] | None =
         "is_remote": bool(row.is_remote),
         "tags": list(row.tags or []),
         "required_skills": list(row.required_skills or []),
+        "expires_at": _iso(expires_at),
+        "is_expired": bool(expires_at and expires_at < now),
+        "is_premium": _job_premium_active(row, now),
+        "premium_expires_at": _iso(getattr(row, "premium_expires_at", None)),
+        "premium_order": getattr(row, "premium_order", 0) or 0,
         "created_at": _iso(row.created_at),
         "updated_at": _iso(row.updated_at),
     }
     if profiles and row.author_id in profiles:
         out["profiles"] = profiles[row.author_id]
+    return out
+
+
+def _job_premium_active(row: T1ReferrallPost, now: datetime | None = None) -> bool:
+    if not getattr(row, "is_premium", False):
+        return False
+    expires = getattr(row, "premium_expires_at", None)
+    if expires is None:
+        return True
+    return expires > (now or datetime.utcnow())
+
+
+def _referral_request_out(
+    row: T1ReferrallReferralRequest,
+    posts: dict[str, dict[str, Any]] | None = None,
+    profiles: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    out: dict[str, Any] = {
+        "id": row.id,
+        "post_id": row.post_id,
+        "requester_id": row.requester_id,
+        "referrer_id": row.referrer_id,
+        "message": row.message or "",
+        "status": row.status,
+        "created_at": _iso(row.created_at),
+        "updated_at": _iso(row.updated_at),
+    }
+    if posts and row.post_id in posts:
+        out["post"] = posts[row.post_id]
+    if profiles:
+        if row.requester_id in profiles:
+            out["requester"] = profiles[row.requester_id]
+        if row.referrer_id in profiles:
+            out["referrer"] = profiles[row.referrer_id]
     return out
 
 
@@ -780,6 +841,29 @@ def _premium_price_cents(db: Session) -> int:
     return _premium_price_cents_for_count(_active_featured_post_count(db))
 
 
+def _active_featured_job_post_count(db: Session) -> int:
+    """Featured job posts that are still active (surge pricing pool for jobs)."""
+    now = datetime.utcnow()
+    return int(
+        db.scalar(
+            select(func.count())
+            .select_from(T1ReferrallPost)
+            .where(
+                T1ReferrallPost.is_premium.is_(True),
+                or_(
+                    T1ReferrallPost.premium_expires_at.is_(None),
+                    T1ReferrallPost.premium_expires_at > now,
+                ),
+            )
+        )
+        or 0
+    )
+
+
+def _job_premium_price_cents(db: Session) -> int:
+    return _premium_price_cents_for_count(_active_featured_job_post_count(db))
+
+
 def _check_block_suspend(db: Session, blocked_id: str) -> None:
     count = db.scalar(
         select(func.count())
@@ -973,6 +1057,47 @@ class CreateSeekerPostBody(BaseModel):
     resumeUrl: str = Field(default="", max_length=500)
     portfolioUrl: str = Field(default="", max_length=500)
     availability: str = Field(default="immediately", max_length=16)
+
+
+class UpdatePostBody(BaseModel):
+    company: str | None = Field(default=None, min_length=1, max_length=200)
+    roleTitle: str | None = Field(default=None, min_length=1, max_length=200)
+    description: str | None = Field(default=None, max_length=10000)
+    referralBonus: str | None = Field(default=None, max_length=200)
+    hasBonus: bool | None = None
+    jobUrl: str | None = Field(default=None, max_length=500)
+    location: str | None = Field(default=None, max_length=200)
+    isRemote: bool | None = None
+    tags: list[str] | None = Field(default=None, max_length=20)
+    requiredSkills: list[str] | None = Field(default=None, max_length=30)
+
+
+class UpdateSeekerPostBody(BaseModel):
+    headline: str | None = Field(default=None, max_length=300)
+    about: str | None = Field(default=None, max_length=10000)
+    desiredRole: str | None = Field(default=None, min_length=1, max_length=200)
+    desiredLocation: str | None = Field(default=None, max_length=200)
+    openToRemote: bool | None = None
+    fieldOfWork: str | None = Field(default=None, max_length=200)
+    skills: list[str] | None = Field(default=None, max_length=30)
+    experienceYears: float | None = Field(default=None, ge=0, le=80)
+    resumeUrl: str | None = Field(default=None, max_length=500)
+    portfolioUrl: str | None = Field(default=None, max_length=500)
+    availability: str | None = Field(default=None, max_length=16)
+
+
+class JobPremiumCheckoutBody(BaseModel):
+    jobPostId: str = Field(min_length=36, max_length=36)
+    successUrl: str = Field(min_length=1, max_length=500)
+    cancelUrl: str = Field(min_length=1, max_length=500)
+
+
+class ReferralRequestCreateBody(BaseModel):
+    message: str = Field(default="", max_length=2000)
+
+
+class ReferralRequestPatchBody(BaseModel):
+    status: str = Field(min_length=1, max_length=16)
 
 
 class ConnectionCreateBody(BaseModel):
@@ -1637,6 +1762,7 @@ def list_purchases(
         return []
     out = []
     for row in rows:
+        is_job = bool(getattr(row, "job_post_id", None))
         out.append({
             "id": row.id,
             "amount_cents": row.amount_cents,
@@ -1644,7 +1770,7 @@ def list_purchases(
             "refund_cents": row.refund_cents,
             "refunded_at": _iso(row.refunded_at),
             "created_at": _iso(row.created_at),
-            "description": "Featured seeker post (30 days)",
+            "description": "Featured job post (30 days)" if is_job else "Featured seeker post (30 days)",
         })
     return out
 
@@ -1774,6 +1900,56 @@ def admin_stats(
         )
         or 0
     )
+    messages_7d = int(
+        db.scalar(
+            select(func.count())
+            .select_from(T1ReferrallMessage)
+            .where(T1ReferrallMessage.created_at >= week_ago)
+        )
+        or 0
+    )
+    active_users_7d = int(
+        db.scalar(
+            select(func.count(func.distinct(T1ReferrallSession.user_id))).where(
+                or_(
+                    T1ReferrallSession.last_seen_at >= week_ago,
+                    T1ReferrallSession.created_at >= week_ago,
+                )
+            )
+        )
+        or 0
+    )
+    # v13 metrics — tolerate missing columns/tables until the migration runs.
+    active_featured_seekers = 0
+    active_featured_jobs = 0
+    expired_job_posts = 0
+    referral_request_count = 0
+    referral_by_status: dict[str, int] = {}
+    try:
+        active_featured_seekers = _active_featured_post_count(db)
+        active_featured_jobs = _active_featured_job_post_count(db)
+        expired_job_posts = int(
+            db.scalar(
+                select(func.count())
+                .select_from(T1ReferrallPost)
+                .where(
+                    T1ReferrallPost.expires_at.isnot(None),
+                    T1ReferrallPost.expires_at < now,
+                )
+            )
+            or 0
+        )
+        referral_rows = db.execute(
+            select(
+                T1ReferrallReferralRequest.status,
+                func.count(),
+            ).group_by(T1ReferrallReferralRequest.status)
+        ).all()
+        referral_by_status = {status: int(count) for status, count in referral_rows}
+        referral_request_count = sum(referral_by_status.values())
+    except ProgrammingError:
+        db.rollback()
+        log.warning("Admin stats: v13 columns missing — %s", V13_MIGRATE_HINT)
     recent_signups = [
         {
             "id": u.id,
@@ -1803,6 +1979,13 @@ def admin_stats(
         "connectionCount": connection_count,
         "premiumPurchaseCount": premium_purchase_count,
         "premiumRevenueCents": premium_revenue_cents,
+        "messages7d": messages_7d,
+        "activeUsers7d": active_users_7d,
+        "activeFeaturedSeekerPosts": active_featured_seekers,
+        "activeFeaturedJobPosts": active_featured_jobs,
+        "expiredJobPosts": expired_job_posts,
+        "referralRequestCount": referral_request_count,
+        "referralRequestsByStatus": referral_by_status,
         "recentSignups": recent_signups,
     }
 
@@ -2079,18 +2262,57 @@ def get_profile(
 # --- Job posts ---
 
 
+def _feed_page_params(limit: int, offset: int) -> tuple[int, int]:
+    limit = max(1, min(limit or FEED_DEFAULT_LIMIT, FEED_MAX_LIMIT))
+    offset = max(0, offset)
+    return limit, offset
+
+
 @router.get("/posts")
 def list_posts(
+    limit: int = FEED_DEFAULT_LIMIT,
+    offset: int = 0,
+    author: str = "",
     user: T1ReferrallUser = Depends(get_current_referrall_user),
     db: Session = Depends(referrall_db),
 ):
-    rows = db.scalars(
-        select(T1ReferrallPost).order_by(T1ReferrallPost.created_at.desc())
-    ).all()
-    author_ids = {r.author_id for r in rows}
-    hidden = _deactivated_author_ids(db, author_ids)
-    rows = [r for r in rows if r.author_id not in hidden]
-    profiles = _load_profiles(db, author_ids - hidden)
+    limit, offset = _feed_page_params(limit, offset)
+    now = datetime.utcnow()
+    deactivated = select(T1ReferrallUser.id).where(T1ReferrallUser.is_deactivated.is_(True))
+    stmt = select(T1ReferrallPost).where(
+        T1ReferrallPost.author_id.not_in(deactivated),
+        # Hide expired posts from everyone except the owner (so they can renew).
+        # Active featured posts stay visible regardless of expiry.
+        or_(
+            T1ReferrallPost.expires_at.is_(None),
+            T1ReferrallPost.expires_at > now,
+            T1ReferrallPost.author_id == user.id,
+            and_(
+                T1ReferrallPost.is_premium.is_(True),
+                T1ReferrallPost.premium_expires_at > now,
+            ),
+        ),
+    )
+    if author:
+        stmt = stmt.where(T1ReferrallPost.author_id == author)
+    stmt = (
+        stmt.order_by(
+            T1ReferrallPost.is_premium.desc(),
+            T1ReferrallPost.premium_order.desc(),
+            T1ReferrallPost.created_at.desc(),
+        )
+        .limit(limit)
+        .offset(offset)
+    )
+    try:
+        rows = db.scalars(stmt).all()
+    except ProgrammingError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Database schema out of date — {V13_MIGRATE_HINT}",
+        ) from exc
+    profiles = _load_profiles(db, {r.author_id for r in rows})
     return [_post_out(r, profiles) for r in rows]
 
 
@@ -2114,9 +2336,85 @@ def create_post(
         is_remote=body.isRemote,
         tags=[t.strip() for t in body.tags if t.strip()][:20],
         required_skills=[s.strip() for s in body.requiredSkills if s.strip()][:30],
+        expires_at=datetime.utcnow() + timedelta(days=JOB_POST_TTL_DAYS),
     )
     db.add(row)
+    try:
+        db.commit()
+    except ProgrammingError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Database schema out of date — {V13_MIGRATE_HINT}",
+        ) from exc
+    db.refresh(row)
+    return _post_out(row, {user.id: _profile_out(user)})
+
+
+@router.patch("/posts/{post_id}")
+def update_post(
+    post_id: str,
+    body: UpdatePostBody,
+    user: T1ReferrallUser = Depends(get_current_referrall_user),
+    db: Session = Depends(referrall_db),
+):
+    row = db.get(T1ReferrallPost, post_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Post not found")
+    if row.author_id != user.id:
+        raise HTTPException(status_code=403, detail="Not your post")
+    if body.location is not None or body.isRemote is not None:
+        location = body.location.strip() if body.location is not None else (row.location or "")
+        is_remote = body.isRemote if body.isRemote is not None else bool(row.is_remote)
+        _require_usa_location(location, open_to_remote=is_remote)
+        row.location = location
+        row.is_remote = is_remote
+    if body.company is not None:
+        row.company = body.company.strip()
+    if body.roleTitle is not None:
+        row.role_title = body.roleTitle.strip()
+    if body.description is not None:
+        row.description = body.description.strip()
+    if body.referralBonus is not None:
+        row.referral_bonus = body.referralBonus.strip()
+    if body.hasBonus is not None:
+        row.has_bonus = body.hasBonus
+    if body.jobUrl is not None:
+        row.job_url = _validate_url(body.jobUrl, "Job URL")
+    if body.tags is not None:
+        row.tags = [t.strip() for t in body.tags if t.strip()][:20]
+    if body.requiredSkills is not None:
+        row.required_skills = [s.strip() for s in body.requiredSkills if s.strip()][:30]
+    row.updated_at = datetime.utcnow()
+    db.add(row)
     db.commit()
+    db.refresh(row)
+    return _post_out(row, {user.id: _profile_out(user)})
+
+
+@router.post("/posts/{post_id}/renew")
+def renew_post(
+    post_id: str,
+    user: T1ReferrallUser = Depends(get_current_referrall_user),
+    db: Session = Depends(referrall_db),
+):
+    """Free renewal: push the expiry out another JOB_POST_TTL_DAYS from now."""
+    row = db.get(T1ReferrallPost, post_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Post not found")
+    if row.author_id != user.id:
+        raise HTTPException(status_code=403, detail="Not your post")
+    row.expires_at = datetime.utcnow() + timedelta(days=JOB_POST_TTL_DAYS)
+    row.updated_at = datetime.utcnow()
+    db.add(row)
+    try:
+        db.commit()
+    except ProgrammingError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Database schema out of date — {V13_MIGRATE_HINT}",
+        ) from exc
     db.refresh(row)
     return _post_out(row, {user.id: _profile_out(user)})
 
@@ -2132,10 +2430,11 @@ def delete_post(
         raise HTTPException(status_code=404, detail="Post not found")
     if row.author_id != user.id:
         raise HTTPException(status_code=403, detail="Not your post")
+    refund_info = _refund_premium_for_deleted_job_post(db, row)
     _remove_post_reports(db, _POST_KIND_JOB, post_id)
     db.delete(row)
     db.commit()
-    return {"ok": True}
+    return {"ok": True, **refund_info}
 
 
 @router.post("/posts/{post_id}/report")
@@ -2169,24 +2468,34 @@ def check_post_reported(
 
 @router.get("/seeker-posts")
 def list_seeker_posts(
+    limit: int = FEED_DEFAULT_LIMIT,
+    offset: int = 0,
+    author: str = "",
     user: T1ReferrallUser = Depends(get_current_referrall_user),
     db: Session = Depends(referrall_db),
 ):
+    limit, offset = _feed_page_params(limit, offset)
     now = datetime.utcnow()
-    rows = db.scalars(
-        select(T1ReferrallSeekerPost).order_by(
+    deactivated = select(T1ReferrallUser.id).where(T1ReferrallUser.is_deactivated.is_(True))
+    stmt = select(T1ReferrallSeekerPost).where(
+        T1ReferrallSeekerPost.author_id.not_in(deactivated)
+    )
+    if author:
+        stmt = stmt.where(T1ReferrallSeekerPost.author_id == author)
+    stmt = (
+        stmt.order_by(
             T1ReferrallSeekerPost.is_premium.desc(),
             T1ReferrallSeekerPost.premium_order.desc(),
             T1ReferrallSeekerPost.created_at.desc(),
         )
-    ).all()
+        .limit(limit)
+        .offset(offset)
+    )
+    rows = db.scalars(stmt).all()
     for r in rows:
         if r.is_premium and r.premium_expires_at and r.premium_expires_at < now:
             r.is_premium = False
-    author_ids = {r.author_id for r in rows}
-    hidden = _deactivated_author_ids(db, author_ids)
-    rows = [r for r in rows if r.author_id not in hidden]
-    profiles = _load_profiles(db, author_ids - hidden)
+    profiles = _load_profiles(db, {r.author_id for r in rows})
     return [_seeker_out(r, profiles) for r in rows]
 
 
@@ -2228,6 +2537,57 @@ def create_seeker_post(
         portfolio_url=_validate_url(body.portfolioUrl, "Portfolio URL"),
         availability=avail,
     )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return _seeker_out(row, {user.id: _profile_out(user)})
+
+
+@router.patch("/seeker-posts/{post_id}")
+def update_seeker_post(
+    post_id: str,
+    body: UpdateSeekerPostBody,
+    user: T1ReferrallUser = Depends(get_current_referrall_user),
+    db: Session = Depends(referrall_db),
+):
+    row = db.get(T1ReferrallSeekerPost, post_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Post not found")
+    if row.author_id != user.id:
+        raise HTTPException(status_code=403, detail="Not your post")
+    if body.availability is not None:
+        avail = body.availability.strip()
+        if avail not in _AVAILABILITY:
+            raise HTTPException(status_code=400, detail="Invalid availability")
+        row.availability = avail
+    if body.desiredLocation is not None or body.openToRemote is not None:
+        location = (
+            body.desiredLocation.strip()
+            if body.desiredLocation is not None
+            else (row.desired_location or "")
+        )
+        open_remote = body.openToRemote if body.openToRemote is not None else bool(row.open_to_remote)
+        _require_usa_location(location, open_to_remote=open_remote)
+        row.desired_location = location
+        row.open_to_remote = open_remote
+    if body.desiredRole is not None:
+        row.desired_role = body.desiredRole.strip()
+    if body.headline is not None or body.desiredRole is not None:
+        headline = body.headline.strip() if body.headline is not None else (row.headline or "")
+        row.headline = headline or row.desired_role
+    if body.about is not None:
+        row.about = body.about.strip()
+    if body.fieldOfWork is not None:
+        row.field_of_work = body.fieldOfWork.strip()
+    if body.skills is not None:
+        row.skills = [s.strip() for s in body.skills if s.strip()][:30]
+    if body.experienceYears is not None:
+        row.experience_years = body.experienceYears
+    if body.resumeUrl is not None:
+        row.resume_url = _validate_url(body.resumeUrl, "Resume URL")
+    if body.portfolioUrl is not None:
+        row.portfolio_url = _validate_url(body.portfolioUrl, "Portfolio URL")
+    row.updated_at = datetime.utcnow()
     db.add(row)
     db.commit()
     db.refresh(row)
@@ -2360,6 +2720,73 @@ def _refund_premium_for_deleted_seeker_post(
     }
 
 
+def _premium_purchase_for_job_post(db: Session, post_id: str) -> T1ReferrallPremiumPurchase | None:
+    try:
+        return db.scalars(
+            select(T1ReferrallPremiumPurchase)
+            .where(
+                T1ReferrallPremiumPurchase.job_post_id == post_id,
+                T1ReferrallPremiumPurchase.refunded_at.is_(None),
+            )
+            .order_by(T1ReferrallPremiumPurchase.created_at.desc())
+        ).first()
+    except ProgrammingError:
+        db.rollback()
+        return None
+
+
+def _refund_premium_for_deleted_job_post(
+    db: Session,
+    row: T1ReferrallPost,
+) -> dict[str, Any]:
+    """Prorated refund when a still-featured job post is deleted (mirrors seeker flow)."""
+    if not _job_premium_active(row) or not getattr(row, "premium_expires_at", None):
+        return {"refundCents": 0, "refundEligible": False, "refundBlockedReason": "not_featured"}
+    purchase = _premium_purchase_for_job_post(db, row.id)
+    if purchase is None:
+        return {"refundCents": 0, "refundEligible": False, "refundBlockedReason": "no_payment_intent"}
+    window_end = row.premium_expires_at
+    window_start = window_end - timedelta(days=PREMIUM_DURATION_DAYS)
+    quote = stripe_service.compute_premium_refund_quote(
+        amount_cents=purchase.amount_cents,
+        payment_intent_id=_resolve_premium_payment_intent(purchase) or "",
+        window_start=window_start,
+        window_end=window_end,
+        already_refunded=purchase.refunded_at is not None,
+    )
+    abuse = _assess_premium_refund_abuse(db, row.author_id, window_start, purchase, quote)
+    if abuse:
+        return {"refundCents": 0, "refundEligible": False, "refundBlockedReason": abuse}
+    if not quote.get("eligible"):
+        return {
+            "refundCents": 0,
+            "refundEligible": False,
+            "refundBlockedReason": quote.get("blocked_reason"),
+        }
+    payment_intent_id = _resolve_premium_payment_intent(purchase)
+    outcome = stripe_service.refund_premium_for_seeker_post_delete(
+        amount_cents=purchase.amount_cents,
+        payment_intent_id=payment_intent_id or "",
+        window_start=window_start,
+        window_end=window_end,
+        seeker_post_id=row.id,
+        already_refunded=purchase.refunded_at is not None,
+    )
+    if outcome.get("eligible") and outcome.get("stripe_refund_id"):
+        purchase.refunded_at = datetime.utcnow()
+        purchase.refund_cents = int(outcome.get("refund_cents") or 0)
+        purchase.stripe_refund_id = outcome.get("stripe_refund_id")
+        if payment_intent_id and not purchase.stripe_payment_intent_id:
+            purchase.stripe_payment_intent_id = payment_intent_id
+        db.add(purchase)
+        db.commit()
+    return {
+        "refundCents": int(outcome.get("refund_cents") or 0),
+        "refundEligible": bool(outcome.get("eligible")),
+        "refundBlockedReason": outcome.get("blocked_reason") or outcome.get("error"),
+    }
+
+
 @router.get("/seeker-posts/{post_id}/premium-refund-preview")
 def premium_refund_preview(
     post_id: str,
@@ -2418,6 +2845,121 @@ def check_seeker_post_reported(
     if row is None:
         raise HTTPException(status_code=404, detail="Post not found")
     return {"reported": _user_reported_post(db, user.id, _POST_KIND_SEEKER, post_id)}
+
+
+# --- Referral requests ---
+
+
+def _load_post_summaries(db: Session, post_ids: set[str]) -> dict[str, dict[str, Any]]:
+    if not post_ids:
+        return {}
+    rows = db.scalars(select(T1ReferrallPost).where(T1ReferrallPost.id.in_(post_ids))).all()
+    return {
+        r.id: {
+            "id": r.id,
+            "company": r.company,
+            "role_title": r.role_title,
+            "location": r.location or "",
+            "is_remote": bool(r.is_remote),
+        }
+        for r in rows
+    }
+
+
+@router.post("/posts/{post_id}/referral-requests")
+def create_referral_request(
+    post_id: str,
+    body: ReferralRequestCreateBody,
+    user: T1ReferrallUser = Depends(get_current_referrall_user),
+    db: Session = Depends(referrall_db),
+):
+    post = db.get(T1ReferrallPost, post_id)
+    if post is None:
+        raise HTTPException(status_code=404, detail="Post not found")
+    if post.author_id == user.id:
+        raise HTTPException(status_code=400, detail="You can't request a referral on your own post")
+    row = T1ReferrallReferralRequest(
+        id=str(uuid.uuid4()),
+        post_id=post_id,
+        requester_id=user.id,
+        referrer_id=post.author_id,
+        message=body.message.strip(),
+        status="pending",
+    )
+    db.add(row)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="You already requested a referral for this post")
+    except ProgrammingError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Database schema out of date — {V13_MIGRATE_HINT}",
+        ) from exc
+    db.refresh(row)
+    return _referral_request_out(row, _load_post_summaries(db, {post_id}))
+
+
+@router.get("/referral-requests")
+def list_referral_requests(
+    user: T1ReferrallUser = Depends(get_current_referrall_user),
+    db: Session = Depends(referrall_db),
+):
+    """All requests where the caller is either the seeker or the job-post author."""
+    try:
+        rows = db.scalars(
+            select(T1ReferrallReferralRequest)
+            .where(
+                or_(
+                    T1ReferrallReferralRequest.requester_id == user.id,
+                    T1ReferrallReferralRequest.referrer_id == user.id,
+                )
+            )
+            .order_by(T1ReferrallReferralRequest.updated_at.desc())
+        ).all()
+    except ProgrammingError:
+        db.rollback()
+        return []
+    posts = _load_post_summaries(db, {r.post_id for r in rows})
+    user_ids = {r.requester_id for r in rows} | {r.referrer_id for r in rows}
+    profiles = _load_profiles(db, user_ids)
+    return [_referral_request_out(r, posts, profiles) for r in rows]
+
+
+@router.patch("/referral-requests/{request_id}")
+def update_referral_request(
+    request_id: str,
+    body: ReferralRequestPatchBody,
+    user: T1ReferrallUser = Depends(get_current_referrall_user),
+    db: Session = Depends(referrall_db),
+):
+    row = db.get(T1ReferrallReferralRequest, request_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Referral request not found")
+    new_status = body.status.strip().lower()
+    if new_status not in _REFERRAL_STATUSES:
+        raise HTTPException(status_code=400, detail="Invalid status")
+    if user.id == row.referrer_id:
+        allowed = _REFERRAL_REFERRER_TRANSITIONS.get(row.status, set())
+    elif user.id == row.requester_id:
+        allowed = _REFERRAL_REQUESTER_TRANSITIONS.get(row.status, set())
+    else:
+        raise HTTPException(status_code=403, detail="Not your referral request")
+    if new_status not in allowed:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Can't move this request from '{row.status}' to '{new_status}'",
+        )
+    row.status = new_status
+    row.updated_at = datetime.utcnow()
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    posts = _load_post_summaries(db, {row.post_id})
+    profiles = _load_profiles(db, {row.requester_id, row.referrer_id})
+    return _referral_request_out(row, posts, profiles)
 
 
 # --- Connections ---
@@ -2966,6 +3508,11 @@ def _checkout_session_paid(session: Any) -> bool:
     return payment_status == "paid" or status == "complete"
 
 
+_SEEKER_PREMIUM_PRODUCTS = ("referr_all_premium", "t1referrall_premium")
+_JOB_PREMIUM_PRODUCT = "referr_all_job_premium"
+_ALL_PREMIUM_PRODUCTS = (*_SEEKER_PREMIUM_PRODUCTS, _JOB_PREMIUM_PRODUCT)
+
+
 def _apply_premium_to_post(db: Session, post: T1ReferrallSeekerPost) -> None:
     max_order = db.scalar(
         select(func.max(T1ReferrallSeekerPost.premium_order)).where(
@@ -2981,6 +3528,22 @@ def _apply_premium_to_post(db: Session, post: T1ReferrallSeekerPost) -> None:
     db.add(post)
 
 
+def _apply_premium_to_job_post(db: Session, post: T1ReferrallPost) -> None:
+    max_order = db.scalar(
+        select(func.max(T1ReferrallPost.premium_order)).where(
+            T1ReferrallPost.is_premium.is_(True)
+        )
+    )
+    post.is_premium = True
+    post.premium_expires_at = datetime.utcnow() + timedelta(days=PREMIUM_DURATION_DAYS)
+    post.premium_order = int(max_order or 0) + 1
+    # A featured post should never sit expired in the feed while it's paid for.
+    if post.expires_at is not None and post.expires_at < post.premium_expires_at:
+        post.expires_at = post.premium_expires_at
+    post.updated_at = datetime.utcnow()
+    db.add(post)
+
+
 def _post_premium_active(post: T1ReferrallSeekerPost | None, now: datetime | None = None) -> bool:
     if post is None or not post.is_premium:
         return False
@@ -2989,10 +3552,83 @@ def _post_premium_active(post: T1ReferrallSeekerPost | None, now: datetime | Non
     return post.premium_expires_at > (now or datetime.utcnow())
 
 
+def _fulfill_job_premium_checkout(db: Session, session: Any) -> dict[str, Any] | None:
+    """Mark a job post featured after a paid Checkout session (idempotent)."""
+    meta = _checkout_session_meta(session)
+    session_id = _checkout_session_field(session, "id")
+    if not _checkout_session_paid(session) or not session_id:
+        return None
+    job_post_id = meta.get("job_post_id")
+    if not job_post_id:
+        return None
+
+    existing = db.scalars(
+        select(T1ReferrallPremiumPurchase).where(
+            T1ReferrallPremiumPurchase.stripe_session_id == session_id
+        )
+    ).first()
+    post = db.get(T1ReferrallPost, job_post_id)
+    if existing:
+        if post and not _job_premium_active(post):
+            _apply_premium_to_job_post(db, post)
+            db.commit()
+        return {
+            "jobPostId": job_post_id,
+            "duplicate": True,
+            "isPremium": _job_premium_active(post) if post else False,
+        }
+    if post is None:
+        log.warning("Job premium fulfillment: missing job post %s", job_post_id)
+        return None
+
+    _apply_premium_to_job_post(db, post)
+
+    pi_id: str | None = None
+    try:
+        pi_id, _ = stripe_service.payment_intent_from_checkout_session(session_id)
+    except Exception:
+        log.warning("Job premium fulfillment: could not resolve payment intent for %s", session_id)
+
+    purchase_kwargs: dict[str, Any] = {
+        "id": str(uuid.uuid4()),
+        "user_id": post.author_id,
+        "job_post_id": job_post_id,
+        "amount_cents": int(meta.get("amount_cents") or _checkout_session_field(session, "amount_total") or 0),
+        "purchase_number": int(meta.get("purchase_number") or 0),
+        "stripe_session_id": session_id,
+    }
+    if pi_id:
+        purchase_kwargs["stripe_payment_intent_id"] = pi_id
+    db.add(T1ReferrallPremiumPurchase(**purchase_kwargs))
+    try:
+        db.commit()
+    except ProgrammingError as exc:
+        db.rollback()
+        log.exception("Job premium fulfillment DB error — %s", V13_MIGRATE_HINT)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Database schema out of date — {V13_MIGRATE_HINT}",
+        ) from exc
+    except IntegrityError:
+        db.rollback()
+        post = db.get(T1ReferrallPost, job_post_id)
+        if post and not _job_premium_active(post):
+            _apply_premium_to_job_post(db, post)
+            db.commit()
+        return {
+            "jobPostId": job_post_id,
+            "duplicate": True,
+            "isPremium": _job_premium_active(post) if post else False,
+        }
+    return {"jobPostId": job_post_id, "isPremium": True}
+
+
 def _fulfill_premium_checkout(db: Session, session: Any) -> dict[str, Any] | None:
     """Mark seeker post featured after a paid Checkout session (idempotent)."""
     meta = _checkout_session_meta(session)
-    if meta.get("product") not in ("referr_all_premium", "t1referrall_premium"):
+    if meta.get("product") == _JOB_PREMIUM_PRODUCT:
+        return _fulfill_job_premium_checkout(db, session)
+    if meta.get("product") not in _SEEKER_PREMIUM_PRODUCTS:
         return None
 
     session_id = _checkout_session_field(session, "id")
@@ -3150,6 +3786,92 @@ def premium_checkout(
     return {"url": session.url, "sessionId": session.id}
 
 
+@router.get("/premium/job-price")
+def job_premium_price(
+    user: T1ReferrallUser = Depends(get_current_referrall_user),
+    db: Session = Depends(referrall_db),
+):
+    try:
+        active = _active_featured_job_post_count(db)
+        cents = _premium_price_cents_for_count(active)
+    except ProgrammingError as exc:
+        db.rollback()
+        log.exception("Job premium price DB error")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Database schema out of date — {V13_MIGRATE_HINT}",
+        ) from exc
+    return {
+        "priceCents": cents,
+        "activeFeaturedCount": active,
+        "purchaseNumber": active + 1,
+        "durationDays": PREMIUM_DURATION_DAYS,
+    }
+
+
+@router.post("/premium/job-checkout")
+def job_premium_checkout(
+    body: JobPremiumCheckoutBody,
+    user: T1ReferrallUser = Depends(get_current_referrall_user),
+    db: Session = Depends(referrall_db),
+):
+    if not stripe_service.stripe_enabled():
+        raise HTTPException(status_code=503, detail=_payments_not_configured_detail())
+    post = db.get(T1ReferrallPost, body.jobPostId)
+    if post is None:
+        raise HTTPException(status_code=404, detail="Job post not found")
+    if post.author_id != user.id:
+        raise HTTPException(status_code=403, detail="Not your post")
+    if _job_premium_active(post):
+        raise HTTPException(status_code=409, detail="This post is already featured")
+    try:
+        price_cents = _job_premium_price_cents(db)
+        purchase_num = _active_featured_job_post_count(db) + 1
+        stripe = stripe_service._stripe_client()  # noqa: SLF001
+        session = stripe.checkout.Session.create(
+            mode="payment",
+            payment_method_types=["card"],
+            line_items=[
+                {
+                    "quantity": 1,
+                    "price_data": {
+                        "currency": "usd",
+                        "unit_amount": price_cents,
+                        "product_data": {
+                            "name": "Featured Job Post — 30 Days",
+                            "description": (
+                                "Your job opening will be pinned near the top of the feed "
+                                "with a Featured badge for 30 days."
+                            ),
+                        },
+                    },
+                }
+            ],
+            metadata={
+                "product": _JOB_PREMIUM_PRODUCT,
+                "job_post_id": body.jobPostId,
+                "purchase_number": str(purchase_num),
+                "amount_cents": str(price_cents),
+                "user_id": user.id,
+            },
+            success_url=body.successUrl,
+            cancel_url=body.cancelUrl,
+        )
+    except ProgrammingError as exc:
+        db.rollback()
+        log.exception("Job premium checkout DB error")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Database schema out of date — {V13_MIGRATE_HINT}",
+        ) from exc
+    except HTTPException:
+        raise
+    except Exception as exc:
+        log.exception("Job premium checkout Stripe error")
+        raise HTTPException(status_code=500, detail="Could not start checkout — try again shortly") from exc
+    return {"url": session.url, "sessionId": session.id}
+
+
 @router.post("/premium/confirm")
 def premium_confirm(
     body: PremiumConfirmBody,
@@ -3171,7 +3893,7 @@ def premium_confirm(
     if owner_id and owner_id != user.id:
         raise HTTPException(status_code=403, detail="Not your checkout session")
 
-    if meta.get("product") not in ("referr_all_premium", "t1referrall_premium"):
+    if meta.get("product") not in _ALL_PREMIUM_PRODUCTS:
         raise HTTPException(status_code=400, detail="Not a featured-post checkout session")
     if not _checkout_session_paid(session):
         raise HTTPException(status_code=400, detail="Payment not completed yet")
@@ -3213,7 +3935,7 @@ def premium_reconcile(
                 meta = _checkout_session_meta(session)
                 if meta.get("user_id") != user.id:
                     continue
-                if meta.get("product") not in ("referr_all_premium", "t1referrall_premium"):
+                if meta.get("product") not in _ALL_PREMIUM_PRODUCTS:
                     continue
                 try:
                     result = _fulfill_premium_checkout(db, session)

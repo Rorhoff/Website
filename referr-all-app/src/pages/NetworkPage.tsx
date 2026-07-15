@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import * as api from '../lib/api';
-import type { Profile, Connection } from '../lib/types';
+import type { Profile, Connection, ReferralRequest, ReferralRequestStatus } from '../lib/types';
+import { REFERRAL_STATUS_LABELS } from '../lib/types';
 import { useAuth } from '../contexts/AuthContext';
-import { UserPlus, UserCheck, UserX, Search, Users, Clock, MapPin, Briefcase } from 'lucide-react';
+import { UserPlus, UserCheck, UserX, Search, Users, Clock, MapPin, Briefcase, Send } from 'lucide-react';
 
-type Tab = 'discover' | 'connections' | 'pending';
+type Tab = 'discover' | 'connections' | 'pending' | 'referrals';
 
 type Props = {
   onViewProfile: (userId: string) => void;
@@ -26,6 +27,7 @@ export default function NetworkPage({ onViewProfile, onMessage }: Props) {
   const [allPeople, setAllPeople] = useState<Profile[]>([]);
   const [connections, setConnections] = useState<Connection[]>([]);
   const [pending, setPending] = useState<Connection[]>([]);
+  const [referrals, setReferrals] = useState<ReferralRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [actionLoading, setActionLoading] = useState<string | null>(null);
@@ -34,14 +36,16 @@ export default function NetworkPage({ onViewProfile, onMessage }: Props) {
     if (!user) return;
     setLoading(true);
 
-    const [allProfiles, allConns] = await Promise.all([
+    const [allProfiles, allConns, allReferrals] = await Promise.all([
       api.listProfiles(),
       api.listConnections(),
+      api.listReferralRequests().catch(() => [] as ReferralRequest[]),
     ]);
 
     const allConnsTyped = allConns as Connection[];
     setConnections(allConnsTyped.filter(c => c.status === 'accepted'));
     setPending(allConnsTyped.filter(c => c.status === 'pending'));
+    setReferrals(allReferrals);
     setAllPeople(allProfiles as Profile[]);
 
     setLoading(false);
@@ -115,6 +119,18 @@ export default function NetworkPage({ onViewProfile, onMessage }: Props) {
     await api.deleteConnection(connId);
     await loadAll();
     setActionLoading(null);
+  }
+
+  async function setReferralStatus(id: string, status: ReferralRequestStatus) {
+    setActionLoading(id);
+    try {
+      const updated = await api.updateReferralRequest(id, status);
+      setReferrals(list => list.map(r => (r.id === id ? { ...r, ...updated } : r)));
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Could not update referral request');
+    } finally {
+      setActionLoading(null);
+    }
   }
 
   function discoverAction(person: Profile) {
@@ -212,10 +228,15 @@ export default function NetworkPage({ onViewProfile, onMessage }: Props) {
     return null;
   }
 
+  const receivedReferrals = referrals.filter(r => r.referrer_id === user?.id);
+  const sentReferrals = referrals.filter(r => r.requester_id === user?.id);
+  const actionableReferrals = receivedReferrals.filter(r => r.status === 'pending' || r.status === 'accepted').length;
+
   const tabs: { id: Tab; label: string; count?: number }[] = [
     { id: 'discover', label: 'Discover' },
     { id: 'connections', label: 'Connections', count: connections.length },
     { id: 'pending', label: 'Pending', count: pending.filter(c => c.addressee_id === user?.id).length },
+    { id: 'referrals', label: 'Referrals', count: actionableReferrals },
   ];
 
   const isSearching = search.trim().length > 0;
@@ -335,7 +356,7 @@ export default function NetworkPage({ onViewProfile, onMessage }: Props) {
             })}
           </div>
         )
-      ) : (
+      ) : tab === 'pending' ? (
         <div className="space-y-4">
           {pending.filter(c => c.addressee_id === user?.id).length > 0 && (
             <div>
@@ -407,7 +428,153 @@ export default function NetworkPage({ onViewProfile, onMessage }: Props) {
             <EmptyState icon={Clock} title="No pending requests" desc="Send connection requests to grow your network." />
           )}
         </div>
+      ) : (
+        <div className="space-y-6">
+          {referrals.length === 0 && (
+            <EmptyState
+              icon={Send}
+              title="No referral requests yet"
+              desc='Use "Request Referral" on a job opening, or wait for seekers to ask you for one.'
+            />
+          )}
+
+          {receivedReferrals.length > 0 && (
+            <div>
+              <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">Received — you're the referrer</h3>
+              <div className="space-y-3">
+                {receivedReferrals.map(r => (
+                  <ReferralCard
+                    key={r.id}
+                    request={r}
+                    person={r.requester}
+                    onViewProfile={onViewProfile}
+                    onMessage={onMessage}
+                    busy={actionLoading === r.id}
+                    actions={
+                      r.status === 'pending' ? (
+                        <>
+                          <ReferralActionButton label="Accept" primary onClick={() => setReferralStatus(r.id, 'accepted')} />
+                          <ReferralActionButton label="Decline" onClick={() => setReferralStatus(r.id, 'declined')} />
+                        </>
+                      ) : r.status === 'accepted' ? (
+                        <>
+                          <ReferralActionButton label="Mark as Referred" primary onClick={() => setReferralStatus(r.id, 'referred')} />
+                          <ReferralActionButton label="Decline" onClick={() => setReferralStatus(r.id, 'declined')} />
+                        </>
+                      ) : null
+                    }
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {sentReferrals.length > 0 && (
+            <div>
+              <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">Sent — your requests</h3>
+              <div className="space-y-3">
+                {sentReferrals.map(r => (
+                  <ReferralCard
+                    key={r.id}
+                    request={r}
+                    person={r.referrer}
+                    onViewProfile={onViewProfile}
+                    onMessage={onMessage}
+                    busy={actionLoading === r.id}
+                    actions={
+                      r.status === 'pending' ? (
+                        <ReferralActionButton label="Cancel" onClick={() => setReferralStatus(r.id, 'cancelled')} />
+                      ) : r.status === 'referred' ? (
+                        <ReferralActionButton label="I got hired!" primary onClick={() => setReferralStatus(r.id, 'hired')} />
+                      ) : null
+                    }
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
       )}
+    </div>
+  );
+}
+
+const REFERRAL_STATUS_STYLES: Record<ReferralRequestStatus, string> = {
+  pending: 'text-amber-400 bg-amber-500/10 border-amber-500/30',
+  accepted: 'text-blue-400 bg-blue-500/10 border-blue-500/30',
+  declined: 'text-gray-500 bg-gray-800 border-gray-700',
+  referred: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30',
+  hired: 'text-emerald-300 bg-emerald-500/20 border-emerald-400/40',
+  cancelled: 'text-gray-500 bg-gray-800 border-gray-700',
+};
+
+function ReferralActionButton({ label, primary, onClick }: { label: string; primary?: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`text-xs font-medium rounded-lg px-3 py-2 transition ${
+        primary
+          ? 'bg-blue-500 hover:bg-blue-600 text-white'
+          : 'bg-gray-800 hover:bg-gray-700 text-gray-400'
+      }`}
+    >
+      {label}
+    </button>
+  );
+}
+
+function ReferralCard({
+  request, person, actions, busy, onViewProfile, onMessage,
+}: {
+  request: ReferralRequest;
+  person?: Profile;
+  actions: React.ReactNode;
+  busy: boolean;
+  onViewProfile: (id: string) => void;
+  onMessage: (id: string) => void;
+}) {
+  return (
+    <div className={`bg-gray-900 rounded-2xl border border-gray-800 p-5 ${busy ? 'opacity-60 pointer-events-none' : ''}`}>
+      <div className="flex items-start justify-between gap-3 mb-3">
+        {person ? (
+          <button onClick={() => onViewProfile(person.id)} className="flex items-center gap-3 group min-w-0 text-left">
+            <Avatar profile={person} size="md" />
+            <div className="min-w-0">
+              <div className="text-white font-semibold text-sm group-hover:text-blue-400 transition truncate">{person.full_name}</div>
+              <div className="text-gray-500 text-xs truncate">@{person.username}</div>
+            </div>
+          </button>
+        ) : (
+          <div className="text-gray-500 text-sm">Unknown user</div>
+        )}
+        <span className={`flex-shrink-0 text-xs font-medium px-2.5 py-1 rounded-full border ${REFERRAL_STATUS_STYLES[request.status]}`}>
+          {REFERRAL_STATUS_LABELS[request.status]}
+        </span>
+      </div>
+      {request.post && (
+        <div className="flex items-center gap-2 text-sm mb-2 min-w-0">
+          <Briefcase size={13} className="text-gray-500 flex-shrink-0" />
+          <span className="text-gray-300 truncate">
+            <span className="font-medium text-white">{request.post.role_title}</span> at {request.post.company}
+          </span>
+        </div>
+      )}
+      {request.message && (
+        <p className="text-gray-400 text-sm leading-relaxed mb-3 line-clamp-3">{request.message}</p>
+      )}
+      <div className="flex items-center gap-2 flex-wrap">
+        {actions}
+        {person && (
+          <button
+            type="button"
+            onClick={() => onMessage(person.id)}
+            className="text-xs font-medium rounded-lg px-3 py-2 bg-gray-800/60 hover:bg-gray-700 text-gray-500 hover:text-gray-300 transition"
+          >
+            Message
+          </button>
+        )}
+      </div>
     </div>
   );
 }

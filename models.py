@@ -404,6 +404,12 @@ class T1ReferrallPost(Base):
     is_remote: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     tags: Mapped[list[Any]] = mapped_column(JSONB, default=list, server_default="[]")
     required_skills: Mapped[list[Any]] = mapped_column(JSONB, default=list, server_default="[]")
+    # Job posts auto-expire; owners can renew (v13).
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # Featured (paid) job post, mirrors seeker premium (v13).
+    is_premium: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    premium_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    premium_order: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()
@@ -513,6 +519,12 @@ class T1ReferrallPremiumPurchase(Base):
         ForeignKey("t1referrall_seeker_post.id", ondelete="SET NULL"),
         nullable=True,
     )
+    # Set instead of seeker_post_id for featured job-post purchases (v13).
+    job_post_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("t1referrall_post.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     amount_cents: Mapped[int] = mapped_column(Integer)
     purchase_number: Mapped[int] = mapped_column(Integer)
     stripe_session_id: Mapped[str | None] = mapped_column(String(200), unique=True, nullable=True)
@@ -555,6 +567,39 @@ class T1ReferrallPostReport(Base):
     __table_args__ = (
         UniqueConstraint("reporter_id", "post_kind", "post_id", name="uq_t1ref_post_report"),
         Index("ix_t1ref_post_report_target", "post_kind", "post_id"),
+    )
+
+
+class T1ReferrallReferralRequest(Base):
+    """Structured 'refer me' ask from a seeker to a job-post author (v13).
+
+    Status flow: pending -> accepted/declined (referrer) -> referred (referrer)
+    -> hired (requester). Requester may cancel while pending.
+    """
+
+    __tablename__ = "t1referrall_referral_request"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    post_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("t1referrall_post.id", ondelete="CASCADE"), index=True
+    )
+    requester_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("t1referrall_user.id", ondelete="CASCADE"), index=True
+    )
+    referrer_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("t1referrall_user.id", ondelete="CASCADE"), index=True
+    )
+    message: Mapped[str] = mapped_column(Text(), default="", server_default="")
+    status: Mapped[str] = mapped_column(
+        String(16), default="pending", server_default="pending", index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+    __table_args__ = (
+        UniqueConstraint("post_id", "requester_id", name="uq_t1ref_referral_request"),
     )
 
 
