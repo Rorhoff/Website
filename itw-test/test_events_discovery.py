@@ -107,6 +107,29 @@ def test_submit_event_and_dedupe(client, db_session, monkeypatch):
     assert any(e["id"] == event_id for e in listed.json()["events"])
 
 
+def test_submit_event_accepts_browser_utc_iso(client, db_session, monkeypatch):
+    """Frontend sends toISOString() values with a Z suffix (timezone-aware)."""
+    token, profile = register_user(client, gender="woman", looking_for="men", username="utciso")
+    set_user_city_coords(db_session, profile["id"], *PORTLAND, city="Portland")
+
+    monkeypatch.setattr("t1inthewild_routes.itw_geocode.geocode_city", lambda _city: PORTLAND)
+
+    now = datetime.utcnow()
+    body = {
+        "name": "Summer Market",
+        "venue_name": "Pioneer Courthouse Square",
+        "city": "Portland",
+        "description": "Food trucks",
+        "starts_at": (now + timedelta(days=10)).strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+        "ends_at": (now + timedelta(days=10, hours=4)).strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+    }
+    res = client.post("/api/in-the-wild/events", headers=auth_headers(token), json=body)
+    assert res.status_code == 200, res.text
+    data = res.json()
+    assert data["already_exists"] is False
+    assert data["event"]["name"] == "Summer Market"
+
+
 def test_discover_returns_compatibility_scores(client, db_session):
     token_a, profile_a = register_user(client, gender="man", looking_for="women", username="comp_a")
     _, profile_b = register_user(client, gender="woman", looking_for="men", username="comp_b")

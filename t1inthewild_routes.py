@@ -12,7 +12,7 @@ import os
 import re
 import secrets
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, File, Header, HTTPException, Query, Request, UploadFile, status
@@ -91,6 +91,13 @@ def _db():
 
 def _now() -> datetime:
     return datetime.utcnow()
+
+
+def _utc_naive(dt: datetime) -> datetime:
+    """Normalize API datetimes to naive UTC for DB storage and comparisons."""
+    if dt.tzinfo is not None:
+        return dt.astimezone(timezone.utc).replace(tzinfo=None)
+    return dt
 
 
 def _is_full_dev_mode() -> bool:
@@ -1180,9 +1187,11 @@ def submit_event(
     db: Session = Depends(_db),
 ):
     user = _get_user(db, authorization)
-    if body.ends_at <= body.starts_at:
+    starts_at = _utc_naive(body.starts_at)
+    ends_at = _utc_naive(body.ends_at)
+    if ends_at <= starts_at:
         raise HTTPException(status_code=400, detail="End time must be after start time")
-    if body.ends_at <= _now():
+    if ends_at <= _now():
         raise HTTPException(status_code=400, detail="Event must end in the future")
 
     duplicate = _find_duplicate_event(
@@ -1190,7 +1199,7 @@ def submit_event(
         name=body.name,
         venue_name=body.venue_name,
         city=body.city,
-        starts_at=body.starts_at,
+        starts_at=starts_at,
     )
     if duplicate:
         return {
@@ -1222,8 +1231,8 @@ def submit_event(
         longitude=lng,
         radius_m=300,
         category=(body.category or "community").strip()[:32],
-        starts_at=body.starts_at,
-        ends_at=body.ends_at,
+        starts_at=starts_at,
+        ends_at=ends_at,
         is_active=True,
         created_by_user_id=user.id,
     )
@@ -1933,7 +1942,9 @@ def admin_create_event(
 ):
     user = _get_user(db, authorization)
     _require_admin(user)
-    if body.ends_at <= body.starts_at:
+    starts_at = _utc_naive(body.starts_at)
+    ends_at = _utc_naive(body.ends_at)
+    if ends_at <= starts_at:
         raise HTTPException(status_code=400, detail="ends_at must be after starts_at")
     ev = T1IntheWildEvent(
         id=str(uuid.uuid4()),
@@ -1945,8 +1956,8 @@ def admin_create_event(
         longitude=body.longitude,
         radius_m=body.radius_m,
         category=body.category.strip(),
-        starts_at=body.starts_at,
-        ends_at=body.ends_at,
+        starts_at=starts_at,
+        ends_at=ends_at,
         is_active=body.is_active,
     )
     db.add(ev)
@@ -1974,8 +1985,8 @@ def admin_update_event(
     ev.longitude = body.longitude
     ev.radius_m = body.radius_m
     ev.category = body.category.strip()
-    ev.starts_at = body.starts_at
-    ev.ends_at = body.ends_at
+    ev.starts_at = _utc_naive(body.starts_at)
+    ev.ends_at = _utc_naive(body.ends_at)
     ev.is_active = body.is_active
     db.commit()
     return _event_dict(ev)
