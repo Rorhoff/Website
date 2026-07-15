@@ -207,3 +207,21 @@ def test_discover_needs_preferences(client, db_session):
     data = res.json()
     assert data["needs_preferences"] is True
     assert data["profiles"] == []
+
+
+def test_register_generates_username_from_full_name(client):
+    res = client.post(
+        "/api/in-the-wild/register",
+        json={
+            "email": "derek.luke@itw-test.example",
+            "password": "testpass123",
+            "display_name": "Derek Luke",
+            "birth_year": 1990,
+            "gender": "man",
+            "looking_for": "women",
+        },
+    )
+    assert res.status_code == 200, res.text
+    profile = res.json()["profile"]
+    assert profile["display_name"] == "Derek Luke"
+    assert profile["username"] == "derek_luke"

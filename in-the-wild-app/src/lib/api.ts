@@ -49,8 +49,8 @@ export async function joinWaitlist(input: {
 export async function register(input: {
   email: string;
   password: string;
-  username: string;
-  display_name?: string;
+  display_name: string;
+  username?: string;
   birth_year: number;
   gender: string;
   looking_for: string;

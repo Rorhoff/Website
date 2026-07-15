@@ -102,21 +102,25 @@ def register_user(
     gender: str,
     looking_for: str,
     username: str | None = None,
+    display_name: str | None = None,
 ) -> tuple[str, dict]:
-    username = username or f"user_{uuid.uuid4().hex[:8]}"
-    email = f"{username}@itw-test.example"
+    suffix = uuid.uuid4().hex[:8]
+    explicit_username = username
+    email = f"{explicit_username or f'user_{suffix}'}@itw-test.example"
     birth_year = datetime.utcnow().year - 28
+    payload = {
+        "email": email,
+        "password": "testpass123",
+        "display_name": display_name or (explicit_username.replace("_", " ").title() if explicit_username else f"Test User {suffix}"),
+        "birth_year": birth_year,
+        "gender": gender,
+        "looking_for": looking_for,
+    }
+    if explicit_username:
+        payload["username"] = explicit_username
     res = client.post(
         "/api/in-the-wild/register",
-        json={
-            "email": email,
-            "password": "testpass123",
-            "username": username,
-            "display_name": username.title(),
-            "birth_year": birth_year,
-            "gender": gender,
-            "looking_for": looking_for,
-        },
+        json=payload,
     )
     assert res.status_code == 200, res.text
     data = res.json()

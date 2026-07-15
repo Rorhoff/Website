@@ -12,8 +12,7 @@ export default function AuthPage({ onBack, onSuccess }: Props) {
   const [mode, setMode] = useState<'login' | 'register'>('register');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [username, setUsername] = useState('');
-  const [displayName, setDisplayName] = useState('');
+  const [fullName, setFullName] = useState('');
   const [birthYear, setBirthYear] = useState('');
   const [gender, setGender] = useState('');
   const [lookingFor, setLookingFor] = useState('');
@@ -28,8 +27,7 @@ export default function AuthPage({ onBack, onSuccess }: Props) {
       await api.register({
         email,
         password,
-        username,
-        display_name: displayName || username,
+        display_name: fullName.trim(),
         birth_year: parseInt(birthYear, 10),
         gender,
         looking_for: lookingFor,
@@ -104,29 +102,17 @@ export default function AuthPage({ onBack, onSuccess }: Props) {
             className="space-y-4"
           >
             <div>
-              <label htmlFor="itw-username" className={labelClass}>Username</label>
+              <label htmlFor="itw-full-name" className={labelClass}>Full name</label>
               <input
-                id="itw-username"
-                name="username"
-                type="text"
-                required
-                autoComplete="username"
-                placeholder="janesmith"
-                value={username}
-                onChange={e => setUsername(e.target.value)}
-                className={inputClass}
-              />
-            </div>
-            <div>
-              <label htmlFor="itw-display-name" className={labelClass}>Display name</label>
-              <input
-                id="itw-display-name"
+                id="itw-full-name"
                 name="name"
                 type="text"
+                required
+                minLength={2}
                 autoComplete="name"
                 placeholder="Jane Smith"
-                value={displayName}
-                onChange={e => setDisplayName(e.target.value)}
+                value={fullName}
+                onChange={e => setFullName(e.target.value)}
                 className={inputClass}
               />
             </div>

@@ -69,6 +69,36 @@ SESSION_HOURS = 24 * 30
 MATCH_CHAT_HOURS = 6
 PASS_COOLDOWN_DAYS = 30
 USERNAME_RE = re.compile(r"^[a-zA-Z0-9_]{3,32}$")
+
+
+def _username_base(full_name: str, email: str) -> str:
+    slug = re.sub(r"[^a-zA-Z0-9_]+", "_", full_name.strip().lower())
+    slug = re.sub(r"_+", "_", slug).strip("_")
+    if len(slug) >= 3:
+        return slug[:32]
+    local = re.sub(r"[^a-zA-Z0-9]", "", email.split("@", 1)[0].lower())
+    return (local or "user")[:32]
+
+
+def _generate_username(db: Session, full_name: str, email: str) -> str:
+    base = _username_base(full_name, email)
+    if len(base) < 3:
+        base = "user"
+    candidate = base[:32]
+    if not db.scalars(
+        select(T1IntheWildUser.id).where(func.lower(T1IntheWildUser.username) == candidate.lower()).limit(1)
+    ).first():
+        return candidate
+    for n in range(2, 1000):
+        suffix = f"_{n}"
+        candidate = f"{base[: 32 - len(suffix)]}{suffix}"
+        if not db.scalars(
+            select(T1IntheWildUser.id)
+            .where(func.lower(T1IntheWildUser.username) == candidate.lower())
+            .limit(1)
+        ).first():
+            return candidate
+    raise HTTPException(status_code=503, detail="Could not generate a unique username")
 MAX_AVATAR_BYTES = 4 * 1024 * 1024
 _INLINE_AVATAR_MAX_BYTES = 512 * 1024
 _DEV_LOUNGE_CATEGORY = "dev_lounge"
@@ -862,8 +892,8 @@ class WaitlistBody(BaseModel):
 class RegisterBody(BaseModel):
     email: str = Field(min_length=3, max_length=255)
     password: str = Field(min_length=8, max_length=128)
-    username: str = Field(min_length=3, max_length=32)
-    display_name: str = Field(default="", max_length=120)
+    username: str | None = Field(default=None, max_length=32)
+    display_name: str = Field(min_length=2, max_length=120)
     birth_year: int
     gender: str = Field(min_length=1, max_length=32)
     looking_for: str = Field(min_length=1, max_length=32)
@@ -1012,9 +1042,15 @@ def register(body: RegisterBody, request: Request, db: Session = Depends(_db)):
     if not ready:
         raise HTTPException(status_code=503, detail=err)
     email = body.email.strip().lower()
-    username = body.username.strip()
-    if not USERNAME_RE.match(username):
-        raise HTTPException(status_code=400, detail="Username must be 3–32 chars (letters, numbers, underscore)")
+    display_name = body.display_name.strip()
+    if len(display_name) < 2:
+        raise HTTPException(status_code=400, detail="Full name must be at least 2 characters")
+    if body.username is not None and body.username.strip():
+        username = body.username.strip()
+        if not USERNAME_RE.match(username):
+            raise HTTPException(status_code=400, detail="Username must be 3–32 chars (letters, numbers, underscore)")
+    else:
+        username = _generate_username(db, display_name, email)
     _validate_birth_year(body.birth_year)
     gender = _validate_gender(body.gender)
     looking_for = _validate_looking_for(body.looking_for)
@@ -1024,7 +1060,7 @@ def register(body: RegisterBody, request: Request, db: Session = Depends(_db)):
         email=email,
         username=username,
         password_hash=bcrypt_hasher.hash(truncate_for_bcrypt(body.password)),
-        display_name=(body.display_name or username).strip()[:120],
+        display_name=display_name[:120],
         birth_year=body.birth_year,
         gender=gender,
         looking_for=looking_for,
@@ -1106,7 +1142,10 @@ def patch_me(
 ):
     user = _get_user(db, authorization)
     if body.display_name is not None:
-        user.display_name = body.display_name.strip()[:120]
+        name = body.display_name.strip()
+        if len(name) < 2:
+            raise HTTPException(status_code=400, detail="Full name must be at least 2 characters")
+        user.display_name = name[:120]
     if body.bio is not None:
         user.bio = body.bio.strip()[:2000]
     if body.avatar_url is not None:

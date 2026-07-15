@@ -288,7 +288,7 @@ export default function AdminPage({ onBack }: Props) {
             {users.map(u => (
               <div key={u.id} className="flex items-center gap-3 bg-stone-900 border border-stone-800 rounded-xl p-3">
                 <div className="flex-1 min-w-0">
-                  <p className="text-white text-sm font-medium">@{u.username} · {u.display_name}</p>
+                  <p className="text-white text-sm font-medium">{u.display_name || u.username} · @{u.username}</p>
                   <p className="text-stone-500 text-xs truncate">
                     {u.email || 'no email'}
                     {u.created_at ? ` · joined ${new Date(u.created_at).toLocaleDateString()}` : ''}

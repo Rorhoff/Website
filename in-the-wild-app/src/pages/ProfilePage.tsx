@@ -25,6 +25,7 @@ type Props = {
 export default function ProfilePage({ onOpenAdmin, onNewOverlaps }: Props) {
   const { profile, refreshProfile } = useAuth();
   const fileRef = useRef<HTMLInputElement>(null);
+  const [fullName, setFullName] = useState(profile?.display_name || '');
   const [bio, setBio] = useState(profile?.bio || '');
   const [city, setCity] = useState(profile?.city || '');
   const [gender, setGender] = useState(profile?.gender || '');
@@ -78,6 +79,12 @@ export default function ProfilePage({ onOpenAdmin, onNewOverlaps }: Props) {
       setSubmitForm(f => ({ ...f, city: profile.city }));
     }
   }, [profile?.city]);
+
+  useEffect(() => {
+    if (profile?.display_name) {
+      setFullName(profile.display_name);
+    }
+  }, [profile?.display_name]);
 
   if (!profile) return null;
 
@@ -222,6 +229,7 @@ export default function ProfilePage({ onOpenAdmin, onNewOverlaps }: Props) {
     setSaved(false);
     try {
       await api.updateProfile({
+        display_name: fullName.trim(),
         bio,
         city,
         gender,
@@ -479,6 +487,18 @@ export default function ProfilePage({ onOpenAdmin, onNewOverlaps }: Props) {
       </div>
 
       <form onSubmit={handleSave} className="space-y-4">
+        <div>
+          <label className="text-stone-400 text-xs block mb-1">Full name</label>
+          <input
+            value={fullName}
+            onChange={e => setFullName(e.target.value)}
+            required
+            minLength={2}
+            autoComplete="name"
+            placeholder="Jane Smith"
+            className="w-full bg-stone-900 border border-stone-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-emerald-600"
+          />
+        </div>
         <div>
           <label className="text-stone-400 text-xs block mb-1">I am</label>
           <select
