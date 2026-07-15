@@ -101,25 +101,7 @@
       </div>
     </nav>
     <div id="root"></div>
-    <script>
-      (function () {
-        var btn = document.getElementById("navHamburger");
-        var links = document.getElementById("navLinks");
-        if (!btn || !links) return;
-        btn.addEventListener("click", function () {
-          var open = links.classList.toggle("open");
-          btn.setAttribute("aria-expanded", open);
-          btn.textContent = open ? "✕" : "☰";
-        });
-        document.addEventListener("click", function (e) {
-          if (!links.contains(e.target) && e.target !== btn) {
-            links.classList.remove("open");
-            btn.setAttribute("aria-expanded", "false");
-            btn.textContent = "☰";
-          }
-        });
-      })();
-    </script>
+    <script src="%BASE_URL%nav-toggle.js" defer></script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
