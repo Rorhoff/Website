@@ -123,6 +123,17 @@ else
   log "Updated ${before} → ${after}"
 fi
 
+# The running script may be older than the one in the tag we just checked out
+# (e.g. the tag added a new migration step). Re-exec the tag's own script once
+# so this deploy runs with the up-to-date steps.
+if [[ -z "${COMMITREFERRALL_REEXEC:-}" ]] && [[ -f "$_REPO_SCRIPT" ]] \
+  && ! cmp -s "${BASH_SOURCE[0]}" "$_REPO_SCRIPT" 2>/dev/null; then
+  log "Deploy script changed in ${TAG} — re-running with the updated script…"
+  cp "$_REPO_SCRIPT" "$HOME/commitreferrall.sh"
+  chmod +x "$HOME/commitreferrall.sh"
+  COMMITREFERRALL_REEXEC=1 exec "$HOME/commitreferrall.sh" "$@"
+fi
+
 # ---------------------------------------------------------------------------
 # Build the Referr-All SPA (Vite/React) into static/referr-all with base "/".
 # Non-fatal: a failed build keeps the previous static output so prod stays up.
