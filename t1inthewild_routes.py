@@ -75,8 +75,6 @@ _SPOT_CATEGORY = "spot"
 SPOT_MERGE_RADIUS_M = 80
 SPOT_CHECKIN_HOURS = 4
 SPOT_EVENT_RADIUS_M = 120
-GPS_DISCOVERY_RADIUS_MILES = 25
-GPS_DISCOVERY_RADIUS_M = int(GPS_DISCOVERY_RADIUS_MILES * 1609.344)
 ID_VERIFY_REQUIRED_FOR_CHAT = False
 VENUE_MATCH_PROXIMITY_M = 30.48  # ~100 feet
 
@@ -221,18 +219,23 @@ def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 def _sync_user_city_coords(user: T1IntheWildUser, db: Session) -> None:
     city = (user.city or "").strip()
     if not city:
-        user.city_latitude = None
-        user.city_longitude = None
-        db.commit()
+        if user.city_latitude is not None or user.city_longitude is not None:
+            user.city_latitude = None
+            user.city_longitude = None
+            db.commit()
         return
     coords = itw_geocode.geocode_city(city)
     if coords:
-        user.city_latitude, user.city_longitude = coords
-    else:
+        lat, lng = coords
+        if user.city_latitude != lat or user.city_longitude != lng:
+            user.city_latitude, user.city_longitude = lat, lng
+            db.commit()
+            db.refresh(user)
+    elif user.city_latitude is not None or user.city_longitude is not None:
         user.city_latitude = None
         user.city_longitude = None
-    db.commit()
-    db.refresh(user)
+        db.commit()
+        db.refresh(user)
 
 
 def _find_duplicate_event(
@@ -273,27 +276,38 @@ def _filter_events_for_user(
     gps_lng: float | None = None,
 ) -> tuple[list[T1IntheWildEvent], dict[str, Any]]:
     using_gps = gps_lat is not None and gps_lng is not None
+    profile_lat = user.city_latitude if user else None
+    profile_lng = user.city_longitude if user else None
+    has_profile_center = profile_lat is not None and profile_lng is not None
     meta: dict[str, Any] = {
-        "radius_miles": GPS_DISCOVERY_RADIUS_MILES if using_gps else EVENT_DISCOVERY_RADIUS_MILES,
+        "radius_miles": EVENT_DISCOVERY_RADIUS_MILES,
         "city": (user.city or "").strip() if user else "",
         "needs_city": False,
         "geocode_ok": False,
         "using_gps": using_gps,
+        "includes_profile_city": using_gps and has_profile_center,
     }
     if using_gps:
-        center_lat, center_lng = gps_lat, gps_lng
         meta["geocode_ok"] = True
         visible: list[T1IntheWildEvent] = []
         seen: set[str] = set()
         for event in events:
             if event.id in seen:
                 continue
+            near_gps = event_within_radius(
+                event.latitude, event.longitude, gps_lat, gps_lng, EVENT_DISCOVERY_RADIUS_M
+            )
+            near_profile = (
+                has_profile_center
+                and event_within_radius(
+                    event.latitude, event.longitude, profile_lat, profile_lng, EVENT_DISCOVERY_RADIUS_M
+                )
+            )
             include = (
                 event.category == _DEV_LOUNGE_CATEGORY
                 or event.id in going_ids
-                or event_within_radius(
-                    event.latitude, event.longitude, center_lat, center_lng, GPS_DISCOVERY_RADIUS_M
-                )
+                or near_gps
+                or near_profile
             )
             if include:
                 visible.append(event)
@@ -1147,7 +1161,7 @@ def list_events(
         sess = db.get(T1IntheWildSession, token)
         if sess and sess.expires_at > now:
             user = db.get(T1IntheWildUser, sess.user_id)
-            if user and user.city and (user.city_latitude is None or user.city_longitude is None):
+            if user and user.city:
                 _sync_user_city_coords(user, db)
             going_ids = set(
                 db.scalars(
@@ -1211,9 +1225,15 @@ def submit_event(
 
     lat, lng = body.latitude, body.longitude
     if lat is None or lng is None:
-        coords = itw_geocode.geocode_city(f"{body.venue_name}, {body.city}")
-        if not coords:
-            coords = itw_geocode.geocode_city(body.city)
+        near_lat = user.city_latitude
+        near_lng = user.city_longitude
+        coords = itw_geocode.geocode_city(body.city, near_lat=near_lat, near_lng=near_lng)
+        if not coords and body.venue_name.strip():
+            coords = itw_geocode.geocode_city(
+                f"{body.venue_name}, {body.city}",
+                near_lat=near_lat,
+                near_lng=near_lng,
+            )
         if not coords:
             raise HTTPException(
                 status_code=400,

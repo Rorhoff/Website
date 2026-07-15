@@ -52,6 +52,7 @@ export type EventsFilterMeta = {
   needs_city: boolean;
   geocode_ok: boolean;
   using_gps?: boolean;
+  includes_profile_city?: boolean;
 };
 
 export type EventPlanOverlap = {

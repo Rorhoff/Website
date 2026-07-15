@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
-import { CalendarCheck, MapPin, Navigation, Radio } from 'lucide-react';
+import { ChevronRight, MapPin, Navigation, Radio } from 'lucide-react';
+import EventDetailModal from '../components/EventDetailModal';
 import { useAuth } from '../contexts/AuthContext';
 import * as api from '../lib/api';
+import { formatEventDate } from '../lib/eventFormat';
 import { CATEGORY_LABELS, type EventPlanOverlap, type EventsFilterMeta, type Match, type WildEvent } from '../lib/types';
 
 type Props = {
@@ -33,6 +35,7 @@ export default function EventsPage({ onNewMatches, onNewOverlaps }: Props) {
   const [msg, setMsg] = useState('');
   const [venueLabel, setVenueLabel] = useState('');
   const [gpsError, setGpsError] = useState('');
+  const [selectedEvent, setSelectedEvent] = useState<WildEvent | null>(null);
 
   const load = useCallback(async (coords?: { lat: number; lng: number }) => {
     setLoading(true);
@@ -40,6 +43,7 @@ export default function EventsPage({ onNewMatches, onNewOverlaps }: Props) {
       const { events: e, filter } = await api.fetchEvents(coords);
       setEvents(e);
       setEventsFilter(filter);
+      setSelectedEvent(prev => (prev ? e.find(x => x.id === prev.id) ?? prev : null));
     } finally {
       setLoading(false);
     }
@@ -136,12 +140,15 @@ export default function EventsPage({ onNewMatches, onNewOverlaps }: Props) {
         setEvents(prev =>
           prev.map(e => (e.id === event.id ? { ...e, is_going: false } : e)),
         );
+        setSelectedEvent(prev => (prev?.id === event.id ? { ...prev, is_going: false } : prev));
         setMsg(`Removed ${event.name} from your plans.`);
       } else {
         const res = await api.addEventPlan(event.id);
+        const updated = { ...res.event, is_going: true };
         setEvents(prev =>
-          prev.map(e => (e.id === event.id ? { ...res.event, is_going: true } : e)),
+          prev.map(e => (e.id === event.id ? updated : e)),
         );
+        setSelectedEvent(prev => (prev?.id === event.id ? updated : prev));
         if (res.new_overlaps?.length) {
           onNewOverlaps(res.new_overlaps);
         } else {
@@ -188,9 +195,11 @@ export default function EventsPage({ onNewMatches, onNewOverlaps }: Props) {
 
   function renderEventCard(event: WildEvent) {
     return (
-      <article
+      <button
         key={event.id}
-        className={`bg-stone-900 border rounded-2xl p-5 ${
+        type="button"
+        onClick={() => setSelectedEvent(event)}
+        className={`w-full text-left bg-stone-900 border rounded-2xl p-5 transition hover:border-stone-600 ${
           event.is_going ? 'border-sky-800/60' : 'border-stone-800'
         }`}
       >
@@ -201,63 +210,30 @@ export default function EventsPage({ onNewMatches, onNewOverlaps }: Props) {
           <div className="flex-1 min-w-0">
             <h2 className="text-white font-semibold">{event.name}</h2>
             <p className="text-stone-400 text-sm">
-              {event.venue_name} · {event.city}
+              {formatEventDate(event.starts_at)} · {event.venue_name || event.city}
               {event.distance_miles != null && (
                 <span className="text-stone-500"> · {event.distance_miles} mi</span>
               )}
             </p>
-            {event.category && (
-              <span className="inline-block mt-2 text-xs bg-stone-800 text-stone-400 px-2 py-0.5 rounded-full">
-                {CATEGORY_LABELS[event.category] || event.category}
-              </span>
-            )}
-            {event.description && (
-              <p className="text-stone-500 text-sm mt-2">{event.description}</p>
-            )}
+            <div className="flex flex-wrap items-center gap-2 mt-2">
+              {event.category && (
+                <span className="text-xs bg-stone-800 text-stone-400 px-2 py-0.5 rounded-full">
+                  {CATEGORY_LABELS[event.category] || event.category}
+                </span>
+              )}
+              {event.is_going && (
+                <span className="text-xs text-sky-400">You&apos;re going</span>
+              )}
+              {checkIn?.event_id === event.id && (
+                <span className="text-xs text-emerald-400 flex items-center gap-1">
+                  <Radio size={12} /> Here now
+                </span>
+              )}
+            </div>
           </div>
+          <ChevronRight size={18} className="text-stone-600 shrink-0 mt-1" />
         </div>
-
-        {event.can_plan && (
-          <button
-            onClick={() => toggleEventPlan(event)}
-            disabled={busy === `plan-${event.id}`}
-            className={`mt-4 w-full flex items-center justify-center gap-2 text-sm font-medium rounded-xl py-2.5 transition disabled:opacity-50 ${
-              event.is_going
-                ? 'bg-sky-900/40 hover:bg-sky-900/60 text-sky-300 border border-sky-800/50'
-                : 'bg-stone-800 hover:bg-stone-700 text-white'
-            }`}
-          >
-            <CalendarCheck size={16} />
-            {busy === `plan-${event.id}`
-              ? 'Saving…'
-              : event.is_going
-                ? "I'm going — tap to remove"
-                : "I'm going"}
-          </button>
-        )}
-
-        {checkIn?.event_id === event.id ? (
-          <p className="mt-3 text-emerald-400 text-sm flex items-center gap-2">
-            <Radio size={14} /> You&apos;re here
-          </p>
-        ) : event.category === 'dev_lounge' ? (
-          <button
-            onClick={() => handleCheckIn(event, true)}
-            disabled={busy === event.id}
-            className="mt-3 w-full bg-emerald-900/50 hover:bg-emerald-800/50 disabled:opacity-50 text-emerald-300 text-sm font-medium rounded-xl py-2.5 transition border border-emerald-800/50"
-          >
-            {busy === event.id ? 'Checking in…' : 'Dev check-in (no GPS)'}
-          </button>
-        ) : event.category !== 'spot' ? (
-          <button
-            onClick={() => handleCheckIn(event)}
-            disabled={busy === event.id}
-            className="mt-3 w-full bg-stone-800 hover:bg-stone-700 disabled:opacity-50 text-white text-sm font-medium rounded-xl py-2.5 transition"
-          >
-            {busy === event.id ? 'Getting location…' : 'Check in (GPS)'}
-          </button>
-        ) : null}
-      </article>
+      </button>
     );
   }
 
@@ -265,10 +241,13 @@ export default function EventsPage({ onNewMatches, onNewOverlaps }: Props) {
     <div>
       <h1 className="text-xl font-bold text-white mb-1">Events</h1>
       <p className="text-stone-500 text-sm mb-6">
-        Mark events you&apos;re attending, check in when you arrive, or check in wherever you are right now.
+        Tap an event for details, then mark that you&apos;re going or check in when you arrive.
         {eventsFilter?.using_gps && eventsFilter.geocode_ok && (
           <span className="block mt-1 text-stone-600 text-xs">
-            Showing events within {eventsFilter.radius_miles} miles of your current location.
+            Showing events within {eventsFilter.radius_miles} miles of your location
+            {eventsFilter.includes_profile_city && eventsFilter.city
+              ? ` and ${eventsFilter.city}.`
+              : '.'}
           </span>
         )}
         {eventsFilter && !eventsFilter.using_gps && !eventsFilter.needs_city && eventsFilter.geocode_ok && eventsFilter.city && (
@@ -397,6 +376,17 @@ export default function EventsPage({ onNewMatches, onNewOverlaps }: Props) {
             </section>
           )}
         </div>
+      )}
+
+      {selectedEvent && (
+        <EventDetailModal
+          event={selectedEvent}
+          activeCheckInEventId={checkIn?.event_id}
+          busy={busy}
+          onClose={() => setSelectedEvent(null)}
+          onTogglePlan={toggleEventPlan}
+          onCheckIn={handleCheckIn}
+        />
       )}
     </div>
   );

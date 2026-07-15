@@ -14,15 +14,7 @@ import {
 import { compressImageForUpload } from '../lib/resizeImage';
 import { GENDER_OPTIONS, LOOKING_FOR_OPTIONS } from '../lib/preferences';
 import { CATEGORY_LABELS, type EventPlanOverlap, type EventsFilterMeta, type WildEvent } from '../lib/types';
-
-function formatEventDate(iso: string | null | undefined): string {
-  if (!iso) return 'Date TBA';
-  return new Date(iso).toLocaleDateString(undefined, {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-  });
-}
+import { formatEventDate } from '../lib/eventFormat';
 
 type Props = {
   onOpenAdmin?: () => void;
@@ -558,6 +550,7 @@ export default function ProfilePage({ onOpenAdmin, onNewOverlaps }: Props) {
           <input
             value={city}
             onChange={e => setCity(e.target.value)}
+            placeholder="Eagle Mountain, Utah"
             className="w-full bg-stone-900 border border-stone-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-emerald-600"
           />
         </div>
