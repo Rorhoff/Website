@@ -131,8 +131,9 @@ export async function fetchPendingLikes(): Promise<{ likes: PendingLike[] }> {
   return request('/likes/pending');
 }
 
-export async function fetchEvents(): Promise<{ events: WildEvent[]; filter: EventsFilterMeta }> {
-  return request('/events');
+export async function fetchEvents(coords?: { lat: number; lng: number }): Promise<{ events: WildEvent[]; filter: EventsFilterMeta }> {
+  const q = coords ? `?lat=${coords.lat}&lng=${coords.lng}` : '';
+  return request(`/events${q}`);
 }
 
 export async function submitEvent(body: {
@@ -153,6 +154,13 @@ export async function checkIn(eventId: string, lat: number, lng: number) {
   return request<{ new_matches?: Match[] }>(`/events/${eventId}/check-in`, {
     method: 'POST',
     body: JSON.stringify({ lat, lng }),
+  });
+}
+
+export async function checkInHere(lat: number, lng: number, venueLabel?: string) {
+  return request<{ new_matches?: Match[]; event: WildEvent }>('/check-in/here', {
+    method: 'POST',
+    body: JSON.stringify({ lat, lng, venue_label: venueLabel?.trim() || '' }),
   });
 }
 

@@ -7,7 +7,10 @@ import {
   enableNotifications,
   syncNotificationsPreference,
 } from '../lib/browserNotifications';
-import { subscribeToPushNotifications, unsubscribeFromPushNotifications } from '../lib/pushNotifications';
+import {
+  subscribeToPushNotifications,
+  unsubscribeFromPushNotifications,
+} from '../lib/pushNotifications';
 import { compressImageForUpload } from '../lib/resizeImage';
 import { GENDER_OPTIONS, LOOKING_FOR_OPTIONS } from '../lib/preferences';
 import { CATEGORY_LABELS, type EventPlanOverlap, type EventsFilterMeta, type WildEvent } from '../lib/types';
@@ -41,6 +44,7 @@ export default function ProfilePage({ onOpenAdmin, onNewOverlaps }: Props) {
   const [notifyOn, setNotifyOn] = useState(Boolean(profile?.venue_match_alerts));
   const [notifyBusy, setNotifyBusy] = useState(false);
   const [notifyMsg, setNotifyMsg] = useState('');
+  const [showPushHelp, setShowPushHelp] = useState(false);
   const [plannedEvents, setPlannedEvents] = useState<WildEvent[]>([]);
   const [addableEvents, setAddableEvents] = useState<WildEvent[]>([]);
   const [eventsLoading, setEventsLoading] = useState(true);
@@ -278,9 +282,40 @@ export default function ProfilePage({ onOpenAdmin, onNewOverlaps }: Props) {
             <div>
               <p className="text-white text-sm font-medium">Venue match alerts</p>
               <p className="text-stone-500 text-xs mt-1">
-                Push notification when a mutual match is within 100 feet at an event.
-                On iPhone/Android, add the app to your home screen first.
+                Email and push when a mutual match is within 100 feet at an event.
               </p>
+              <button
+                type="button"
+                onClick={() => setShowPushHelp(v => !v)}
+                className="text-emerald-400/90 hover:text-emerald-300 text-xs mt-1.5 font-medium"
+              >
+                {showPushHelp ? 'Hide push setup' : 'Push setup for iPhone & Android'}
+              </button>
+              {showPushHelp && (
+                <div className="mt-2 text-stone-500 text-xs space-y-3 leading-relaxed">
+                  <div>
+                    <p className="text-stone-400 font-medium mb-1">iPhone</p>
+                    <ol className="list-decimal list-inside space-y-0.5">
+                      <li>Open In the Wild in <span className="text-stone-400">Safari</span> (push does not work in a Safari tab alone).</li>
+                      <li>Tap <span className="text-stone-400">Share</span> → <span className="text-stone-400">Add to Home Screen</span>.</li>
+                      <li>Open the app from your home screen icon — not from Safari.</li>
+                      <li>Turn on venue match alerts and tap <span className="text-stone-400">Allow</span> when asked for notifications.</li>
+                    </ol>
+                  </div>
+                  <div>
+                    <p className="text-stone-400 font-medium mb-1">Android</p>
+                    <ol className="list-decimal list-inside space-y-0.5">
+                      <li>Open In the Wild in Chrome (or your browser).</li>
+                      <li>Tap the menu <span className="text-stone-400">⋮</span> → <span className="text-stone-400">Add to Home screen</span> or <span className="text-stone-400">Install app</span>.</li>
+                      <li>Open from your home screen for reliable push alerts.</li>
+                      <li>Turn on venue match alerts and allow notifications when prompted.</li>
+                    </ol>
+                  </div>
+                  <p className="text-stone-600">
+                    Email alerts still work if push is unavailable. If notifications are blocked, check Settings → Notifications → In the Wild.
+                  </p>
+                </div>
+              )}
             </div>
           </div>
           <button

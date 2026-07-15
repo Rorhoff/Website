@@ -51,6 +51,7 @@ export type EventsFilterMeta = {
   city: string;
   needs_city: boolean;
   geocode_ok: boolean;
+  using_gps?: boolean;
 };
 
 export type EventPlanOverlap = {
@@ -89,8 +90,10 @@ export type ChatMessage = {
 export const CATEGORY_LABELS: Record<string, string> = {
   festival: 'Festival',
   church: 'Community',
+  community: 'Community',
   sports: 'Sports',
   concert: 'Concert',
+  spot: 'Open now',
   dev_lounge: 'Dev test',
 };
 

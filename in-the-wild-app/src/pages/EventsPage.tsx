@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { CalendarCheck, MapPin, Radio } from 'lucide-react';
+import { CalendarCheck, MapPin, Navigation, Radio } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import * as api from '../lib/api';
 import { CATEGORY_LABELS, type EventPlanOverlap, type EventsFilterMeta, type Match, type WildEvent } from '../lib/types';
@@ -9,6 +9,21 @@ type Props = {
   onNewOverlaps: (overlaps: EventPlanOverlap[]) => void;
 };
 
+const NEARBY_MAX_MILES = 15;
+
+function getCurrentPosition(): Promise<GeolocationPosition> {
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) {
+      reject(new Error('Location is not supported on this device.'));
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(resolve, reject, {
+      enableHighAccuracy: true,
+      timeout: 15000,
+    });
+  });
+}
+
 export default function EventsPage({ onNewMatches, onNewOverlaps }: Props) {
   const { profile, refreshProfile } = useAuth();
   const [events, setEvents] = useState<WildEvent[]>([]);
@@ -16,11 +31,13 @@ export default function EventsPage({ onNewMatches, onNewOverlaps }: Props) {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState('');
   const [msg, setMsg] = useState('');
+  const [venueLabel, setVenueLabel] = useState('');
+  const [gpsError, setGpsError] = useState('');
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (coords?: { lat: number; lng: number }) => {
     setLoading(true);
     try {
-      const { events: e, filter } = await api.fetchEvents();
+      const { events: e, filter } = await api.fetchEvents(coords);
       setEvents(e);
       setEventsFilter(filter);
     } finally {
@@ -28,7 +45,23 @@ export default function EventsPage({ onNewMatches, onNewOverlaps }: Props) {
     }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const pos = await getCurrentPosition();
+        if (cancelled) return;
+        const coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+        setGpsError('');
+        await load(coords);
+      } catch {
+        if (cancelled) return;
+        setGpsError('Enable location to see nearby events and check in where you are.');
+        await load();
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [load]);
 
   async function handleCheckIn(event: WildEvent, devQuick = false) {
     setBusy(event.id);
@@ -46,30 +79,51 @@ export default function EventsPage({ onNewMatches, onNewOverlaps }: Props) {
       }
       return;
     }
-    if (!navigator.geolocation) {
-      setMsg('Location is required to check in.');
+    try {
+      const pos = await getCurrentPosition();
+      const res = await api.checkIn(event.id, pos.coords.latitude, pos.coords.longitude);
+      if (res.new_matches?.length) onNewMatches(res.new_matches);
+      await refreshProfile();
+      setMsg(`Checked in to ${event.name}`);
+    } catch (err) {
+      setMsg(err instanceof Error ? err.message : 'Check-in failed');
+    } finally {
       setBusy('');
-      return;
     }
-    navigator.geolocation.getCurrentPosition(
-      async pos => {
-        try {
-          const res = await api.checkIn(event.id, pos.coords.latitude, pos.coords.longitude);
-          if (res.new_matches?.length) onNewMatches(res.new_matches);
-          await refreshProfile();
-          setMsg(`Checked in to ${event.name}`);
-        } catch (err) {
-          setMsg(err instanceof Error ? err.message : 'Check-in failed');
-        } finally {
-          setBusy('');
-        }
-      },
-      () => {
-        setMsg('Could not get your location. Enable GPS and try again.');
-        setBusy('');
-      },
-      { enableHighAccuracy: true, timeout: 15000 },
-    );
+  }
+
+  async function handleCheckInHere() {
+    setBusy('here');
+    setMsg('');
+    try {
+      const pos = await getCurrentPosition();
+      const coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+      setGpsError('');
+      const res = await api.checkInHere(coords.lat, coords.lng, venueLabel);
+      if (res.new_matches?.length) onNewMatches(res.new_matches);
+      await refreshProfile();
+      await load(coords);
+      setMsg(`Checked in at ${res.event.name}`);
+      setVenueLabel('');
+    } catch (err) {
+      setMsg(err instanceof Error ? err.message : 'Check-in failed');
+    } finally {
+      setBusy('');
+    }
+  }
+
+  async function handleCheckOut() {
+    setBusy('checkout');
+    setMsg('');
+    try {
+      await api.leaveCheckIn();
+      await refreshProfile();
+      setMsg('Checked out.');
+    } catch (err) {
+      setMsg(err instanceof Error ? err.message : 'Could not check out');
+    } finally {
+      setBusy('');
+    }
   }
 
   async function toggleEventPlan(event: WildEvent) {
@@ -123,7 +177,14 @@ export default function EventsPage({ onNewMatches, onNewOverlaps }: Props) {
 
   const checkIn = profile?.active_check_in;
   const planned = events.filter(e => e.is_going);
-  const upcoming = events.filter(e => !e.is_going);
+  const nearby = events.filter(
+    e =>
+      !e.is_going &&
+      e.distance_miles != null &&
+      e.distance_miles <= NEARBY_MAX_MILES,
+  );
+  const nearbyIds = new Set(nearby.map(e => e.id));
+  const upcoming = events.filter(e => !e.is_going && !nearbyIds.has(e.id));
 
   function renderEventCard(event: WildEvent) {
     return (
@@ -139,7 +200,12 @@ export default function EventsPage({ onNewMatches, onNewOverlaps }: Props) {
           </div>
           <div className="flex-1 min-w-0">
             <h2 className="text-white font-semibold">{event.name}</h2>
-            <p className="text-stone-400 text-sm">{event.venue_name} · {event.city}</p>
+            <p className="text-stone-400 text-sm">
+              {event.venue_name} · {event.city}
+              {event.distance_miles != null && (
+                <span className="text-stone-500"> · {event.distance_miles} mi</span>
+              )}
+            </p>
             {event.category && (
               <span className="inline-block mt-2 text-xs bg-stone-800 text-stone-400 px-2 py-0.5 rounded-full">
                 {CATEGORY_LABELS[event.category] || event.category}
@@ -182,7 +248,7 @@ export default function EventsPage({ onNewMatches, onNewOverlaps }: Props) {
           >
             {busy === event.id ? 'Checking in…' : 'Dev check-in (no GPS)'}
           </button>
-        ) : (
+        ) : event.category !== 'spot' ? (
           <button
             onClick={() => handleCheckIn(event)}
             disabled={busy === event.id}
@@ -190,7 +256,7 @@ export default function EventsPage({ onNewMatches, onNewOverlaps }: Props) {
           >
             {busy === event.id ? 'Getting location…' : 'Check in (GPS)'}
           </button>
-        )}
+        ) : null}
       </article>
     );
   }
@@ -199,10 +265,16 @@ export default function EventsPage({ onNewMatches, onNewOverlaps }: Props) {
     <div>
       <h1 className="text-xl font-bold text-white mb-1">Events</h1>
       <p className="text-stone-500 text-sm mb-6">
-        Mark events you&apos;re attending, then check in when you arrive. Opt in only when you want to meet.
-        {eventsFilter && !eventsFilter.needs_city && eventsFilter.geocode_ok && eventsFilter.city && (
+        Mark events you&apos;re attending, check in when you arrive, or check in wherever you are right now.
+        {eventsFilter?.using_gps && eventsFilter.geocode_ok && (
+          <span className="block mt-1 text-stone-600 text-xs">
+            Showing events within {eventsFilter.radius_miles} miles of your current location.
+          </span>
+        )}
+        {eventsFilter && !eventsFilter.using_gps && !eventsFilter.needs_city && eventsFilter.geocode_ok && eventsFilter.city && (
           <span className="block mt-1 text-stone-600 text-xs">
             Showing events within {eventsFilter.radius_miles} miles of {eventsFilter.city}.
+            {gpsError && ` ${gpsError}`}
           </span>
         )}
         {eventsFilter?.needs_city && (
@@ -212,10 +284,52 @@ export default function EventsPage({ onNewMatches, onNewOverlaps }: Props) {
         )}
       </p>
 
+      {!checkIn && (
+        <div className="bg-stone-900 border border-stone-800 rounded-2xl p-5 mb-6">
+          <div className="flex items-start gap-3 mb-4">
+            <div className="w-10 h-10 rounded-xl bg-emerald-950 flex items-center justify-center flex-shrink-0">
+              <Navigation size={18} className="text-emerald-400" />
+            </div>
+            <div>
+              <p className="text-white font-semibold">Check in here</p>
+              <p className="text-stone-500 text-sm mt-1">
+                At a coffee shop or out and about? Check in at your current spot and opt in to meet mutual likes nearby.
+              </p>
+            </div>
+          </div>
+          <input
+            type="text"
+            value={venueLabel}
+            onChange={e => setVenueLabel(e.target.value)}
+            placeholder="Where are you? (optional, e.g. Starbucks)"
+            className="w-full bg-stone-950 border border-stone-800 rounded-xl px-4 py-2.5 text-white text-sm placeholder:text-stone-600 mb-3"
+            maxLength={200}
+          />
+          <button
+            onClick={handleCheckInHere}
+            disabled={busy === 'here'}
+            className="w-full bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-sm font-medium rounded-xl py-2.5 transition"
+          >
+            {busy === 'here' ? 'Getting location…' : 'Check in at my location'}
+          </button>
+        </div>
+      )}
+
       {checkIn && (
         <div className="bg-emerald-950/40 border border-emerald-800/50 rounded-2xl p-5 mb-6">
-          <p className="text-emerald-300 text-sm font-medium mb-1">Checked in</p>
-          <p className="text-white font-semibold mb-4">{checkIn.event_name}</p>
+          <div className="flex items-start justify-between gap-3 mb-4">
+            <div>
+              <p className="text-emerald-300 text-sm font-medium mb-1">Checked in</p>
+              <p className="text-white font-semibold">{checkIn.event_name}</p>
+            </div>
+            <button
+              onClick={handleCheckOut}
+              disabled={busy === 'checkout'}
+              className="text-stone-400 hover:text-white text-xs font-medium shrink-0 disabled:opacity-50"
+            >
+              {busy === 'checkout' ? 'Leaving…' : 'Check out'}
+            </button>
+          </div>
           <div className="flex items-center justify-between gap-4">
             <div>
               <p className="text-stone-300 text-sm font-medium">Open to Meeting Matches</p>
@@ -250,6 +364,16 @@ export default function EventsPage({ onNewMatches, onNewOverlaps }: Props) {
         <p className="text-stone-500 text-center py-12">No events scheduled yet.</p>
       ) : (
         <div className="space-y-8">
+          {nearby.length > 0 && (
+            <section>
+              <h2 className="text-stone-400 text-xs font-semibold uppercase tracking-wide mb-3">
+                Nearby
+              </h2>
+              <div className="space-y-4">
+                {nearby.map(event => renderEventCard(event))}
+              </div>
+            </section>
+          )}
           {planned.length > 0 && (
             <section>
               <h2 className="text-stone-400 text-xs font-semibold uppercase tracking-wide mb-3">
@@ -262,9 +386,9 @@ export default function EventsPage({ onNewMatches, onNewOverlaps }: Props) {
           )}
           {upcoming.length > 0 && (
             <section>
-              {planned.length > 0 && (
+              {(nearby.length > 0 || planned.length > 0) && (
                 <h2 className="text-stone-400 text-xs font-semibold uppercase tracking-wide mb-3">
-                  Upcoming
+                  More events
                 </h2>
               )}
               <div className="space-y-4">

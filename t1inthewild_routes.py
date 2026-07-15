@@ -15,7 +15,7 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, File, Header, HTTPException, Request, UploadFile, status
+from fastapi import APIRouter, Depends, File, Header, HTTPException, Query, Request, UploadFile, status
 from passlib.hash import bcrypt as bcrypt_hasher
 from pydantic import BaseModel, Field
 from sqlalchemy import and_, func, or_, select
@@ -71,6 +71,12 @@ USERNAME_RE = re.compile(r"^[a-zA-Z0-9_]{3,32}$")
 MAX_AVATAR_BYTES = 4 * 1024 * 1024
 _INLINE_AVATAR_MAX_BYTES = 512 * 1024
 _DEV_LOUNGE_CATEGORY = "dev_lounge"
+_SPOT_CATEGORY = "spot"
+SPOT_MERGE_RADIUS_M = 80
+SPOT_CHECKIN_HOURS = 4
+SPOT_EVENT_RADIUS_M = 120
+GPS_DISCOVERY_RADIUS_MILES = 25
+GPS_DISCOVERY_RADIUS_M = int(GPS_DISCOVERY_RADIUS_MILES * 1609.344)
 ID_VERIFY_REQUIRED_FOR_CHAT = False
 VENUE_MATCH_PROXIMITY_M = 30.48  # ~100 feet
 
@@ -255,13 +261,38 @@ def _filter_events_for_user(
     events: list[T1IntheWildEvent],
     user: T1IntheWildUser | None,
     going_ids: set[str],
+    *,
+    gps_lat: float | None = None,
+    gps_lng: float | None = None,
 ) -> tuple[list[T1IntheWildEvent], dict[str, Any]]:
+    using_gps = gps_lat is not None and gps_lng is not None
     meta: dict[str, Any] = {
-        "radius_miles": EVENT_DISCOVERY_RADIUS_MILES,
+        "radius_miles": GPS_DISCOVERY_RADIUS_MILES if using_gps else EVENT_DISCOVERY_RADIUS_MILES,
         "city": (user.city or "").strip() if user else "",
         "needs_city": False,
         "geocode_ok": False,
+        "using_gps": using_gps,
     }
+    if using_gps:
+        center_lat, center_lng = gps_lat, gps_lng
+        meta["geocode_ok"] = True
+        visible: list[T1IntheWildEvent] = []
+        seen: set[str] = set()
+        for event in events:
+            if event.id in seen:
+                continue
+            include = (
+                event.category == _DEV_LOUNGE_CATEGORY
+                or event.id in going_ids
+                or event_within_radius(
+                    event.latitude, event.longitude, center_lat, center_lng, GPS_DISCOVERY_RADIUS_M
+                )
+            )
+            if include:
+                visible.append(event)
+                seen.add(event.id)
+        return visible, meta
+
     if not user or not (user.city or "").strip():
         meta["needs_city"] = True
         visible = [e for e in events if e.category == _DEV_LOUNGE_CATEGORY or e.id in going_ids]
@@ -542,9 +573,109 @@ def _notify_venue_match_emails(db: Session, match_ids: list[str]) -> None:
 
 
 def _event_plan_eligible(event: T1IntheWildEvent) -> bool:
-    if event.category == _DEV_LOUNGE_CATEGORY:
+    if event.category in (_DEV_LOUNGE_CATEGORY, _SPOT_CATEGORY):
         return False
     return bool(event.is_active and event.ends_at > _now())
+
+
+def _expire_other_checkins(db: Session, user_id: str, except_event_id: str) -> None:
+    now = _now()
+    rows = db.scalars(
+        select(T1IntheWildCheckIn).where(
+            T1IntheWildCheckIn.user_id == user_id,
+            T1IntheWildCheckIn.event_id != except_event_id,
+            T1IntheWildCheckIn.expires_at > now,
+        )
+    ).all()
+    for row in rows:
+        row.open_to_meet = False
+        row.expires_at = now
+
+
+def _find_or_create_spot_event(
+    db: Session,
+    lat: float,
+    lng: float,
+    venue_label: str,
+    user: T1IntheWildUser,
+) -> T1IntheWildEvent:
+    now = _now()
+    candidates = db.scalars(
+        select(T1IntheWildEvent).where(
+            T1IntheWildEvent.is_active.is_(True),
+            T1IntheWildEvent.category == _SPOT_CATEGORY,
+            T1IntheWildEvent.ends_at >= now,
+        )
+    ).all()
+    for event in candidates:
+        if _haversine_m(lat, lng, event.latitude, event.longitude) <= SPOT_MERGE_RADIUS_M:
+            new_end = now + timedelta(hours=SPOT_CHECKIN_HOURS)
+            if event.ends_at < new_end:
+                event.ends_at = new_end
+            return event
+
+    geo = itw_geocode.reverse_geocode(lat, lng)
+    custom = (venue_label or "").strip()
+    name = (custom or geo.get("label") or "Open now").strip()[:200]
+    venue = (custom or geo.get("venue_name") or name).strip()[:200]
+    city = (geo.get("city") or (user.city or "")).strip()[:120]
+    event = T1IntheWildEvent(
+        id=str(uuid.uuid4()),
+        name=name,
+        description="Spontaneous check-in — open to meeting people here.",
+        venue_name=venue,
+        city=city,
+        latitude=lat,
+        longitude=lng,
+        radius_m=SPOT_EVENT_RADIUS_M,
+        category=_SPOT_CATEGORY,
+        starts_at=now,
+        ends_at=now + timedelta(hours=SPOT_CHECKIN_HOURS),
+        is_active=True,
+        created_by_user_id=user.id,
+    )
+    db.add(event)
+    db.flush()
+    return event
+
+
+def _upsert_check_in(
+    db: Session,
+    user: T1IntheWildUser,
+    event: T1IntheWildEvent,
+    lat: float,
+    lng: float,
+) -> T1IntheWildCheckIn:
+    now = _now()
+    _expire_other_checkins(db, user.id, event.id)
+    if event.category == _SPOT_CATEGORY:
+        expires = now + timedelta(hours=SPOT_CHECKIN_HOURS)
+    else:
+        expires = min(event.ends_at + timedelta(hours=1), now + timedelta(hours=12))
+    checkin = db.scalar(
+        select(T1IntheWildCheckIn).where(
+            T1IntheWildCheckIn.user_id == user.id,
+            T1IntheWildCheckIn.event_id == event.id,
+        )
+    )
+    if checkin:
+        checkin.latitude = lat
+        checkin.longitude = lng
+        checkin.checked_in_at = now
+        checkin.expires_at = expires
+    else:
+        checkin = T1IntheWildCheckIn(
+            id=str(uuid.uuid4()),
+            user_id=user.id,
+            event_id=event.id,
+            open_to_meet=False,
+            latitude=lat,
+            longitude=lng,
+            checked_in_at=now,
+            expires_at=expires,
+        )
+        db.add(checkin)
+    return checkin
 
 
 def _format_event_starts(event: T1IntheWildEvent) -> str:
@@ -760,6 +891,12 @@ class SwipeBody(BaseModel):
 class CheckInBody(BaseModel):
     lat: float
     lng: float
+
+
+class CheckInHereBody(BaseModel):
+    lat: float
+    lng: float
+    venue_label: str = Field(default="", max_length=200)
 
 
 class CheckInPatchBody(BaseModel):
@@ -978,11 +1115,15 @@ def patch_me(
 @router.get("/events")
 def list_events(
     authorization: Annotated[str | None, Header()] = None,
+    lat: float | None = Query(default=None, ge=-90, le=90),
+    lng: float | None = Query(default=None, ge=-180, le=180),
     db: Session = Depends(_db),
 ):
     ready, err = _schema_ready(db)
     if not ready:
         raise HTTPException(status_code=503, detail=err)
+    if (lat is None) != (lng is None):
+        raise HTTPException(status_code=400, detail="Provide both lat and lng, or neither")
     now = _now()
     events = db.scalars(
         select(T1IntheWildEvent)
@@ -1008,9 +1149,13 @@ def list_events(
                     )
                 ).all()
             )
-    visible, meta = _filter_events_for_user(events, user, going_ids)
-    center_lat = user.city_latitude if user else None
-    center_lng = user.city_longitude if user else None
+    visible, meta = _filter_events_for_user(events, user, going_ids, gps_lat=lat, gps_lng=lng)
+    if lat is not None and lng is not None:
+        center_lat, center_lng = lat, lng
+    elif user and user.city_latitude is not None and user.city_longitude is not None:
+        center_lat, center_lng = user.city_latitude, user.city_longitude
+    else:
+        center_lat, center_lng = None, None
     out_events = []
     for e in visible:
         dist_miles = None
@@ -1024,6 +1169,7 @@ def list_events(
                 distance_miles=dist_miles,
             )
         )
+    out_events.sort(key=lambda row: row.get("distance_miles") if row.get("distance_miles") is not None else 1e9)
     return {"events": out_events, "filter": meta}
 
 
@@ -1362,30 +1508,7 @@ def check_in(
             status_code=400,
             detail=f"You must be within {event.radius_m}m of the venue to check in",
         )
-    expires = min(event.ends_at + timedelta(hours=1), now + timedelta(hours=12))
-    checkin = db.scalar(
-        select(T1IntheWildCheckIn).where(
-            T1IntheWildCheckIn.user_id == user.id,
-            T1IntheWildCheckIn.event_id == event_id,
-        )
-    )
-    if checkin:
-        checkin.latitude = body.lat
-        checkin.longitude = body.lng
-        checkin.checked_in_at = now
-        checkin.expires_at = expires
-    else:
-        checkin = T1IntheWildCheckIn(
-            id=str(uuid.uuid4()),
-            user_id=user.id,
-            event_id=event_id,
-            open_to_meet=False,
-            latitude=body.lat,
-            longitude=body.lng,
-            checked_in_at=now,
-            expires_at=expires,
-        )
-        db.add(checkin)
+    checkin = _upsert_check_in(db, user, event, body.lat, body.lng)
     db.commit()
     new_ids: list[str] = []
     if checkin.open_to_meet:
@@ -1394,6 +1517,32 @@ def check_in(
         "ok": True,
         "check_in": {
             "event_id": event_id,
+            "open_to_meet": checkin.open_to_meet,
+            "checked_in_at": checkin.checked_in_at.isoformat(),
+        },
+        "event": _event_dict(event),
+        "new_matches": _matches_by_ids(db, new_ids, user.id),
+    }
+
+
+@router.post("/check-in/here")
+def check_in_here(
+    body: CheckInHereBody,
+    authorization: Annotated[str | None, Header()] = None,
+    db: Session = Depends(_db),
+):
+    user = _get_user(db, authorization)
+    event = _find_or_create_spot_event(db, body.lat, body.lng, body.venue_label, user)
+    checkin = _upsert_check_in(db, user, event, body.lat, body.lng)
+    db.commit()
+    new_ids: list[str] = []
+    if checkin.open_to_meet:
+        new_ids = _try_venue_matches(db, user.id, event.id)
+    return {
+        "ok": True,
+        "check_in": {
+            "event_id": event.id,
+            "event_name": event.name,
             "open_to_meet": checkin.open_to_meet,
             "checked_in_at": checkin.checked_in_at.isoformat(),
         },

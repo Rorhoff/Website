@@ -16,44 +16,86 @@ function detectPlatform(): string {
   return 'web';
 }
 
-export async function registerServiceWorker(): Promise<ServiceWorkerRegistration | null> {
+function isIos(): boolean {
+  return /iphone|ipad|ipod/i.test(navigator.userAgent);
+}
+
+/** True when launched as an installed home-screen web app (required for iOS push). */
+export function isStandalonePwa(): boolean {
+  const nav = navigator as Navigator & { standalone?: boolean };
+  if (nav.standalone === true) return true;
+  return (
+    window.matchMedia('(display-mode: standalone)').matches
+    || window.matchMedia('(display-mode: fullscreen)').matches
+  );
+}
+
+function serviceWorkerScope(): string {
+  const base = import.meta.env.BASE_URL || '/';
+  return base.endsWith('/') ? base : `${base}/`;
+}
+
+async function getServiceWorkerRegistration(): Promise<ServiceWorkerRegistration | null> {
   if (!('serviceWorker' in navigator)) return null;
   try {
-    return await navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`);
+    const scope = serviceWorkerScope();
+    const existing = await navigator.serviceWorker.getRegistration(scope);
+    if (existing) return existing;
+    return await navigator.serviceWorker.ready;
   } catch {
     return null;
   }
 }
 
+export async function registerServiceWorker(): Promise<ServiceWorkerRegistration | null> {
+  if (!('serviceWorker' in navigator)) return null;
+  try {
+    return await navigator.serviceWorker.register(`${serviceWorkerScope()}sw.js`);
+  } catch {
+    return null;
+  }
+}
+
+const IOS_HOMESCREEN_HINT =
+  'Alerts saved for email. For push on iPhone: Share → Add to Home Screen in Safari, then open In the Wild from that icon (not Safari) and enable alerts again.';
+
 export async function subscribeToPushNotifications(): Promise<{ ok: boolean; message: string }> {
+  if (isIos() && !isStandalonePwa()) {
+    return { ok: true, message: IOS_HOMESCREEN_HINT };
+  }
+
   const reg = await registerServiceWorker();
   if (!reg) {
     return {
-      ok: false,
-      message: 'Add In the Wild to your home screen, then try again for push alerts on iPhone/Android.',
+      ok: true,
+      message: isIos()
+        ? IOS_HOMESCREEN_HINT
+        : 'Alerts saved for email. Add In the Wild to your home screen for push on mobile.',
     };
   }
 
   if (!('Notification' in window)) {
     return {
-      ok: false,
-      message: 'This browser does not support notifications. Email alerts still work when enabled.',
+      ok: true,
+      message: isIos()
+        ? IOS_HOMESCREEN_HINT
+        : 'Alerts saved for email. This browser does not support push notifications.',
     };
   }
 
   const perm = await Notification.requestPermission();
   if (perm !== 'granted') {
     return {
-      ok: false,
+      ok: true,
       message:
         perm === 'denied'
-          ? 'Notifications blocked in device settings. Alerts are saved — you will still get email when nearby.'
-          : 'Notification permission was not granted. Email alerts still work.',
+          ? 'Alerts saved for email. Notifications are blocked in Settings → Notifications → In the Wild.'
+          : 'Alerts saved for email. Allow notifications when prompted for push alerts.',
     };
   }
 
   const config = await api.fetchNotificationConfig();
-  if (!config.vapid_public_key || !('PushManager' in window)) {
+  if (!config.vapid_public_key || !reg.pushManager) {
     return {
       ok: true,
       message: 'Alerts saved. You will get email and in-app alerts when a match is within 100 feet.',
@@ -82,7 +124,7 @@ export async function subscribeToPushNotifications(): Promise<{ ok: boolean; mes
   } catch {
     return {
       ok: true,
-      message: 'Alerts saved. Install from your home screen for push notifications on mobile.',
+      message: isIos() ? IOS_HOMESCREEN_HINT : 'Alerts saved for email. Push could not be registered on this device.',
     };
   }
 }
@@ -93,9 +135,12 @@ export async function unsubscribeFromPushNotifications(): Promise<void> {
   } catch {
     /* ignore */
   }
-  if ('serviceWorker' in navigator) {
-    const reg = await navigator.serviceWorker.getRegistration(`${import.meta.env.BASE_URL}sw.js`);
-    const sub = await reg?.pushManager.getSubscription();
+  try {
+    const reg = await getServiceWorkerRegistration();
+    if (!reg?.pushManager) return;
+    const sub = await reg.pushManager.getSubscription();
     await sub?.unsubscribe();
+  } catch {
+    /* ignore — e.g. Safari tab has no pushManager */
   }
 }

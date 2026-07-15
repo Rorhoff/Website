@@ -40,3 +40,51 @@ def geocode_city(city: str) -> tuple[float, float] | None:
         return float(rows[0]["lat"]), float(rows[0]["lon"])
     except (KeyError, TypeError, ValueError):
         return None
+
+
+def _round_coord(value: float, places: int = 4) -> float:
+    return round(value, places)
+
+
+@lru_cache(maxsize=1024)
+def reverse_geocode(lat: float, lng: float) -> dict[str, str]:
+    """Reverse-geocode coordinates to a short venue label and city."""
+    if os.environ.get("ITW_GEOCODE_DISABLED", "").strip().lower() in ("1", "true", "yes"):
+        return {"venue_name": "", "city": "", "label": "Current location"}
+    lat_r, lng_r = _round_coord(lat), _round_coord(lng)
+    try:
+        with httpx.Client(timeout=10.0) as client:
+            res = client.get(
+                "https://nominatim.openstreetmap.org/reverse",
+                params={"lat": lat_r, "lon": lng_r, "format": "json", "zoom": 18},
+                headers={"User-Agent": USER_AGENT},
+            )
+            res.raise_for_status()
+            data = res.json()
+    except Exception:
+        log.exception("Reverse geocode failed lat=%s lng=%s", lat_r, lng_r)
+        return {"venue_name": "", "city": "", "label": "Current location"}
+
+    address = data.get("address") if isinstance(data.get("address"), dict) else {}
+    venue = (
+        (data.get("name") or "").strip()
+        or (address.get("amenity") or "").strip()
+        or (address.get("shop") or "").strip()
+        or (address.get("building") or "").strip()
+        or (address.get("road") or "").strip()
+    )
+    city = (
+        (address.get("city") or "").strip()
+        or (address.get("town") or "").strip()
+        or (address.get("village") or "").strip()
+        or (address.get("county") or "").strip()
+    )
+    if venue and city:
+        label = f"{venue}, {city}"
+    elif venue:
+        label = venue
+    elif city:
+        label = city
+    else:
+        label = "Current location"
+    return {"venue_name": venue, "city": city, "label": label}
