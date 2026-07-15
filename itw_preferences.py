@@ -63,6 +63,22 @@ def profiles_compatible(
     )
 
 
+def discover_visible(
+    viewer_gender: str,
+    viewer_looking_for: str,
+    candidate_gender: str,
+    candidate_looking_for: str,
+) -> bool:
+    """Whether a candidate may appear in the viewer's discover stack."""
+    if not profile_preferences_complete(viewer_gender, viewer_looking_for):
+        return False
+    if not gender_matches_preference(candidate_gender, viewer_looking_for):
+        return False
+    if profile_preferences_complete(candidate_gender, candidate_looking_for):
+        return gender_matches_preference(viewer_gender, candidate_looking_for)
+    return True
+
+
 def _normalize_interests(interests: list[str] | None) -> set[str]:
     return {i.strip().lower() for i in (interests or []) if i and i.strip()}
 

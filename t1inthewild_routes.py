@@ -36,6 +36,7 @@ from itw_events import (
 )
 from itw_preferences import (
     compatibility_pct,
+    discover_visible,
     interest_overlap_pct,
     normalize_gender,
     normalize_looking_for,
@@ -1380,12 +1381,20 @@ def discover(
         )
     ).all()
     exclude = _hidden_user_ids(db, user.id) | set(seen_ids) | {user.id}
-    q = select(T1IntheWildUser).where(
-        T1IntheWildUser.is_suspended.is_(False),
-        T1IntheWildUser.id.notin_(exclude) if exclude else True,
+    q = (
+        select(T1IntheWildUser)
+        .where(
+            T1IntheWildUser.is_suspended.is_(False),
+            T1IntheWildUser.id.notin_(exclude),
+        )
+        .order_by(T1IntheWildUser.created_at.desc())
     )
-    candidates = db.scalars(q.limit(limit * 8)).all()
-    compatible = [u for u in candidates if _profiles_compatible(user, u)][:limit]
+    candidates = db.scalars(q.limit(200)).all()
+    compatible = [
+        u
+        for u in candidates
+        if discover_visible(user.gender, user.looking_for, u.gender, u.looking_for)
+    ][:limit]
     if not compatible:
         return {"profiles": [], "needs_preferences": False}
 
@@ -1455,7 +1464,7 @@ def swipe(
     target = db.get(T1IntheWildUser, body.target_id)
     if not target or target.is_suspended:
         raise HTTPException(status_code=404, detail="Profile not found")
-    if not _profiles_compatible(user, target):
+    if not discover_visible(user.gender, user.looking_for, target.gender, target.looking_for):
         raise HTTPException(status_code=400, detail="This profile is not in your discovery preferences")
     existing = db.scalar(
         select(T1IntheWildLike).where(
@@ -2028,16 +2037,95 @@ def admin_delete_event(
     return {"ok": True}
 
 
+@router.get("/admin/messages")
+def admin_list_messages(
+    authorization: Annotated[str | None, Header()] = None,
+    db: Session = Depends(_db),
+    user_id: str | None = Query(default=None, min_length=36, max_length=36),
+    match_id: str | None = Query(default=None, min_length=36, max_length=36),
+    limit: int = 100,
+    offset: int = 0,
+):
+    admin = _get_user(db, authorization)
+    _require_admin(admin)
+    limit = min(max(limit, 1), 500)
+    offset = max(offset, 0)
+    stmt = select(T1IntheWildMessage).order_by(T1IntheWildMessage.created_at.desc())
+    if match_id:
+        stmt = stmt.where(T1IntheWildMessage.match_id == match_id)
+    elif user_id:
+        stmt = stmt.where(T1IntheWildMessage.sender_id == user_id)
+    rows = db.scalars(stmt.offset(offset).limit(limit)).all()
+    out = []
+    for msg in rows:
+        match = db.get(T1IntheWildMatch, msg.match_id)
+        sender = db.get(T1IntheWildUser, msg.sender_id)
+        user_a = db.get(T1IntheWildUser, match.user_a_id) if match else None
+        user_b = db.get(T1IntheWildUser, match.user_b_id) if match else None
+        out.append({
+            "id": msg.id,
+            "match_id": msg.match_id,
+            "sender_id": msg.sender_id,
+            "sender_username": sender.username if sender else "",
+            "sender_display_name": (sender.display_name or sender.username) if sender else "",
+            "body": msg.body,
+            "created_at": msg.created_at.isoformat(),
+            "user_a": _profile_dict(user_a) if user_a else None,
+            "user_b": _profile_dict(user_b) if user_b else None,
+        })
+    return {"messages": out, "limit": limit, "offset": offset}
+
+
+@router.get("/admin/matches")
+def admin_list_matches(
+    authorization: Annotated[str | None, Header()] = None,
+    db: Session = Depends(_db),
+    limit: int = 100,
+    offset: int = 0,
+):
+    admin = _get_user(db, authorization)
+    _require_admin(admin)
+    limit = min(max(limit, 1), 500)
+    offset = max(offset, 0)
+    rows = db.scalars(
+        select(T1IntheWildMatch)
+        .order_by(T1IntheWildMatch.matched_at.desc())
+        .offset(offset)
+        .limit(limit)
+    ).all()
+    out = []
+    for match in rows:
+        user_a = db.get(T1IntheWildUser, match.user_a_id)
+        user_b = db.get(T1IntheWildUser, match.user_b_id)
+        event = db.get(T1IntheWildEvent, match.event_id)
+        msg_count = db.scalar(
+            select(func.count())
+            .select_from(T1IntheWildMessage)
+            .where(T1IntheWildMessage.match_id == match.id)
+        )
+        out.append({
+            "id": match.id,
+            "status": match.status,
+            "matched_at": match.matched_at.isoformat(),
+            "chat_expires_at": match.chat_expires_at.isoformat() if match.chat_expires_at else None,
+            "message_count": int(msg_count or 0),
+            "event": _event_dict(event) if event else None,
+            "user_a": _profile_dict(user_a) if user_a else None,
+            "user_b": _profile_dict(user_b) if user_b else None,
+        })
+    return {"matches": out, "limit": limit, "offset": offset}
+
+
 @router.get("/admin/users")
 def admin_list_users(
     authorization: Annotated[str | None, Header()] = None,
     db: Session = Depends(_db),
     q: str = "",
-    limit: int = 50,
+    limit: int = 200,
 ):
     user = _get_user(db, authorization)
     _require_admin(user)
-    limit = min(max(limit, 1), 100)
+    limit = min(max(limit, 1), 500)
     stmt = select(T1IntheWildUser).order_by(T1IntheWildUser.created_at.desc())
     if q.strip():
         term = f"%{q.strip().lower()}%"
@@ -2053,6 +2141,7 @@ def admin_list_users(
     for u in rows:
         p = _profile_dict(u)
         p["email"] = u.email
+        p["created_at"] = u.created_at.isoformat() if u.created_at else None
         out.append(p)
     return {"users": out}
 

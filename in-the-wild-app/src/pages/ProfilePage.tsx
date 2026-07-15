@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Bell, Calendar, Camera, ChevronDown, ChevronUp, MapPin, Shield, Settings, X } from 'lucide-react';
+import { Bell, Calendar, Camera, ChevronDown, ChevronRight, ChevronUp, MapPin, Shield, Settings } from 'lucide-react';
+import EventDetailModal from '../components/EventDetailModal';
 import { useAuth } from '../contexts/AuthContext';
 import * as api from '../lib/api';
 import {
@@ -46,6 +47,7 @@ export default function ProfilePage({ onOpenAdmin, onNewOverlaps }: Props) {
   const [showSubmitEvent, setShowSubmitEvent] = useState(false);
   const [submitBusy, setSubmitBusy] = useState(false);
   const [eventsFilter, setEventsFilter] = useState<EventsFilterMeta | null>(null);
+  const [selectedEvent, setSelectedEvent] = useState<WildEvent | null>(null);
   const [submitForm, setSubmitForm] = useState({
     name: '',
     venue_name: '',
@@ -139,34 +141,56 @@ export default function ProfilePage({ onOpenAdmin, onNewOverlaps }: Props) {
     }
   }
 
-  async function handleAddEventPlan(event: WildEvent) {
-    setEventBusy(event.id);
+  async function toggleEventPlan(event: WildEvent) {
+    if (!event.can_plan) return;
+    setEventBusy(`plan-${event.id}`);
     setEventMsg('');
     try {
-      const res = await api.addEventPlan(event.id);
-      await loadEventPlans();
-      setShowAddEvents(false);
-      if (res.new_overlaps?.length) {
-        onNewOverlaps?.(res.new_overlaps);
+      if (event.is_going) {
+        await api.removeEventPlan(event.id);
+        await loadEventPlans();
+        setSelectedEvent(prev => (prev?.id === event.id ? { ...prev, is_going: false } : prev));
+        setEventMsg(`Removed ${event.name}.`);
       } else {
-        setEventMsg(`Added ${event.name} — we'll notify you if a match is going too.`);
+        const res = await api.addEventPlan(event.id);
+        await loadEventPlans();
+        setShowAddEvents(false);
+        setSelectedEvent(prev => (prev?.id === event.id ? { ...res.event, is_going: true } : prev));
+        if (res.new_overlaps?.length) {
+          onNewOverlaps?.(res.new_overlaps);
+        } else {
+          setEventMsg(`Added ${event.name} — we'll notify you if a match is going too.`);
+        }
       }
     } catch (err) {
-      setEventMsg(err instanceof Error ? err.message : 'Could not add event');
+      setEventMsg(err instanceof Error ? err.message : 'Could not update event');
     } finally {
       setEventBusy('');
     }
   }
 
-  async function handleRemoveEventPlan(event: WildEvent) {
+  async function handleCheckIn(event: WildEvent, devQuick = false) {
     setEventBusy(event.id);
     setEventMsg('');
     try {
-      await api.removeEventPlan(event.id);
-      await loadEventPlans();
-      setEventMsg(`Removed ${event.name}.`);
+      let lat = event.latitude;
+      let lng = event.longitude;
+      if (!(devQuick && event.category === 'dev_lounge')) {
+        if (!navigator.geolocation) throw new Error('Location is required to check in.');
+        const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(resolve, reject, {
+            enableHighAccuracy: true,
+            timeout: 15000,
+          });
+        });
+        lat = pos.coords.latitude;
+        lng = pos.coords.longitude;
+      }
+      await api.checkIn(event.id, lat, lng);
+      await refreshProfile();
+      setEventMsg(`Checked in to ${event.name}`);
     } catch (err) {
-      setEventMsg(err instanceof Error ? err.message : 'Could not remove event');
+      setEventMsg(err instanceof Error ? err.message : 'Check-in failed');
     } finally {
       setEventBusy('');
     }
@@ -369,30 +393,25 @@ export default function ProfilePage({ onOpenAdmin, onNewOverlaps }: Props) {
         ) : (
           <ul className="space-y-2 mb-3">
             {plannedEvents.map(event => (
-              <li
-                key={event.id}
-                className="flex items-start gap-3 bg-stone-950/60 border border-sky-900/40 rounded-xl px-3 py-3"
-              >
-                <MapPin size={16} className="text-sky-400 mt-0.5 flex-shrink-0" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-white text-sm font-medium truncate">{event.name}</p>
-                  <p className="text-stone-500 text-xs">
-                    {formatEventDate(event.starts_at)} · {event.venue_name || event.city}
-                  </p>
-                  {event.category && (
-                    <span className="inline-block mt-1 text-xs bg-stone-800 text-stone-400 px-2 py-0.5 rounded-full">
-                      {CATEGORY_LABELS[event.category] || event.category}
-                    </span>
-                  )}
-                </div>
+              <li key={event.id}>
                 <button
                   type="button"
-                  onClick={() => handleRemoveEventPlan(event)}
-                  disabled={eventBusy === event.id}
-                  className="text-stone-500 hover:text-stone-300 p-1 disabled:opacity-50"
-                  aria-label={`Remove ${event.name}`}
+                  onClick={() => setSelectedEvent(event)}
+                  className="w-full flex items-start gap-3 bg-stone-950/60 border border-sky-900/40 hover:border-sky-800/60 rounded-xl px-3 py-3 text-left transition"
                 >
-                  <X size={16} />
+                  <MapPin size={16} className="text-sky-400 mt-0.5 flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-white text-sm font-medium truncate">{event.name}</p>
+                    <p className="text-stone-500 text-xs">
+                      {formatEventDate(event.starts_at)} · {event.venue_name || event.city}
+                    </p>
+                    {event.category && (
+                      <span className="inline-block mt-1 text-xs bg-stone-800 text-stone-400 px-2 py-0.5 rounded-full">
+                        {CATEGORY_LABELS[event.category] || event.category}
+                      </span>
+                    )}
+                  </div>
+                  <ChevronRight size={16} className="text-stone-600 shrink-0 mt-1" />
                 </button>
               </li>
             ))}
@@ -415,14 +434,16 @@ export default function ProfilePage({ onOpenAdmin, onNewOverlaps }: Props) {
                   <li key={event.id}>
                     <button
                       type="button"
-                      onClick={() => handleAddEventPlan(event)}
-                      disabled={eventBusy === event.id}
-                      className="w-full text-left bg-stone-950 border border-stone-800 hover:border-stone-700 disabled:opacity-50 rounded-xl px-3 py-3 transition"
+                      onClick={() => setSelectedEvent(event)}
+                      className="w-full text-left bg-stone-950 border border-stone-800 hover:border-stone-700 rounded-xl px-3 py-3 transition flex items-center gap-2"
                     >
-                      <p className="text-white text-sm font-medium">{event.name}</p>
-                      <p className="text-stone-500 text-xs">
-                        {formatEventDate(event.starts_at)} · {event.venue_name || event.city}
-                      </p>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-white text-sm font-medium">{event.name}</p>
+                        <p className="text-stone-500 text-xs">
+                          {formatEventDate(event.starts_at)} · {event.venue_name || event.city}
+                        </p>
+                      </div>
+                      <ChevronRight size={16} className="text-stone-600 shrink-0" />
                     </button>
                   </li>
                 ))}
@@ -572,6 +593,17 @@ export default function ProfilePage({ onOpenAdmin, onNewOverlaps }: Props) {
         </button>
         {saved && <p className="text-emerald-400 text-sm text-center">Saved!</p>}
       </form>
+
+      {selectedEvent && (
+        <EventDetailModal
+          event={selectedEvent}
+          activeCheckInEventId={profile.active_check_in?.event_id}
+          busy={eventBusy}
+          onClose={() => setSelectedEvent(null)}
+          onTogglePlan={toggleEventPlan}
+          onCheckIn={handleCheckIn}
+        />
+      )}
     </div>
   );
 }

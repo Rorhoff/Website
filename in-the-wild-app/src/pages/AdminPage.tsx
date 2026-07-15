@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ArrowLeft, Calendar, Flag, Loader, Shield, Trash2, Users } from 'lucide-react';
+import { ArrowLeft, Calendar, Flag, Loader, MessageSquare, Shield, Trash2, Users } from 'lucide-react';
 import * as api from '../lib/api';
-import type { AdminReport, AdminStats, Profile, WildEvent } from '../lib/types';
+import type { AdminMessage, AdminReport, AdminStats, Profile, WildEvent } from '../lib/types';
 import { CATEGORY_LABELS } from '../lib/types';
 
 type Props = {
   onBack: () => void;
 };
 
-type Tab = 'overview' | 'events' | 'users' | 'reports';
+type Tab = 'overview' | 'events' | 'users' | 'messages' | 'reports';
 
 const emptyEventForm = () => {
   const now = new Date();
@@ -32,7 +32,9 @@ export default function AdminPage({ onBack }: Props) {
   const [tab, setTab] = useState<Tab>('overview');
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [events, setEvents] = useState<WildEvent[]>([]);
-  const [users, setUsers] = useState<Profile[]>([]);
+  const [users, setUsers] = useState<Array<Profile & { email?: string; created_at?: string }>>([]);
+  const [messages, setMessages] = useState<AdminMessage[]>([]);
+  const [messageUserFilter, setMessageUserFilter] = useState('');
   const [reports, setReports] = useState<AdminReport[]>([]);
   const [search, setSearch] = useState('');
   const [form, setForm] = useState(emptyEventForm());
@@ -53,9 +55,17 @@ export default function AdminPage({ onBack }: Props) {
   }, []);
 
   const loadUsers = useCallback(async () => {
-    const { users: u } = await api.fetchAdminUsers(search);
+    const { users: u } = await api.fetchAdminUsers(search, 500);
     setUsers(u);
   }, [search]);
+
+  const loadMessages = useCallback(async () => {
+    const { messages: m } = await api.fetchAdminMessages({
+      userId: messageUserFilter || undefined,
+      limit: 200,
+    });
+    setMessages(m);
+  }, [messageUserFilter]);
 
   useEffect(() => {
     (async () => {
@@ -65,13 +75,18 @@ export default function AdminPage({ onBack }: Props) {
         await loadOverview();
         await loadEvents();
         await loadUsers();
+        await loadMessages();
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load admin data');
       } finally {
         setLoading(false);
       }
     })();
-  }, [loadOverview, loadEvents, loadUsers]);
+  }, [loadOverview, loadEvents, loadUsers, loadMessages]);
+
+  useEffect(() => {
+    if (!loading) loadMessages();
+  }, [messageUserFilter, loading, loadMessages]);
 
   function startEdit(ev: WildEvent) {
     setEditingId(ev.id);
@@ -161,6 +176,7 @@ export default function AdminPage({ onBack }: Props) {
     { id: 'overview', label: 'Overview', icon: Shield },
     { id: 'events', label: 'Events', icon: Calendar },
     { id: 'users', label: 'Users', icon: Users },
+    { id: 'messages', label: 'Messages', icon: MessageSquare },
     { id: 'reports', label: 'Reports', icon: Flag },
   ];
 
@@ -260,13 +276,33 @@ export default function AdminPage({ onBack }: Props) {
             onChange={e => setSearch(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && loadUsers()}
           />
+          <button
+            type="button"
+            onClick={loadUsers}
+            className="mb-4 text-emerald-400 text-xs font-medium hover:text-emerald-300"
+          >
+            Refresh users
+          </button>
           <div className="space-y-2">
             {users.map(u => (
               <div key={u.id} className="flex items-center gap-3 bg-stone-900 border border-stone-800 rounded-xl p-3">
                 <div className="flex-1 min-w-0">
                   <p className="text-white text-sm font-medium">@{u.username} · {u.display_name}</p>
-                  <p className="text-stone-500 text-xs truncate">@{u.username}{'email' in u ? ` · ${(u as Profile & { email?: string }).email}` : ''}</p>
+                  <p className="text-stone-500 text-xs truncate">
+                    {u.email || 'no email'}
+                    {u.created_at ? ` · joined ${new Date(u.created_at).toLocaleDateString()}` : ''}
+                  </p>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMessageUserFilter(u.id);
+                    setTab('messages');
+                  }}
+                  className="text-xs font-medium px-2 py-1 rounded-lg bg-stone-800 text-stone-300 hover:text-white"
+                >
+                  Messages
+                </button>
                 <button
                   type="button"
                   disabled={busy === u.id}
@@ -275,6 +311,50 @@ export default function AdminPage({ onBack }: Props) {
                 >
                   {u.id_verified ? 'Verified' : 'Verify ID'}
                 </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : tab === 'messages' ? (
+        <div>
+          <div className="flex flex-wrap gap-2 mb-4">
+            <select
+              value={messageUserFilter}
+              onChange={e => setMessageUserFilter(e.target.value)}
+              className="flex-1 min-w-[12rem] bg-stone-900 border border-stone-700 rounded-xl px-3 py-2.5 text-white text-sm"
+            >
+              <option value="">All messages</option>
+              {users.map(u => (
+                <option key={u.id} value={u.id}>
+                  @{u.username} ({u.email || 'no email'})
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={loadMessages}
+              className="px-4 py-2.5 rounded-xl bg-stone-800 text-stone-300 text-sm font-medium hover:bg-stone-700"
+            >
+              Refresh
+            </button>
+          </div>
+          <div className="space-y-3">
+            {messages.length === 0 ? (
+              <p className="text-stone-500 text-sm text-center py-8">No messages found.</p>
+            ) : messages.map(m => (
+              <div key={m.id} className="bg-stone-900 border border-stone-800 rounded-xl p-3">
+                <div className="flex items-start justify-between gap-3 mb-2">
+                  <div>
+                    <p className="text-white text-sm font-medium">
+                      @{m.sender_username} → @{m.user_a?.username}
+                      {m.user_b ? ` ↔ @${m.user_b.username}` : ''}
+                    </p>
+                    <p className="text-stone-600 text-xs mt-0.5">
+                      {new Date(m.created_at).toLocaleString()}
+                    </p>
+                  </div>
+                </div>
+                <p className="text-stone-300 text-sm whitespace-pre-wrap">{m.body}</p>
               </div>
             ))}
           </div>

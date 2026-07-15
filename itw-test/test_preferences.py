@@ -10,6 +10,7 @@ from itw_preferences import (
     normalize_looking_for,
     profile_preferences_complete,
     profiles_compatible,
+    discover_visible,
     validate_birth_year,
     vicinity_score_pct,
 )
@@ -90,6 +91,21 @@ class TestProfilesCompatible:
 
     def test_nonbinary_seeking_nonbinary(self):
         assert profiles_compatible("nonbinary", "nonbinary", "other", "nonbinary")
+
+
+class TestDiscoverVisible:
+    def test_shows_candidate_matching_viewer_preference_without_theirs(self):
+        assert discover_visible("man", "women", "woman", "")
+
+    def test_hides_when_candidate_gender_not_in_viewer_preference(self):
+        assert not discover_visible("man", "women", "man", "men")
+
+    def test_requires_mutual_when_candidate_has_preferences(self):
+        assert discover_visible("man", "women", "woman", "men")
+        assert not discover_visible("man", "women", "woman", "women")
+
+    def test_everyone_sees_nonbinary_candidate(self):
+        assert discover_visible("man", "everyone", "nonbinary", "")
 
 
 class TestCompatibilityScoring:

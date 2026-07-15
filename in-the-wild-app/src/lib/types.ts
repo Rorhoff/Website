@@ -116,6 +116,29 @@ export type AdminReport = {
   reported: Profile | null;
 };
 
+export type AdminMessage = {
+  id: string;
+  match_id: string;
+  sender_id: string;
+  sender_username: string;
+  sender_display_name: string;
+  body: string;
+  created_at: string;
+  user_a: Profile | null;
+  user_b: Profile | null;
+};
+
+export type AdminMatch = {
+  id: string;
+  status: string;
+  matched_at: string;
+  chat_expires_at: string | null;
+  message_count: number;
+  event: WildEvent | null;
+  user_a: Profile | null;
+  user_b: Profile | null;
+};
+
 export function formatCountdown(seconds: number): string {
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);

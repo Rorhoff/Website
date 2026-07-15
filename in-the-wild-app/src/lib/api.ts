@@ -1,4 +1,4 @@
-import type { AdminReport, AdminStats, ChatMessage, EventPlanOverlap, EventsFilterMeta, Match, PendingLike, Profile, WildEvent } from './types';
+import type { AdminReport, AdminStats, AdminMessage, AdminMatch, ChatMessage, EventPlanOverlap, EventsFilterMeta, Match, PendingLike, Profile, WildEvent } from './types';
 
 export * from './types';
 
@@ -271,9 +271,38 @@ export async function deleteAdminEvent(id: string): Promise<void> {
   await request(`/admin/events/${id}`, { method: 'DELETE' });
 }
 
-export async function fetchAdminUsers(q = ''): Promise<{ users: Profile[] }> {
-  const qs = q ? `?q=${encodeURIComponent(q)}` : '';
+export async function fetchAdminUsers(q = '', limit = 200): Promise<{ users: Array<Profile & { email?: string; created_at?: string }> }> {
+  const params = new URLSearchParams();
+  if (q) params.set('q', q);
+  params.set('limit', String(limit));
+  const qs = params.toString() ? `?${params.toString()}` : '';
   return request(`/admin/users${qs}`);
+}
+
+export async function fetchAdminMessages(opts?: {
+  userId?: string;
+  matchId?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<{ messages: AdminMessage[]; limit: number; offset: number }> {
+  const params = new URLSearchParams();
+  if (opts?.userId) params.set('user_id', opts.userId);
+  if (opts?.matchId) params.set('match_id', opts.matchId);
+  if (opts?.limit) params.set('limit', String(opts.limit));
+  if (opts?.offset) params.set('offset', String(opts.offset));
+  const qs = params.toString() ? `?${params.toString()}` : '';
+  return request(`/admin/messages${qs}`);
+}
+
+export async function fetchAdminMatches(opts?: {
+  limit?: number;
+  offset?: number;
+}): Promise<{ matches: AdminMatch[]; limit: number; offset: number }> {
+  const params = new URLSearchParams();
+  if (opts?.limit) params.set('limit', String(opts.limit));
+  if (opts?.offset) params.set('offset', String(opts.offset));
+  const qs = params.toString() ? `?${params.toString()}` : '';
+  return request(`/admin/matches${qs}`);
 }
 
 export async function fetchAdminReports(): Promise<{ reports: AdminReport[] }> {
