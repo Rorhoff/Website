@@ -28,11 +28,18 @@ DEV_SERVICE="roryportfolio"
 DEV_HEALTH_URL="http://127.0.0.1:8000/which-app"
 DEV_VENV_PIP="$DEV_DIR/.venv/bin/pip"
 
+# Vite output under static/ is rebuilt every deploy. Drop untracked files there so
+# `git pull` is not blocked by leftover manifest.json, sw.js, nav-toggle.js, etc.
+_clean_spa_static() {
+  local repo="$1"
+  git -C "$repo" checkout -- static/referr-all static/in-the-wild 2>/dev/null || true
+  git -C "$repo" clean -fd -- static/referr-all static/in-the-wild 2>/dev/null || true
+  rm -rf "$repo/static/t1-referrall" "$repo/static/t1-referral"
+}
+
 # Discard Vite rebuild output before any pull/dirty checks (never block deploy on this path).
 if [[ -d "$DEV_DIR/.git" ]]; then
-  git -C "$DEV_DIR" checkout -- static/referr-all 2>/dev/null || true
-  git -C "$DEV_DIR" checkout -- static/in-the-wild 2>/dev/null || true
-  rm -rf "$DEV_DIR/static/t1-referrall" "$DEV_DIR/static/t1-referral"
+  _clean_spa_static "$DEV_DIR"
 fi
 
 if [[ -t 1 ]]; then
@@ -188,9 +195,7 @@ sync_in_the_wild() {
 # static/referr-all is rebuilt every deploy — never treat it as a blocker.
 # ---------------------------------------------------------------------------
 [[ -d "$DEV_DIR/.git" ]] || die "Not a git checkout: $DEV_DIR"
-git -C "$DEV_DIR" checkout -- static/referr-all 2>/dev/null || true
-git -C "$DEV_DIR" checkout -- static/in-the-wild 2>/dev/null || true
-rm -rf "$DEV_DIR/static/t1-referrall" "$DEV_DIR/static/t1-referral"
+_clean_spa_static "$DEV_DIR"
 _diff_paths=(':!static/referr-all' ':!static/in-the-wild')
 if ! git -C "$DEV_DIR" diff --quiet HEAD -- . "$_diff_paths" \
   || ! git -C "$DEV_DIR" diff --cached --quiet HEAD -- . "$_diff_paths"; then
