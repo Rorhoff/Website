@@ -156,6 +156,26 @@ export default function AdminPage({ onBack }: Props) {
     }
   }
 
+  async function editDisplayName(u: Profile) {
+    const next = window.prompt('Full name', u.display_name || u.username);
+    if (next === null) return;
+    const trimmed = next.trim();
+    if (trimmed.length < 2) {
+      setError('Full name must be at least 2 characters.');
+      return;
+    }
+    setBusy(u.id);
+    setError('');
+    try {
+      await api.patchAdminUser(u.id, { display_name: trimmed });
+      await loadUsers();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Rename failed');
+    } finally {
+      setBusy('');
+    }
+  }
+
   async function handleReportAction(reportId: string, action: 'dismiss' | 'suspend_reported') {
     const label = action === 'dismiss' ? 'Dismiss this report?' : 'Suspend the reported user?';
     if (!confirm(label)) return;
@@ -308,6 +328,14 @@ export default function AdminPage({ onBack }: Props) {
                   className="text-xs font-medium px-2 py-1 rounded-lg bg-stone-800 text-stone-300 hover:text-white"
                 >
                   Messages
+                </button>
+                <button
+                  type="button"
+                  disabled={busy === u.id}
+                  onClick={() => editDisplayName(u)}
+                  className="text-xs font-medium px-2 py-1 rounded-lg bg-stone-800 text-stone-300 hover:text-white"
+                >
+                  Edit name
                 </button>
                 <button
                   type="button"

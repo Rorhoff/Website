@@ -29,6 +29,16 @@ export default function MatchesPage({ onOpenChat }: Props) {
 
   useEffect(() => { load(); }, [load]);
 
+  async function cancelLike(userId: string, displayName: string) {
+    if (!confirm(`Remove your like for ${displayName}? They may show up in Discover again.`)) return;
+    try {
+      await api.cancelPendingLike(userId);
+      await load();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Could not cancel like');
+    }
+  }
+
   const active = matches.filter(m => m.status === 'active' && m.seconds_remaining > 0);
   const waiting = pending.filter(l => !l.mutual || !active.some(m => m.other_user?.id === l.user.id));
 
@@ -73,6 +83,13 @@ export default function MatchesPage({ onOpenChat }: Props) {
                     {like.mutual && (
                       <span className="text-xs text-emerald-400 font-medium flex-shrink-0">Mutual ♥</span>
                     )}
+                    <button
+                      type="button"
+                      onClick={() => cancelLike(like.user.id, like.user.display_name || like.user.username)}
+                      className="text-xs font-medium px-2 py-1 rounded-lg bg-stone-800 text-stone-400 hover:text-red-400 flex-shrink-0"
+                    >
+                      Cancel
+                    </button>
                   </div>
                 ))}
               </div>

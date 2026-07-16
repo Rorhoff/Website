@@ -983,6 +983,7 @@ class AdminEventBody(BaseModel):
 
 
 class AdminUserPatchBody(BaseModel):
+    display_name: str | None = Field(default=None, min_length=2, max_length=120)
     id_verified: bool | None = None
     is_suspended: bool | None = None
     is_admin: bool | None = None
@@ -1570,6 +1571,27 @@ def pending_likes(
             "liked_at": like.created_at.isoformat(),
         })
     return {"likes": out}
+
+
+@router.delete("/likes/{target_user_id}")
+def cancel_pending_like(
+    target_user_id: str,
+    authorization: Annotated[str | None, Header()] = None,
+    db: Session = Depends(_db),
+):
+    user = _get_user(db, authorization)
+    like = db.scalar(
+        select(T1IntheWildLike).where(
+            T1IntheWildLike.from_user_id == user.id,
+            T1IntheWildLike.to_user_id == target_user_id,
+            T1IntheWildLike.action == "like",
+        )
+    )
+    if not like:
+        raise HTTPException(status_code=404, detail="No pending like found")
+    db.delete(like)
+    db.commit()
+    return {"ok": True}
 
 
 @router.post("/events/{event_id}/check-in")
@@ -2265,6 +2287,8 @@ def admin_patch_user(
     target = db.get(T1IntheWildUser, user_id)
     if not target:
         raise HTTPException(status_code=404, detail="User not found")
+    if body.display_name is not None:
+        target.display_name = body.display_name.strip()[:120]
     if body.id_verified is not None:
         target.id_verified = body.id_verified
     if body.is_suspended is not None:

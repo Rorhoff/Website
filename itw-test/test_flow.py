@@ -225,3 +225,28 @@ def test_register_generates_username_from_full_name(client):
     profile = res.json()["profile"]
     assert profile["display_name"] == "Derek Luke"
     assert profile["username"] == "derek_luke"
+
+
+def test_cancel_pending_like(client):
+    token_a, profile_a = register_user(client, gender="man", looking_for="women", username="cancel_a")
+    _, profile_b = register_user(client, gender="woman", looking_for="men", username="cancel_b")
+
+    swipe = client.post(
+        "/api/in-the-wild/swipe",
+        headers=auth_headers(token_a),
+        json={"target_id": profile_b["id"], "action": "like"},
+    )
+    assert swipe.status_code == 200
+
+    pending = client.get("/api/in-the-wild/likes/pending", headers=auth_headers(token_a))
+    assert pending.status_code == 200
+    assert len(pending.json()["likes"]) == 1
+
+    cancel = client.delete(
+        f"/api/in-the-wild/likes/{profile_b['id']}",
+        headers=auth_headers(token_a),
+    )
+    assert cancel.status_code == 200
+
+    pending_after = client.get("/api/in-the-wild/likes/pending", headers=auth_headers(token_a))
+    assert pending_after.json()["likes"] == []

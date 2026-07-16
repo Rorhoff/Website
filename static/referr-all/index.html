@@ -24,6 +24,9 @@
         flex-wrap: wrap;
         gap: 0.65rem 1.25rem;
         padding: 0.75rem 1.5rem;
+        padding-top: calc(0.75rem + env(safe-area-inset-top, 0px));
+        padding-left: max(1.5rem, env(safe-area-inset-left, 0px));
+        padding-right: max(1.5rem, env(safe-area-inset-right, 0px));
         border-bottom: 1px solid #d1dae6;
         background: #ffffff;
         align-items: center;
@@ -85,8 +88,8 @@
         .nav-links a:last-child { border-bottom: none; }
       }
     </style>
-    <script type="module" crossorigin src="/referr-all/assets/index-DF8AP6jD.js"></script>
-    <link rel="stylesheet" crossorigin href="/referr-all/assets/index-DUcIvbPg.css">
+    <script type="module" crossorigin src="/referr-all/assets/index-DG5XUdjs.js"></script>
+    <link rel="stylesheet" crossorigin href="/referr-all/assets/index-7HwPjGRa.css">
   </head>
   <body>
     <nav class="site-nav" aria-label="Primary">
@@ -97,29 +100,12 @@
         <a href="../api-testing/">API Testing</a>
         <a href="../classifieds/">Classifieds</a>
         <a href="../airevolution/">AI Revolution</a>
-        <a href="./" class="active">Referr-All</a>
+        <a href="../referr-all/" class="active">Referr-All</a>
+        <a href="../in-the-wild/">In the Wild</a>
         <a href="../sss/">SSS</a>
       </div>
     </nav>
     <div id="root"></div>
-    <script>
-      (function () {
-        var btn = document.getElementById("navHamburger");
-        var links = document.getElementById("navLinks");
-        if (!btn || !links) return;
-        btn.addEventListener("click", function () {
-          var open = links.classList.toggle("open");
-          btn.setAttribute("aria-expanded", open);
-          btn.textContent = open ? "✕" : "☰";
-        });
-        document.addEventListener("click", function (e) {
-          if (!links.contains(e.target) && e.target !== btn) {
-            links.classList.remove("open");
-            btn.setAttribute("aria-expanded", "false");
-            btn.textContent = "☰";
-          }
-        });
-      })();
-    </script>
+    <script src="/referr-all/nav-toggle.js" defer></script>
   </body>
 </html>

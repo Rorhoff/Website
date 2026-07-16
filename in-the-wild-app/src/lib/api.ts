@@ -132,6 +132,10 @@ export async function fetchPendingLikes(): Promise<{ likes: PendingLike[] }> {
   return request('/likes/pending');
 }
 
+export async function cancelPendingLike(targetUserId: string): Promise<{ ok: boolean }> {
+  return request(`/likes/${targetUserId}`, { method: 'DELETE' });
+}
+
 export async function fetchEvents(coords?: { lat: number; lng: number }): Promise<{ events: WildEvent[]; filter: EventsFilterMeta }> {
   const q = coords ? `?lat=${coords.lat}&lng=${coords.lng}` : '';
   return request(`/events${q}`);
@@ -322,7 +326,7 @@ export async function patchAdminReport(
 
 export async function patchAdminUser(
   userId: string,
-  patch: { id_verified?: boolean; is_suspended?: boolean; is_admin?: boolean },
+  patch: { display_name?: string; id_verified?: boolean; is_suspended?: boolean; is_admin?: boolean },
 ): Promise<Profile> {
   return request(`/admin/users/${userId}`, { method: 'PATCH', body: JSON.stringify(patch) });
 }

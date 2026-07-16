@@ -26,30 +26,36 @@
     max-width: 100%;
   }
 
+  :root {
+    --safe-top: env(safe-area-inset-top, 0px);
+    --site-nav-offset: 3rem;
+  }
+
   /* Offset the Referr-All fixed header when the portfolio nav is visible (dev). */
   .referr-all-fixed-header {
     top: 0;
+    padding-top: var(--safe-top);
   }
 
   .referr-all-main-offset {
-    padding-top: 4rem;
+    padding-top: calc(4rem + var(--safe-top));
   }
 
   html:not([data-service-mode="referrall"]) .referr-all-fixed-header {
-    top: 3rem;
+    top: calc(var(--site-nav-offset) + var(--safe-top));
   }
 
   html:not([data-service-mode="referrall"]) .referr-all-main-offset {
-    padding-top: calc(4rem + 3rem);
+    padding-top: calc(4rem + var(--site-nav-offset) + var(--safe-top));
   }
 
   /* Prevent iOS Safari from auto-zooming when focusing form controls.
-     Any control below 16px triggers the zoom, so enforce 16px on phones. */
+     Tailwind text-sm (14px) must lose to this rule on phones. */
   @media (max-width: 767px) {
-    input,
+    input:not([type="checkbox"]):not([type="radio"]),
     select,
     textarea {
-      font-size: 16px;
+      font-size: 16px !important;
     }
   }
 }

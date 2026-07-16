@@ -3,6 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/in-the-wild/favicon.svg" />
+    <link rel="manifest" href="/in-the-wild/manifest.json" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="In the Wild" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>In the Wild — Match where you actually are</title>
     <meta name="description" content="Swipe interest, meet at verified events, chat for 6 hours — then say hello in person." />
@@ -13,6 +17,9 @@
         flex-wrap: wrap;
         gap: 0.65rem 1.25rem;
         padding: 0.75rem 1.5rem;
+        padding-top: calc(0.75rem + env(safe-area-inset-top, 0px));
+        padding-left: max(1.5rem, env(safe-area-inset-left, 0px));
+        padding-right: max(1.5rem, env(safe-area-inset-right, 0px));
         border-bottom: 1px solid #292524;
         background: #0c0a09;
         align-items: center;
@@ -32,8 +39,8 @@
       .site-nav a:hover { color: #10b981; }
       .site-nav a.active { color: #fafaf9; border-bottom-color: #10b981; }
     </style>
-    <script type="module" crossorigin src="/in-the-wild/assets/index-DDhS5-bd.js"></script>
-    <link rel="stylesheet" crossorigin href="/in-the-wild/assets/index-BF2_MKBx.css">
+    <script type="module" crossorigin src="/in-the-wild/assets/index-x2T0ie-9.js"></script>
+    <link rel="stylesheet" crossorigin href="/in-the-wild/assets/index-xcKIxaZK.css">
   </head>
   <body>
     <nav class="site-nav" aria-label="Primary">

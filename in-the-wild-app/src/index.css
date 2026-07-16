@@ -3,6 +3,11 @@
 @tailwind utilities;
 
 @layer base {
+  :root {
+    --safe-top: env(safe-area-inset-top, 0px);
+    --site-nav-offset: 3rem;
+  }
+
   html {
     -webkit-font-smoothing: antialiased;
     overflow-x: hidden;
@@ -14,17 +19,33 @@
     overflow-x: hidden;
   }
 
+  .itw-fixed-header {
+    padding-top: var(--safe-top);
+  }
+
+  .itw-main-offset {
+    padding-top: calc(3.5rem + var(--safe-top));
+  }
+
   html:not([data-service-mode="referrall"]) .itw-fixed-header {
-    top: 3rem;
+    top: calc(var(--site-nav-offset) + var(--safe-top));
   }
 
   html:not([data-service-mode="referrall"]) .itw-main-offset {
-    padding-top: calc(4rem + 3rem);
+    padding-top: calc(3.5rem + var(--site-nav-offset) + var(--safe-top));
   }
 
   @media (max-width: 767px) {
-    input, select, textarea {
-      font-size: 16px;
+    input:not([type="checkbox"]):not([type="radio"]),
+    select,
+    textarea {
+      font-size: 16px !important;
     }
+  }
+}
+
+@layer utilities {
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom);
   }
 }

@@ -1,0 +1,20 @@
+{
+  "id": "./",
+  "name": "In the Wild",
+  "short_name": "In the Wild",
+  "description": "Match where you actually are — meet mutual likes at verified events.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0c0a09",
+  "theme_color": "#0c0a09",
+  "icons": [
+    {
+      "src": "favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
