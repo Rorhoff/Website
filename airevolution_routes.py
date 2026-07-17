@@ -8,11 +8,14 @@ Env:
 
 from __future__ import annotations
 
+import html as html_lib
 import io
+import ipaddress
 import json
 import logging
 import os
 import re
+import socket
 import time
 import uuid
 from collections import Counter
@@ -55,7 +58,7 @@ def _ensure_storage() -> None:
 
 
 def _persist_kb_to_disk() -> None:
-    """Survive service restarts — uploaded dictionaries were previously in-memory only."""
+    """Survive service restarts — docs, image records, and tickets all live here."""
     try:
         with _lock:
             payload = {
@@ -66,12 +69,15 @@ def _persist_kb_to_disk() -> None:
                         "title": d["title"],
                         "filename": d.get("filename"),
                         "kind": d.get("kind"),
+                        "source_url": d.get("source_url"),
                         "bytes": d.get("bytes", 0),
                         "created_at": d.get("created_at"),
                         "full_text": d.get("full_text") or "",
                     }
                     for d in _docs
                 ],
+                "images": [dict(x) for x in _images],
+                "tickets": [dict(t) for t in _tickets],
             }
         KB_STORE_PATH.write_text(
             json.dumps(payload, ensure_ascii=False),
@@ -82,7 +88,7 @@ def _persist_kb_to_disk() -> None:
 
 
 def _load_kb_from_disk() -> None:
-    global _docs, _id_seq, _kb_loaded
+    global _docs, _images, _tickets, _id_seq, _kb_loaded
     if _kb_loaded:
         return
     _kb_loaded = True
@@ -105,6 +111,7 @@ def _load_kb_from_disk() -> None:
                     "title": title,
                     "filename": fname,
                     "kind": kind,
+                    "source_url": raw.get("source_url"),
                     "bytes": raw.get("bytes") or len(full_text.encode("utf-8", errors="replace")),
                     "created_at": raw.get("created_at")
                     or time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime()) + "Z",
@@ -112,10 +119,26 @@ def _load_kb_from_disk() -> None:
                     "chunks": _chunk_text(full_text, doc_id, title),
                 }
             )
+        loaded_images: list[dict[str, Any]] = []
+        for raw in payload.get("images") or []:
+            stored = raw.get("stored") or ""
+            # Skip records whose file vanished so the UI never shows broken thumbnails.
+            if stored and not (IMAGES_DIR / stored).is_file():
+                continue
+            loaded_images.append(dict(raw))
+        loaded_tickets = [dict(t) for t in (payload.get("tickets") or [])]
+        all_ids = [d["id"] for d in loaded]
+        all_ids += [int(x.get("id") or 0) for x in loaded_images]
+        all_ids += [int(t.get("id") or 0) for t in loaded_tickets]
         with _lock:
             _docs = loaded
-            _id_seq = max(int(payload.get("id_seq") or 0), max((d["id"] for d in loaded), default=0))
-        log.info("Loaded %d knowledge-base document(s) from disk", len(loaded))
+            _images = loaded_images
+            _tickets = loaded_tickets
+            _id_seq = max(int(payload.get("id_seq") or 0), max(all_ids, default=0))
+        log.info(
+            "Loaded %d doc(s), %d image(s), %d ticket(s) from disk",
+            len(loaded), len(loaded_images), len(loaded_tickets),
+        )
     except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
         log.warning("Could not load knowledge base from disk: %s", exc)
 
@@ -693,16 +716,45 @@ def _build_context_for_query(
     return ctx, hits, img_hits, broad, sql
 
 
-def _call_claude(system: str, user_text: str, max_tokens: int = 4096) -> str:
+def _merge_alternating(history: list[dict[str, str]]) -> list[dict[str, str]]:
+    """Anthropic requires strictly alternating roles starting with `user`.
+
+    Merge consecutive same-role turns and drop any leading assistant turn so a stored
+    case thread can always be replayed as valid API history.
+    """
+    out: list[dict[str, str]] = []
+    for m in history:
+        role = m.get("role")
+        content = (m.get("content") or "").strip()
+        if role not in ("user", "assistant") or not content:
+            continue
+        if out and out[-1]["role"] == role:
+            out[-1]["content"] += "\n\n" + content
+        else:
+            out.append({"role": role, "content": content})
+    while out and out[0]["role"] != "user":
+        out.pop(0)
+    return out
+
+
+def _call_claude(
+    system: str,
+    user_text: str,
+    max_tokens: int = 4096,
+    history: list[dict[str, str]] | None = None,
+) -> str:
     key = os.getenv("ANTHROPIC_API_KEY", "").strip()
     if not key:
         return ""
     model = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
+    prior = _merge_alternating(history or [])
+    if prior and prior[-1]["role"] == "user":
+        user_text = prior.pop()["content"] + "\n\n" + user_text
     payload = {
         "model": model,
         "max_tokens": max_tokens,
         "system": system,
-        "messages": [{"role": "user", "content": user_text}],
+        "messages": prior + [{"role": "user", "content": user_text}],
     }
     headers = {
         "x-api-key": key,
@@ -754,11 +806,15 @@ def _call_claude_vision(
     user_text: str,
     image_data_urls: list[str],
     max_tokens: int = 4096,
+    history: list[dict[str, str]] | None = None,
 ) -> str:
     key = os.getenv("ANTHROPIC_API_KEY", "").strip()
     if not key:
         return ""
     model = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
+    prior = _merge_alternating(history or [])
+    if prior and prior[-1]["role"] == "user":
+        user_text = prior.pop()["content"] + "\n\n" + user_text
     content: list[dict[str, Any]] = [{"type": "text", "text": user_text}]
     for data_url in image_data_urls:
         try:
@@ -775,12 +831,12 @@ def _call_claude_vision(
         except Exception:
             continue
     if len(content) < 2:
-        return _call_claude(system, user_text, max_tokens=max_tokens)
+        return _call_claude(system, user_text, max_tokens=max_tokens, history=history)
     payload = {
         "model": model,
         "max_tokens": max_tokens,
         "system": system,
-        "messages": [{"role": "user", "content": content}],
+        "messages": prior + [{"role": "user", "content": content}],
     }
     headers = {
         "x-api-key": key,
@@ -837,18 +893,84 @@ def _sanitize_inquiry_images(raw: list[str] | None) -> list[str]:
     return out
 
 
+class ChatTurn(BaseModel):
+    role: str = Field(pattern="^(user|assistant)$")
+    text: str = Field(min_length=1, max_length=16_000)
+
+
 class ChatIn(BaseModel):
     message: str = Field(min_length=1, max_length=32_000)
     images: list[str] = Field(default_factory=list, max_length=MAX_INQUIRY_IMAGES)
     ticket_id: int | None = None
     # When true, creates or updates a ticket record for the portal audit trail.
     create_ticket: bool = False
+    # Prior turns of an un-ticketed conversation; used to seed a new case thread
+    # when the user replies with additional details. Ignored when ticket_id is set
+    # (the server-side thread wins).
+    history: list[ChatTurn] = Field(default_factory=list, max_length=24)
 
 
 class TicketCreate(BaseModel):
     subject: str = Field(min_length=1, max_length=500)
     description: str = Field(min_length=1, max_length=16_000)
     requester_email: str | None = Field(default=None, max_length=200)
+
+
+class UrlIngestIn(BaseModel):
+    url: str = Field(min_length=8, max_length=2000)
+    title: str | None = Field(default=None, max_length=300)
+    doc_kind: str | None = None
+
+
+MAX_URL_FETCH_BYTES = 4 * 1024 * 1024
+_MAX_THREAD_TURNS = 12
+
+
+def _reject_private_url(url: str) -> None:
+    """Block SSRF against localhost / private ranges when fetching KB links."""
+    m = re.match(r"^https?://([^/:?#]+)", url, re.I)
+    if not m:
+        raise HTTPException(400, "URL must start with http:// or https://")
+    host = m.group(1).strip("[]")
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except OSError:
+        raise HTTPException(400, f"Could not resolve host: {host}")
+    for info in infos:
+        try:
+            addr = ipaddress.ip_address(info[4][0])
+        except ValueError:
+            continue
+        if addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_reserved:
+            raise HTTPException(400, "URL resolves to a private or local address")
+
+
+def _html_to_text(html: str) -> tuple[str, str]:
+    """Very small readability pass: page title + visible text with paragraph breaks."""
+    title = ""
+    m = re.search(r"<title[^>]*>(.*?)</title>", html, re.I | re.S)
+    if m:
+        title = re.sub(r"\s+", " ", html_lib.unescape(m.group(1))).strip()
+    body = re.sub(
+        r"<(script|style|noscript|svg|iframe|head|template)\b.*?</\1\s*>",
+        " ",
+        html,
+        flags=re.I | re.S,
+    )
+    body = re.sub(r"<!--.*?-->", " ", body, flags=re.S)
+    body = re.sub(r"<li\b[^>]*>", "\n- ", body, flags=re.I)
+    body = re.sub(
+        r"<(?:br|hr)\b[^>]*>|</(?:p|div|li|tr|h[1-6]|section|article|blockquote|table|ul|ol|pre)\s*>",
+        "\n",
+        body,
+        flags=re.I,
+    )
+    text = re.sub(r"<[^>]+>", " ", body)
+    text = html_lib.unescape(text)
+    text = re.sub(r"[ \t\r\f]+", " ", text)
+    text = re.sub(r" ?\n ?", "\n", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return title, text.strip()
 
 
 @router.get("/status")
@@ -884,6 +1006,7 @@ def list_documents() -> list[dict[str, Any]]:
                 "title": d["title"],
                 "bytes": d["bytes"],
                 "filename": d.get("filename"),
+                "source_url": d.get("source_url"),
                 "kind": d.get("kind")
                 or _infer_doc_kind(d.get("title") or "", d.get("filename"), d.get("full_text") or ""),
                 "created_at": d["created_at"],
@@ -956,15 +1079,87 @@ async def add_document(
     return {"ok": True, "id": doc_id, "title": doc_title, "kind": kind, "chunk_count": len(chunks)}
 
 
+@router.post("/documents/from-url")
+def add_document_from_url(body: UrlIngestIn) -> dict[str, Any]:
+    """Fetch a web page and ingest its readable text as a KB article."""
+    _ensure_storage()
+    url = body.url.strip()
+    if not re.match(r"^https?://", url, re.I):
+        raise HTTPException(400, "URL must start with http:// or https://")
+    _reject_private_url(url)
+    try:
+        r = httpx.get(
+            url,
+            timeout=30.0,
+            follow_redirects=True,
+            headers={
+                "User-Agent": "Mozilla/5.0 (compatible; AIRevolution-KB/1.0)",
+                "Accept": "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.5",
+            },
+        )
+        r.raise_for_status()
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(400, f"URL returned {e.response.status_code}")
+    except httpx.HTTPError as e:
+        raise HTTPException(400, f"Could not fetch URL: {e}")
+
+    content = r.text[:MAX_URL_FETCH_BYTES]
+    ctype = (r.headers.get("content-type") or "").lower()
+    if "html" in ctype or content.lstrip()[:1] == "<":
+        page_title, raw_text = _html_to_text(content)
+    else:
+        page_title, raw_text = "", content.strip()
+
+    if len(raw_text) < 40:
+        raise HTTPException(
+            400,
+            "No readable text found at that URL. If the page is JavaScript-rendered, "
+            "copy the article text and use Paste text instead.",
+        )
+
+    doc_id = _next_id()
+    doc_title = (body.title or "").strip() or page_title or url
+    kind_raw = (body.doc_kind or "").strip().lower()
+    if kind_raw in ("schema", "support"):
+        kind = kind_raw
+    else:
+        kind = _infer_doc_kind(doc_title, None, raw_text)
+    chunks = _chunk_text(raw_text, doc_id, doc_title)
+    entry = {
+        "id": doc_id,
+        "title": doc_title,
+        "filename": None,
+        "kind": kind,
+        "source_url": url,
+        "bytes": len(raw_text.encode("utf-8", errors="replace")),
+        "created_at": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime()) + "Z",
+        "full_text": raw_text,
+        "chunks": chunks,
+    }
+    with _lock:
+        _docs.append(entry)
+    _persist_kb_to_disk()
+    return {
+        "ok": True,
+        "id": doc_id,
+        "title": doc_title,
+        "kind": kind,
+        "source_url": url,
+        "chars": len(raw_text),
+        "chunk_count": len(chunks),
+    }
+
+
 @router.delete("/documents/{doc_id}")
 def delete_document(doc_id: int) -> dict[str, bool]:
+    global _docs
     with _lock:
-        global _docs
         before = len(_docs)
         _docs = [d for d in _docs if d["id"] != doc_id]
-    if len(_docs) < before:
+        removed = len(_docs) < before
+    if removed:
         _persist_kb_to_disk()
-    return {"ok": len(_docs) < before}
+    return {"ok": removed}
 
 
 @router.get("/images")
@@ -1004,6 +1199,7 @@ async def add_image(
     }
     with _lock:
         _images.append(rec)
+    _persist_kb_to_disk()
     return {"ok": True, **rec}
 
 
@@ -1012,16 +1208,23 @@ def update_image_caption(
     image_id: int,
     caption: str = Form(default=""),
 ) -> dict[str, Any]:
+    updated = False
     with _lock:
         for im in _images:
             if im["id"] == image_id:
                 im["caption"] = (caption or "").strip()
-                return {"ok": True, "id": image_id, "caption": im["caption"]}
+                updated = True
+                new_caption = im["caption"]
+                break
+    if updated:
+        _persist_kb_to_disk()
+        return {"ok": True, "id": image_id, "caption": new_caption}
     raise HTTPException(404, "Image not found")
 
 
 @router.delete("/images/{image_id}")
 def delete_image(image_id: int) -> dict[str, bool]:
+    removed = False
     with _lock:
         for i, im in enumerate(_images):
             if im["id"] == image_id:
@@ -1032,8 +1235,23 @@ def delete_image(image_id: int) -> dict[str, bool]:
                 except OSError:
                     pass
                 _images.pop(i)
-                return {"ok": True}
-    return {"ok": False}
+                removed = True
+                break
+    if removed:
+        _persist_kb_to_disk()
+    return {"ok": removed}
+
+
+def _claude_history_for(ticket: dict[str, Any] | None, client_turns: list[ChatTurn]) -> list[dict[str, str]]:
+    """Prior conversation turns for the model: server thread wins over client history."""
+    if ticket is not None:
+        source = [
+            {"role": m.get("role"), "content": m.get("text") or ""}
+            for m in (ticket.get("messages") or [])
+        ]
+    else:
+        source = [{"role": t.role, "content": t.text} for t in client_turns]
+    return source[-_MAX_THREAD_TURNS:]
 
 
 @router.post("/chat")
@@ -1042,6 +1260,17 @@ def chat(body: ChatIn) -> dict[str, Any]:
     inquiry_images = _sanitize_inquiry_images(body.images)
     ctx, hits, img_hits, broad, sql = _build_context_for_query(body.message)
     has_kb = bool(ctx)
+
+    ticket_snapshot: dict[str, Any] | None = None
+    if body.ticket_id is not None:
+        with _lock:
+            for t in _tickets:
+                if t["id"] == body.ticket_id:
+                    ticket_snapshot = {"messages": [dict(m) for m in (t.get("messages") or [])]}
+                    break
+        if ticket_snapshot is None:
+            raise HTTPException(404, "Ticket not found")
+    history = _claude_history_for(ticket_snapshot, body.history)
 
     if sql:
         system = _SQL_SYSTEM_PROMPT
@@ -1100,13 +1329,23 @@ def chat(body: ChatIn) -> dict[str, Any]:
             f"{ctx or '(no documents matched; inform user and use STATUS: NEEDS_REVIEW unless trivial).'}"
         )
 
+    if history:
+        system += (
+            " This is a continuing case thread. Earlier turns of the conversation are included; "
+            "treat the newest user message as additional details on the same issue unless it "
+            "clearly starts a new topic. Do not repeat full instructions already given; build "
+            "on them and adjust for the new information."
+        )
+
     max_tok = 8192 if (broad or sql) else 4096
     api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
     if api_key:
         if inquiry_images:
-            reply = _call_claude_vision(system, user_block, inquiry_images, max_tokens=max_tok)
+            reply = _call_claude_vision(
+                system, user_block, inquiry_images, max_tokens=max_tok, history=history
+            )
         else:
-            reply = _call_claude(system, user_block, max_tokens=max_tok)
+            reply = _call_claude(system, user_block, max_tokens=max_tok, history=history)
     else:
         reply = ""
 
@@ -1142,29 +1381,53 @@ def chat(body: ChatIn) -> dict[str, Any]:
         "ai_status": status_line,
     }
 
+    now_iso = audit_entry["at"]
+    turn_user = {"role": "user", "text": body.message, "at": now_iso}
+    turn_ai = {"role": "assistant", "text": reply, "at": now_iso}
+
     new_ticket_id: int | None = None
+    ticket_touched = False
+    # _next_id() takes _lock (non-reentrant), so allocate before entering the block below.
+    allocated_id = _next_id() if (body.ticket_id is None and body.create_ticket) else None
     with _lock:
         if body.ticket_id is not None:
             for t in _tickets:
                 if t["id"] == body.ticket_id:
                     t["status"] = status_line
                     t.setdefault("audit", []).append(audit_entry)
+                    msgs = t.setdefault("messages", [])
+                    # "Run AI on ticket" re-sends the description; don't double the user turn.
+                    if msgs and msgs[-1].get("role") == "user" and (
+                        (msgs[-1].get("text") or "").strip() == body.message.strip()
+                    ):
+                        msgs.append(turn_ai)
+                    else:
+                        msgs.extend([turn_user, turn_ai])
                     t["last_reply"] = reply
+                    ticket_touched = True
                     break
         elif body.create_ticket:
-            new_ticket_id = _next_id()
+            new_ticket_id = allocated_id
+            subject_src = body.history[0].text if body.history else body.message
+            seed_messages = [
+                {"role": h.role, "text": h.text, "at": now_iso} for h in body.history
+            ]
             _tickets.append(
                 {
                     "id": new_ticket_id,
-                    "subject": (body.message[:120] + "…") if len(body.message) > 120 else body.message,
-                    "description": body.message,
+                    "subject": (subject_src[:120] + "…") if len(subject_src) > 120 else subject_src,
+                    "description": subject_src,
                     "status": status_line,
                     "requester_email": None,
-                    "created_at": audit_entry["at"],
+                    "created_at": now_iso,
                     "audit": [audit_entry],
+                    "messages": seed_messages + [turn_user, turn_ai],
                     "last_reply": reply,
                 }
             )
+            ticket_touched = True
+    if ticket_touched:
+        _persist_kb_to_disk()
 
     return {
         "reply": reply,
@@ -1196,19 +1459,23 @@ def list_tickets() -> list[dict[str, Any]]:
 
 @router.post("/tickets")
 def create_ticket(body: TicketCreate) -> dict[str, Any]:
+    _ensure_storage()
     tid = _next_id()
+    now_iso = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime()) + "Z"
     rec = {
         "id": tid,
         "subject": body.subject.strip(),
         "description": body.description.strip(),
         "status": "open",
         "requester_email": (body.requester_email or "").strip() or None,
-        "created_at": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime()) + "Z",
+        "created_at": now_iso,
         "audit": [],
+        "messages": [{"role": "user", "text": body.description.strip(), "at": now_iso}],
         "last_reply": None,
     }
     with _lock:
         _tickets.append(rec)
+    _persist_kb_to_disk()
     return rec
 
 
@@ -1233,6 +1500,7 @@ def set_ticket_status(
     allowed = {"open", "ai_resolved", "in_review", "escalated"}
     if new_status not in allowed:
         raise HTTPException(400, f"status must be one of: {', '.join(sorted(allowed))}")
+    updated = False
     with _lock:
         for t in _tickets:
             if t["id"] == ticket_id:
@@ -1243,5 +1511,9 @@ def set_ticket_status(
                         "action": f"status_set_to_{new_status}",
                     }
                 )
-                return {"ok": True, "id": ticket_id, "status": new_status}
+                updated = True
+                break
+    if updated:
+        _persist_kb_to_disk()
+        return {"ok": True, "id": ticket_id, "status": new_status}
     raise HTTPException(404, "Ticket not found")

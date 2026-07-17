@@ -322,6 +322,55 @@
     }
     .retrieval { font-size: 0.88rem; margin-top: 0.75rem; }
     .retrieval ul { margin: 0.25rem 0 0; padding-left: 1.1rem; color: var(--muted); }
+    .thread-log {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      margin-bottom: 0.75rem;
+      max-height: 260px;
+      overflow-y: auto;
+      padding-right: 0.25rem;
+    }
+    .thread-turn {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.5rem 0.7rem;
+      font-size: 0.85rem;
+      line-height: 1.45;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .thread-turn.user { background: #ede9fe; border-color: #d6c9f5; }
+    .thread-turn.assistant { background: #f0fdfa; border-color: #b9e6e0; }
+    .thread-turn .who {
+      display: block;
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--muted);
+      margin-bottom: 0.15rem;
+    }
+    .ticket-thread { margin-top: 0.5rem; }
+    .ticket-reply { display: flex; gap: 0.5rem; margin-top: 0.6rem; align-items: flex-start; }
+    .ticket-reply textarea {
+      flex: 1;
+      min-height: 56px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.5rem 0.7rem;
+      font: inherit;
+      font-size: 0.88rem;
+      resize: vertical;
+    }
+    .doc-src {
+      font-size: 0.78rem;
+      color: var(--accent2);
+      text-decoration: none;
+      margin-left: 0.35rem;
+      word-break: break-all;
+    }
+    .doc-src:hover { text-decoration: underline; }
     .muted { color: var(--muted); }
     .sm { font-size: 0.82rem; }
     .kb-item {
@@ -702,6 +751,32 @@
         </div>
       </div>
 
+      <div class="card" style="margin-top:1rem">
+        <h2>Add from web link</h2>
+        <p class="sm muted" style="margin:0 0 0.75rem">
+          Drop a URL to a public documentation page, KB article, or release notes. We fetch the page, extract the
+          readable text, and index it like any other document. JavaScript-only pages may need Paste text instead.
+        </p>
+        <form id="urlIngestForm" class="form-grid">
+          <div>
+            <label for="urlInput">Page URL</label>
+            <input type="url" id="urlInput" placeholder="https://docs.example.com/article" required />
+          </div>
+          <div>
+            <label for="urlTitle">Title (optional, defaults to the page title)</label>
+            <input type="text" id="urlTitle" placeholder="e.g. Login troubleshooting guide" />
+          </div>
+          <div>
+            <label for="urlKind">Document type</label>
+            <select id="urlKind">
+              <option value="support">Support guide / runbook</option>
+              <option value="schema">Data dictionary / schema</option>
+            </select>
+          </div>
+          <button type="submit" class="btn primary" id="urlIngestBtn">Fetch &amp; add to KB</button>
+        </form>
+      </div>
+
       <h3>Indexed knowledge</h3>
       <ul id="docList" class="muted" style="list-style:none;padding:0"></ul>
     </div>
@@ -749,6 +824,8 @@
             </label>
             <div style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center">
               <button type="submit" class="btn primary" id="chatSubmit">Get resolution</button>
+              <button type="button" class="btn sm" id="newInquiryBtn" hidden>New inquiry</button>
+              <span class="pill" id="threadBadge" hidden></span>
             </div>
           </form>
         </div>
@@ -757,6 +834,7 @@
             <h2 style="margin:0">Response</h2>
             <button type="button" class="btn sm" id="copyReply" hidden>Copy reply</button>
           </div>
+          <div id="threadLog" class="thread-log" hidden></div>
           <div id="aiOutput" class="ai-box muted">No response yet.</div>
           <div id="aiImages" class="ai-images" hidden></div>
           <div id="retrieval" class="retrieval"></div>
@@ -766,7 +844,7 @@
 
     <div data-panel="tickets" hidden>
       <h2>Ticket portal</h2>
-      <p class="lead muted">Prototype dashboard: in-memory for this app (reset when the server restarts). Hook to your database when you go live.</p>
+      <p class="lead muted">Tickets persist across restarts. Reply to any ticket with additional details and the AI continues the case with full context.</p>
       <div id="ticketBanner" class="banner info" hidden></div>
 
       <div class="card" style="margin-top:0.5rem">
@@ -876,7 +954,7 @@
   </main>
   </div>
 
-  <script src="app.js?v=2026-05-19-copy2" defer></script>
+  <script src="app.js?v=2026-07-17-threads1" defer></script>
   <script src="/assets/nav-mobile.js"></script>
 </body>
 </html>

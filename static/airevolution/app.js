@@ -90,9 +90,12 @@ async function loadDocuments() {
   if (!docList) return;
 
   let html = docs.length
-    ? docs.map((d) =>
-        `<li class="kb-item"><div><strong>${escapeHtml(d.title)}</strong> <span class="pill ${d.kind === "schema" ? "ok" : ""}" style="font-size:0.75rem">${d.kind === "schema" ? "schema" : "support"}</span> <span class="muted">${d.chunk_count} chunks</span></div><button type="button" class="btn sm danger" data-del-doc="${d.id}">Remove</button></li>`
-      ).join("")
+    ? docs.map((d) => {
+        const src = d.source_url
+          ? ` <a class="doc-src" href="${escapeAttr(d.source_url)}" target="_blank" rel="noopener" title="${escapeAttr(d.source_url)}">source ↗</a>`
+          : "";
+        return `<li class="kb-item"><div><strong>${escapeHtml(d.title)}</strong> <span class="pill ${d.kind === "schema" ? "ok" : ""}" style="font-size:0.75rem">${d.kind === "schema" ? "schema" : "support"}</span> <span class="muted">${d.chunk_count} chunks</span>${src}</div><button type="button" class="btn sm danger" data-del-doc="${d.id}">Remove</button></li>`;
+      }).join("")
     : '<li class="muted">No documents yet.</li>';
 
   if (imgs.length) {
@@ -150,6 +153,20 @@ function escapeAttr(s) {
   return escapeHtml(s).replace(/"/g, "&quot;");
 }
 
+function renderTicketThread(t) {
+  const msgs = Array.isArray(t.messages) ? t.messages : [];
+  if (!msgs.length) return "";
+  const turns = msgs
+    .map(
+      (m) => `
+      <div class="thread-turn ${m.role === "assistant" ? "assistant" : "user"}">
+        <span class="who">${m.role === "assistant" ? "T1 AI agent" : "You"}${m.at ? ` · ${escapeHtml(m.at)}` : ""}</span>${escapeHtml(m.text || "")}
+      </div>`
+    )
+    .join("");
+  return `<details class="ai-out ticket-thread" open><summary>Conversation (${msgs.length})</summary><div class="thread-log" style="max-height:none">${turns}</div></details>`;
+}
+
 async function loadTickets() {
   const tickets = await fetchJSON("/tickets");
   const list = el("ticketList");
@@ -165,15 +182,13 @@ async function loadTickets() {
         </div>
         <h4>${escapeHtml(t.subject)}</h4>
         <p class="desc">${escapeHtml(t.description).slice(0, 200)}${t.description.length > 200 ? "…" : ""}</p>
-        ${
-          t.last_reply
-            ? `<details class="ai-out"><summary>Last AI reply</summary><pre class="ai-pre">${escapeHtml(
-                t.last_reply
-              )}</pre></details>`
-            : ""
-        }
+        ${renderTicketThread(t)}
         <div class="ticket-actions">
           <button type="button" class="btn sm" data-run-ai="${t.id}">Run AI on ticket</button>
+        </div>
+        <div class="ticket-reply">
+          <textarea data-reply-text="${t.id}" placeholder="Reply with additional details (error codes, what you tried, screenshots described in words)."></textarea>
+          <button type="button" class="btn sm primary" data-reply-send="${t.id}">Reply</button>
         </div>
         ${
           t.audit && t.audit.length
@@ -210,6 +225,31 @@ async function loadTickets() {
         tabSwitch("tickets");
       } catch (e) {
         setBanner("ticketBanner", String(e), "err");
+      }
+    });
+  });
+  list.querySelectorAll("[data-reply-send]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const id = +btn.getAttribute("data-reply-send");
+      const ta = list.querySelector(`textarea[data-reply-text="${id}"]`);
+      const message = (ta?.value || "").trim();
+      if (!message) return;
+      btn.disabled = true;
+      btn.textContent = "Working.";
+      setBanner("ticketBanner", `Replying on ticket #${id}.`, "info");
+      try {
+        const res = await fetchJSON("/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message, ticket_id: id }),
+        });
+        setBanner("ticketBanner", `Ticket #${id} updated (status: ${res.status}).`, "ok");
+        loadTickets().catch(() => {});
+        refreshStatus().catch(() => {});
+      } catch (e) {
+        setBanner("ticketBanner", String(e), "err");
+        btn.disabled = false;
+        btn.textContent = "Reply";
       }
     });
   });
@@ -459,12 +499,87 @@ function renderAIImageGallery(images) {
     .join("");
 }
 
+const _agentThread = { ticketId: null, history: [] };
+
+function renderAgentThreadLog() {
+  const log = el("threadLog");
+  if (!log) return;
+  // Show every turn except the newest assistant reply (that one lives in the response box).
+  const turns = _agentThread.history.slice(0, -1);
+  if (!turns.length) {
+    log.hidden = true;
+    log.innerHTML = "";
+    return;
+  }
+  log.hidden = false;
+  log.innerHTML = turns
+    .map(
+      (m) => `
+      <div class="thread-turn ${m.role === "assistant" ? "assistant" : "user"}">
+        <span class="who">${m.role === "assistant" ? "T1 AI agent" : "You"}</span>${escapeHtml(m.text || "")}
+      </div>`
+    )
+    .join("");
+  log.scrollTop = log.scrollHeight;
+}
+
+function updateAgentThreadUi() {
+  const badge = el("threadBadge");
+  const newBtn = el("newInquiryBtn");
+  const submitBtn = el("chatSubmit");
+  const active = _agentThread.history.length > 0;
+  if (badge) {
+    badge.hidden = !active;
+    if (active) {
+      badge.textContent = _agentThread.ticketId
+        ? `Case #${_agentThread.ticketId} · ${_agentThread.history.length} turns`
+        : `Conversation · ${_agentThread.history.length} turns`;
+      badge.className = "pill ok";
+    }
+  }
+  if (newBtn) newBtn.hidden = !active;
+  if (submitBtn) submitBtn.textContent = active ? "Reply / add details" : "Get resolution";
+  const input = el("chatInput");
+  if (input) {
+    input.setAttribute(
+      "data-placeholder",
+      active
+        ? "Add more details for this case: error codes, what you tried, new screenshots."
+        : "Paste the customer's message and any error screenshots here."
+    );
+  }
+  renderAgentThreadLog();
+}
+
+function resetAgentThread() {
+  _agentThread.ticketId = null;
+  _agentThread.history = [];
+  const out = el("aiOutput");
+  if (out) {
+    out.className = "ai-box muted";
+    out.textContent = "No response yet.";
+  }
+  const retrieval = el("retrieval");
+  if (retrieval) retrieval.innerHTML = "";
+  const aiImages = el("aiImages");
+  if (aiImages) {
+    aiImages.hidden = true;
+    aiImages.innerHTML = "";
+  }
+  const copyBtn = el("copyReply");
+  if (copyBtn) copyBtn.hidden = true;
+  setBanner("agentBanner", "", "");
+  updateAgentThreadUi();
+}
+
 function initChat() {
   const form = el("chatForm");
   if (!form) return;
   buildQuickPrompts();
   const chatInput = el("chatInput");
   initChatPasteImages(chatInput);
+  const newBtn = el("newInquiryBtn");
+  if (newBtn) newBtn.addEventListener("click", resetAgentThread);
   const copyBtn = el("copyReply");
   if (copyBtn) {
     copyBtn.addEventListener("click", async () => {
@@ -508,21 +623,40 @@ function initChat() {
       submitBtn.disabled = true;
       submitBtn.textContent = "Working.";
     }
+    const sentMessage = message || "(screenshot inquiry. See attached image(s).)";
+    const isFollowUp = _agentThread.history.length > 0;
     try {
+      const payload = {
+        message: sentMessage,
+        images,
+        create_ticket: !!(logTicket && logTicket.checked),
+      };
+      if (isFollowUp) {
+        if (_agentThread.ticketId) {
+          payload.ticket_id = _agentThread.ticketId;
+        } else {
+          // Replying turns the conversation into a durable case with full context.
+          payload.create_ticket = true;
+          payload.history = _agentThread.history.map((m) => ({ role: m.role, text: m.text }));
+        }
+      }
       const res = await fetchJSON("/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message: message || "(screenshot inquiry. See attached image(s).)",
-          images,
-          create_ticket: !!(logTicket && logTicket.checked),
-        }),
+        body: JSON.stringify(payload),
       });
       const images = Array.isArray(res.images) ? res.images : [];
       const { html: replyHtml, inlinedIds } = renderReplyWithImages(res.reply || "", images);
+      out.className = "ai-box";
       out.innerHTML = replyHtml || '<span class="muted">No response.</span>';
       renderAIImageGallery(images.filter((im) => !inlinedIds.has(im.id)));
       if (copyBtn) copyBtn.hidden = !res.reply?.trim();
+      _agentThread.history.push({ role: "user", text: sentMessage });
+      if (res.reply?.trim()) {
+        _agentThread.history.push({ role: "assistant", text: res.reply });
+      }
+      if (res.ticket_id) _agentThread.ticketId = res.ticket_id;
+      updateAgentThreadUi();
       const broadTag = res.broad ? " · mode: enumerate-all" : "";
       const sqlTag = res.sql
         ? (res.schema_docs?.length
@@ -531,7 +665,7 @@ function initChat() {
         : "";
       const imgTag = res.inquiry_images ? ` · ${res.inquiry_images} pasted screenshot${res.inquiry_images > 1 ? "s" : ""} analyzed` : "";
       if (res.ticket_id) {
-        setBanner("agentBanner", `Logged as ticket #${res.ticket_id} (status: ${res.status})${broadTag}${sqlTag}${imgTag}`, "ok");
+        setBanner("agentBanner", `${isFollowUp ? "Case" : "Logged as ticket"} #${res.ticket_id} (status: ${res.status})${broadTag}${sqlTag}${imgTag}`, "ok");
       } else {
         setBanner("agentBanner", `Status: ${res.status} · Claude: ${res.anthropic_configured ? "yes" : "no"}${broadTag}${sqlTag}${imgTag}`, res.sql && !res.schema_docs?.length ? "err" : "info");
       }
@@ -557,7 +691,7 @@ function initChat() {
     } finally {
       if (submitBtn) {
         submitBtn.disabled = false;
-        submitBtn.textContent = "Get resolution";
+        submitBtn.textContent = _agentThread.history.length ? "Reply / add details" : "Get resolution";
       }
     }
   });
@@ -731,6 +865,48 @@ function initDocUpload() {
   }
 }
 
+function initUrlIngest() {
+  const form = el("urlIngestForm");
+  if (!form) return;
+  form.addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const url = (el("urlInput")?.value || "").trim();
+    if (!url) return;
+    const btn = el("urlIngestBtn");
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = "Fetching.";
+    }
+    setBanner("kbBanner", `Fetching ${url}`, "info");
+    try {
+      const res = await fetchJSON("/documents/from-url", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          url,
+          title: (el("urlTitle")?.value || "").trim() || null,
+          doc_kind: el("urlKind")?.value || null,
+        }),
+      });
+      form.reset();
+      setBanner(
+        "kbBanner",
+        `Added "${res.title}" (${res.chunk_count} chunks, ${Math.round((res.chars || 0) / 1000)}k chars) from the web link.`,
+        "ok"
+      );
+      loadDocuments().catch(() => {});
+      refreshStatus().catch(() => {});
+    } catch (e) {
+      setBanner("kbBanner", String(e), "err");
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = "Fetch & add to KB";
+      }
+    }
+  });
+}
+
 function initTicketForm() {
   const form = el("newTicketForm");
   if (form) {
@@ -762,6 +938,7 @@ function init() {
     btn.addEventListener("click", () => tabSwitch(btn.getAttribute("data-tab")));
   });
   initDocUpload();
+  initUrlIngest();
   initChat();
   initTicketForm();
   wireGotoTabs();
