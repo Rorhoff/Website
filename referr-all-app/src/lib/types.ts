@@ -189,6 +189,7 @@ export type Conversation = {
   otherUser?: Profile;
   otherUserDeleted?: boolean;
   lastMessage?: Message;
+  unreadCount?: number;
 };
 
 export type Message = {
@@ -196,8 +197,16 @@ export type Message = {
   conversation_id: string;
   sender_id: string;
   content: string;
+  read_at?: string | null;
   created_at: string;
   sender?: Profile;
+};
+
+export type NotificationSummary = {
+  unreadMessages: number;
+  pendingConnections: number;
+  referralActions: number;
+  total: number;
 };
 
 export type SeekerPost = {

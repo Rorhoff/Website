@@ -55,6 +55,9 @@ export default function MessagesPage({ initialUserId, onClearInitial }: Props) {
 
   useEffect(() => {
     loadConversations();
+    // Keep the list fresh so unread badges appear for other conversations too.
+    const interval = setInterval(loadConversations, 15000);
+    return () => clearInterval(interval);
   }, [loadConversations]);
 
   useEffect(() => {
@@ -91,10 +94,12 @@ export default function MessagesPage({ initialUserId, onClearInitial }: Props) {
 
   useEffect(() => {
     if (!selectedConvId) return;
-    loadMessages(selectedConvId);
+    // Opening a thread marks it read server-side; refresh the list so the
+    // unread badge clears immediately.
+    loadMessages(selectedConvId).then(() => loadConversations()).catch(() => {});
     const interval = setInterval(() => loadMessages(selectedConvId), 3000);
     return () => clearInterval(interval);
-  }, [selectedConvId]);
+  }, [selectedConvId, loadConversations]);
 
   useEffect(() => {
     // Scroll only the message list to the bottom — never the page/window, which
@@ -202,15 +207,20 @@ export default function MessagesPage({ initialUserId, onClearInitial }: Props) {
                       )}
                     </div>
                     <div className="min-w-0 flex-1">
-                      <div className="text-white text-sm font-medium truncate">
+                      <div className={`text-sm truncate ${(conv.unreadCount || 0) > 0 ? 'text-white font-semibold' : 'text-white font-medium'}`}>
                         {conv.otherUser?.full_name || 'Deleted account'}
                       </div>
-                      <div className="text-gray-500 text-xs truncate">
+                      <div className={`text-xs truncate ${(conv.unreadCount || 0) > 0 ? 'text-gray-300 font-medium' : 'text-gray-500'}`}>
                         {isDeletedAccountConv(conv)
                           ? 'Account deleted'
                           : (conv.lastMessage?.content || 'No messages yet')}
                       </div>
                     </div>
+                    {(conv.unreadCount || 0) > 0 && (
+                      <span className="flex-shrink-0 min-w-[20px] h-5 px-1.5 flex items-center justify-center rounded-full bg-blue-500 text-white text-[11px] font-bold">
+                        {(conv.unreadCount || 0) > 99 ? '99+' : conv.unreadCount}
+                      </span>
+                    )}
                   </button>
                   {isDeletedAccountConv(conv) && (
                     <button

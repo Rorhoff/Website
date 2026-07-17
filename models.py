@@ -500,6 +500,8 @@ class T1ReferrallMessage(Base):
         String(36), ForeignKey("t1referrall_user.id", ondelete="CASCADE"), index=True
     )
     content: Mapped[str] = mapped_column(Text())
+    # When the recipient viewed the message (v14). NULL = unread.
+    read_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     __table_args__ = (

@@ -1,6 +1,6 @@
 import type {
   AccountSession, AccountSettings, AdminJobPost, AdminReport, AdminSeekerPost, AdminStats, AdminUser,
-  Connection, Conversation, Message, Post, Profile,
+  Connection, Conversation, Message, NotificationSummary, Post, Profile,
   PurchaseRecord, ReferralRequest, SeekerPost,
 } from './types';
 import {
@@ -133,17 +133,28 @@ export async function getProfile(id: string): Promise<Profile> {
 
 export const FEED_PAGE_SIZE = 30;
 
-function pageQuery(limit?: number, offset?: number, author?: string): string {
+export type FeedQuery = {
+  q?: string;
+  state?: string;
+  field?: string;
+  remote?: boolean;
+};
+
+function pageQuery(limit?: number, offset?: number, author?: string, feed?: FeedQuery): string {
   const params = new URLSearchParams();
   if (limit !== undefined) params.set('limit', String(limit));
   if (offset !== undefined) params.set('offset', String(offset));
   if (author) params.set('author', author);
+  if (feed?.q?.trim()) params.set('q', feed.q.trim());
+  if (feed?.state?.trim()) params.set('state', feed.state.trim());
+  if (feed?.field?.trim()) params.set('field', feed.field.trim());
+  if (feed?.remote) params.set('remote', 'true');
   const qs = params.toString();
   return qs ? `?${qs}` : '';
 }
 
-export async function listPosts(limit?: number, offset?: number, author?: string): Promise<Post[]> {
-  return request<Post[]>(`/posts${pageQuery(limit, offset, author)}`);
+export async function listPosts(limit?: number, offset?: number, author?: string, feed?: FeedQuery): Promise<Post[]> {
+  return request<Post[]>(`/posts${pageQuery(limit, offset, author, feed)}`);
 }
 
 export async function createPost(body: Record<string, unknown>): Promise<Post> {
@@ -170,8 +181,8 @@ export async function checkPostReported(id: string): Promise<{ reported: boolean
   return request(`/posts/${id}/reported`);
 }
 
-export async function listSeekerPosts(limit?: number, offset?: number, author?: string): Promise<SeekerPost[]> {
-  return request<SeekerPost[]>(`/seeker-posts${pageQuery(limit, offset, author)}`);
+export async function listSeekerPosts(limit?: number, offset?: number, author?: string, feed?: FeedQuery): Promise<SeekerPost[]> {
+  return request<SeekerPost[]>(`/seeker-posts${pageQuery(limit, offset, author, feed)}`);
 }
 
 export async function createSeekerPost(body: Record<string, unknown>): Promise<SeekerPost> {
@@ -270,6 +281,10 @@ export async function listBlocks(): Promise<BlockEntry[]> {
 
 export async function listConversations(): Promise<Conversation[]> {
   return request<Conversation[]>('/conversations');
+}
+
+export async function getNotificationSummary(): Promise<NotificationSummary> {
+  return request<NotificationSummary>('/notifications/summary');
 }
 
 export async function createConversation(otherUserId: string): Promise<{ id: string }> {

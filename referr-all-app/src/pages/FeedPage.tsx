@@ -1,4 +1,4 @@
-import { useState, useEffect, Fragment } from 'react';
+import { useState, useEffect, useRef, Fragment } from 'react';
 import * as api from '../lib/api';
 import type { Post, Profile, SeekerPost } from '../lib/types';
 import { AVAILABILITY_LABELS } from '../lib/types';
@@ -52,9 +52,46 @@ export default function FeedPage({ onViewProfile, onMessage }: Props) {
   const [filterField, setFilterField] = useState('');
   const [filterRemote, setFilterRemote] = useState(false);
 
+  // Search and filters are applied server-side so results cover the whole
+  // database, not just the pages loaded so far.
+  function feedQuery(): api.FeedQuery {
+    return {
+      q: search.trim(),
+      state: filterState && filterState !== 'Remote (USA)' ? filterState : '',
+      field: filterField,
+      remote: filterRemote || filterState === 'Remote (USA)',
+    };
+  }
+  const lastQueryKeyRef = useRef(JSON.stringify({ q: '', state: '', field: '', remote: false }));
+
   useEffect(() => {
     fetchAll();
   }, []);
+
+  useEffect(() => {
+    const fq = feedQuery();
+    const key = JSON.stringify(fq);
+    if (key === lastQueryKeyRef.current) return;
+    const timer = setTimeout(async () => {
+      lastQueryKeyRef.current = key;
+      setLoading(true);
+      try {
+        const [jobData, seekerData] = await Promise.all([
+          api.listPosts(api.FEED_PAGE_SIZE, 0, undefined, fq),
+          api.listSeekerPosts(api.FEED_PAGE_SIZE, 0, undefined, fq),
+        ]);
+        const jobs = (jobData as (Post & { profiles: Profile })[]) || [];
+        const seekers = (seekerData as (SeekerPost & { profiles: Profile })[]) || [];
+        setPosts(jobs);
+        setSeekerPosts(seekers);
+        setHasMoreJobs(jobs.length >= api.FEED_PAGE_SIZE);
+        setHasMoreSeekers(seekers.length >= api.FEED_PAGE_SIZE);
+      } finally {
+        setLoading(false);
+      }
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [search, filterState, filterField, filterRemote]);
 
   useEffect(() => {
     if (!featuredReturn || loading) return;
@@ -79,8 +116,8 @@ export default function FeedPage({ onViewProfile, onMessage }: Props) {
       }
     }
     const [jobData, seekerData] = await Promise.all([
-      api.listPosts(api.FEED_PAGE_SIZE, 0),
-      api.listSeekerPosts(api.FEED_PAGE_SIZE, 0),
+      api.listPosts(api.FEED_PAGE_SIZE, 0, undefined, feedQuery()),
+      api.listSeekerPosts(api.FEED_PAGE_SIZE, 0, undefined, feedQuery()),
     ]);
     const jobs = (jobData as (Post & { profiles: Profile })[]) || [];
     const seekers = (seekerData as (SeekerPost & { profiles: Profile })[]) || [];
@@ -95,14 +132,14 @@ export default function FeedPage({ onViewProfile, onMessage }: Props) {
     setLoadingMore(true);
     try {
       if (kind === 'openings') {
-        const page = (await api.listPosts(api.FEED_PAGE_SIZE, posts.length)) as (Post & { profiles: Profile })[];
+        const page = (await api.listPosts(api.FEED_PAGE_SIZE, posts.length, undefined, feedQuery())) as (Post & { profiles: Profile })[];
         setPosts(prev => {
           const seen = new Set(prev.map(p => p.id));
           return [...prev, ...page.filter(p => !seen.has(p.id))];
         });
         setHasMoreJobs(page.length >= api.FEED_PAGE_SIZE);
       } else {
-        const page = (await api.listSeekerPosts(api.FEED_PAGE_SIZE, seekerPosts.length)) as (SeekerPost & { profiles: Profile })[];
+        const page = (await api.listSeekerPosts(api.FEED_PAGE_SIZE, seekerPosts.length, undefined, feedQuery())) as (SeekerPost & { profiles: Profile })[];
         setSeekerPosts(prev => {
           const seen = new Set(prev.map(p => p.id));
           return [...prev, ...page.filter(p => !seen.has(p.id))];
@@ -112,17 +149,6 @@ export default function FeedPage({ onViewProfile, onMessage }: Props) {
     } finally {
       setLoadingMore(false);
     }
-  }
-
-  function matchesFilters(location: string, field: string, isRemote: boolean) {
-    if (!isUsaLocation(location, isRemote)) return false;
-    if (filterRemote && !isRemote) return false;
-    if (filterState && filterState !== 'Remote (USA)') {
-      if (!location.toLowerCase().includes(filterState.toLowerCase()) && !(filterRemote && isRemote)) return false;
-    }
-    if (filterState === 'Remote (USA)' && !isRemote) return false;
-    if (filterField && field.toLowerCase() !== filterField.toLowerCase()) return false;
-    return true;
   }
 
   function sortByMatch<T extends { is_premium: boolean; premium_expires_at: string | null }>(
@@ -137,21 +163,15 @@ export default function FeedPage({ onViewProfile, onMessage }: Props) {
     });
   }
 
+  // Search + state/field/remote filters run server-side (see feedQuery);
+  // the USA-location gate stays client-side as a content-quality check.
   const filteredJobs = sortByMatch(
-    posts.filter(p => {
-      const q = search.toLowerCase();
-      const textMatch = !q || p.company.toLowerCase().includes(q) || p.role_title.toLowerCase().includes(q) || p.profiles?.full_name?.toLowerCase().includes(q);
-      return textMatch && matchesFilters(p.location || '', p.tags?.join(' ') || '', p.is_remote);
-    }),
+    posts.filter(p => isUsaLocation(p.location || '', p.is_remote)),
     p => computeMatchScore(profile, p),
   );
 
   const filteredSeekers = sortByMatch(
-    seekerPosts.filter(p => {
-      const q = search.toLowerCase();
-      const textMatch = !q || p.desired_role.toLowerCase().includes(q) || p.profiles?.full_name?.toLowerCase().includes(q) || p.field_of_work?.toLowerCase().includes(q) || (p.skills || []).some(s => s.toLowerCase().includes(q)) || p.about.toLowerCase().includes(q);
-      return textMatch && matchesFilters(p.desired_location || '', p.field_of_work || '', p.open_to_remote);
-    }),
+    seekerPosts.filter(p => isUsaLocation(p.desired_location || '', p.open_to_remote)),
     p => computeMatchScore(profile, p),
   );
 

@@ -1,6 +1,8 @@
-import { ReactNode, useState } from 'react';
+import { ReactNode, useEffect, useState } from 'react';
 import { Briefcase, Users, MessageSquare, User, LogOut, Bell, Menu, X, TrendingUp } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import * as api from '../lib/api';
+import type { NotificationSummary } from '../lib/types';
 
 type Page = 'feed' | 'network' | 'messages' | 'profile' | 'settings' | 'admin' | 'terms' | 'privacy';
 
@@ -11,9 +13,45 @@ type Props = {
   profileId?: string;
 };
 
+const NOTIFY_POLL_MS = 30_000;
+
+function NavBadge({ count }: { count: number }) {
+  if (!count) return null;
+  return (
+    <span className="min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full bg-red-500 text-white text-[10px] font-bold leading-none">
+      {count > 99 ? '99+' : count}
+    </span>
+  );
+}
+
 export default function Layout({ children, currentPage, onNavigate }: Props) {
   const { profile, signOut } = useAuth();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [notify, setNotify] = useState<NotificationSummary | null>(null);
+
+  useEffect(() => {
+    if (!profile) return;
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const summary = await api.getNotificationSummary();
+        if (!cancelled) setNotify(summary);
+      } catch {
+        /* badge polling is best-effort */
+      }
+    };
+    load();
+    const interval = setInterval(load, NOTIFY_POLL_MS);
+    return () => { cancelled = true; clearInterval(interval); };
+    // Re-poll on page change so badges clear right after the user acts.
+  }, [profile?.id, currentPage]);
+
+  const badgeFor = (page: Page): number => {
+    if (!notify) return 0;
+    if (page === 'messages') return notify.unreadMessages;
+    if (page === 'network') return notify.pendingConnections + notify.referralActions;
+    return 0;
+  };
 
   const navItems: { id: Page; label: string; icon: typeof Briefcase }[] = [
     { id: 'feed', label: 'Feed', icon: TrendingUp },
@@ -52,14 +90,24 @@ export default function Layout({ children, currentPage, onNavigate }: Props) {
               >
                 <Icon size={17} />
                 {label}
+                <NavBadge count={badgeFor(id)} />
               </button>
             ))}
           </nav>
 
           {/* Right side */}
           <div className="flex items-center gap-3">
-            <button className="hidden sm:flex w-9 h-9 items-center justify-center text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors">
+            <button
+              onClick={() => onNavigate((notify?.unreadMessages || 0) > 0 ? 'messages' : 'network')}
+              title={notify?.total ? `${notify.total} notification${notify.total > 1 ? 's' : ''}` : 'Notifications'}
+              className="relative hidden sm:flex w-9 h-9 items-center justify-center text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors"
+            >
               <Bell size={18} />
+              {(notify?.total || 0) > 0 && (
+                <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 flex items-center justify-center rounded-full bg-red-500 text-white text-[10px] font-bold leading-none">
+                  {(notify?.total || 0) > 99 ? '99+' : notify?.total}
+                </span>
+              )}
             </button>
 
             {profile && (
@@ -113,6 +161,7 @@ export default function Layout({ children, currentPage, onNavigate }: Props) {
               >
                 <Icon size={18} />
                 {label}
+                <NavBadge count={badgeFor(id)} />
               </button>
             ))}
             <div className="border-t border-gray-800 mt-2 pt-2">
@@ -169,7 +218,14 @@ export default function Layout({ children, currentPage, onNavigate }: Props) {
               currentPage === id ? 'text-blue-400' : 'text-gray-500'
             }`}
           >
-            <Icon size={20} />
+            <span className="relative">
+              <Icon size={20} />
+              {badgeFor(id) > 0 && (
+                <span className="absolute -top-1.5 -right-2 min-w-[16px] h-4 px-1 flex items-center justify-center rounded-full bg-red-500 text-white text-[10px] font-bold leading-none">
+                  {badgeFor(id) > 99 ? '99+' : badgeFor(id)}
+                </span>
+              )}
+            </span>
           </button>
         ))}
       </nav>

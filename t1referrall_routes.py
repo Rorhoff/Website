@@ -23,7 +23,7 @@ from fastapi import APIRouter, Depends, File, Header, HTTPException, Request, Up
 from fastapi.responses import RedirectResponse
 from passlib.hash import bcrypt as bcrypt_hasher
 from pydantic import BaseModel, Field
-from sqlalchemy import and_, delete, func, or_, select, update
+from sqlalchemy import Text as SAText, and_, cast, delete, func, or_, select, update
 from sqlalchemy.exc import IntegrityError, ProgrammingError
 from sqlalchemy.orm import Session
 
@@ -91,6 +91,7 @@ _REFERRAL_REQUESTER_TRANSITIONS = {
     "referred": {"hired"},
 }
 V13_MIGRATE_HINT = "Run bash deploy/migrate-t1referrall-v13.sh on the server"
+V14_MIGRATE_HINT = "Run bash deploy/migrate-t1referrall-v14.sh on the server"
 _INLINE_AVATAR_MAX_BYTES = 512 * 1024
 _INLINE_BANNER_MAX_BYTES = 768 * 1024
 
@@ -382,6 +383,125 @@ def _send_password_reset_email(user: T1ReferrallUser, raw_token: str) -> None:
     _send_email(user.email, subject, text_body, html_body)
 
 
+# --- Notification emails (honor the Settings → Notifications toggles) ---
+
+
+def _notify_pref(user: T1ReferrallUser, key: str) -> bool:
+    """True when the user should get this notification email. Defaults to on:
+    `email_notifications` is the master switch, `key` the per-category toggle."""
+    settings = dict(getattr(user, "settings", None) or {})
+    if settings.get("email_notifications") is False:
+        return False
+    return settings.get(key) is not False
+
+
+def _send_email_async(to_email: str, subject: str, text_body: str, html_body: str) -> None:
+    """Notification emails must never block or fail an API request."""
+
+    def _run() -> None:
+        try:
+            _send_email(to_email, subject, text_body, html_body)
+        except Exception:
+            log.exception("Notification email to %s failed", to_email)
+
+    threading.Thread(target=_run, daemon=True).start()
+
+
+def _notify_connection_request(addressee: T1ReferrallUser, requester: T1ReferrallUser) -> None:
+    if not _notify_pref(addressee, "connection_request_emails"):
+        return
+    name = requester.full_name or requester.username
+    link = _app_base()
+    subject = f"{name} wants to connect on Referr-All"
+    text_body = (
+        f"Hi {addressee.full_name or addressee.username},\n\n"
+        f"{name} (@{requester.username}) sent you a connection request on Referr-All.\n"
+        f"Open the Network tab to accept or decline:\n{link}\n\n"
+        "You can turn these emails off in Settings > Notifications."
+    )
+    html_body = (
+        f"<p>Hi {addressee.full_name or addressee.username},</p>"
+        f"<p><strong>{name}</strong> (@{requester.username}) sent you a connection request on Referr-All.</p>"
+        f'<p><a href="{link}">Open the Network tab</a> to accept or decline.</p>'
+        "<p style=\"color:#888;font-size:12px\">You can turn these emails off in Settings &gt; Notifications.</p>"
+    )
+    _send_email_async(addressee.email, subject, text_body, html_body)
+
+
+# Per (recipient, conversation) cooldown so an active back-and-forth (where the
+# open thread marks messages read within seconds) doesn't email on every message.
+_MSG_EMAIL_COOLDOWN_SECONDS = 30 * 60
+_last_msg_email: dict[tuple[str, str], float] = {}
+_last_msg_email_lock = threading.Lock()
+
+
+def _msg_email_allowed(recipient_id: str, conversation_id: str) -> bool:
+    key = (recipient_id, conversation_id)
+    now = time.monotonic()
+    with _last_msg_email_lock:
+        last = _last_msg_email.get(key)
+        if last is not None and now - last < _MSG_EMAIL_COOLDOWN_SECONDS:
+            return False
+        _last_msg_email[key] = now
+        if len(_last_msg_email) > 10_000:
+            cutoff = now - _MSG_EMAIL_COOLDOWN_SECONDS
+            for k in [k for k, v in _last_msg_email.items() if v < cutoff]:
+                del _last_msg_email[k]
+    return True
+
+
+def _notify_new_message(recipient: T1ReferrallUser, sender: T1ReferrallUser, preview: str) -> None:
+    if not _notify_pref(recipient, "message_emails"):
+        return
+    name = sender.full_name or sender.username
+    link = _app_base()
+    snippet = (preview or "").strip()
+    if len(snippet) > 140:
+        snippet = snippet[:140] + "…"
+    subject = f"New message from {name} on Referr-All"
+    text_body = (
+        f"Hi {recipient.full_name or recipient.username},\n\n"
+        f"{name} sent you a message on Referr-All:\n\n"
+        f"\"{snippet}\"\n\n"
+        f"Reply here:\n{link}\n\n"
+        "You can turn these emails off in Settings > Notifications."
+    )
+    html_body = (
+        f"<p>Hi {recipient.full_name or recipient.username},</p>"
+        f"<p><strong>{name}</strong> sent you a message on Referr-All:</p>"
+        f"<blockquote style=\"border-left:3px solid #3b82f6;margin:0;padding:4px 12px;color:#555\">{snippet}</blockquote>"
+        f'<p><a href="{link}">Reply on Referr-All</a></p>'
+        "<p style=\"color:#888;font-size:12px\">You can turn these emails off in Settings &gt; Notifications.</p>"
+    )
+    _send_email_async(recipient.email, subject, text_body, html_body)
+
+
+def _notify_referral_request(
+    referrer: T1ReferrallUser, requester: T1ReferrallUser, post: T1ReferrallPost
+) -> None:
+    # No dedicated toggle; gated on the master email_notifications switch.
+    if not _notify_pref(referrer, "email_notifications"):
+        return
+    name = requester.full_name or requester.username
+    link = _app_base()
+    subject = f"{name} asked you for a referral — {post.role_title} at {post.company}"
+    text_body = (
+        f"Hi {referrer.full_name or referrer.username},\n\n"
+        f"{name} (@{requester.username}) requested a referral for your post "
+        f"\"{post.role_title}\" at {post.company}.\n"
+        f"Review it in the Network tab:\n{link}\n\n"
+        "You can turn these emails off in Settings > Notifications."
+    )
+    html_body = (
+        f"<p>Hi {referrer.full_name or referrer.username},</p>"
+        f"<p><strong>{name}</strong> (@{requester.username}) requested a referral for your post "
+        f"<strong>{post.role_title}</strong> at <strong>{post.company}</strong>.</p>"
+        f'<p><a href="{link}">Review it in the Network tab</a>.</p>'
+        "<p style=\"color:#888;font-size:12px\">You can turn these emails off in Settings &gt; Notifications.</p>"
+    )
+    _send_email_async(referrer.email, subject, text_body, html_body)
+
+
 def referrall_db() -> Any:
     if not credential_service.database_enabled() or SessionLocal is None:
         raise HTTPException(
@@ -554,6 +674,7 @@ def _message_out(row: T1ReferrallMessage, sender: dict[str, Any] | None = None) 
         "conversation_id": row.conversation_id,
         "sender_id": row.sender_id,
         "content": row.content,
+        "read_at": _iso(row.read_at) if getattr(row, "read_at", None) else None,
         "created_at": _iso(row.created_at),
     }
     if sender:
@@ -2268,11 +2389,31 @@ def _feed_page_params(limit: int, offset: int) -> tuple[int, int]:
     return limit, offset
 
 
+def _ilike_term(raw: str) -> str:
+    """Escape LIKE wildcards in user search input and wrap for substring match."""
+    cleaned = raw.strip()[:100].replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{cleaned}%"
+
+
+def _author_name_match(term: str):
+    """Subquery of user ids whose name/username matches the search term."""
+    return select(T1ReferrallUser.id).where(
+        or_(
+            T1ReferrallUser.full_name.ilike(term, escape="\\"),
+            T1ReferrallUser.username.ilike(term, escape="\\"),
+        )
+    )
+
+
 @router.get("/posts")
 def list_posts(
     limit: int = FEED_DEFAULT_LIMIT,
     offset: int = 0,
     author: str = "",
+    q: str = "",
+    state: str = "",
+    field: str = "",
+    remote: bool = False,
     user: T1ReferrallUser = Depends(get_current_referrall_user),
     db: Session = Depends(referrall_db),
 ):
@@ -2295,6 +2436,25 @@ def list_posts(
     )
     if author:
         stmt = stmt.where(T1ReferrallPost.author_id == author)
+    if q.strip():
+        term = _ilike_term(q)
+        stmt = stmt.where(
+            or_(
+                T1ReferrallPost.company.ilike(term, escape="\\"),
+                T1ReferrallPost.role_title.ilike(term, escape="\\"),
+                T1ReferrallPost.description.ilike(term, escape="\\"),
+                T1ReferrallPost.location.ilike(term, escape="\\"),
+                cast(T1ReferrallPost.tags, SAText).ilike(term, escape="\\"),
+                cast(T1ReferrallPost.required_skills, SAText).ilike(term, escape="\\"),
+                T1ReferrallPost.author_id.in_(_author_name_match(term)),
+            )
+        )
+    if state.strip():
+        stmt = stmt.where(T1ReferrallPost.location.ilike(_ilike_term(state), escape="\\"))
+    if field.strip():
+        stmt = stmt.where(cast(T1ReferrallPost.tags, SAText).ilike(_ilike_term(field), escape="\\"))
+    if remote:
+        stmt = stmt.where(T1ReferrallPost.is_remote.is_(True))
     stmt = (
         stmt.order_by(
             T1ReferrallPost.is_premium.desc(),
@@ -2471,6 +2631,10 @@ def list_seeker_posts(
     limit: int = FEED_DEFAULT_LIMIT,
     offset: int = 0,
     author: str = "",
+    q: str = "",
+    state: str = "",
+    field: str = "",
+    remote: bool = False,
     user: T1ReferrallUser = Depends(get_current_referrall_user),
     db: Session = Depends(referrall_db),
 ):
@@ -2482,6 +2646,29 @@ def list_seeker_posts(
     )
     if author:
         stmt = stmt.where(T1ReferrallSeekerPost.author_id == author)
+    if q.strip():
+        term = _ilike_term(q)
+        stmt = stmt.where(
+            or_(
+                T1ReferrallSeekerPost.headline.ilike(term, escape="\\"),
+                T1ReferrallSeekerPost.about.ilike(term, escape="\\"),
+                T1ReferrallSeekerPost.desired_role.ilike(term, escape="\\"),
+                T1ReferrallSeekerPost.field_of_work.ilike(term, escape="\\"),
+                T1ReferrallSeekerPost.desired_location.ilike(term, escape="\\"),
+                cast(T1ReferrallSeekerPost.skills, SAText).ilike(term, escape="\\"),
+                T1ReferrallSeekerPost.author_id.in_(_author_name_match(term)),
+            )
+        )
+    if state.strip():
+        stmt = stmt.where(
+            T1ReferrallSeekerPost.desired_location.ilike(_ilike_term(state), escape="\\")
+        )
+    if field.strip():
+        stmt = stmt.where(
+            T1ReferrallSeekerPost.field_of_work.ilike(_ilike_term(field), escape="\\")
+        )
+    if remote:
+        stmt = stmt.where(T1ReferrallSeekerPost.open_to_remote.is_(True))
     stmt = (
         stmt.order_by(
             T1ReferrallSeekerPost.is_premium.desc(),
@@ -2899,6 +3086,9 @@ def create_referral_request(
             detail=f"Database schema out of date — {V13_MIGRATE_HINT}",
         ) from exc
     db.refresh(row)
+    referrer = db.get(T1ReferrallUser, post.author_id)
+    if referrer is not None and not referrer.is_deactivated:
+        _notify_referral_request(referrer, user, post)
     return _referral_request_out(row, _load_post_summaries(db, {post_id}))
 
 
@@ -2962,6 +3152,82 @@ def update_referral_request(
     return _referral_request_out(row, posts, profiles)
 
 
+# --- Notifications ---
+
+
+@router.get("/notifications/summary")
+def notifications_summary(
+    user: T1ReferrallUser = Depends(get_current_referrall_user),
+    db: Session = Depends(referrall_db),
+):
+    """Badge counts for the nav: unread DMs, pending connection requests, and
+    referral requests waiting on the caller."""
+    conv_ids = db.scalars(
+        select(T1ReferrallConversationParticipant.conversation_id).where(
+            T1ReferrallConversationParticipant.user_id == user.id
+        )
+    ).all()
+    unread_messages = 0
+    if conv_ids:
+        try:
+            unread_messages = int(
+                db.scalar(
+                    select(func.count())
+                    .select_from(T1ReferrallMessage)
+                    .where(
+                        T1ReferrallMessage.conversation_id.in_(conv_ids),
+                        T1ReferrallMessage.sender_id != user.id,
+                        T1ReferrallMessage.read_at.is_(None),
+                    )
+                )
+                or 0
+            )
+        except ProgrammingError:
+            db.rollback()  # read_at column missing pre-migration
+    pending_connections = int(
+        db.scalar(
+            select(func.count())
+            .select_from(T1ReferrallConnection)
+            .where(
+                T1ReferrallConnection.addressee_id == user.id,
+                T1ReferrallConnection.status == "pending",
+            )
+        )
+        or 0
+    )
+    referral_actions = 0
+    try:
+        # Requests waiting on me: pending ones I received as the job-post author,
+        # plus 'referred' ones where I (the seeker) should confirm the outcome.
+        referral_actions = int(
+            db.scalar(
+                select(func.count())
+                .select_from(T1ReferrallReferralRequest)
+                .where(
+                    or_(
+                        and_(
+                            T1ReferrallReferralRequest.referrer_id == user.id,
+                            T1ReferrallReferralRequest.status == "pending",
+                        ),
+                        and_(
+                            T1ReferrallReferralRequest.requester_id == user.id,
+                            T1ReferrallReferralRequest.status == "referred",
+                        ),
+                    )
+                )
+            )
+            or 0
+        )
+    except ProgrammingError:
+        db.rollback()  # referral table missing pre-v13
+    return {
+        "unreadMessages": unread_messages,
+        "pendingConnections": pending_connections,
+        "referralActions": referral_actions,
+        "total": unread_messages + pending_connections + referral_actions,
+    }
+
+
 # --- Connections ---
 
 
@@ -3000,7 +3266,8 @@ def create_connection(
 ):
     if body.addresseeId == user.id:
         raise HTTPException(status_code=400, detail="Cannot connect with yourself")
-    if db.get(T1ReferrallUser, body.addresseeId) is None:
+    addressee = db.get(T1ReferrallUser, body.addresseeId)
+    if addressee is None:
         raise HTTPException(status_code=404, detail="User not found")
     row = T1ReferrallConnection(
         id=str(uuid.uuid4()),
@@ -3015,6 +3282,8 @@ def create_connection(
         db.rollback()
         raise HTTPException(status_code=409, detail="Connection already exists")
     db.refresh(row)
+    if not addressee.is_deactivated:
+        _notify_connection_request(addressee, user)
     return _connection_out(row)
 
 
@@ -3169,6 +3438,25 @@ def list_conversations(
             other_ids.add(p.user_id)
             conv_to_other[p.conversation_id] = p.user_id
     profiles = _load_profiles(db, other_ids)
+    # Unread (to me) message counts per conversation, in one grouped query.
+    unread_by_conv: dict[str, int] = {}
+    try:
+        unread_rows = db.execute(
+            select(T1ReferrallMessage.conversation_id, func.count())
+            .where(
+                T1ReferrallMessage.conversation_id.in_(conv_ids),
+                T1ReferrallMessage.sender_id != user.id,
+                T1ReferrallMessage.read_at.is_(None),
+            )
+            .group_by(T1ReferrallMessage.conversation_id)
+        ).all()
+        unread_by_conv = {cid: int(n) for cid, n in unread_rows}
+    except ProgrammingError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Database schema out of date — {V14_MIGRATE_HINT}",
+        ) from exc
     out = []
     for c in convs:
         last_msg = db.scalars(
@@ -3185,6 +3473,7 @@ def list_conversations(
             "otherUser": profiles.get(other_id) if other_id else None,
             "otherUserDeleted": _conversation_other_user_deleted(db, c.id, user.id),
             "lastMessage": _message_out(last_msg) if last_msg else None,
+            "unreadCount": unread_by_conv.get(c.id, 0),
         }
         out.append(item)
     return out
@@ -3265,14 +3554,31 @@ def list_messages(
 ):
     if not _user_participates(db, conversation_id, user.id):
         raise HTTPException(status_code=403, detail="Not a participant")
-    rows = db.scalars(
-        select(T1ReferrallMessage)
-        .where(T1ReferrallMessage.conversation_id == conversation_id)
-        .order_by(T1ReferrallMessage.created_at.asc())
-    ).all()
+    try:
+        rows = db.scalars(
+            select(T1ReferrallMessage)
+            .where(T1ReferrallMessage.conversation_id == conversation_id)
+            .order_by(T1ReferrallMessage.created_at.asc())
+        ).all()
+    except ProgrammingError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Database schema out of date — {V14_MIGRATE_HINT}",
+        ) from exc
+    # Viewing the thread marks the other side's messages as read.
+    now = datetime.utcnow()
+    dirty = False
+    for r in rows:
+        if r.sender_id != user.id and r.read_at is None:
+            r.read_at = now
+            dirty = True
     sender_ids = {r.sender_id for r in rows}
     profiles = _load_profiles(db, sender_ids)
-    return [_message_out(r, profiles.get(r.sender_id)) for r in rows]
+    out = [_message_out(r, profiles.get(r.sender_id)) for r in rows]
+    if dirty:
+        db.commit()
+    return out
 
 
 @router.post("/conversations/{conversation_id}/messages")
@@ -3284,6 +3590,31 @@ def send_message(
 ):
     if not _user_participates(db, conversation_id, user.id):
         raise HTTPException(status_code=403, detail="Not a participant")
+    # Email the recipient only when this is the first unread message in the
+    # conversation, so an active back-and-forth doesn't turn into email spam.
+    other_id = db.scalars(
+        select(T1ReferrallConversationParticipant.user_id).where(
+            T1ReferrallConversationParticipant.conversation_id == conversation_id,
+            T1ReferrallConversationParticipant.user_id != user.id,
+        )
+    ).first()
+    had_unread = False
+    if other_id:
+        try:
+            had_unread = bool(
+                db.scalars(
+                    select(T1ReferrallMessage.id)
+                    .where(
+                        T1ReferrallMessage.conversation_id == conversation_id,
+                        T1ReferrallMessage.sender_id == user.id,
+                        T1ReferrallMessage.read_at.is_(None),
+                    )
+                    .limit(1)
+                ).first()
+            )
+        except ProgrammingError:
+            db.rollback()
+            had_unread = True  # pre-migration: skip the email rather than spam
     msg = T1ReferrallMessage(
         id=str(uuid.uuid4()),
         conversation_id=conversation_id,
@@ -3298,6 +3629,13 @@ def send_message(
     )
     db.commit()
     db.refresh(msg)
+    # Guarded twice: only the first unread message triggers an email, and a
+    # per-conversation cooldown covers recipients whose open thread marks
+    # messages read instantly (which would defeat the unread check alone).
+    if other_id and not had_unread and _msg_email_allowed(other_id, conversation_id):
+        recipient = db.get(T1ReferrallUser, other_id)
+        if recipient is not None and not recipient.is_deactivated:
+            _notify_new_message(recipient, user, msg.content)
     return _message_out(msg, _profile_out(user))
 
 
