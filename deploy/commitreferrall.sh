@@ -95,6 +95,9 @@ TAG="$1"
 [[ -x "$REFERRALL_VENV_PIP" ]] || die "Referr-All venv pip missing: $REFERRALL_VENV_PIP — was the venv created?"
 
 git -C "$REFERRALL_DIR" checkout -- static/referr-all 2>/dev/null || true
+# Also drop untracked build artifacts (manifest.json, sw.js, nav-toggle.js, …):
+# files newly tracked in the incoming tag would otherwise block the checkout.
+git -C "$REFERRALL_DIR" clean -fd -- static/referr-all 2>/dev/null || true
 _diff_paths=':!static/referr-all'
 if ! git -C "$REFERRALL_DIR" diff --quiet HEAD -- . "$_diff_paths" \
   || ! git -C "$REFERRALL_DIR" diff --cached --quiet HEAD -- . "$_diff_paths"; then
