@@ -46,6 +46,23 @@ function setBanner(id, message, kind) {
   b.hidden = !message;
 }
 
+function sourceLabel(sources) {
+  switch ((sources || "").toUpperCase()) {
+    case "KB": return "From your docs";
+    case "KB+GENERAL": return "Docs + general AI knowledge";
+    case "GENERAL": return "General AI knowledge only";
+    default: return "";
+  }
+}
+
+function setSourceBadge(sources) {
+  const badge = el("sourceBadge");
+  if (!badge) return;
+  const label = sourceLabel(sources);
+  badge.textContent = label;
+  badge.hidden = !label;
+}
+
 function tabSwitch(name) {
   document.querySelectorAll("[data-tab]").forEach((btn) => {
     btn.classList.toggle("active", btn.getAttribute("data-tab") === name);
@@ -568,6 +585,7 @@ function resetAgentThread() {
   }
   const copyBtn = el("copyReply");
   if (copyBtn) copyBtn.hidden = true;
+  setSourceBadge(null);
   setBanner("agentBanner", "", "");
   updateAgentThreadUi();
 }
@@ -600,6 +618,7 @@ function initChat() {
     ev.preventDefault();
     const input = el("chatInput");
     const logTicket = el("logTicket");
+    const useGeneral = el("useGeneral");
     const out = el("aiOutput");
     const retrieval = el("retrieval");
     const aiImages = el("aiImages");
@@ -619,6 +638,7 @@ function initChat() {
       copyBtn.hidden = true;
       copyBtn.textContent = "Copy reply";
     }
+    setSourceBadge(null);
     if (submitBtn) {
       submitBtn.disabled = true;
       submitBtn.textContent = "Working.";
@@ -630,6 +650,7 @@ function initChat() {
         message: sentMessage,
         images,
         create_ticket: !!(logTicket && logTicket.checked),
+        allow_general: useGeneral ? !!useGeneral.checked : true,
       };
       if (isFollowUp) {
         if (_agentThread.ticketId) {
@@ -664,10 +685,12 @@ function initChat() {
           : " · no schema doc. Re-upload as type Data dictionary / schema")
         : "";
       const imgTag = res.inquiry_images ? ` · ${res.inquiry_images} pasted screenshot${res.inquiry_images > 1 ? "s" : ""} analyzed` : "";
+      setSourceBadge(res.sources);
+      const srcTag = sourceLabel(res.sources) ? ` · source: ${sourceLabel(res.sources)}` : "";
       if (res.ticket_id) {
-        setBanner("agentBanner", `${isFollowUp ? "Case" : "Logged as ticket"} #${res.ticket_id} (status: ${res.status})${broadTag}${sqlTag}${imgTag}`, "ok");
+        setBanner("agentBanner", `${isFollowUp ? "Case" : "Logged as ticket"} #${res.ticket_id} (status: ${res.status})${srcTag}${broadTag}${sqlTag}${imgTag}`, "ok");
       } else {
-        setBanner("agentBanner", `Status: ${res.status} · Claude: ${res.anthropic_configured ? "yes" : "no"}${broadTag}${sqlTag}${imgTag}`, res.sql && !res.schema_docs?.length ? "err" : "info");
+        setBanner("agentBanner", `Status: ${res.status} · Claude: ${res.anthropic_configured ? "yes" : "no"}${srcTag}${broadTag}${sqlTag}${imgTag}`, res.sql && !res.schema_docs?.length ? "err" : "info");
       }
       if (retrieval && res.retrieval && res.retrieval.length) {
         retrieval.innerHTML =

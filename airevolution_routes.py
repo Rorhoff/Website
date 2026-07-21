@@ -904,6 +904,9 @@ class ChatIn(BaseModel):
     ticket_id: int | None = None
     # When true, creates or updates a ticket record for the portal audit trail.
     create_ticket: bool = False
+    # When true (default), Claude may supplement thin KB coverage with clearly
+    # labeled general knowledge. When false, answers stay strictly KB-only.
+    allow_general: bool = True
     # Prior turns of an un-ticketed conversation; used to seed a new case thread
     # when the user replies with additional details. Ignored when ticket_id is set
     # (the server-side thread wins).
@@ -1279,11 +1282,36 @@ def chat(body: ChatIn) -> dict[str, Any]:
             "You are the T1 AI Support Agent for AIRevolution (t1airevolution.com), an expert software "
             "support assistant. You help support staff move from classic Tier 1 to AI Tier 2 style work: "
             "triage with the knowledge base first, then apply human judgment. "
-            "Answer using ONLY the provided knowledge context when it applies. If the context is empty "
-            "or insufficient, say so clearly, give safe general product-adjacent guidance, and end with "
-            "the line: STATUS: NEEDS_REVIEW. "
-            "If you can provide a complete resolution, end with: STATUS: RESOLVED. "
-            "If the issue is beyond Tier 1 or needs internal escalation, use: STATUS: ESCALATE. "
+        )
+        if body.allow_general:
+            system += (
+                "Ground your answer in the provided knowledge context first; it is authoritative for "
+                "this product. When the context covers the issue, answer from it alone. When the "
+                "context is empty or only partially covers the issue, supplement with your own general "
+                "software support expertise, but you MUST place that part under a separate section "
+                "that begins with this exact line: "
+                "General guidance (not from your documentation): "
+                "If the context and your general knowledge conflict, the context wins. Never invent "
+                "product-specific UI names, menu paths, settings, or version behavior that the context "
+                "does not show; keep general advice generic (browser, network, OS, account, and common "
+                "admin practice). "
+                "End with exactly one status line. Use STATUS: RESOLVED when the resolution is grounded "
+                "in the knowledge context, or when the fix is trivial and universally safe. If your "
+                "answer relies mainly on general knowledge, end with STATUS: NEEDS_REVIEW. "
+                "If the issue is beyond Tier 1 or needs internal escalation, use: STATUS: ESCALATE. "
+            )
+        else:
+            system += (
+                "Answer using ONLY the provided knowledge context when it applies. If the context is empty "
+                "or insufficient, say so clearly, give safe general product-adjacent guidance, and end with "
+                "the line: STATUS: NEEDS_REVIEW. "
+                "If you can provide a complete resolution, end with: STATUS: RESOLVED. "
+                "If the issue is beyond Tier 1 or needs internal escalation, use: STATUS: ESCALATE. "
+            )
+        system += (
+            "After the STATUS line, add one final line stating what grounded your answer, exactly one "
+            "of: SOURCES: KB (knowledge context only), SOURCES: KB+GENERAL (knowledge context plus "
+            "general knowledge), or SOURCES: GENERAL (general knowledge only). "
             "Be concise, use numbered steps for fixes, name UI areas and settings panels when relevant, "
             "and keep a professional, helpful tone. "
             "Do not use em dashes in your replies; end the sentence or use a comma instead. "
@@ -1315,6 +1343,12 @@ def chat(body: ChatIn) -> dict[str, Any]:
             "any expected subsection is missing from the context, name it explicitly and end "
             "with STATUS: NEEDS_REVIEW."
         )
+        if body.allow_general and not sql:
+            system += (
+                " Enumerate ONLY subsections that the knowledge context actually shows; never pad "
+                "the enumeration from general knowledge. General knowledge may only appear "
+                "afterwards in the labeled 'General guidance (not from your documentation):' section."
+            )
 
     if sql:
         user_block = (
@@ -1364,6 +1398,20 @@ def chat(body: ChatIn) -> dict[str, Any]:
                 "`ANTHROPIC_API_KEY` environment variable to enable Claude-powered answers."
             )
 
+    # Pull the machine-readable SOURCES trailer out of the reply (it is meta,
+    # not something the customer should read).
+    sources: str | None = None
+    if reply:
+        m = re.search(r"^\s*SOURCES:\s*(KB\s*\+\s*GENERAL|KB|GENERAL)\s*\.?\s*$", reply, re.I | re.M)
+        if m:
+            sources = re.sub(r"\s", "", m.group(1).upper())
+        stripped = re.sub(r"^\s*SOURCES:[^\n]*$", "", reply, flags=re.I | re.M).rstrip()
+        if stripped:
+            reply = stripped
+    if sources is None and reply and api_key and not sql:
+        # Model skipped the trailer; fall back to a retrieval-based guess.
+        sources = "KB" if has_kb else "GENERAL"
+
     status_line = "in_review"
     u = reply.upper()
     if "STATUS: RESOLVED" in u or "STATUS:RESOLVED" in u:
@@ -1379,6 +1427,7 @@ def chat(body: ChatIn) -> dict[str, Any]:
         "inquiry_images": len(inquiry_images),
         "retrieval_hits": len(hits),
         "ai_status": status_line,
+        "sources": sources,
     }
 
     now_iso = audit_entry["at"]
@@ -1442,6 +1491,7 @@ def chat(body: ChatIn) -> dict[str, Any]:
             for im in img_hits
         ],
         "status": status_line,
+        "sources": sources,
         "broad": broad,
         "sql": sql,
         "schema_docs": [h["title"] for h in hits if h.get("part") == 0] if sql else [],
