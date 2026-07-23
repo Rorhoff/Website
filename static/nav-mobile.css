@@ -6,6 +6,11 @@
   padding-right: max(1rem, env(safe-area-inset-right, 0px));
 }
 
+/* In the Wild is reachable by direct URL; keep it out of portfolio cross-links. */
+.site-nav a[href*="in-the-wild"] {
+  display: none !important;
+}
+
 /* Hide rorhoff.com portfolio cross-links on product domains (t1airevolution.com).
    main.py injects data-product-host on HTML responses; product-host.js is a fallback. */
 html[data-product-host="t1airevolution"] .site-nav {
