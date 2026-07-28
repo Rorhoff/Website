@@ -305,8 +305,8 @@
              <form> (even though app.js intercepts submit) so the password manager
              sees a proper signup/login surface. -->
         <form id="loginForm" autocomplete="on">
-          <label for="loginUsername">Username</label>
-          <input id="loginUsername" name="username" required autocomplete="username" autocapitalize="none" spellcheck="false" />
+          <label for="loginUsername">Email or username</label>
+          <input id="loginUsername" name="username" required autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="you@example.com" />
 
           <label for="loginPassword">Password</label>
           <input id="loginPassword" name="password" type="password" required autocomplete="current-password" />
@@ -314,7 +314,7 @@
           <button type="submit">Login</button>
         </form>
         <p id="profileHint" class="hint">Log in, then use the top-right menu to enter your profile.</p>
-        <a href="/classifieds/reset.html" class="forgot-link">Forgot username or password?</a>
+        <a href="/classifieds/reset.html" class="forgot-link">Forgot password?</a>
       </section>
 
       <section class="card">

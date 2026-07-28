@@ -312,7 +312,9 @@ class RegisterBody(BaseModel):
 
 
 class LoginBody(BaseModel):
-    username: str = Field(min_length=1, max_length=64)
+    # Accepts a username or an email address (field kept as `username` for
+    # backwards compatibility with existing clients). 255 covers emails.
+    username: str = Field(min_length=1, max_length=255)
     password: str = Field(min_length=1, max_length=256)
 
 
@@ -400,19 +402,25 @@ def classifieds_register(body: RegisterBody, db: Session = Depends(classifieds_d
 
 @router.post("/login")
 def classifieds_login(body: LoginBody, db: Session = Depends(classifieds_db)):
-    username = body.username.strip().lower()
+    identifier = body.username.strip().lower()
     user = db.scalars(
-        select(ClassifiedUser).where(ClassifiedUser.username == username)
+        select(ClassifiedUser).where(ClassifiedUser.username == identifier)
     ).first()
+    if user is None:
+        # Fall back to email so people who forgot their username can still
+        # log in. Emails are unique case-insensitively (prod-v1.33 index).
+        user = db.scalars(
+            select(ClassifiedUser).where(func.lower(ClassifiedUser.email) == identifier)
+        ).first()
     if user is None or not user.password_hash:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid username or password.",
+            detail="Invalid email/username or password.",
         )
     if not _verify_password(body.password, user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid username or password.",
+            detail="Invalid email/username or password.",
         )
     token = _create_session(db, user.id)
     return {"token": token, "user": _user_out(user)}
