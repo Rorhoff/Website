@@ -936,7 +936,7 @@ function openSearchModal() {
 }
 
 function closeSearchModal() {
-  if (!searchModal) searchModal.hidden = true;
+  if (searchModal) searchModal.hidden = true;
 }
 
 function applySearchFromModal() {
