@@ -59,6 +59,9 @@ class ClassifiedUser(Base):
     )
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     is_verified: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    # Admin moderation: suspended accounts cannot log in or use existing
+    # sessions. Requires the prod-v1.55 column migration.
+    is_suspended: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     is_lightweight: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default="false"
     )

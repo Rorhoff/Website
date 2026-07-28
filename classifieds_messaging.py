@@ -216,6 +216,8 @@ def register_messaging_routes(
         if row is None or row.used_at is not None or row.expires_at < datetime.utcnow():
             raise HTTPException(status_code=400, detail="Invalid or expired sign-in link.")
         user = _find_or_create_user_by_email(db, row.email)
+        if bool(getattr(user, "is_suspended", False)):
+            raise HTTPException(status_code=403, detail="This account has been suspended.")
         if user.email_verified_at is None:
             user.email_verified_at = datetime.utcnow()
         row.used_at = datetime.utcnow()

@@ -262,7 +262,7 @@ function setProfileActive(active) {
   localStorage.setItem(PROFILE_ACTIVE_KEY, active ? "true" : "false");
 }
 
-const PROFILE_TABS = ["profile", "postAd", "myAds"];
+const PROFILE_TABS = ["profile", "postAd", "myAds", "admin"];
 
 function getActiveProfileTab() {
   const stored = localStorage.getItem(PROFILE_TAB_KEY);
@@ -282,16 +282,25 @@ function applyProfileTabUI() {
   // having to hit Refresh.
   const profileActive = Boolean(getCurrentUserRecord()) && isProfileActive();
   if (profileTabsNav) profileTabsNav.hidden = !profileActive;
-  const activeTab = getActiveProfileTab();
+  const isAdminUser = Boolean(getCurrentUserRecord()?.isAdmin);
+  const adminTabBtn = document.getElementById("adminTabBtn");
+  if (adminTabBtn) adminTabBtn.hidden = !isAdminUser;
+  let activeTab = getActiveProfileTab();
+  if (activeTab === "admin" && !isAdminUser) activeTab = "profile";
   if (profileSection) profileSection.hidden = !profileActive || activeTab !== "profile";
   if (postAdSection) postAdSection.hidden = !profileActive || activeTab !== "postAd";
   if (myAdsSection) myAdsSection.hidden = !profileActive || activeTab !== "myAds";
+  const adminSection = document.getElementById("adminSection");
+  if (adminSection) adminSection.hidden = !profileActive || activeTab !== "admin";
   profileTabButtons.forEach((btn) => {
     const selected = btn.dataset.tab === activeTab;
     btn.setAttribute("aria-selected", selected ? "true" : "false");
   });
   if (profileActive && activeTab === "myAds") {
     renderMyAds().catch(() => { /* renderMyAds surfaces errors via the hint line */ });
+  }
+  if (profileActive && activeTab === "admin" && isAdminUser) {
+    renderAdmin().catch(() => { /* renderAdmin surfaces errors via the hint line */ });
   }
 }
 
@@ -1272,6 +1281,180 @@ profileTabButtons.forEach((btn) => {
     setActiveProfileTab(btn.dataset.tab);
     applyProfileTabUI();
   });
+});
+
+// --- Admin panel (only rendered for accounts with isAdmin) ---
+
+function fmtUsd(cents) {
+  return "$" + (Number(cents || 0) / 100).toFixed(2);
+}
+
+function adminStatTile(num, label) {
+  return `<div class="admin-stat"><span class="num">${escapeHTML(String(num))}</span><span class="lbl">${escapeHTML(label)}</span></div>`;
+}
+
+async function renderAdminStats() {
+  const grid = document.getElementById("adminStatsGrid");
+  const breakdowns = document.getElementById("adminBreakdowns");
+  if (!grid) return;
+  const s = await classifiedsApi("/admin/stats");
+  grid.innerHTML = [
+    adminStatTile(s.users.total, "Users"),
+    adminStatTile(s.users.newThisWeek, "New users (7d)"),
+    adminStatTile(s.users.suspended, "Suspended"),
+    adminStatTile(s.ads.total, "Ads"),
+    adminStatTile(s.ads.newThisWeek, "New ads (7d)"),
+    adminStatTile(s.ads.goldActive, "Gold active"),
+    adminStatTile(fmtUsd(s.gold.revenueCentsThisMonth), "Gold revenue (month)"),
+    adminStatTile(fmtUsd(s.gold.refundedCentsThisMonth), "Refunded (month)"),
+    adminStatTile(`${s.reports.thisWeek} / ${s.reports.total}`, "Reports (7d / all)"),
+    adminStatTile(`${s.messages.thisWeek} / ${s.messages.total}`, "Messages (7d / all)"),
+    adminStatTile(s.messages.conversations, "Conversations"),
+  ].join("");
+  if (breakdowns) {
+    const list = (items, keyName) =>
+      items.length
+        ? `<ul>${items
+            .map((r) => `<li><span>${escapeHTML(r[keyName])}</span><span>${r.count}</span></li>`)
+            .join("")}</ul>`
+        : '<p class="hint">No ads yet.</p>';
+    breakdowns.innerHTML =
+      `<div class="admin-breakdown"><h4>Ads by state</h4>${list(s.ads.byState, "state")}</div>` +
+      `<div class="admin-breakdown"><h4>Ads by category</h4>${list(s.ads.byCategory, "category")}</div>`;
+  }
+}
+
+async function renderAdminReported() {
+  const listEl = document.getElementById("adminReportedList");
+  if (!listEl) return;
+  const data = await classifiedsApi("/admin/reported-ads");
+  const threshold = document.getElementById("adminReportThreshold");
+  if (threshold) threshold.textContent = String(data.autoRemoveThreshold);
+  if (!data.ads.length) {
+    listEl.innerHTML = '<p class="hint">No reported ads. All quiet.</p>';
+    return;
+  }
+  listEl.innerHTML = data.ads
+    .map(
+      (ad) => `
+      <div class="admin-row">
+        <div>
+          <strong>${escapeHTML(ad.title)}</strong>
+          <span class="admin-badge reports">${ad.reportCount} report${ad.reportCount === 1 ? "" : "s"}</span>
+          <div class="meta">${escapeHTML(ad.state)} · ${escapeHTML(ad.category)} · ${escapeHTML(ad.price)} · seller: ${escapeHTML(ad.sellerUsername || "unknown")}${ad.goldActive ? " · GOLD" : ""}</div>
+        </div>
+        <button type="button" class="danger" data-admin-remove-ad="${escapeHTML(ad.id)}">Remove ad</button>
+      </div>`
+    )
+    .join("");
+}
+
+async function renderAdminUsers(q) {
+  const listEl = document.getElementById("adminUsersList");
+  if (!listEl) return;
+  const me = getCurrentUserRecord();
+  const query = q ? `?q=${encodeURIComponent(q)}` : "";
+  const data = await classifiedsApi(`/admin/users${query}`);
+  if (!data.users.length) {
+    listEl.innerHTML = '<p class="hint">No matching users.</p>';
+    return;
+  }
+  listEl.innerHTML = data.users
+    .map((u) => {
+      const badges =
+        (u.isAdmin ? '<span class="admin-badge admin">admin</span>' : "") +
+        (u.isSuspended ? '<span class="admin-badge suspended">suspended</span>' : "");
+      const joined = u.createdAt ? new Date(u.createdAt).toLocaleDateString() : "—";
+      // No suspend button for admins or yourself; unsuspend is always allowed.
+      const canAct = !u.isAdmin && u.username !== me?.username;
+      const action = canAct
+        ? u.isSuspended
+          ? `<button type="button" class="neutral" data-admin-suspend="${u.id}" data-suspended="false">Unsuspend</button>`
+          : `<button type="button" class="danger" data-admin-suspend="${u.id}" data-suspended="true">Suspend</button>`
+        : "";
+      return `
+      <div class="admin-row">
+        <div>
+          <strong>${escapeHTML(u.username)}</strong>${badges}
+          <div class="meta">${escapeHTML(u.email)} · ${escapeHTML(u.state || "—")} · ${u.adCount} ad${u.adCount === 1 ? "" : "s"} · joined ${joined}</div>
+        </div>
+        ${action}
+      </div>`;
+    })
+    .join("");
+}
+
+async function renderAdmin() {
+  if (!getCurrentUserRecord()?.isAdmin) return;
+  const hint = document.getElementById("adminHint");
+  try {
+    await Promise.all([
+      renderAdminStats(),
+      renderAdminReported(),
+      renderAdminUsers(document.getElementById("adminUserSearch")?.value || ""),
+    ]);
+    if (hint) hint.textContent = "Site metrics and moderation. Visible to admin accounts only.";
+  } catch (error) {
+    if (hint) hint.textContent = error.message || "Failed to load admin data.";
+  }
+}
+
+const refreshAdminBtn = document.getElementById("refreshAdminBtn");
+if (refreshAdminBtn) {
+  refreshAdminBtn.addEventListener("click", () => {
+    renderAdmin().catch(() => {});
+  });
+}
+
+let adminUserSearchTimer = null;
+const adminUserSearchInput = document.getElementById("adminUserSearch");
+if (adminUserSearchInput) {
+  adminUserSearchInput.addEventListener("input", () => {
+    clearTimeout(adminUserSearchTimer);
+    adminUserSearchTimer = setTimeout(() => {
+      renderAdminUsers(adminUserSearchInput.value).catch(() => {});
+    }, 350);
+  });
+}
+
+document.getElementById("adminReportedList")?.addEventListener("click", async (event) => {
+  const btn = event.target.closest("button[data-admin-remove-ad]");
+  if (!btn) return;
+  const adId = btn.dataset.adminRemoveAd;
+  if (!window.confirm("Remove this ad? If it has active Gold, a prorated refund is issued automatically.")) return;
+  btn.disabled = true;
+  try {
+    const res = await classifiedsApi(`/admin/ads/${encodeURIComponent(adId)}`, { method: "DELETE" });
+    showToast(res.goldRefundCents ? `Ad removed. ${fmtUsd(res.goldRefundCents)} Gold refunded.` : "Ad removed.");
+    await Promise.all([renderAdminReported(), renderAdminStats()]);
+    await renderAds();
+  } catch (error) {
+    btn.disabled = false;
+    showToast(error.message || "Failed to remove ad.");
+  }
+});
+
+document.getElementById("adminUsersList")?.addEventListener("click", async (event) => {
+  const btn = event.target.closest("button[data-admin-suspend]");
+  if (!btn) return;
+  const userId = btn.dataset.adminSuspend;
+  const suspend = btn.dataset.suspended === "true";
+  if (suspend && !window.confirm("Suspend this account? They will be logged out everywhere and blocked from logging in.")) return;
+  btn.disabled = true;
+  try {
+    await classifiedsApi(`/admin/users/${encodeURIComponent(userId)}/suspend`, {
+      method: "POST",
+      jsonBody: { suspended: suspend },
+    });
+    showToast(suspend ? "Account suspended." : "Account unsuspended.");
+    await Promise.all([
+      renderAdminUsers(document.getElementById("adminUserSearch")?.value || ""),
+      renderAdminStats(),
+    ]);
+  } catch (error) {
+    btn.disabled = false;
+    showToast(error.message || "Failed to update account.");
+  }
 });
 
 document.addEventListener("click", (event) => {

@@ -40,6 +40,9 @@ from models import (
     ClassifiedAd,
     ClassifiedAdReport,
     ClassifiedBlockedSignature,
+    ClassifiedConversation,
+    ClassifiedGoldRefundEvent,
+    ClassifiedMessage,
     ClassifiedPasswordResetToken,
     ClassifiedSession,
     ClassifiedUser,
@@ -294,6 +297,26 @@ def get_current_classified_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User not found",
         )
+    if bool(getattr(user, "is_suspended", False)):
+        # Kill the session so a suspended account can't keep using an
+        # already-issued token.
+        db.delete(row)
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This account has been suspended.",
+        )
+    return user
+
+
+def require_classified_admin(
+    user: ClassifiedUser = Depends(get_current_classified_user),
+) -> ClassifiedUser:
+    if not bool(getattr(user, "is_admin", False)):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required",
+        )
     return user
 
 
@@ -421,6 +444,11 @@ def classifieds_login(body: LoginBody, db: Session = Depends(classifieds_db)):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email/username or password.",
+        )
+    if bool(getattr(user, "is_suspended", False)):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This account has been suspended.",
         )
     token = _create_session(db, user.id)
     return {"token": token, "user": _user_out(user)}
@@ -1085,6 +1113,238 @@ def classifieds_report_ad(
         return {"ok": True, "removed": True}
 
     return {"ok": True, "removed": False}
+
+
+# --- Admin: metrics + moderation (require_classified_admin on every route) ---
+
+
+class AdminSuspendBody(BaseModel):
+    suspended: bool = True
+
+
+@router.get("/admin/stats")
+def classifieds_admin_stats(
+    admin: ClassifiedUser = Depends(require_classified_admin),
+    db: Session = Depends(classifieds_db),
+):
+    now = datetime.utcnow()
+    week_ago = now - timedelta(days=7)
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+    total_users = db.scalar(select(func.count()).select_from(ClassifiedUser)) or 0
+    new_users_week = db.scalar(
+        select(func.count()).select_from(ClassifiedUser).where(ClassifiedUser.created_at >= week_ago)
+    ) or 0
+    suspended_users = db.scalar(
+        select(func.count()).select_from(ClassifiedUser).where(ClassifiedUser.is_suspended.is_(True))
+    ) or 0
+
+    total_ads = db.scalar(select(func.count()).select_from(ClassifiedAd)) or 0
+    new_ads_week = db.scalar(
+        select(func.count()).select_from(ClassifiedAd).where(ClassifiedAd.created_at >= week_ago)
+    ) or 0
+    gold_active = db.scalar(
+        select(func.count()).select_from(ClassifiedAd).where(ClassifiedAd.gold_until > now)
+    ) or 0
+    imported_ads = db.scalar(
+        select(func.count())
+        .select_from(ClassifiedAd)
+        .where(ClassifiedAd.listing_source.in_(list(AGGREGATED_LISTING_SOURCES)))
+    ) or 0
+
+    ads_by_state = db.execute(
+        select(ClassifiedAd.state, func.count().label("n"))
+        .group_by(ClassifiedAd.state)
+        .order_by(func.count().desc())
+        .limit(8)
+    ).all()
+    ads_by_category = db.execute(
+        select(ClassifiedAd.category, func.count().label("n"))
+        .group_by(ClassifiedAd.category)
+        .order_by(func.count().desc())
+        .limit(8)
+    ).all()
+
+    # Approximation: sums the latest gold payment per ad whose paid window
+    # started this month. Ads boosted twice in one month count once (latest
+    # payment wins) — good enough for a dashboard tile without a payments table.
+    gold_revenue_month = db.scalar(
+        select(func.coalesce(func.sum(ClassifiedAd.last_gold_payment_cents), 0)).where(
+            ClassifiedAd.last_gold_window_start >= month_start
+        )
+    ) or 0
+    refunds_month = db.scalar(
+        select(func.coalesce(func.sum(ClassifiedGoldRefundEvent.refund_cents), 0)).where(
+            ClassifiedGoldRefundEvent.created_at >= month_start,
+            ClassifiedGoldRefundEvent.stripe_refund_id.isnot(None),
+        )
+    ) or 0
+
+    total_reports = db.scalar(select(func.count()).select_from(ClassifiedAdReport)) or 0
+    reports_week = db.scalar(
+        select(func.count()).select_from(ClassifiedAdReport).where(ClassifiedAdReport.created_at >= week_ago)
+    ) or 0
+
+    total_messages = db.scalar(select(func.count()).select_from(ClassifiedMessage)) or 0
+    messages_week = db.scalar(
+        select(func.count()).select_from(ClassifiedMessage).where(ClassifiedMessage.created_at >= week_ago)
+    ) or 0
+    total_conversations = db.scalar(select(func.count()).select_from(ClassifiedConversation)) or 0
+
+    return {
+        "users": {"total": total_users, "newThisWeek": new_users_week, "suspended": suspended_users},
+        "ads": {
+            "total": total_ads,
+            "newThisWeek": new_ads_week,
+            "goldActive": gold_active,
+            "imported": imported_ads,
+            "byState": [{"state": s, "count": n} for s, n in ads_by_state],
+            "byCategory": [{"category": c, "count": n} for c, n in ads_by_category],
+        },
+        "gold": {"revenueCentsThisMonth": int(gold_revenue_month), "refundedCentsThisMonth": int(refunds_month)},
+        "reports": {"total": total_reports, "thisWeek": reports_week},
+        "messages": {"total": total_messages, "thisWeek": messages_week, "conversations": total_conversations},
+        "generatedAt": now.isoformat() + "Z",
+    }
+
+
+@router.get("/admin/reported-ads")
+def classifieds_admin_reported_ads(
+    admin: ClassifiedUser = Depends(require_classified_admin),
+    db: Session = Depends(classifieds_db),
+):
+    """Live ads with at least one report, most-reported first."""
+    rows = db.execute(
+        select(
+            ClassifiedAdReport.ad_id,
+            func.count().label("n"),
+            func.max(ClassifiedAdReport.created_at).label("latest"),
+        )
+        .group_by(ClassifiedAdReport.ad_id)
+        .order_by(func.count().desc(), func.max(ClassifiedAdReport.created_at).desc())
+        .limit(50)
+    ).all()
+    out = []
+    for ad_id, n, latest in rows:
+        ad = db.get(ClassifiedAd, ad_id)
+        if ad is None:
+            continue  # report rows for already-removed ads
+        seller = db.get(ClassifiedUser, ad.user_id) if ad.user_id is not None else None
+        out.append(
+            {
+                "id": ad.id,
+                "title": ad.title,
+                "state": ad.state,
+                "category": ad.category,
+                "price": _normalize_price(ad.price),
+                "createdAt": int(ad.created_at.timestamp() * 1000),
+                "sellerUsername": seller.username if seller else None,
+                "sellerId": ad.user_id,
+                "reportCount": int(n),
+                "latestReportAt": latest.isoformat() + "Z" if latest else None,
+                "goldActive": bool(ad.gold_until and ad.gold_until > datetime.utcnow()),
+            }
+        )
+    return {"ads": out, "autoRemoveThreshold": REPORT_AUTO_REMOVE_THRESHOLD}
+
+
+@router.delete("/admin/ads/{ad_id}")
+def classifieds_admin_remove_ad(
+    ad_id: str,
+    admin: ClassifiedUser = Depends(require_classified_admin),
+    db: Session = Depends(classifieds_db),
+):
+    """Remove any ad immediately (platform removal — prorated Gold refund applies)."""
+    ad = db.get(ClassifiedAd, ad_id)
+    if ad is None:
+        raise HTTPException(status_code=404, detail="Ad not found")
+    rf_log = stripe_service.refund_prorated_gold_for_platform_removal(ad, db)
+    log.info(
+        "admin remove ad=%s by=%s refund_eligible=%s refund_cents=%s err=%s",
+        ad_id,
+        admin.username,
+        rf_log.get("eligible"),
+        rf_log.get("refund_cents"),
+        rf_log.get("error"),
+    )
+    db.delete(ad)
+    db.commit()
+    out: dict[str, Any] = {"ok": True, "id": ad_id}
+    if rf_log.get("refund_cents"):
+        out["goldRefundCents"] = rf_log["refund_cents"]
+    return out
+
+
+@router.get("/admin/users")
+def classifieds_admin_users(
+    q: str = "",
+    admin: ClassifiedUser = Depends(require_classified_admin),
+    db: Session = Depends(classifieds_db),
+):
+    """Most recent accounts first; optional case-insensitive username/email search."""
+    stmt = select(ClassifiedUser).order_by(ClassifiedUser.created_at.desc()).limit(50)
+    term = q.strip()
+    if term:
+        like = f"%{term}%"
+        stmt = (
+            select(ClassifiedUser)
+            .where(or_(ClassifiedUser.username.ilike(like), ClassifiedUser.email.ilike(like)))
+            .order_by(ClassifiedUser.created_at.desc())
+            .limit(50)
+        )
+    users = db.scalars(stmt).all()
+    ad_counts = dict(
+        db.execute(
+            select(ClassifiedAd.user_id, func.count())
+            .where(ClassifiedAd.user_id.in_([u.id for u in users] or [0]))
+            .group_by(ClassifiedAd.user_id)
+        ).all()
+    )
+    return {
+        "users": [
+            {
+                "id": u.id,
+                "username": u.username,
+                "email": u.email,
+                "state": u.state,
+                "createdAt": int(u.created_at.timestamp() * 1000) if u.created_at else None,
+                "isAdmin": bool(u.is_admin),
+                "isVerified": bool(u.is_verified),
+                "isSuspended": bool(getattr(u, "is_suspended", False)),
+                "adCount": int(ad_counts.get(u.id, 0)),
+            }
+            for u in users
+        ]
+    }
+
+
+@router.post("/admin/users/{user_id}/suspend")
+def classifieds_admin_suspend_user(
+    user_id: int,
+    body: AdminSuspendBody,
+    admin: ClassifiedUser = Depends(require_classified_admin),
+    db: Session = Depends(classifieds_db),
+):
+    target = db.get(ClassifiedUser, user_id)
+    if target is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    if target.id == admin.id:
+        raise HTTPException(status_code=400, detail="You cannot suspend your own account")
+    if bool(target.is_admin) and body.suspended:
+        raise HTTPException(status_code=400, detail="Admins cannot be suspended — revoke admin first")
+    target.is_suspended = body.suspended
+    if body.suspended:
+        # Invalidate every live session so the account is locked out immediately.
+        db.execute(delete(ClassifiedSession).where(ClassifiedSession.user_id == target.id))
+    db.commit()
+    log.info(
+        "admin %s user=%s (%s) by=%s",
+        "suspended" if body.suspended else "unsuspended",
+        target.id,
+        target.username,
+        admin.username,
+    )
+    return {"ok": True, "id": target.id, "isSuspended": bool(target.is_suspended)}
 
 
 import classifieds_messaging  # noqa: E402

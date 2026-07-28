@@ -242,6 +242,95 @@
       text-decoration: none;
     }
     .forgot-link:hover { text-decoration: underline; }
+    .admin-subhead { margin: 1.2rem 0 0.4rem; color: #1e293b; }
+    .admin-stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+      gap: 0.6rem;
+    }
+    .admin-stat {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 0.6rem 0.75rem;
+    }
+    .admin-stat .num {
+      display: block;
+      font-size: 1.35rem;
+      font-weight: 700;
+      color: #0f172a;
+      font-variant-numeric: tabular-nums;
+    }
+    .admin-stat .lbl { font-size: 0.78rem; color: #64748b; }
+    .admin-breakdowns {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 0.6rem;
+      margin-top: 0.6rem;
+    }
+    .admin-breakdown {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 0.6rem 0.75rem;
+      font-size: 0.85rem;
+    }
+    .admin-breakdown h4 { margin: 0 0 0.4rem; font-size: 0.82rem; color: #475569; }
+    .admin-breakdown li {
+      display: flex;
+      justify-content: space-between;
+      padding: 0.12rem 0;
+      list-style: none;
+    }
+    .admin-breakdown ul { margin: 0; padding: 0; }
+    .admin-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 0.6rem;
+      padding: 0.5rem 0;
+      border-bottom: 1px solid #e8eef4;
+      font-size: 0.88rem;
+      flex-wrap: wrap;
+    }
+    .admin-row .meta { color: #64748b; font-size: 0.78rem; }
+    .admin-row .danger {
+      background: #dc2626;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      padding: 0.35rem 0.7rem;
+      cursor: pointer;
+      font-size: 0.8rem;
+    }
+    .admin-row .danger:hover { background: #b91c1c; }
+    .admin-row .neutral {
+      background: #e2e8f0;
+      color: #0f172a;
+      border: none;
+      border-radius: 6px;
+      padding: 0.35rem 0.7rem;
+      cursor: pointer;
+      font-size: 0.8rem;
+    }
+    .admin-user-search input {
+      width: 100%;
+      max-width: 22rem;
+      padding: 0.45rem 0.6rem;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+    }
+    .admin-badge {
+      display: inline-block;
+      border-radius: 999px;
+      padding: 0.05rem 0.5rem;
+      font-size: 0.7rem;
+      font-weight: 600;
+      margin-left: 0.3rem;
+    }
+    .admin-badge.suspended { background: #fee2e2; color: #b91c1c; }
+    .admin-badge.admin { background: #dbeafe; color: #1d4ed8; }
+    .admin-badge.reports { background: #fef3c7; color: #92400e; }
   </style>
   <link rel="stylesheet" href="/assets/nav-mobile.css" />
   <script src="/assets/product-host.js"></script>
@@ -381,6 +470,7 @@
       <button type="button" class="profile-tab" data-tab="profile" aria-selected="true">Profile</button>
       <button type="button" class="profile-tab" data-tab="postAd" aria-selected="false">Post an Ad</button>
       <button type="button" class="profile-tab" data-tab="myAds" aria-selected="false">My Ads</button>
+      <button type="button" class="profile-tab" data-tab="admin" id="adminTabBtn" aria-selected="false" hidden>Admin</button>
     </nav>
 
     <section id="profileSection" class="profile-pane" hidden>
@@ -501,6 +591,30 @@
         </div>
         <p id="myAdsHint" class="hint">Ads you've posted appear here. Use Delete to remove one.</p>
         <div id="myAdsList" class="ads-list"></div>
+      </section>
+    </section>
+
+    <section id="adminSection" class="profile-pane" hidden data-nosnippet>
+      <section class="card">
+        <div class="my-ads-header">
+          <h2>Admin</h2>
+          <button type="button" id="refreshAdminBtn" class="secondary">Refresh</button>
+        </div>
+        <p id="adminHint" class="hint">Site metrics and moderation. Visible to admin accounts only.</p>
+
+        <h3 class="admin-subhead">Metrics</h3>
+        <div id="adminStatsGrid" class="admin-stats-grid"></div>
+        <div id="adminBreakdowns" class="admin-breakdowns"></div>
+
+        <h3 class="admin-subhead">Reported ads</h3>
+        <p class="hint">Ads are auto-removed at <span id="adminReportThreshold">5</span> reports. Remove earlier from here (prorated Gold refunds apply automatically).</p>
+        <div id="adminReportedList"></div>
+
+        <h3 class="admin-subhead">Users</h3>
+        <div class="admin-user-search">
+          <input id="adminUserSearch" type="search" placeholder="Search username or email" autocomplete="off" />
+        </div>
+        <div id="adminUsersList"></div>
       </section>
     </section>
 
@@ -704,7 +818,7 @@
 
   <div id="toast" class="toast" hidden></div>
   <script src="/classifieds/cities.js?v=2026-05-18n"></script>
-  <script src="/classifieds/app.js?v=2026-05-22-topbar"></script>
+  <script src="/classifieds/app.js?v=2026-07-28-admin1"></script>
   <script src="/classifieds/messaging-ui.js?v=2026-05-22-profile-msg"></script>
   <script src="/assets/nav-mobile.js"></script>
 </body>
