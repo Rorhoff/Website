@@ -553,7 +553,24 @@ def classifieds_patch_me(
     if body.state is not None:
         user.state = body.state.strip()
     if body.email is not None:
-        user.email = body.email.strip()
+        new_email = body.email.strip()
+        if new_email.lower() != (user.email or "").lower():
+            # Email is a login identifier and magic-link target: enforce the
+            # case-insensitive unique index here so the user gets a clear 409
+            # instead of a 500, and drop verified status for the new address.
+            taken = db.scalars(
+                select(ClassifiedUser).where(
+                    func.lower(ClassifiedUser.email) == new_email.lower(),
+                    ClassifiedUser.id != user.id,
+                )
+            ).first()
+            if taken is not None:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="That email is already in use by another account.",
+                )
+            user.email_verified_at = None
+        user.email = new_email
     if body.phone is not None:
         user.phone = body.phone.strip()
     db.add(user)
@@ -1345,6 +1362,76 @@ def classifieds_admin_suspend_user(
         admin.username,
     )
     return {"ok": True, "id": target.id, "isSuspended": bool(target.is_suspended)}
+
+
+class AdminFlagBody(BaseModel):
+    admin: bool
+
+
+@router.post("/admin/users/{user_id}/admin")
+def classifieds_admin_set_admin_flag(
+    user_id: int,
+    body: AdminFlagBody,
+    admin: ClassifiedUser = Depends(require_classified_admin),
+    db: Session = Depends(classifieds_db),
+):
+    target = db.get(ClassifiedUser, user_id)
+    if target is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    if target.id == admin.id and not body.admin:
+        # Prevents locking every admin out of the panel by accident.
+        raise HTTPException(status_code=400, detail="You cannot remove your own admin access")
+    if body.admin and bool(getattr(target, "is_suspended", False)):
+        raise HTTPException(status_code=400, detail="Unsuspend the account before making it an admin")
+    target.is_admin = body.admin
+    db.commit()
+    log.info(
+        "admin flag %s for user=%s (%s) by=%s",
+        "granted" if body.admin else "revoked",
+        target.id,
+        target.username,
+        admin.username,
+    )
+    return {"ok": True, "id": target.id, "isAdmin": bool(target.is_admin)}
+
+
+@router.delete("/admin/users/{user_id}")
+def classifieds_admin_delete_user(
+    user_id: int,
+    admin: ClassifiedUser = Depends(require_classified_admin),
+    db: Session = Depends(classifieds_db),
+):
+    """Delete an account and its ads. Active Gold boosts get prorated refunds first."""
+    target = db.get(ClassifiedUser, user_id)
+    if target is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    if target.id == admin.id:
+        raise HTTPException(status_code=400, detail="You cannot delete your own account from the admin panel")
+    if bool(target.is_admin):
+        raise HTTPException(status_code=400, detail="Admins cannot be deleted — revoke admin first")
+
+    ads = db.scalars(select(ClassifiedAd).where(ClassifiedAd.user_id == target.id)).all()
+    refunded_cents = 0
+    for ad in ads:
+        rf_log = stripe_service.refund_prorated_gold_for_platform_removal(ad, db)
+        refunded_cents += int(rf_log.get("refund_cents") or 0)
+        db.delete(ad)
+    username = target.username
+    # Sessions, reports, conversations, messages, and reset tokens cascade via FKs.
+    db.delete(target)
+    db.commit()
+    log.info(
+        "admin deleted user=%s (%s) ads_removed=%d refunded_cents=%d by=%s",
+        user_id,
+        username,
+        len(ads),
+        refunded_cents,
+        admin.username,
+    )
+    out: dict[str, Any] = {"ok": True, "id": user_id, "adsRemoved": len(ads)}
+    if refunded_cents:
+        out["goldRefundCents"] = refunded_cents
+    return out
 
 
 import classifieds_messaging  # noqa: E402

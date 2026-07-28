@@ -1365,20 +1365,31 @@ async function renderAdminUsers(q) {
         (u.isAdmin ? '<span class="admin-badge admin">admin</span>' : "") +
         (u.isSuspended ? '<span class="admin-badge suspended">suspended</span>' : "");
       const joined = u.createdAt ? new Date(u.createdAt).toLocaleDateString() : "—";
-      // No suspend button for admins or yourself; unsuspend is always allowed.
-      const canAct = !u.isAdmin && u.username !== me?.username;
-      const action = canAct
-        ? u.isSuspended
-          ? `<button type="button" class="neutral" data-admin-suspend="${u.id}" data-suspended="false">Unsuspend</button>`
-          : `<button type="button" class="danger" data-admin-suspend="${u.id}" data-suspended="true">Suspend</button>`
-        : "";
+      const isSelf = u.username === me?.username;
+      const actions = [];
+      if (!isSelf) {
+        if (u.isAdmin) {
+          // Other admins can only be demoted (suspend/delete require that first).
+          actions.push(`<button type="button" class="neutral" data-admin-flag="${u.id}" data-make="false">Remove admin</button>`);
+        } else {
+          actions.push(
+            u.isSuspended
+              ? `<button type="button" class="neutral" data-admin-suspend="${u.id}" data-suspended="false">Unsuspend</button>`
+              : `<button type="button" class="danger" data-admin-suspend="${u.id}" data-suspended="true">Suspend</button>`
+          );
+          if (!u.isSuspended) {
+            actions.push(`<button type="button" class="neutral" data-admin-flag="${u.id}" data-make="true">Make admin</button>`);
+          }
+          actions.push(`<button type="button" class="danger" data-admin-delete="${u.id}" data-username="${escapeHTML(u.username)}" data-ads="${u.adCount}">Delete</button>`);
+        }
+      }
       return `
       <div class="admin-row">
         <div>
           <strong>${escapeHTML(u.username)}</strong>${badges}
           <div class="meta">${escapeHTML(u.email)} · ${escapeHTML(u.state || "—")} · ${u.adCount} ad${u.adCount === 1 ? "" : "s"} · joined ${joined}</div>
         </div>
-        ${action}
+        <div style="display:flex;gap:0.4rem;flex-wrap:wrap">${actions.join("")}</div>
       </div>`;
     })
     .join("");
@@ -1435,22 +1446,67 @@ document.getElementById("adminReportedList")?.addEventListener("click", async (e
 });
 
 document.getElementById("adminUsersList")?.addEventListener("click", async (event) => {
-  const btn = event.target.closest("button[data-admin-suspend]");
+  const suspendBtn = event.target.closest("button[data-admin-suspend]");
+  const flagBtn = event.target.closest("button[data-admin-flag]");
+  const deleteBtn = event.target.closest("button[data-admin-delete]");
+  const btn = suspendBtn || flagBtn || deleteBtn;
   if (!btn) return;
-  const userId = btn.dataset.adminSuspend;
-  const suspend = btn.dataset.suspended === "true";
-  if (suspend && !window.confirm("Suspend this account? They will be logged out everywhere and blocked from logging in.")) return;
+
+  let action = null;
+  if (suspendBtn) {
+    const suspend = suspendBtn.dataset.suspended === "true";
+    if (suspend && !window.confirm("Suspend this account? They will be logged out everywhere and blocked from logging in.")) return;
+    action = {
+      run: () =>
+        classifiedsApi(`/admin/users/${encodeURIComponent(suspendBtn.dataset.adminSuspend)}/suspend`, {
+          method: "POST",
+          jsonBody: { suspended: suspend },
+        }),
+      toast: () => (suspend ? "Account suspended." : "Account unsuspended."),
+    };
+  } else if (flagBtn) {
+    const make = flagBtn.dataset.make === "true";
+    const msg = make
+      ? "Make this account an admin? They will see this panel and all moderation tools."
+      : "Remove admin from this account?";
+    if (!window.confirm(msg)) return;
+    action = {
+      run: () =>
+        classifiedsApi(`/admin/users/${encodeURIComponent(flagBtn.dataset.adminFlag)}/admin`, {
+          method: "POST",
+          jsonBody: { admin: make },
+        }),
+      toast: () => (make ? "Admin access granted." : "Admin access removed."),
+    };
+  } else {
+    const username = deleteBtn.dataset.username || "this user";
+    const ads = Number(deleteBtn.dataset.ads || 0);
+    const msg =
+      `Permanently delete ${username}'s account` +
+      (ads ? ` and their ${ads} ad${ads === 1 ? "" : "s"}` : "") +
+      "? Active Gold boosts are refunded prorated. This cannot be undone.";
+    if (!window.confirm(msg)) return;
+    action = {
+      run: () =>
+        classifiedsApi(`/admin/users/${encodeURIComponent(deleteBtn.dataset.adminDelete)}`, {
+          method: "DELETE",
+        }),
+      toast: (res) =>
+        res.goldRefundCents
+          ? `Account deleted. ${res.adsRemoved} ad(s) removed, ${fmtUsd(res.goldRefundCents)} refunded.`
+          : `Account deleted.${res.adsRemoved ? ` ${res.adsRemoved} ad(s) removed.` : ""}`,
+    };
+  }
+
   btn.disabled = true;
   try {
-    await classifiedsApi(`/admin/users/${encodeURIComponent(userId)}/suspend`, {
-      method: "POST",
-      jsonBody: { suspended: suspend },
-    });
-    showToast(suspend ? "Account suspended." : "Account unsuspended.");
+    const res = await action.run();
+    showToast(action.toast(res));
     await Promise.all([
       renderAdminUsers(document.getElementById("adminUserSearch")?.value || ""),
       renderAdminStats(),
     ]);
+    if (deleteBtn) await renderAds();
   } catch (error) {
     btn.disabled = false;
     showToast(error.message || "Failed to update account.");
