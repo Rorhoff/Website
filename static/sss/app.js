@@ -7,6 +7,8 @@
 const MOBILE_SHIPS = new Set(["scout", "cruise_ship", "super_ship", "death_star"]);
 // Ships that can initiate attacks and invasions (cruise_ship is defense-only)
 const ATTACK_SHIPS = new Set(["scout", "super_ship", "death_star"]);
+// Any spacecraft that holds a hex — enemy presence closes the hex to landing (mirrors server)
+const STATIONED_SHIPS = new Set([...MOBILE_SHIPS, "battle_station", "outpost"]);
 
 const RACES = {
   vorrkai:       { name: "Vorrkai",       color: "#e74c3c" },
@@ -1781,13 +1783,13 @@ function computeFlightRoutes(hexes, fromCluster) {
 function hasFrigateSlot(hexes, cluster) {
   return hexes.some(h => h.cluster === cluster && h.type === "orbital"
     && (h.pieces ?? []).filter(p => MOBILE_SHIPS.has(p.type)).length < 3
-    && !(h.pieces ?? []).some(p => MOBILE_SHIPS.has(p.type) && p.owner !== myName));
+    && !(h.pieces ?? []).some(p => STATIONED_SHIPS.has(p.type) && p.owner !== myName));
 }
 
 function orbitalOpenForOwner(h, owner) {
   return h.type === "orbital"
     && (h.pieces ?? []).filter(p => MOBILE_SHIPS.has(p.type)).length < 3
-    && !(h.pieces ?? []).some(p => MOBILE_SHIPS.has(p.type) && p.owner !== owner);
+    && !(h.pieces ?? []).some(p => STATIONED_SHIPS.has(p.type) && p.owner !== owner);
 }
 
 // Flight: wormhole routes into a cluster with at least one open orbital (no enemy on that hex).

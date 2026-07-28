@@ -181,12 +181,15 @@ FOG_OF_WAR = False
 _MOBILE_SHIPS = frozenset({"scout", "cruise_ship", "super_ship", "death_star"})
 # Ships that can initiate attacks and invasions (cruise_ship is defense-only)
 _ATTACK_SHIPS = frozenset({"scout", "super_ship", "death_star"})
+# Any spacecraft that holds a hex: mobile ships plus stationary battle stations
+# and outposts. A hex with any enemy spacecraft on it is closed to landing/building.
+_STATIONED_SHIPS = _MOBILE_SHIPS | frozenset({"battle_station", "outpost"})
 
 
-def _hex_has_enemy_mobile(hex_dict: dict, owner: str) -> bool:
-    """True if any opponent mobile ship occupies this hex."""
+def _hex_has_enemy_ship(hex_dict: dict, owner: str) -> bool:
+    """True if any opponent spacecraft (mobile or stationed) occupies this hex."""
     return any(
-        pc.get("type") in _MOBILE_SHIPS and pc.get("owner") not in (owner, None)
+        pc.get("type") in _STATIONED_SHIPS and pc.get("owner") not in (owner, None)
         for pc in hex_dict.get("pieces", [])
     )
 
@@ -197,7 +200,7 @@ def _valid_landing_orbital(hex_dict: dict, owner: str) -> bool:
         return False
     if sum(1 for pc in hex_dict["pieces"] if pc["type"] in _MOBILE_SHIPS) >= 3:
         return False
-    if _hex_has_enemy_mobile(hex_dict, owner):
+    if _hex_has_enemy_ship(hex_dict, owner):
         return False
     return True
 
@@ -2668,7 +2671,7 @@ async def sss_ws(ws: WebSocket, game_code: str):
                         continue
                     # Same occupancy rule as landing: you cannot station a new ship on a
                     # hex an opponent's mobile ship is sitting on.
-                    if _hex_has_enemy_mobile(target_hex, player.name):
+                    if _hex_has_enemy_ship(target_hex, player.name):
                         await ws.send_json({"type": "error", "msg": "Enemy ships occupy that hex"})
                         continue
                     spacecraft_count = sum(1 for p in target_hex["pieces"] if p["type"] in _spacecraft_types)
@@ -2760,7 +2763,7 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 if req_id is not None and 0 <= req_id < len(game.board):
                     rh = game.board[req_id]
                     if rh["cluster"] == dest_cluster and rh["type"] == "orbital":
-                        if _hex_has_enemy_mobile(rh, player.name):
+                        if _hex_has_enemy_ship(rh, player.name):
                             await ws.send_json({"type": "error", "msg": "Enemy ships occupy that hex"})
                             continue
                         if sum(1 for p in rh["pieces"] if p["type"] in _MOBILE_SHIPS) >= 3:
@@ -3008,7 +3011,7 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 if req_id is not None and 0 <= req_id < len(game.board):
                     rh = game.board[req_id]
                     if rh["cluster"] == dest_cluster and rh["type"] == "orbital":
-                        if _hex_has_enemy_mobile(rh, player.name):
+                        if _hex_has_enemy_ship(rh, player.name):
                             await ws.send_json({"type": "error", "msg": "Enemy ships occupy that hex"})
                             continue
                         if sum(1 for p in rh["pieces"] if p["type"] in _MOBILE_SHIPS) >= 3:
@@ -3018,7 +3021,7 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 # If all orbitals are full, land on the wormhole entry hex so invasion can still proceed
                 if landing_hex is None:
                     wh_ships = sum(1 for p in to_hex["pieces"] if p["type"] in _MOBILE_SHIPS)
-                    if _hex_has_enemy_mobile(to_hex, player.name) or wh_ships >= 3:
+                    if _hex_has_enemy_ship(to_hex, player.name) or wh_ships >= 3:
                         await ws.send_json({
                             "type": "error",
                             "msg": "No open ship tiles in that system (full or blocked by enemy ships)",
@@ -3161,7 +3164,7 @@ async def sss_ws(ws: WebSocket, game_code: str):
                     await ws.send_json({"type": "error", "msg": "Invalid target tile"})
                     continue
                 if not _valid_landing_orbital(target_hex, player.name):
-                    if _hex_has_enemy_mobile(target_hex, player.name):
+                    if _hex_has_enemy_ship(target_hex, player.name):
                         await ws.send_json({"type": "error", "msg": "Enemy ships occupy that hex"})
                     else:
                         await ws.send_json({"type": "error", "msg": "That tile is full"})

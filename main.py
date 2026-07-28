@@ -201,6 +201,34 @@ elif not _CLASSIFIEDS_ONLY:
 _PRODUCT_HOST_DOMAINS = frozenset({"t1airevolution.com", "www.t1airevolution.com"})
 _HTML_OPEN = re.compile(r"(<html\b[^>]*)(>)", re.IGNORECASE)
 
+# --- Google Analytics (rorhoff.com only) ---
+# Injected into every HTML page served under the rorhoff.com host, so new pages
+# get tracked automatically and the tag never leaks onto the product domains.
+
+_GA_HOST_DOMAINS = frozenset({"rorhoff.com", "www.rorhoff.com"})
+_GA_MEASUREMENT_ID = "G-TSLQC5TNG1"
+_GA_SNIPPET = f"""
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id={_GA_MEASUREMENT_ID}"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){{dataLayer.push(arguments);}}
+  gtag('js', new Date());
+
+  gtag('config', '{_GA_MEASUREMENT_ID}');
+</script>"""
+_HEAD_OPEN = re.compile(r"<head\b[^>]*>", re.IGNORECASE)
+
+
+def _inject_ga_html(html: str) -> str:
+    if _GA_MEASUREMENT_ID in html:
+        return html
+    match = _HEAD_OPEN.search(html)
+    if not match:
+        return html
+    idx = match.end()
+    return html[:idx] + _GA_SNIPPET + html[idx:]
+
 
 def _request_product_host(request: Request) -> str | None:
     host = (request.headers.get("host") or "").split(":")[0].lower()
@@ -227,10 +255,13 @@ def _inject_product_host_html(html: str, host_key: str) -> str:
 
 @app.middleware("http")
 async def product_host_html_middleware(request: Request, call_next):
-    """Inject data-product-host on HTML when Host is a product domain (not rorhoff.com)."""
+    """Host-based HTML rewrites: data-product-host marker on product domains,
+    Google Analytics tag on rorhoff.com."""
     product_host = _request_product_host(request)
+    req_host = (request.headers.get("host") or "").split(":")[0].lower()
+    inject_ga = req_host in _GA_HOST_DOMAINS
     response = await call_next(request)
-    if product_host is None:
+    if product_host is None and not inject_ga:
         return response
     content_type = (response.headers.get("content-type") or "").lower()
     if "text/html" not in content_type:
@@ -246,7 +277,10 @@ async def product_host_html_middleware(request: Request, call_next):
             status_code=response.status_code,
             headers=dict(response.headers),
         )
-    html = _inject_product_host_html(html, product_host)
+    if product_host is not None:
+        html = _inject_product_host_html(html, product_host)
+    if inject_ga:
+        html = _inject_ga_html(html)
     headers = {
         k: v
         for k, v in response.headers.items()

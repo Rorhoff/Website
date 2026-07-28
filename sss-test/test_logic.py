@@ -467,6 +467,32 @@ def test_flight_move_cannot_land_on_hex_with_enemy_ships():
     assert _pick_landing_orbital(board, dest_cluster, "P0", None) is None
 
 
+def test_cannot_land_on_hex_with_enemy_battle_station():
+    """Stationary enemy spacecraft (battle stations, outposts) also close the hex."""
+    board = _build_board(2)
+    src_wh = next(h for h in board if h["wormhole"] and h["wormhole_partner"] is not None)
+    dest_cluster = board[src_wh["wormhole_partner"]]["cluster"]
+    orbitals = [h for h in board if h["cluster"] == dest_cluster and h["type"] == "orbital"]
+    assert len(orbitals) >= 2
+
+    orbitals[0]["pieces"].append({"type": "battle_station", "owner": "P1"})
+    assert not _valid_landing_orbital(orbitals[0], "P0")
+    orbitals[1]["pieces"].append({"type": "outpost", "owner": "P1"})
+    assert not _valid_landing_orbital(orbitals[1], "P0")
+
+    # Your own station never blocks you.
+    assert _valid_landing_orbital(orbitals[0], "P1")
+
+    # Even an explicit target_hex_id request must be refused and fall back elsewhere.
+    picked = _pick_landing_orbital(board, dest_cluster, "P0", orbitals[0]["id"])
+    assert picked is not None and picked["id"] not in (orbitals[0]["id"], orbitals[1]["id"])
+
+    # With every orbital station-held, there is nowhere to land at all.
+    for orb in orbitals:
+        orb["pieces"] = [{"type": "battle_station", "owner": "P1"}]
+    assert _pick_landing_orbital(board, dest_cluster, "P0", None) is None
+
+
 # ── AI economy helpers (_ai_try_build_scout / _research_skill / _construct_building) ──────────
 # Reproduces the user-reported scenario: AI's scouts all died, AI still owns its home planet,
 # AI has resources and orbital space — it should rebuild on the next turn (and also invest in
