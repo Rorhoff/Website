@@ -620,11 +620,105 @@ function drawWormholeLines(wormholeLayer, hexes, hexById) {
   }
 }
 
+// ── Race-specific ship artwork ────────────────────────────────────────────────
+// Mobile ships are drawn as actual hull silhouettes, nose-up, in a unit space of
+// roughly -6..6 and scaled per ship class. Each race gets a distinct hull shape:
+//   vorrkai       — swept-wing raptor fighter
+//   nexari        — faceted crystal shard
+//   luminae       — radiant manta / crescent
+//   thornveld     — organic thorn pod
+//   obsidian_pact — stealth batwing wedge
+//   dust_runners  — patched-together hauler with cargo pods
+const SHIP_SCALES = { scout: 0.72, cruise_ship: 0.95, super_ship: 1.3 };
+
+function drawRaceHull(add, race, color) {
+  const stroke = "rgba(255,255,255,0.55)";
+  switch (race) {
+    case "vorrkai":
+      add("polygon", { points: "1.8,-1 6,3.2 2.2,4", fill: color, opacity: "0.75", stroke, "stroke-width": "0.4" });
+      add("polygon", { points: "-1.8,-1 -6,3.2 -2.2,4", fill: color, opacity: "0.75", stroke, "stroke-width": "0.4" });
+      add("path", { d: "M0,-6 L2,0 L1.5,4.5 L-1.5,4.5 L-2,0 Z", fill: color, opacity: "0.95", stroke, "stroke-width": "0.5" });
+      add("circle", { cx: 0, cy: -2, r: 1, fill: "rgba(0,0,0,0.55)" });
+      break;
+    case "nexari":
+      add("polygon", { points: "2.6,-1 5.2,0.8 2.6,2.6", fill: color, opacity: "0.7", stroke, "stroke-width": "0.4" });
+      add("polygon", { points: "-2.6,-1 -5.2,0.8 -2.6,2.6", fill: color, opacity: "0.7", stroke, "stroke-width": "0.4" });
+      add("polygon", { points: "0,-6 2.8,-1 2,5 -2,5 -2.8,-1", fill: color, opacity: "0.95", stroke, "stroke-width": "0.5" });
+      add("line", { x1: 0, y1: -6, x2: 0, y2: 5, stroke: "rgba(255,255,255,0.45)", "stroke-width": "0.5" });
+      break;
+    case "luminae":
+      add("path", {
+        d: "M0,-6 C4,-4.5 6,0 5,4.5 C3,2.2 1.2,1.6 0,1.6 C-1.2,1.6 -3,2.2 -5,4.5 C-6,0 -4,-4.5 0,-6 Z",
+        fill: color, opacity: "0.95", stroke, "stroke-width": "0.5",
+      });
+      add("circle", { cx: 0, cy: -1.2, r: 1.4, fill: "rgba(255,255,255,0.85)" });
+      break;
+    case "thornveld":
+      add("polygon", { points: "2.6,-1.6 5.5,-2.8 3,0.4", fill: color, opacity: "0.8", stroke, "stroke-width": "0.4" });
+      add("polygon", { points: "-2.6,-1.6 -5.5,-2.8 -3,0.4", fill: color, opacity: "0.8", stroke, "stroke-width": "0.4" });
+      add("polygon", { points: "2.4,1.8 5,1.2 2.6,3.4", fill: color, opacity: "0.8", stroke, "stroke-width": "0.4" });
+      add("polygon", { points: "-2.4,1.8 -5,1.2 -2.6,3.4", fill: color, opacity: "0.8", stroke, "stroke-width": "0.4" });
+      add("path", { d: "M0,-6 C3,-4 3.4,1 2,4.6 C1,5.6 -1,5.6 -2,4.6 C-3.4,1 -3,-4 0,-6 Z", fill: color, opacity: "0.95", stroke, "stroke-width": "0.5" });
+      add("line", { x1: 0, y1: -4.5, x2: 0, y2: 4, stroke: "rgba(0,0,0,0.4)", "stroke-width": "0.6" });
+      break;
+    case "obsidian_pact":
+      add("polygon", { points: "0,-6 6,4 2.4,2.4 0,4.6 -2.4,2.4 -6,4", fill: color, opacity: "0.95", stroke, "stroke-width": "0.5" });
+      add("polygon", { points: "0,-3.6 1.1,-1 0,0.4 -1.1,-1", fill: "rgba(0,0,0,0.55)" });
+      break;
+    case "dust_runners":
+      add("rect", { x: -4.6, y: -1.8, width: 1.7, height: 3.8, rx: 0.6, fill: color, opacity: "0.75", stroke, "stroke-width": "0.4" });
+      add("rect", { x: 2.9, y: -1.8, width: 1.7, height: 3.8, rx: 0.6, fill: color, opacity: "0.75", stroke, "stroke-width": "0.4" });
+      add("polygon", { points: "-2.4,-5 2.4,-5 3,3.4 -3,3.4", fill: color, opacity: "0.95", stroke, "stroke-width": "0.5" });
+      add("line", { x1: -2.4, y1: -1, x2: 2.4, y2: -1, stroke: "rgba(0,0,0,0.4)", "stroke-width": "0.5" });
+      add("line", { x1: 0, y1: -5, x2: 0, y2: -6.6, stroke, "stroke-width": "0.5" });
+      add("circle", { cx: 0, cy: -6.8, r: 0.6, fill: color });
+      break;
+    default:
+      // Unknown/unpicked race: simple dart so the piece is still readable
+      add("polygon", { points: "0,-6 4,4.5 0,2.5 -4,4.5", fill: color, opacity: "0.95", stroke, "stroke-width": "0.5" });
+  }
+}
+
+function drawShipSprite(pieceLayer, race, type, cx, cy, color) {
+  const svgNS = "http://www.w3.org/2000/svg";
+  const g = document.createElementNS(svgNS, "g");
+  const s = SHIP_SCALES[type] ?? 1;
+  g.setAttribute("transform", `translate(${cx},${cy}) scale(${s})`);
+  const add = (tag, attrs) => {
+    const el = document.createElementNS(svgNS, tag);
+    for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+    g.appendChild(el);
+    return el;
+  };
+
+  // Engine glow behind the hull (all mobile ships)
+  if (type === "super_ship") {
+    add("circle", { cx: -1.6, cy: 5.6, r: 1.1, fill: "#ffd27a", opacity: "0.9" });
+    add("circle", { cx: 1.6, cy: 5.6, r: 1.1, fill: "#ffd27a", opacity: "0.9" });
+  } else {
+    add("circle", { cx: 0, cy: 5.4, r: 1, fill: "#ffd27a", opacity: "0.85" });
+  }
+
+  drawRaceHull(add, race, color);
+
+  if (type === "cruise_ship") {
+    // Defense-only escort: bow shield arc
+    add("path", { d: "M-4.6,-4.6 Q0,-8.4 4.6,-4.6", fill: "none", stroke: "#7dd3fc", "stroke-width": "0.8", opacity: "0.9" });
+  } else if (type === "super_ship") {
+    // Capital ship: command halo
+    add("circle", { cx: 0, cy: 0, r: 7, fill: "none", stroke: color, "stroke-width": "0.5", opacity: "0.5", "stroke-dasharray": "2 1.5" });
+  }
+
+  pieceLayer.appendChild(g);
+}
+
 function drawBoardPieces(pieceLayer, hexes, players) {
   const svgNS = "http://www.w3.org/2000/svg";
   const colorByOwner = {};
+  const raceByOwner = {};
   for (const p of (players ?? [])) {
     if (p.name && p.color) colorByOwner[p.name] = p.color;
+    if (p.name && p.race) raceByOwner[p.name] = p.race;
   }
   colorByOwner["neutral"] = "#64748b";
 
@@ -673,23 +767,15 @@ function drawBoardPieces(pieceLayer, hexes, players) {
     const baseY  = h.y + 3;
     let xCursor  = h.x - totalW / 2;
 
-    // Frigates: 2-row × 3-column grid of circles per piece
+    // Scouts: one race-specific hull sprite per piece
     frigates.forEach((piece) => {
       const c  = colorByOwner[piece.owner] ?? "#888";
       const cx = xCursor + frigateSlotW / 2;
       xCursor += frigateSlotW;
-      for (const yOff of [-2.5, 2.5]) {
-        for (const xOff of [-5, 0, 5]) {
-          pieceLayer.appendChild(mk("circle", {
-            cx: cx + xOff, cy: baseY + yOff, r: "2",
-            fill: c, opacity: "0.85",
-            stroke: "rgba(255,255,255,0.4)", "stroke-width": "0.6",
-          }));
-        }
-      }
+      drawShipSprite(pieceLayer, raceByOwner[piece.owner], "scout", cx, baseY, c);
     });
 
-    // Other pieces: circle or square, one per slot
+    // Other pieces: race-specific sprites for mobile ships, structures otherwise
     others.forEach((piece) => {
       const c  = colorByOwner[piece.owner] ?? "#888";
       const cx = xCursor + otherSlotW / 2;
@@ -697,26 +783,30 @@ function drawBoardPieces(pieceLayer, hexes, players) {
       xCursor += otherSlotW;
 
       if (piece.type === "battle_station") {
-        pieceLayer.appendChild(mk("circle", { cx, cy, r: "7", fill: c, opacity: "0.85", stroke: "rgba(255,255,255,0.4)", "stroke-width": "0.8" }));
-        pieceLayer.appendChild(mk("line", { x1: cx - 3.5, y1: cy, x2: cx + 3.5, y2: cy, stroke: "rgba(0,0,0,0.5)", "stroke-width": "1.5" }));
-        pieceLayer.appendChild(mk("line", { x1: cx, y1: cy - 3.5, x2: cx, y2: cy + 3.5, stroke: "rgba(0,0,0,0.5)", "stroke-width": "1.5" }));
+        // Hexagonal station: ring, core, and docking spokes
+        const pts = [];
+        for (let i = 0; i < 6; i++) {
+          const a = Math.PI / 3 * i - Math.PI / 6;
+          pts.push(`${(cx + 7 * Math.cos(a)).toFixed(1)},${(cy + 7 * Math.sin(a)).toFixed(1)}`);
+        }
+        pieceLayer.appendChild(mk("polygon", { points: pts.join(" "), fill: c, opacity: "0.85", stroke: "rgba(255,255,255,0.5)", "stroke-width": "0.8" }));
+        pieceLayer.appendChild(mk("circle", { cx, cy, r: "3", fill: "rgba(0,0,0,0.45)", stroke: "rgba(255,255,255,0.4)", "stroke-width": "0.5" }));
+        for (const [dx, dy] of [[-5.2, 0], [5.2, 0], [0, -5.2], [0, 5.2]]) {
+          pieceLayer.appendChild(mk("line", { x1: cx + dx * 0.55, y1: cy + dy * 0.55, x2: cx + dx, y2: cy + dy, stroke: "rgba(0,0,0,0.5)", "stroke-width": "1.2" }));
+        }
       } else if (piece.type === "death_star") {
-        // Diamond + inner circle
-        pieceLayer.appendChild(mk("polygon", { points: `${cx},${cy-8} ${cx+8},${cy} ${cx},${cy+8} ${cx-8},${cy}`, fill: c, opacity: "0.9", stroke: "#fff", "stroke-width": "0.8" }));
-        pieceLayer.appendChild(mk("circle", { cx, cy, r: "3", fill: "rgba(0,0,0,0.5)" }));
-      } else if (piece.type === "super_ship") {
-        pieceLayer.appendChild(mk("circle", { cx, cy, r: "6.5", fill: c, opacity: "0.9", stroke: "#fff", "stroke-width": "1" }));
-        const sLabel = document.createElementNS("http://www.w3.org/2000/svg", "text");
-        sLabel.setAttribute("x", cx); sLabel.setAttribute("y", cy + 2.5);
-        sLabel.setAttribute("text-anchor", "middle"); sLabel.setAttribute("font-size", "6");
-        sLabel.setAttribute("fill", "#000"); sLabel.setAttribute("pointer-events", "none");
-        sLabel.textContent = "S";
-        pieceLayer.appendChild(sLabel);
-      } else if (piece.type === "cruise_ship") {
-        pieceLayer.appendChild(mk("rect", { x: cx - 5, y: cy - 3.5, width: "10", height: "7", rx: "3", fill: c, opacity: "0.9", stroke: "rgba(255,255,255,0.4)", "stroke-width": "0.7" }));
+        // Moon-sized battle sphere: dark body, race-tinted trench and superlaser dish
+        pieceLayer.appendChild(mk("circle", { cx, cy, r: "8", fill: "#3f4652", opacity: "0.95", stroke: c, "stroke-width": "1" }));
+        pieceLayer.appendChild(mk("line", { x1: cx - 8, y1: cy + 2, x2: cx + 8, y2: cy + 2, stroke: c, "stroke-width": "0.8", opacity: "0.8" }));
+        pieceLayer.appendChild(mk("circle", { cx: cx - 2.8, cy: cy - 2.8, r: "2.4", fill: "rgba(0,0,0,0.6)", stroke: c, "stroke-width": "0.6" }));
+        pieceLayer.appendChild(mk("circle", { cx: cx - 2.8, cy: cy - 2.8, r: "0.8", fill: c, opacity: "0.9" }));
+      } else if (piece.type === "super_ship" || piece.type === "cruise_ship") {
+        drawShipSprite(pieceLayer, raceByOwner[piece.owner], piece.type, cx, cy, c);
       } else if (piece.type === "outpost") {
-        // Triangle
-        pieceLayer.appendChild(mk("polygon", { points: `${cx},${cy-6} ${cx+5.5},${cy+3.5} ${cx-5.5},${cy+3.5}`, fill: c, opacity: "0.9", stroke: "rgba(255,255,255,0.5)", "stroke-width": "0.8" }));
+        // Ground outpost: dome + antenna
+        pieceLayer.appendChild(mk("path", { d: `M${cx - 5},${cy + 3.5} A5,5 0 0 1 ${cx + 5},${cy + 3.5} Z`, fill: c, opacity: "0.9", stroke: "rgba(255,255,255,0.5)", "stroke-width": "0.8" }));
+        pieceLayer.appendChild(mk("line", { x1: cx, y1: cy - 1.5, x2: cx, y2: cy - 6, stroke: "rgba(255,255,255,0.6)", "stroke-width": "0.7" }));
+        pieceLayer.appendChild(mk("circle", { cx, cy: cy - 6.5, r: "1", fill: c, stroke: "rgba(255,255,255,0.5)", "stroke-width": "0.4" }));
       } else {
         pieceLayer.appendChild(mk("circle", { cx, cy, r: "4.5", fill: c, opacity: "0.85", stroke: "rgba(255,255,255,0.4)", "stroke-width": "0.8" }));
       }

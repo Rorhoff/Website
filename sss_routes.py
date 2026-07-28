@@ -1438,15 +1438,17 @@ async def _ai_board_action(game: Game, ai_name: str) -> None:
     my_clusters: set[int] = set()
     for h in game.board:
         for pc in h["pieces"]:
-            if pc.get("owner") == ai_name and pc["type"] in ("empire_flag", "battle_station", "scout"):
+            if pc.get("owner") == ai_name and (
+                pc["type"] in ("empire_flag", "battle_station") or pc["type"] in _MOBILE_SHIPS
+            ):
                 my_clusters.add(h["cluster"])
 
-    # Clusters the AI has at least one scout in
+    # Clusters the AI has at least one attack-capable ship in (these can fly out)
     clusters_with_scouts: set[int] = {
         h["cluster"]
         for h in game.board
         for pc in h["pieces"]
-        if pc["type"] == "scout" and pc["owner"] == ai_name
+        if pc["type"] in _ATTACK_SHIPS and pc["owner"] == ai_name
     }
 
     # Find wormhole routes from AI clusters where AI has a scout anywhere in the cluster
@@ -1470,8 +1472,11 @@ async def _ai_board_action(game: Game, ai_name: str) -> None:
 
     # Split into attack vs unclaimed expand
     def has_enemy_frigates(cluster: int) -> bool:
+        # All mobile ship types count — an enemy super ship is a bigger threat
+        # than a scout, and ignoring it made the old AI blunder into fortified
+        # clusters thinking they were unclaimed.
         return any(
-            pc["type"] == "scout" and pc["owner"] != ai_name
+            pc["type"] in _MOBILE_SHIPS and pc.get("owner") not in (ai_name, None, "neutral")
             for dh in game.board if dh["cluster"] == cluster
             for pc in dh["pieces"]
         )
@@ -1503,7 +1508,7 @@ async def _ai_board_action(game: Game, ai_name: str) -> None:
             continue
         my_frigates = [
             pc for dh in game.board if dh["cluster"] == h["cluster"]
-            for pc in dh["pieces"] if pc["type"] == "scout" and pc["owner"] == ai_name
+            for pc in dh["pieces"] if pc["type"] in _ATTACK_SHIPS and pc["owner"] == ai_name
         ]
         if not my_frigates:
             continue
@@ -1515,9 +1520,12 @@ async def _ai_board_action(game: Game, ai_name: str) -> None:
         if _inv_tech:
             ai_p.tech_cards.remove(_inv_tech)
             num_dice += 1
+        _inv_phys = ai_p.tech.get("physics", [])
+        if len(_inv_phys) > 2 and _inv_phys[2]: num_dice += 1  # Lv3 Plasma Cannons
+        if len(_inv_phys) > 4 and _inv_phys[4]: num_dice += 1  # Lv5 Antimatter Weapons
         atk_dice = [random.randint(1, _inv_die) for _ in range(num_dice)]
         atk_total = sum(atk_dice)
-        planet_dice = _planet_def_dice(game, ai_name, planet)
+        planet_dice = _planet_def_dice(game, ai_name, planet, ai_p.tech.get("government", []))
         planet_total = sum(planet_dice)
         # Death Spores: drain 5 food from the defending player regardless of outcome
         if _inv_tech == "death_spores":
@@ -1547,9 +1555,10 @@ async def _ai_board_action(game: Game, ai_name: str) -> None:
             for _k in ("food", "science", "tool", "money"):
                 ai_p.income[_k] = ai_p.income.get(_k, 0) + planet.get(_k, 0)
         else:
+            # Same penalty as a human direct invasion: all mobile ships in the cluster are lost.
             for dh in game.board:
                 if dh["cluster"] == cluster:
-                    dh["pieces"] = [pc for pc in dh["pieces"] if not (pc["type"] == "scout" and pc["owner"] == ai_name)]
+                    dh["pieces"] = [pc for pc in dh["pieces"] if not (pc["type"] in _MOBILE_SHIPS and pc["owner"] == ai_name)]
             game.ai_invasion_failures.setdefault(ai_name, set()).add(cluster)
         if won:
             ai_p.invasions_won += 1
@@ -1574,9 +1583,18 @@ async def _ai_board_action(game: Game, ai_name: str) -> None:
         })
         return
 
-    # 2. Expand to unclaimed cluster
+    # 2. Expand to unclaimed cluster — prefer valuable systems (VP planets, then
+    #    richer income planets) instead of picking blindly.
     if plain_expand:
-        r = random.choice(plain_expand)
+        def _dest_value(route: dict) -> tuple:
+            core = next(
+                (h for h in game.board if h["cluster"] == route["dest_cluster"] and h.get("local") == 0),
+                None,
+            )
+            planet = (core or {}).get("planet") or {}
+            income = sum(planet.get(k, 0) for k in ("food", "science", "tool", "money"))
+            return (planet.get("vp", 0), income, random.random())
+        r = max(plain_expand, key=_dest_value)
         _ai_do_flight(game, ai_name, r["from_wh"], r["to_wh"])
         _use_action(game)
         await _flush_eliminations(game)
@@ -1585,34 +1603,63 @@ async def _ai_board_action(game: Game, ai_name: str) -> None:
         await game.broadcast({"type": "game_state", **state})
         return
 
-    # 3. Attack enemy cluster
+    # 3. Attack enemy cluster — pick the least-defended target and use the same
+    #    combat math as human battles (all ship types, cruise ships defend on d12,
+    #    physics tech adds attack dice).
     if attack_routes:
-        r = random.choice(attack_routes)
+        def _defense_strength(route: dict) -> int:
+            total = 0
+            for dh in game.board:
+                if dh["cluster"] != route["dest_cluster"]:
+                    continue
+                for pc in dh["pieces"]:
+                    if pc["type"] in _MOBILE_SHIPS and pc.get("owner") not in (ai_name, None, "neutral"):
+                        total += 2 if pc["type"] == "cruise_ship" else 1
+            return total
+        r = min(attack_routes, key=lambda rt: (_defense_strength(rt), random.random()))
         moved = _ai_do_flight(game, ai_name, r["from_wh"], r["to_wh"])
         if moved:
             dest_cluster = r["dest_cluster"]
             enemy_frigates = [
-                {"owner": pc["owner"], "hex_id": dh["id"]}
+                {"owner": pc["owner"], "hex_id": dh["id"], "type": pc["type"]}
                 for dh in game.board if dh["cluster"] == dest_cluster
-                for pc in dh["pieces"] if pc["type"] == "scout" and pc["owner"] != ai_name
+                for pc in dh["pieces"]
+                if pc["type"] in _MOBILE_SHIPS and pc.get("owner") not in (ai_name, None, "neutral")
             ]
             if enemy_frigates:
                 defender_name = enemy_frigates[0]["owner"]
                 atk_count = sum(
                     1 for dh in game.board if dh["cluster"] == dest_cluster
-                    for pc in dh["pieces"] if pc["type"] == "scout" and pc["owner"] == ai_name
+                    for pc in dh["pieces"] if pc["type"] in _ATTACK_SHIPS and pc["owner"] == ai_name
                 )
-                def_count = sum(1 for ef in enemy_frigates if ef["owner"] == defender_name)
+                def_count = sum(
+                    1 for ef in enemy_frigates
+                    if ef["owner"] == defender_name and ef["type"] != "cruise_ship"
+                )
+                def_cruise_count = sum(
+                    1 for ef in enemy_frigates
+                    if ef["owner"] == defender_name and ef["type"] == "cruise_ship"
+                )
                 if "nuclear_missile" in ai_p.tech_cards:
                     ai_p.tech_cards.remove("nuclear_missile")
                     atk_count += 1
+                _atk_phys = ai_p.tech.get("physics", [])
+                if len(_atk_phys) > 0 and _atk_phys[0]: atk_count += 1  # Lv1 Ballistics
+                if len(_atk_phys) > 2 and _atk_phys[2]: atk_count += 1  # Lv3 Plasma Cannons
+                if len(_atk_phys) > 4 and _atk_phys[4]: atk_count += 1  # Lv5 Antimatter Weapons
                 atk_dice = [random.randint(1, 6) for _ in range(max(1, atk_count))]
                 _def_p = game.players.get(defender_name)
                 _def_nm_idx = next((i for i, c in enumerate((_def_p.tech_cards if _def_p else [])) if c == "nuclear_missile"), None)
                 if _def_nm_idx is not None:
                     _def_p.tech_cards.pop(_def_nm_idx)
                     def_count += 1
-                def_dice = [random.randint(1, 6) for _ in range(max(1, def_count))]
+                _def_phys = (_def_p.tech.get("physics", []) if _def_p else [])
+                if len(_def_phys) > 1 and _def_phys[1]: def_count += 1  # Lv2 Deflector Shields
+                if len(_def_phys) > 3 and _def_phys[3]: def_count += 1  # Lv4 Shield Harmonics
+                def_dice = (
+                    [random.randint(1, 6)  for _ in range(max(1, def_count))] +
+                    [random.randint(1, 12) for _ in range(def_cruise_count)]
+                )
                 atk_total = sum(atk_dice)
                 def_total = sum(def_dice)
                 attacker_won = atk_total > def_total
@@ -1620,7 +1667,7 @@ async def _ai_board_action(game: Game, ai_name: str) -> None:
                 if attacker_won:
                     t_hex = game.board[target_hex_id]
                     for i, pc in enumerate(t_hex["pieces"]):
-                        if pc["type"] == "scout" and pc["owner"] == defender_name:
+                        if pc["type"] in _MOBILE_SHIPS and pc["owner"] == defender_name:
                             t_hex["pieces"].pop(i)
                             break
                 else:
@@ -1628,7 +1675,7 @@ async def _ai_board_action(game: Game, ai_name: str) -> None:
                         if dh["cluster"] != dest_cluster:
                             continue
                         for i, pc in enumerate(dh["pieces"]):
-                            if pc["type"] == "scout" and pc["owner"] == ai_name:
+                            if pc["type"] in _MOBILE_SHIPS and pc["owner"] == ai_name:
                                 dh["pieces"].pop(i)
                                 break
                         else:
@@ -1665,7 +1712,7 @@ async def _ai_board_action(game: Game, ai_name: str) -> None:
     # tree, buildings) so it stays competitive across long games.
     ai_scout_count = sum(
         1 for h in game.board for pc in h["pieces"]
-        if pc["type"] == "scout" and pc["owner"] == ai_name
+        if pc["type"] in _ATTACK_SHIPS and pc["owner"] == ai_name
     )
 
     if ai_scout_count == 0 and _ai_try_build_scout(game, ai_p, ai_name):
@@ -1714,7 +1761,11 @@ async def _ai_board_action(game: Game, ai_name: str) -> None:
 
 
 def _ai_do_flight(game: Game, ai_name: str, from_wh: int, to_wh: int) -> bool:
-    """Move all available AI frigates via wormhole (up to landing cap). Returns True if at least one moved."""
+    """Move all available AI attack ships via wormhole (up to landing cap). Returns True if at least one moved.
+
+    Cruise ships are deliberately left behind — they are defense-only, so they
+    hold the home system while scouts and super ships project outward.
+    """
     from_hex = game.board[from_wh]
     to_hex = game.board[to_wh]
     from_cluster = from_hex["cluster"]
@@ -1729,7 +1780,7 @@ def _ai_do_flight(game: Game, ai_name: str, from_wh: int, to_wh: int) -> bool:
             if h["cluster"] != from_cluster:
                 continue
             for i, pc in enumerate(h["pieces"]):
-                if pc["type"] == "scout" and pc["owner"] == ai_name:
+                if pc["type"] in _ATTACK_SHIPS and pc["owner"] == ai_name:
                     moved_piece = h["pieces"].pop(i)
                     break
             if moved_piece:
@@ -1749,37 +1800,90 @@ def _ai_do_flight(game: Game, ai_name: str, from_wh: int, to_wh: int) -> bool:
 # These mirror the human action handlers in build_piece / research_skill but with simple
 # heuristics. Each returns True if it consumed the AI's action.
 
-def _ai_try_build_scout(game: "Game", ai_p: "Player", ai_name: str) -> bool:
-    """Build one scout in an open orbital of the AI's home cluster (human cost + tech)."""
+def _ai_build_ship_at_home(game: "Game", ai_p: "Player", ai_name: str, ship_type: str) -> bool:
+    """Build one ship in an open home orbital (same costs as the human build handler).
+
+    Uses _valid_landing_orbital so the AI obeys the same occupancy rules as
+    everyone else: capacity cap and never stacking onto an enemy-held hex.
+    """
     if _player_planet_count(game, ai_name) == 0:
         return False
     sys_cluster = game.player_system.get(ai_name)
     if sys_cluster is None:
         return False
+    if ai_p.pieces.get(ship_type, 0) <= 0:
+        return False
     avail_orbs = [
         h for h in game.board
-        if h["cluster"] == sys_cluster and h["type"] == "orbital"
-        and sum(1 for pc in h["pieces"] if pc["type"] == "scout") < 3
+        if h["cluster"] == sys_cluster and _valid_landing_orbital(h, ai_name)
     ]
     if not avail_orbs:
         return False
+    costs = {
+        "scout":      {"money": 10, "tool": 2},
+        "cruise_ship": {"money": 10, "tool": 0},
+        "super_ship": {"money": 50, "tool": 8},
+    }.get(ship_type)
+    if costs is None:
+        return False
+    money_cost = costs["money"]
+    tool_cost = costs["tool"]
     _eng = ai_p.tech.get("engineering", [])
-    money_cost = 10
-    tool_cost  = 2
     if len(_eng) > 1 and _eng[1]: money_cost = max(1, money_cost - 2)  # Lv2 Shipyard Optimization
     if len(_eng) > 2 and _eng[2]: tool_cost  = max(0, tool_cost  - 1)  # Lv3 Advanced Metallurgy
     if ai_p.resources.get("money", 0) < money_cost:
         return False
-    if ai_p.resources.get("tool", 0)  < tool_cost:
+    if ai_p.resources.get("tool", 0) < tool_cost:
         return False
     chosen = random.choice(avail_orbs)
-    chosen["pieces"].append({"type": "scout", "owner": ai_name})
+    chosen["pieces"].append({"type": ship_type, "owner": ai_name})
     ai_p.resources["money"] = ai_p.resources.get("money", 0) - money_cost
     if tool_cost:
         ai_p.resources["tool"] = ai_p.resources.get("tool", 0) - tool_cost
-    ai_p.pieces["scout"] = ai_p.pieces.get("scout", 0) - 1
-    ai_p.ships_built["scout"] = ai_p.ships_built.get("scout", 0) + 1
+    ai_p.pieces[ship_type] = ai_p.pieces.get(ship_type, 0) - 1
+    ai_p.ships_built[ship_type] = ai_p.ships_built.get(ship_type, 0) + 1
     return True
+
+
+def _ai_home_threatened(game: "Game", ai_name: str) -> bool:
+    """True if enemy mobile ships sit in the AI's home cluster or one wormhole jump away."""
+    sys_cluster = game.player_system.get(ai_name)
+    if sys_cluster is None:
+        return False
+    nearby = {sys_cluster}
+    for h in game.board:
+        if h["cluster"] == sys_cluster and h.get("wormhole_partner") is not None:
+            nearby.add(game.board[h["wormhole_partner"]]["cluster"])
+    return any(
+        pc["type"] in _MOBILE_SHIPS and pc.get("owner") not in (ai_name, None, "neutral")
+        for h in game.board if h["cluster"] in nearby
+        for pc in h["pieces"]
+    )
+
+
+def _ai_try_build_scout(game: "Game", ai_p: "Player", ai_name: str) -> bool:
+    """Build the best ship for the situation, falling back to a scout.
+
+    - Home threatened and under-defended -> cruise ship (defense-only, rolls d12).
+    - Rich (war chest beyond a super ship's cost) -> super ship for attack punch.
+    - Otherwise -> scout, the workhorse.
+    """
+    sys_cluster = game.player_system.get(ai_name)
+    if sys_cluster is not None and _ai_home_threatened(game, ai_name):
+        home_cruise = sum(
+            1 for h in game.board if h["cluster"] == sys_cluster
+            for pc in h["pieces"]
+            if pc["type"] == "cruise_ship" and pc["owner"] == ai_name
+        )
+        if home_cruise < 2 and _ai_build_ship_at_home(game, ai_p, ai_name, "cruise_ship"):
+            return True
+    if (
+        ai_p.resources.get("money", 0) >= 65
+        and ai_p.resources.get("tool", 0) >= 10
+        and _ai_build_ship_at_home(game, ai_p, ai_name, "super_ship")
+    ):
+        return True
+    return _ai_build_ship_at_home(game, ai_p, ai_name, "scout")
 
 
 # Skill columns ranked by AI value: income-producing first, then VP/combat-flavored.
@@ -2561,6 +2665,11 @@ async def sss_ws(ws: WebSocket, game_code: str):
                 else:
                     if target_hex["type"] != "orbital":
                         await ws.send_json({"type": "error", "msg": "Spacecraft must be placed on an orbital hex"})
+                        continue
+                    # Same occupancy rule as landing: you cannot station a new ship on a
+                    # hex an opponent's mobile ship is sitting on.
+                    if _hex_has_enemy_mobile(target_hex, player.name):
+                        await ws.send_json({"type": "error", "msg": "Enemy ships occupy that hex"})
                         continue
                     spacecraft_count = sum(1 for p in target_hex["pieces"] if p["type"] in _spacecraft_types)
                     _orb_cap = 4 if (len(_eng) > 4 and _eng[4]) else 3  # Lv5 Orbital Expansion
