@@ -76,7 +76,9 @@ def test_submit_event_and_dedupe(client, db_session, monkeypatch):
     token, profile = register_user(client, gender="woman", looking_for="men", username="submitter")
     set_user_city_coords(db_session, profile["id"], *PORTLAND, city="Portland")
 
-    def fake_geocode(city: str):
+    def fake_geocode(city: str, **_kwargs):
+        # geocode_city takes near_lat/near_lng keyword args since the
+        # city-biased geocoding change; the stub must accept them.
         return PORTLAND
 
     monkeypatch.setattr("t1inthewild_routes.itw_geocode.geocode_city", fake_geocode)
@@ -112,7 +114,9 @@ def test_submit_event_accepts_browser_utc_iso(client, db_session, monkeypatch):
     token, profile = register_user(client, gender="woman", looking_for="men", username="utciso")
     set_user_city_coords(db_session, profile["id"], *PORTLAND, city="Portland")
 
-    monkeypatch.setattr("t1inthewild_routes.itw_geocode.geocode_city", lambda _city: PORTLAND)
+    monkeypatch.setattr(
+        "t1inthewild_routes.itw_geocode.geocode_city", lambda _city, **_kw: PORTLAND
+    )
 
     now = datetime.utcnow()
     body = {

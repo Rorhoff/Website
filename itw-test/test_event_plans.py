@@ -6,7 +6,13 @@ import os
 
 import pytest
 
-from conftest import auth_headers, register_user, seed_dev_lounge_event, seed_future_event
+from conftest import (
+    auth_headers,
+    register_user,
+    seed_dev_lounge_event,
+    seed_future_event,
+    set_user_city_coords,
+)
 
 pytestmark = [
     pytest.mark.skipif(
@@ -36,8 +42,13 @@ def _mutual_like(client, token_a, profile_a_id, token_b, profile_b_id) -> None:
 
 
 def test_add_remove_event_plan(client, db_session):
-    token, _profile = register_user(client, gender="man", looking_for="women", username="planner")
+    token, profile = register_user(client, gender="man", looking_for="women", username="planner")
     event = seed_future_event(db_session, name="Jazz Night")
+    # Event discovery is city-scoped now: without profile coords near the
+    # seeded event (Salt Lake City), /events drops it once the plan is removed.
+    set_user_city_coords(
+        db_session, profile["id"], 40.7608, -111.8910, city="Salt Lake City"
+    )
 
     add = client.post(
         f"/api/in-the-wild/events/{event['id']}/plan",
