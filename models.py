@@ -175,8 +175,9 @@ class ClassifiedAdReport(Base):
     route just runs ``SELECT count(*) FROM classified_ad_report WHERE ad_id = ?``
     to decide when to auto-remove the listing.
 
-    Reports are kept on disk even after the ad is removed so we have an audit
-    trail of who flagged what. They're not exposed in any UI today.
+    Report rows cascade away with the ad (FK below), so the delete paths in
+    classifieds_routes.py snapshot them into ClassifiedDeletionArchive first —
+    that archive is the durable audit trail of who flagged what.
     """
 
     __tablename__ = "classified_ad_report"
@@ -296,6 +297,35 @@ class ClassifiedMessage(Base):
     __table_args__ = (
         Index("ix_message_conversation_created", "conversation_id", "created_at"),
     )
+
+
+class ClassifiedDeletionArchive(Base):
+    """Point-in-time snapshot written just before a hard delete would cascade
+    conversations/messages/reports away (ad removal or account deletion).
+
+    Retention for legal/audit requests (e.g. subpoenas). Rows carry no foreign
+    keys, so they survive any later user/ad deletion. ``kind`` is either
+    "conversation" (payload = ordered message list) or "ad_reports" (payload =
+    reporter list). Not exposed in any UI — query via SQL when needed.
+    """
+
+    __tablename__ = "classified_deletion_archive"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    kind: Mapped[str] = mapped_column(String(24), index=True)
+    # What triggered the delete: seller_delete / report_auto_remove /
+    # admin_remove_ad / admin_delete_user.
+    reason: Mapped[str] = mapped_column(String(32))
+    conversation_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    listing_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    listing_title: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    buyer_user_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    seller_user_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    # {"buyer": {"id", "username", "email"}, "seller": {...}} — identities frozen
+    # at archive time since the user rows may be about to disappear.
+    participants: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    payload: Mapped[list[Any] | None] = mapped_column(JSONB, nullable=True)
+    archived_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
 class ClassifiedMagicLinkToken(Base):

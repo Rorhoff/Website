@@ -18,6 +18,8 @@ import logging
 import os
 import re
 import secrets
+import threading
+import time
 import uuid
 from datetime import datetime, timedelta
 from typing import Annotated, Any
@@ -41,6 +43,7 @@ from models import (
     ClassifiedAdReport,
     ClassifiedBlockedSignature,
     ClassifiedConversation,
+    ClassifiedDeletionArchive,
     ClassifiedGoldRefundEvent,
     ClassifiedMessage,
     ClassifiedPasswordResetToken,
@@ -72,6 +75,11 @@ def _verify_password(plain: str, password_hash: str) -> bool:
         return bcrypt_hasher.verify(truncate_for_bcrypt(plain), password_hash)
     except ValueError:
         return False
+
+
+# Verified against on login when the account doesn't exist, so unknown and known
+# usernames take the same time to reject (no account-enumeration timing oracle).
+_DUMMY_PASSWORD_HASH = bcrypt_hasher.hash(secrets.token_urlsafe(24))
 
 
 def _validate_password_strength(password: str) -> None:
@@ -423,9 +431,64 @@ def classifieds_register(body: RegisterBody, db: Session = Depends(classifieds_d
     return {"token": token, "user": _user_out(user)}
 
 
+# --- Login brute-force throttle -----------------------------------------------
+# In-memory sliding window (per process — fine for a single-instance service).
+# Two buckets: per-account so one target can't be hammered from many IPs, and a
+# looser per-IP cap so a single box can't spray many accounts. Only *failed*
+# attempts count; a successful login clears the account bucket.
+
+_LOGIN_WINDOW_SECONDS = 15 * 60
+_LOGIN_MAX_FAILURES_PER_ACCOUNT = 10
+_LOGIN_MAX_FAILURES_PER_IP = 30
+_login_failures: dict[str, list[float]] = {}
+_login_failures_lock = threading.Lock()
+
+
+def _client_ip(request: Request) -> str:
+    forwarded = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
+    if forwarded:
+        return forwarded
+    return request.client.host if request.client else "unknown"
+
+
+def _login_blocked(key: str, limit: int) -> bool:
+    cutoff = time.monotonic() - _LOGIN_WINDOW_SECONDS
+    with _login_failures_lock:
+        attempts = [t for t in _login_failures.get(key, []) if t > cutoff]
+        if attempts:
+            _login_failures[key] = attempts
+        else:
+            _login_failures.pop(key, None)
+        return len(attempts) >= limit
+
+
+def _login_record_failure(*keys: str) -> None:
+    now = time.monotonic()
+    with _login_failures_lock:
+        for key in keys:
+            _login_failures.setdefault(key, []).append(now)
+
+
+def _login_clear_failures(key: str) -> None:
+    with _login_failures_lock:
+        _login_failures.pop(key, None)
+
+
+_LOGIN_THROTTLE_MSG = "Too many failed login attempts. Please wait 15 minutes and try again."
+
+
 @router.post("/login")
-def classifieds_login(body: LoginBody, db: Session = Depends(classifieds_db)):
+def classifieds_login(body: LoginBody, request: Request, db: Session = Depends(classifieds_db)):
     identifier = body.username.strip().lower()
+    ip_key = f"ip:{_client_ip(request)}"
+    acct_key = f"acct:{identifier}"
+    if _login_blocked(acct_key, _LOGIN_MAX_FAILURES_PER_ACCOUNT) or _login_blocked(
+        ip_key, _LOGIN_MAX_FAILURES_PER_IP
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=_LOGIN_THROTTLE_MSG,
+        )
     user = db.scalars(
         select(ClassifiedUser).where(ClassifiedUser.username == identifier)
     ).first()
@@ -436,11 +499,16 @@ def classifieds_login(body: LoginBody, db: Session = Depends(classifieds_db)):
             select(ClassifiedUser).where(func.lower(ClassifiedUser.email) == identifier)
         ).first()
     if user is None or not user.password_hash:
+        # Burn a bcrypt verify even when the account doesn't exist so response
+        # timing doesn't reveal whether an email/username is registered.
+        _verify_password(body.password, _DUMMY_PASSWORD_HASH)
+        _login_record_failure(acct_key, ip_key)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email/username or password.",
         )
     if not _verify_password(body.password, user.password_hash):
+        _login_record_failure(acct_key, ip_key)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email/username or password.",
@@ -450,6 +518,7 @@ def classifieds_login(body: LoginBody, db: Session = Depends(classifieds_db)):
             status_code=status.HTTP_403_FORBIDDEN,
             detail="This account has been suspended.",
         )
+    _login_clear_failures(acct_key)
     token = _create_session(db, user.id)
     return {"token": token, "user": _user_out(user)}
 
@@ -741,11 +810,30 @@ async def classifieds_gold_webhook(
     except (KeyError, TypeError):
         event_id = "<unknown>"
     try:
-        ad_id = stripe_service.apply_completed_checkout(db, event)
+        event_type = event["type"]
+    except (KeyError, TypeError):
+        event_type = ""
+    if event_type != "checkout.session.completed":
+        # Not a payment confirmation — acknowledge so Stripe stops resending it.
+        return {"ok": True, "adId": None, "ignored": event_type or "<no type>"}
+    # The checkout Session lives at event.data.object — the Event itself has no
+    # metadata, so passing it straight through would silently skip activation.
+    try:
+        checkout_session = event["data"]["object"]
+    except (KeyError, TypeError):
+        log.error("Stripe webhook event=%s has no data.object payload", event_id)
+        raise HTTPException(status_code=400, detail="Malformed webhook event.")
+    try:
+        ad_id = stripe_service.apply_completed_checkout(db, checkout_session)
     except Exception:
         # 500 makes Stripe retry. Don't swallow — gold activation is the whole point.
         log.exception("Stripe webhook application failed for event=%s", event_id)
         raise HTTPException(status_code=500, detail="Webhook processing failed.")
+    if ad_id is None:
+        log.warning(
+            "Stripe checkout.session.completed event=%s applied no gold (missing/invalid metadata)",
+            event_id,
+        )
     return {"ok": True, "adId": ad_id}
 
 
@@ -991,6 +1079,130 @@ def classifieds_gold_refund_preview(
     return stripe_service.refund_quote_to_api(quote)
 
 
+# --- Deletion archive (legal/audit retention) ---------------------------------
+# Conversations, messages, and reports are hard-deleted by FK cascade when an ad
+# or user is removed. These snapshots are written in the same transaction as the
+# delete, so either both happen or neither does.
+
+
+def _iso(dt: datetime | None) -> str | None:
+    return dt.isoformat() + "Z" if dt else None
+
+
+def _archive_before_delete(
+    db: Session,
+    *,
+    reason: str,
+    ad_ids: list[str] | None = None,
+    user_id: int | None = None,
+) -> None:
+    """Snapshot every conversation (with messages) and ad report that the coming
+    delete will cascade away. Rows are added to the session; the caller commits."""
+    conds = []
+    if ad_ids:
+        conds.append(ClassifiedConversation.listing_id.in_(ad_ids))
+    if user_id is not None:
+        conds.append(ClassifiedConversation.buyer_user_id == user_id)
+        conds.append(ClassifiedConversation.seller_user_id == user_id)
+    convs = db.scalars(select(ClassifiedConversation).where(or_(*conds))).all() if conds else []
+
+    involved_user_ids = {c.buyer_user_id for c in convs} | {c.seller_user_id for c in convs}
+    involved_user_ids.discard(None)
+    users_by_id = {
+        u.id: u
+        for u in db.scalars(
+            select(ClassifiedUser).where(ClassifiedUser.id.in_(involved_user_ids or {0}))
+        ).all()
+    }
+
+    listing_ids = {c.listing_id for c in convs} | set(ad_ids or [])
+    ads_by_id = (
+        {
+            a.id: a
+            for a in db.scalars(
+                select(ClassifiedAd).where(ClassifiedAd.id.in_(listing_ids))
+            ).all()
+        }
+        if listing_ids
+        else {}
+    )
+
+    def _identity(uid: int | None) -> dict[str, Any] | None:
+        u = users_by_id.get(uid)
+        if u is None:
+            return {"id": uid} if uid is not None else None
+        return {"id": u.id, "username": u.username, "email": u.email}
+
+    conv_count = 0
+    for conv in convs:
+        messages = db.scalars(
+            select(ClassifiedMessage)
+            .where(ClassifiedMessage.conversation_id == conv.id)
+            .order_by(ClassifiedMessage.created_at)
+        ).all()
+        ad = ads_by_id.get(conv.listing_id)
+        db.add(
+            ClassifiedDeletionArchive(
+                kind="conversation",
+                reason=reason,
+                conversation_id=conv.id,
+                listing_id=conv.listing_id,
+                listing_title=(ad.title or "")[:200] if ad else None,
+                buyer_user_id=conv.buyer_user_id,
+                seller_user_id=conv.seller_user_id,
+                participants={
+                    "buyer": _identity(conv.buyer_user_id),
+                    "seller": _identity(conv.seller_user_id),
+                },
+                payload=[
+                    {
+                        "id": m.id,
+                        "senderUserId": m.sender_user_id,
+                        "type": m.message_type,
+                        "presetKey": m.preset_key,
+                        "body": m.body,
+                        "createdAt": _iso(m.created_at),
+                    }
+                    for m in messages
+                ],
+            )
+        )
+        conv_count += 1
+
+    report_count = 0
+    for ad_id in sorted(set(ad_ids or [])):
+        reports = db.scalars(
+            select(ClassifiedAdReport).where(ClassifiedAdReport.ad_id == ad_id)
+        ).all()
+        if not reports:
+            continue
+        ad = ads_by_id.get(ad_id)
+        db.add(
+            ClassifiedDeletionArchive(
+                kind="ad_reports",
+                reason=reason,
+                listing_id=ad_id,
+                listing_title=(ad.title or "")[:200] if ad else None,
+                seller_user_id=ad.user_id if ad else None,
+                payload=[
+                    {"reporterUserId": r.reporter_user_id, "createdAt": _iso(r.created_at)}
+                    for r in reports
+                ],
+            )
+        )
+        report_count += len(reports)
+
+    if conv_count or report_count:
+        log.info(
+            "deletion archive: reason=%s conversations=%d reports=%d ads=%s user=%s",
+            reason,
+            conv_count,
+            report_count,
+            ad_ids,
+            user_id,
+        )
+
+
 @router.delete("/ads/{ad_id}")
 def classifieds_delete_my_ad(
     ad_id: str,
@@ -1016,6 +1228,7 @@ def classifieds_delete_my_ad(
         rf_log.get("error"),
         rf_log.get("breakdown"),
     )
+    _archive_before_delete(db, reason="seller_delete", ad_ids=[ad_id])
     db.delete(ad)
     db.commit()
     out: dict[str, Any] = {"ok": True, "id": ad_id}
@@ -1125,6 +1338,7 @@ def classifieds_report_ad(
                     rf_log.get("stripe_refund_id"),
                     rf_log.get("error"),
                 )
+            _archive_before_delete(db, reason="report_auto_remove", ad_ids=[ad_id])
             db.delete(ad_for_refund)
         db.commit()
         return {"ok": True, "removed": True}
@@ -1284,6 +1498,7 @@ def classifieds_admin_remove_ad(
         rf_log.get("refund_cents"),
         rf_log.get("error"),
     )
+    _archive_before_delete(db, reason="admin_remove_ad", ad_ids=[ad_id])
     db.delete(ad)
     db.commit()
     out: dict[str, Any] = {"ok": True, "id": ad_id}
@@ -1411,13 +1626,22 @@ def classifieds_admin_delete_user(
         raise HTTPException(status_code=400, detail="Admins cannot be deleted — revoke admin first")
 
     ads = db.scalars(select(ClassifiedAd).where(ClassifiedAd.user_id == target.id)).all()
+    # Snapshot every conversation the user is part of (as buyer or seller) plus
+    # reports on their listings before the cascades destroy them.
+    _archive_before_delete(
+        db,
+        reason="admin_delete_user",
+        ad_ids=[a.id for a in ads],
+        user_id=target.id,
+    )
     refunded_cents = 0
     for ad in ads:
         rf_log = stripe_service.refund_prorated_gold_for_platform_removal(ad, db)
         refunded_cents += int(rf_log.get("refund_cents") or 0)
         db.delete(ad)
     username = target.username
-    # Sessions, reports, conversations, messages, and reset tokens cascade via FKs.
+    # Sessions, reports, conversations, messages, and reset tokens cascade via FKs
+    # (their content survives in classified_deletion_archive).
     db.delete(target)
     db.commit()
     log.info(

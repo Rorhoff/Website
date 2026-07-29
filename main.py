@@ -360,6 +360,48 @@ async def referr_all_security_headers(request: Request, call_next):
     return response
 
 
+# Classifieds session tokens live in localStorage, so XSS is the main theft vector —
+# CSP is the mitigation. script-src allows self plus the GA tag that rorhoff.com
+# injects; img-src stays broad because listings reference external image URLs.
+_CLASSIFIEDS_CSP = (
+    "default-src 'self'; "
+    "script-src 'self' https://www.googletagmanager.com https://www.google-analytics.com https://static.cloudflareinsights.com; "
+    "style-src 'self' 'unsafe-inline'; "
+    "img-src 'self' data: https: blob:; "
+    "font-src 'self' data:; "
+    "connect-src 'self' blob: https://www.google-analytics.com https://analytics.google.com https://*.google-analytics.com https://cloudflareinsights.com; "
+    "manifest-src 'self'; "
+    "worker-src 'self'; "
+    "base-uri 'self'; "
+    "form-action 'self' https://checkout.stripe.com; "
+    "frame-ancestors 'none'"
+)
+
+
+@app.middleware("http")
+async def classifieds_security_headers(request: Request, call_next):
+    """Security headers for Classifieds (SPA + API), mirroring the Referr-All setup.
+
+    On t1classifieds.com (SERVICE_MODE=classifieds) the whole service is the classifieds
+    app, so headers apply everywhere; on dev they are limited to the /classifieds* subtree.
+    """
+    response = await call_next(request)
+    path = request.url.path
+    if _CLASSIFIEDS_ONLY or path.startswith("/classifieds") or path.startswith("/api/classifieds"):
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+        response.headers.setdefault(
+            "Permissions-Policy", "geolocation=(), microphone=(), camera=()"
+        )
+        if _CLASSIFIEDS_ONLY:
+            if not path.startswith(("/api/", "/which-app", "/health")):
+                response.headers.setdefault("Content-Security-Policy", _CLASSIFIEDS_CSP)
+        elif path.startswith("/classifieds"):
+            response.headers.setdefault("Content-Security-Policy", _CLASSIFIEDS_CSP)
+    return response
+
+
 @app.middleware("http")
 async def analytics_middleware(request: Request, call_next):
     start = time.perf_counter()
