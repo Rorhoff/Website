@@ -258,6 +258,10 @@ async def product_host_html_middleware(request: Request, call_next):
     """Host-based HTML rewrites: data-product-host marker on product domains,
     Google Analytics tag on rorhoff.com."""
     product_host = _request_product_host(request)
+    if product_host is not None and request.url.path in ("/", "/index.html"):
+        # Product domains serve their product page at the domain root, not the
+        # portfolio home page.
+        request.scope["path"] = "/airevolution/"
     req_host = (request.headers.get("host") or "").split(":")[0].lower()
     inject_ga = req_host in _GA_HOST_DOMAINS
     response = await call_next(request)
@@ -1004,6 +1008,11 @@ else:
         return RedirectResponse(url=url, status_code=301)
 
     @app.get("/sss")
+    def sss_no_slash() -> RedirectResponse:
+        # index.html uses relative asset URLs (styles.css, app.js) which only
+        # resolve under /sss/ — serving the page at /sss breaks them all.
+        return RedirectResponse(url="/sss/", status_code=301)
+
     @app.get("/sss/")
     def sss_root():
         return _static("sss/index.html")
