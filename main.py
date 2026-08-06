@@ -965,6 +965,11 @@ else:
         name="in_the_wild",
     )
     app.mount(
+        "/t1landscape",
+        StaticFiles(directory=str(STATIC_DIR / "t1landscape"), html=True),
+        name="t1landscape",
+    )
+    app.mount(
         "/t1-prod",
         StaticFiles(directory=str(STATIC_DIR / "t1-prod"), html=True),
         name="t1_prod",

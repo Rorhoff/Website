@@ -16,6 +16,16 @@ jobs:
       - name: Run WebSocket integration tests
         run: pytest sss-test/test_ws.py -v
 
+  test-t1landscape:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Run T1 Landscape geo tests
+        run: node t1landscape-test/test_geo.mjs
+
   test-itw:
     runs-on: ubuntu-latest
     services:
