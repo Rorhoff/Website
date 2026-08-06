@@ -6,7 +6,7 @@ const F = 1 / 298.257223563;
 const E2 = F * (2 - F);
 const EP2 = E2 / (1 - E2);
 const K0 = 0.9996;
-const M_PER_FT = 0.3048;
+export const M_PER_FT = 0.3048;
 
 export function deg2rad(d) {
   return (d * Math.PI) / 180;
@@ -19,6 +19,16 @@ export function rad2deg(r) {
 export function fmtNum(value, decimals = 4) {
   if (!Number.isFinite(value)) return "";
   return value.toFixed(decimals);
+}
+
+export function displayScaleForUnits(units) {
+  return units === "feet" ? 1 / M_PER_FT : 1;
+}
+
+/** Cleanup sliders are defined in feet; convert threshold to active display units. */
+export function feetThresholdToDisplay(thresholdFt, units) {
+  if (thresholdFt <= 0) return 0;
+  return units === "feet" ? thresholdFt : thresholdFt * M_PER_FT;
 }
 
 export function detectUtmZone(lon) {
@@ -70,18 +80,6 @@ export function wgs84ToUtm(lon, lat, zone = detectUtmZone(lon)) {
   if (lat < 0) northing += 10000000;
 
   return { easting, northing, zone };
-}
-
-export function metersToFeet(m) {
-  return m / M_PER_FT;
-}
-
-export function feetToMeters(ft) {
-  return ft * M_PER_FT;
-}
-
-export function sqMetersToSqFeet(sqM) {
-  return sqM / (M_PER_FT * M_PER_FT);
 }
 
 export function sqFeetToAcres(sqFt) {
@@ -179,24 +177,25 @@ export function projectRing(ring4326, zone) {
   const z = zone ?? detectUtmZone(ring4326[0].lon);
   return ring4326.map(({ lon, lat }) => {
     const { easting, northing } = wgs84ToUtm(lon, lat, z);
-    return { lon, lat, easting, northing, x: easting, y: northing };
+    return { lon, lat, easting, northing };
   });
 }
 
-export function translateToOrigin(points) {
+/** Translate UTM meters to local origin and scale once into display units. */
+export function translateToOrigin(points, displayScale = 1) {
   let minX = Infinity;
   let minY = Infinity;
   for (const p of points) {
-    minX = Math.min(minX, p.x);
-    minY = Math.min(minY, p.y);
+    minX = Math.min(minX, p.easting);
+    minY = Math.min(minY, p.northing);
   }
   return {
     originX: minX,
     originY: minY,
     points: points.map((p) => ({
       ...p,
-      x: p.x - minX,
-      y: p.y - minY,
+      x: (p.easting - minX) * displayScale,
+      y: (p.northing - minY) * displayScale,
     })),
   };
 }
@@ -234,29 +233,27 @@ export function bearingFromNorth(a, b) {
   return (deg + 360) % 360;
 }
 
-export function buildSegments(openRing, unitScale = 1) {
+export function buildSegments(openRing) {
   const segments = [];
   for (let i = 0; i < openRing.length; i++) {
     const j = (i + 1) % openRing.length;
     const a = openRing[i];
     const b = openRing[j];
-    const lengthM = dist2d(a, b);
+    const length = dist2d(a, b);
     segments.push({
       fromIndex: i,
       toIndex: j,
       from: a,
       to: b,
-      lengthM,
-      length: lengthM / unitScale,
+      length,
       bearing: bearingFromNorth(a, b),
     });
   }
   return segments;
 }
 
-export function dropShortSegments(openRing, thresholdDisplay, unitScale) {
-  const minLenM = thresholdDisplay * unitScale;
-  if (minLenM <= 0 || openRing.length < 3) {
+export function dropShortSegments(openRing, thresholdDisplay) {
+  if (thresholdDisplay <= 0 || openRing.length < 3) {
     return { ring: openRing.slice(), removed: [] };
   }
 
@@ -268,7 +265,7 @@ export function dropShortSegments(openRing, thresholdDisplay, unitScale) {
     changed = false;
     for (let i = 0; i < pts.length; i++) {
       const j = (i + 1) % pts.length;
-      if (dist2d(pts[i], pts[j]) < minLenM) {
+      if (dist2d(pts[i], pts[j]) < thresholdDisplay) {
         removed.push(pts[j]);
         pts.splice(j, 1);
         changed = true;
@@ -290,7 +287,7 @@ function perpDistance(point, start, end) {
   return Math.hypot(point.x - projX, point.y - projY);
 }
 
-function douglasPeuckerOpen(points, epsilonM) {
+function douglasPeuckerOpen(points, epsilon) {
   if (points.length <= 2) return points.slice();
 
   let maxDist = 0;
@@ -304,43 +301,38 @@ function douglasPeuckerOpen(points, epsilonM) {
     }
   }
 
-  if (maxDist > epsilonM) {
-    const left = douglasPeuckerOpen(points.slice(0, index + 1), epsilonM);
-    const right = douglasPeuckerOpen(points.slice(index), epsilonM);
+  if (maxDist > epsilon) {
+    const left = douglasPeuckerOpen(points.slice(0, index + 1), epsilon);
+    const right = douglasPeuckerOpen(points.slice(index), epsilon);
     return left.slice(0, -1).concat(right);
   }
   return [points[0], points[end]];
 }
 
-export function simplifyNearCollinear(openRing, toleranceDisplay, unitScale) {
-  const tolM = toleranceDisplay * unitScale;
-  if (tolM <= 0 || openRing.length < 3) {
+export function simplifyNearCollinear(openRing, toleranceDisplay) {
+  if (toleranceDisplay <= 0 || openRing.length < 3) {
     return { ring: openRing.slice(), removed: [] };
   }
 
   const original = openRing.slice();
-  const simplified = douglasPeuckerOpen(original, tolM);
+  const simplified = douglasPeuckerOpen(original, toleranceDisplay);
   const kept = new Set(simplified);
   const removed = original.filter((p) => !kept.has(p));
   return { ring: simplified, removed };
 }
 
-export function convertLength(meters, units) {
-  return units === "feet" ? metersToFeet(meters) : meters;
-}
-
-export function convertArea(sqMeters, units) {
+export function areaFromDisplay(sqDisplay, units) {
   if (units === "feet") {
     return {
-      primary: sqMetersToSqFeet(sqMeters),
-      secondary: sqFeetToAcres(sqMetersToSqFeet(sqMeters)),
+      primary: sqDisplay,
+      secondary: sqFeetToAcres(sqDisplay),
       primaryLabel: "sq ft",
       secondaryLabel: "acres",
     };
   }
   return {
-    primary: sqMeters,
-    secondary: sqMetersToHectares(sqMeters),
+    primary: sqDisplay,
+    secondary: sqMetersToHectares(sqDisplay),
     primaryLabel: "sq m",
     secondaryLabel: "hectares",
   };
@@ -370,8 +362,19 @@ export function pickCalibrationSegments(segments) {
   return [first, second];
 }
 
+export function maxAbsLocalCoordinate(processed) {
+  let max = 0;
+  for (const ringWrap of processed.cleanedRings) {
+    for (const p of ringWrap.open) {
+      max = Math.max(max, Math.abs(p.x), Math.abs(p.y));
+    }
+  }
+  return max;
+}
+
 /**
  * Process a feature into rings with local origin, cleanup, and measurements.
+ * Local x/y are in the selected display units (feet or meters) after one scale step.
  */
 export function processFeature(feature, options) {
   const {
@@ -380,7 +383,10 @@ export function processFeature(feature, options) {
     simplifyFt = 0,
   } = options;
 
-  const unitScale = units === "feet" ? M_PER_FT : 1;
+  const displayScale = displayScaleForUnits(units);
+  const dropThreshold = feetThresholdToDisplay(dropShortFt, units);
+  const simplifyThreshold = feetThresholdToDisplay(simplifyFt, units);
+
   const ringMeta = getRingsFromGeometry(feature.geometry);
   const rings4326 = ringMeta.map((m) => m.ring);
   for (const ring of rings4326) validateWgs84Coords(ring);
@@ -389,7 +395,7 @@ export function processFeature(feature, options) {
   const projectedRings = ringMeta.map(({ ring }) => projectRing(openRing(ring), zone));
 
   let allPoints = projectedRings.flat();
-  const { originX, originY, points: shiftedAll } = translateToOrigin(allPoints);
+  const { originX, originY, points: shiftedAll } = translateToOrigin(allPoints, displayScale);
   allPoints = shiftedAll;
 
   let pointIdx = 0;
@@ -404,13 +410,13 @@ export function processFeature(feature, options) {
     let current = ringOpen.slice();
     const removed = [];
 
-    if (dropShortFt > 0) {
-      const dropped = dropShortSegments(current, dropShortFt, unitScale);
+    if (dropThreshold > 0) {
+      const dropped = dropShortSegments(current, dropThreshold);
       current = dropped.ring;
       removed.push(...dropped.removed);
     }
-    if (simplifyFt > 0) {
-      const simplified = simplifyNearCollinear(current, simplifyFt, unitScale);
+    if (simplifyThreshold > 0) {
+      const simplified = simplifyNearCollinear(current, simplifyThreshold);
       current = simplified.ring;
       removed.push(...simplified.removed);
     }
@@ -418,49 +424,38 @@ export function processFeature(feature, options) {
     return { open: current, removed, closed: closeRing(current) };
   });
 
-  let areaSqM = 0;
+  let areaDisplay = 0;
   for (let i = 0; i < cleanedRings.length; i++) {
     const a = shoelaceArea(cleanedRings[i].open);
-    areaSqM += ringMeta[i].isHole ? -a : a;
+    areaDisplay += ringMeta[i].isHole ? -a : a;
   }
-  areaSqM = Math.max(0, areaSqM);
+  areaDisplay = Math.max(0, areaDisplay);
 
-  const outerSegments = buildSegments(cleanedRings[0].open, unitScale);
-  const perimeterM = cleanedRings.reduce((sum, ring, idx) => {
-    const p = ringPerimeter(ring.open);
-    return sum + (idx === 0 ? p : 0);
-  }, 0);
+  const outerSegments = buildSegments(cleanedRings[0].open);
+  const perimeter = ringPerimeter(cleanedRings[0].open);
+  const area = areaFromDisplay(areaDisplay, units);
+  const areaSqM = units === "feet" ? areaDisplay * M_PER_FT * M_PER_FT : areaDisplay;
 
-  const area = convertArea(areaSqM, units);
   const rawVertexCount = localRingsRaw.reduce((n, r) => n + r.length, 0);
   const cleanVertexCount = cleanedRings.reduce((n, r) => n + r.open.length, 0);
   const removedVertices = cleanedRings.flatMap((r) => r.removed);
-
-  const displayRings = cleanedRings.map((ring) =>
-    ring.open.map((p) => ({
-      ...p,
-      x: convertLength(p.x, units),
-      y: convertLength(p.y, units),
-    }))
-  );
-
   const calibration = pickCalibrationSegments(outerSegments);
 
   return {
     zone,
     originX,
     originY,
-    unitScale,
+    displayScale,
     units,
     rings4326,
     ringMeta,
     localRingsRaw,
     cleanedRings,
-    displayRings,
     removedVertices,
+    areaDisplay,
     areaSqM,
     area,
-    perimeter: convertLength(perimeterM, units),
+    perimeter,
     segments: outerSegments,
     calibration,
     rawVertexCount,

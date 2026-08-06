@@ -1,4 +1,4 @@
-import { fmtNum, metersToFeet } from "./geo.js";
+import { fmtNum } from "./geo.js";
 
 export function calibrationText(processed) {
   const { calibration, units } = processed;
@@ -65,8 +65,7 @@ function escapeXml(value) {
 }
 
 export function generateCsv(processed) {
-  const { cleanedRings, units, originX, originY, zone } = processed;
-  const unitLabel = units === "feet" ? "ft" : "m";
+  const { cleanedRings } = processed;
   const lines = [
     [
       "ring",
@@ -90,22 +89,19 @@ export function generateCsv(processed) {
       const n = open[j];
       const dx = n.x - p.x;
       const dy = n.y - p.y;
-      const lenM = Math.hypot(dx, dy);
-      const lenDisplay = units === "feet" ? metersToFeet(lenM) : lenM;
+      const len = Math.hypot(dx, dy);
       const bearing = ((Math.atan2(dx, dy) * 180) / Math.PI + 360) % 360;
-      const localX = units === "feet" ? metersToFeet(p.x) : p.x;
-      const localY = units === "feet" ? metersToFeet(p.y) : p.y;
       lines.push(
         [
           ringIdx,
           i + 1,
-          fmtNum(localX, 4),
-          fmtNum(localY, 4),
-          fmtNum(p.x + originX, 4),
-          fmtNum(p.y + originY, 4),
+          fmtNum(p.x, 4),
+          fmtNum(p.y, 4),
+          fmtNum(p.easting, 4),
+          fmtNum(p.northing, 4),
           fmtNum(p.lon, 8),
           fmtNum(p.lat, 8),
-          fmtNum(lenDisplay, 4),
+          fmtNum(len, 4),
           fmtNum(bearing, 2),
         ].join(",")
       );

@@ -28,7 +28,7 @@ function polylineEntity(layer, points, units) {
 }
 
 export function generateDxf(processed, originComment) {
-  const { displayRings, ringMeta, units } = processed;
+  const { cleanedRings, ringMeta, units } = processed;
   let dxf = "";
   dxf += dxfPair(0, "SECTION");
   dxf += dxfPair(2, "HEADER");
@@ -41,9 +41,9 @@ export function generateDxf(processed, originComment) {
   dxf += dxfPair(0, "SECTION");
   dxf += dxfPair(2, "ENTITIES");
 
-  displayRings.forEach((ring, idx) => {
+  cleanedRings.forEach((ringWrap, idx) => {
     const layer = ringMeta[idx].isHole ? "PARCEL_HOLE" : "PARCEL";
-    dxf += polylineEntity(layer, ring, units);
+    dxf += polylineEntity(layer, ringWrap.open, units);
   });
 
   dxf += dxfPair(0, "ENDSEC");

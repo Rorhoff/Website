@@ -3,7 +3,6 @@ import {
   featureLabel,
   processFeature,
   fmtNum,
-  convertLength,
 } from "./geo.js";
 import { generateDxf, originCommentText } from "./dxf.js";
 import {
@@ -192,7 +191,7 @@ function drawPreview() {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, rect.width, rect.height);
 
-  const rings = p.displayRings;
+  const rings = p.cleanedRings.map((ringWrap) => ringWrap.open);
   const bounds = fitBounds(rings);
   const pad = 36;
   const spanX = Math.max(bounds.maxX - bounds.minX, 1);
@@ -222,11 +221,7 @@ function drawPreview() {
     ctx.stroke();
   });
 
-  const removedDisplay = p.removedVertices.map((pt) => ({
-    x: convertLength(pt.x, p.units),
-    y: convertLength(pt.y, p.units),
-  }));
-  for (const pt of removedDisplay) {
+  for (const pt of p.removedVertices) {
     const s = toScreen(pt);
     ctx.fillStyle = "#ffa657";
     ctx.beginPath();
@@ -249,14 +244,8 @@ function drawPreview() {
 
   const segs = p.segments;
   segs.forEach((seg) => {
-    const a = toScreen({
-      x: convertLength(seg.from.x, p.units),
-      y: convertLength(seg.from.y, p.units),
-    });
-    const b = toScreen({
-      x: convertLength(seg.to.x, p.units),
-      y: convertLength(seg.to.y, p.units),
-    });
+    const a = toScreen(seg.from);
+    const b = toScreen(seg.to);
     const mx = (a.x + b.x) / 2;
     const my = (a.y + b.y) / 2;
     ctx.fillStyle = "#c9d1d9";
