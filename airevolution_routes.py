@@ -748,6 +748,23 @@ def _build_context_for_query(
     return ctx, hits, img_hits, broad, sql
 
 
+def _chat_response_images(img_hits: list[dict[str, Any]], hits: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """All screenshots to return to the UI for a chat reply."""
+    related_doc_ids = {int(h["source_id"]) for h in hits if h.get("source_id") is not None}
+    by_id: dict[int, dict[str, Any]] = {im["id"]: im for im in img_hits}
+    for im in _images_for_matched_docs(related_doc_ids, limit=24):
+        by_id.setdefault(im["id"], im)
+    return [
+        {
+            "id": im["id"],
+            "filename": im.get("filename", ""),
+            "url_path": im.get("url_path", ""),
+            "caption": im.get("caption", ""),
+        }
+        for im in by_id.values()
+    ]
+
+
 def _merge_alternating(history: list[dict[str, str]]) -> list[dict[str, str]]:
     """Anthropic requires strictly alternating roles starting with `user`.
 
@@ -1165,6 +1182,53 @@ def _ingest_images_from_html(
     return ingested
 
 
+def _strip_image_index(text: str) -> str:
+    marker = "[Screenshots indexed from this page"
+    idx = text.find(marker)
+    if idx >= 0:
+        return text[:idx].rstrip()
+    return text
+
+
+def _remove_images_for_doc(doc_id: int) -> None:
+    global _images
+    with _lock:
+        kept: list[dict[str, Any]] = []
+        for im in _images:
+            if im.get("doc_id") == doc_id:
+                p = IMAGES_DIR / im["stored"]
+                try:
+                    if p.is_file():
+                        p.unlink()
+                except OSError:
+                    pass
+            else:
+                kept.append(im)
+        _images = kept
+
+
+def _fetch_url_html(url: str) -> tuple[str, str, httpx.Response]:
+    _reject_private_url(url)
+    try:
+        r = httpx.get(
+            url,
+            timeout=30.0,
+            follow_redirects=True,
+            headers=_URL_FETCH_HEADERS,
+        )
+        r.raise_for_status()
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(400, f"URL returned {e.response.status_code}") from e
+    except httpx.HTTPError as e:
+        raise HTTPException(400, f"Could not fetch URL: {e}") from e
+    content = r.text[:MAX_URL_FETCH_BYTES]
+    ctype = (r.headers.get("content-type") or "").lower()
+    if "html" in ctype or content.lstrip()[:1] == "<":
+        page_title, raw_text = _html_to_text(content)
+        return content, raw_text, r
+    return content, content.strip(), r
+
+
 def _append_image_index_to_text(raw_text: str, images: list[dict[str, Any]]) -> str:
     if not images:
         return raw_text
@@ -1205,6 +1269,11 @@ def status() -> dict[str, Any]:
 @router.get("/documents")
 def list_documents() -> list[dict[str, Any]]:
     with _lock:
+        img_counts: Counter[int] = Counter()
+        for im in _images:
+            doc_id = im.get("doc_id")
+            if doc_id is not None:
+                img_counts[int(doc_id)] += 1
         return [
             {
                 "id": d["id"],
@@ -1216,6 +1285,7 @@ def list_documents() -> list[dict[str, Any]]:
                 or _infer_doc_kind(d.get("title") or "", d.get("filename"), d.get("full_text") or ""),
                 "created_at": d["created_at"],
                 "chunk_count": len(d.get("chunks") or []),
+                "image_count": img_counts.get(int(d["id"]), 0),
             }
             for d in _docs
         ]
@@ -1358,6 +1428,46 @@ def add_document_from_url(body: UrlIngestIn) -> dict[str, Any]:
         "chars": len(raw_text),
         "chunk_count": len(chunks),
         "images_ingested": len(ingested_images),
+    }
+
+
+@router.post("/documents/{doc_id}/sync-images")
+def sync_document_images(doc_id: int) -> dict[str, Any]:
+    """Re-fetch screenshots from a document's source_url (for articles added before image ingest)."""
+    _ensure_storage()
+    with _lock:
+        doc = next((d for d in _docs if d["id"] == doc_id), None)
+    if not doc:
+        raise HTTPException(404, "Document not found")
+    url = (doc.get("source_url") or "").strip()
+    if not url:
+        raise HTTPException(400, "This document has no source URL. Re-add it with Add from web link.")
+
+    page_html, _page_text, resp = _fetch_url_html(url)
+    if not page_html.lstrip().startswith("<"):
+        raise HTTPException(400, "Source URL did not return HTML.")
+
+    _remove_images_for_doc(doc_id)
+    ingested = _ingest_images_from_html(page_html, str(resp.url), doc_id, doc["title"])
+    base_text = _strip_image_index(doc.get("full_text") or "")
+    full_text = _append_image_index_to_text(base_text, ingested)
+    chunks = _chunk_text(full_text, doc_id, doc["title"])
+
+    with _lock:
+        for d in _docs:
+            if d["id"] == doc_id:
+                d["full_text"] = full_text
+                d["chunks"] = chunks
+                d["bytes"] = len(full_text.encode("utf-8", errors="replace"))
+                break
+        _images.extend(ingested)
+    _persist_kb_to_disk()
+    return {
+        "ok": True,
+        "id": doc_id,
+        "title": doc["title"],
+        "images_ingested": len(ingested),
+        "chunk_count": len(chunks),
     }
 
 
@@ -1550,6 +1660,12 @@ def chat(body: ChatIn) -> dict[str, Any]:
             "messages, codes, and UI labels, and use them in your triage. Do not ask the user to "
             "re-type text that is already visible in an attached screenshot."
         )
+    if img_hits and not sql:
+        system += (
+            " REQUIRED: The knowledge context lists screenshots from the matched article(s). "
+            "When explaining UI steps, embed at least one relevant screenshot inline using "
+            "[[image: FILENAME]] on its own line (FILENAME must match filename= in the listing)."
+        )
     if broad:
         system += (
             " IMPORTANT: enumerative request. The user is asking you to cover every/all/each item "
@@ -1703,15 +1819,7 @@ def chat(body: ChatIn) -> dict[str, Any]:
     return {
         "reply": reply,
         "retrieval": [{"title": h["title"], "part": h.get("part"), "preview": h["text"][:220]} for h in hits],
-        "images": [
-            {
-                "id": im["id"],
-                "filename": im.get("filename", ""),
-                "url_path": im.get("url_path", ""),
-                "caption": im.get("caption", ""),
-            }
-            for im in img_hits
-        ],
+        "images": _chat_response_images(img_hits, hits),
         "status": status_line,
         "sources": sources,
         "broad": broad,

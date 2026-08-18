@@ -111,7 +111,17 @@ async function loadDocuments() {
         const src = d.source_url
           ? ` <a class="doc-src" href="${escapeAttr(d.source_url)}" target="_blank" rel="noopener" title="${escapeAttr(d.source_url)}">source ↗</a>`
           : "";
-        return `<li class="kb-item"><div><strong>${escapeHtml(d.title)}</strong> <span class="pill ${d.kind === "schema" ? "ok" : ""}" style="font-size:0.75rem">${d.kind === "schema" ? "schema" : "support"}</span> <span class="muted">${d.chunk_count} chunks</span>${src}</div><button type="button" class="btn sm danger" data-del-doc="${d.id}">Remove</button></li>`;
+        const imgs =
+          d.image_count > 0
+            ? ` <span class="muted">${d.image_count} screenshot${d.image_count > 1 ? "s" : ""}</span>`
+            : d.source_url
+              ? ` <span class="pill warn" style="font-size:0.72rem">0 screenshots</span>`
+              : "";
+        const syncBtn =
+          d.source_url
+            ? `<button type="button" class="btn sm" data-sync-img="${d.id}">Sync screenshots</button>`
+            : "";
+        return `<li class="kb-item"><div><strong>${escapeHtml(d.title)}</strong> <span class="pill ${d.kind === "schema" ? "ok" : ""}" style="font-size:0.75rem">${d.kind === "schema" ? "schema" : "support"}</span> <span class="muted">${d.chunk_count} chunks</span>${imgs}${src}</div><div class="kb-actions">${syncBtn}<button type="button" class="btn sm danger" data-del-doc="${d.id}">Remove</button></div></li>`;
       }).join("")
     : '<li class="muted">No documents yet.</li>';
 
@@ -138,6 +148,29 @@ async function loadDocuments() {
       await fetchJSON(`/documents/${btn.getAttribute("data-del-doc")}`, { method: "DELETE" });
       loadDocuments().catch(() => {});
       refreshStatus().catch(() => {});
+    });
+  });
+  docList.querySelectorAll("[data-sync-img]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const id = btn.getAttribute("data-sync-img");
+      btn.disabled = true;
+      btn.textContent = "Syncing.";
+      setBanner("kbBanner", "Fetching screenshots from source page.", "info");
+      try {
+        const res = await fetchJSON(`/documents/${id}/sync-images`, { method: "POST" });
+        setBanner(
+          "kbBanner",
+          `Synced ${res.images_ingested} screenshot${res.images_ingested === 1 ? "" : "s"} for "${res.title}".`,
+          "ok"
+        );
+        loadDocuments().catch(() => {});
+        refreshStatus().catch(() => {});
+      } catch (e) {
+        setBanner("kbBanner", String(e), "err");
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Sync screenshots";
+      }
     });
   });
   docList.querySelectorAll("[data-save-cap]").forEach((btn) => {
@@ -494,7 +527,7 @@ function renderReplyWithImages(reply, images) {
   return { html: parts.join(""), inlinedIds };
 }
 
-function renderAIImageGallery(images) {
+function renderAIImageGallery(images, title = "Screenshots from matched articles") {
   const host = el("aiImages");
   if (!host) return;
   if (!images || !images.length) {
@@ -503,7 +536,9 @@ function renderAIImageGallery(images) {
     return;
   }
   host.hidden = false;
-  host.innerHTML = images
+  host.innerHTML =
+    `<h3 class="ai-images-title">${escapeHtml(title)}</h3>` +
+    images
     .map((im) => {
       const cap = im.caption || im.filename || "";
       return `<figure>
