@@ -914,7 +914,8 @@ function initUrlIngest() {
       form.reset();
       setBanner(
         "kbBanner",
-        `Added "${res.title}" (${res.chunk_count} chunks, ${Math.round((res.chars || 0) / 1000)}k chars) from the web link.`,
+        `Added "${res.title}" (${res.chunk_count} chunks, ${Math.round((res.chars || 0) / 1000)}k chars` +
+          `${res.images_ingested ? `, ${res.images_ingested} screenshot${res.images_ingested > 1 ? "s" : ""}` : ""}) from the web link.`,
         "ok"
       );
       loadDocuments().catch(() => {});

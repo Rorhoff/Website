@@ -22,6 +22,7 @@ from collections import Counter
 from pathlib import Path
 from threading import Lock
 from typing import Any
+from urllib.parse import urljoin, urlparse, unquote
 
 import httpx
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
@@ -594,31 +595,57 @@ def _retrieve_schema_docs(
     return full_docs, hits
 
 
-def _retrieve_images(query: str, top_k: int = 4) -> list[dict[str, Any]]:
+def _retrieve_images(
+    query: str,
+    top_k: int = 4,
+    related_doc_ids: set[int] | None = None,
+) -> list[dict[str, Any]]:
     """Return knowledge-base images whose caption/filename tokens best match the query."""
     q_toks = _tokenize(query)
-    if not q_toks:
-        return []
-    q_set = set(q_toks)
-    q_counts = Counter(q_toks)
-    norm_q = (sum(q_counts[w] ** 2 for w in q_counts) ** 0.5) or 1.0
+    related = related_doc_ids or set()
     with _lock:
         images_snapshot = [dict(x) for x in _images]
     scored: list[tuple[float, dict[str, Any]]] = []
     for im in images_snapshot:
+        score = 0.0
+        if im.get("doc_id") in related:
+            score += 2.0
         text = " ".join(filter(None, [im.get("caption") or "", im.get("filename") or ""]))
         toks = _tokenize(text)
-        if not toks:
-            continue
-        d_counts = Counter(toks)
-        dot = sum(q_counts[w] * d_counts.get(w, 0) for w in q_set)
-        if dot <= 0:
-            continue
-        norm_d = (sum(d_counts[w] ** 2 for w in d_counts) ** 0.5) or 1.0
-        score = dot / (norm_q * norm_d)
-        scored.append((score, im))
+        if q_toks and toks:
+            q_set = set(q_toks)
+            q_counts = Counter(q_toks)
+            d_counts = Counter(toks)
+            dot = sum(q_counts[w] * d_counts.get(w, 0) for w in q_set)
+            if dot > 0:
+                norm_q = (sum(q_counts[w] ** 2 for w in q_counts) ** 0.5) or 1.0
+                norm_d = (sum(d_counts[w] ** 2 for w in d_counts) ** 0.5) or 1.0
+                score += dot / (norm_q * norm_d)
+        if score > 0:
+            scored.append((score, im))
     scored.sort(key=lambda x: -x[0])
-    return [im for _, im in scored[:top_k]]
+    seen: set[int] = set()
+    out: list[dict[str, Any]] = []
+    for _, im in scored:
+        iid = im["id"]
+        if iid in seen:
+            continue
+        seen.add(iid)
+        out.append(im)
+        if len(out) >= top_k:
+            break
+    return out
+
+
+def _images_for_matched_docs(related_doc_ids: set[int], limit: int = 16) -> list[dict[str, Any]]:
+    if not related_doc_ids:
+        return []
+    with _lock:
+        return [
+            dict(im)
+            for im in _images
+            if im.get("doc_id") in related_doc_ids
+        ][:limit]
 
 
 def _image_context(matched: list[dict[str, Any]] | None = None) -> str:
@@ -668,8 +695,8 @@ def _build_context_for_query(
     """
     sql = _is_sql_query_request(user_message)
     broad = _is_broad_query(user_message) or sql
-    img_hits = _retrieve_images(user_message, top_k=4)
     parts: list[str] = []
+    hits: list[dict[str, Any]] = []
 
     if sql:
         full_docs, doc_hits = _retrieve_schema_docs(user_message)
@@ -710,6 +737,11 @@ def _build_context_for_query(
             parts.append(f"From «{h['title']}» (excerpt {h.get('part', 1)}):\n{h['text']}\n")
 
     ctx = "\n---\n".join(parts) if parts else ""
+    related_doc_ids = {int(h["source_id"]) for h in hits if h.get("source_id") is not None}
+    img_hits = _retrieve_images(user_message, top_k=8, related_doc_ids=related_doc_ids)
+    for im in _images_for_matched_docs(related_doc_ids):
+        if im["id"] not in {x["id"] for x in img_hits}:
+            img_hits.append(im)
     img_ctx = _image_context(img_hits)
     if img_ctx:
         ctx = (ctx + "\n\n" + img_ctx) if ctx else img_ctx
@@ -926,6 +958,17 @@ class UrlIngestIn(BaseModel):
 
 
 MAX_URL_FETCH_BYTES = 4 * 1024 * 1024
+MAX_URL_IMAGES = 12
+MAX_IMAGE_BYTES = 2 * 1024 * 1024
+MIN_IMAGE_BYTES = 800
+_URL_FETCH_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (compatible; AIRevolution-KB/1.0)",
+    "Accept": "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.5",
+}
+_IMAGE_FETCH_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (compatible; AIRevolution-KB/1.0)",
+    "Accept": "image/png,image/jpeg,image/gif,image/webp,*/*;q=0.5",
+}
 _MAX_THREAD_TURNS = 12
 
 
@@ -974,6 +1017,165 @@ def _html_to_text(html: str) -> tuple[str, str]:
     text = re.sub(r" ?\n ?", "\n", text)
     text = re.sub(r"\n{3,}", "\n\n", text)
     return title, text.strip()
+
+
+def _resolve_page_url(base_url: str, ref: str) -> str:
+    return urljoin(base_url, ref.strip())
+
+
+def _extract_html_images(html: str, page_url: str) -> list[dict[str, str]]:
+    """Collect candidate content images from HTML (src / first srcset entry)."""
+    found: list[dict[str, str]] = []
+    seen: set[str] = set()
+    skip_fragments = (
+        "pixel",
+        "tracking",
+        "spacer",
+        "1x1",
+        "/icons/",
+        "icon-",
+        "favicon",
+        "logo",
+        "avatar",
+        "emoji",
+        "badge",
+        "spinner",
+    )
+    for tag in re.findall(r"<img\b[^>]*>", html, flags=re.I):
+        src = ""
+        src_m = re.search(r'\bsrc=["\']([^"\']+)["\']', tag, re.I)
+        if src_m:
+            src = src_m.group(1).strip()
+        else:
+            srcset_m = re.search(r'\bsrcset=["\']([^"\']+)["\']', tag, re.I)
+            if srcset_m:
+                first = srcset_m.group(1).split(",")[0].strip().split()
+                if first:
+                    src = first[0]
+        if not src or src.startswith("data:"):
+            continue
+        abs_url = _resolve_page_url(page_url, src)
+        if abs_url in seen:
+            continue
+        seen.add(abs_url)
+        low = abs_url.lower()
+        if any(x in low for x in skip_fragments):
+            continue
+        alt_m = re.search(r'\balt=["\']([^"\']*)["\']', tag, re.I)
+        alt = html_lib.unescape(alt_m.group(1)).strip() if alt_m else ""
+        title_m = re.search(r'\btitle=["\']([^"\']*)["\']', tag, re.I)
+        title = html_lib.unescape(title_m.group(1)).strip() if title_m else ""
+        found.append({"src": abs_url, "alt": alt or title})
+    return found
+
+
+def _guess_image_ext(url: str, content_type: str, body: bytes) -> str | None:
+    ct = (content_type or "").split(";")[0].strip().lower()
+    by_type = {
+        "image/png": ".png",
+        "image/jpeg": ".jpg",
+        "image/jpg": ".jpg",
+        "image/gif": ".gif",
+        "image/webp": ".webp",
+    }
+    if ct in by_type:
+        return by_type[ct]
+    path = urlparse(url).path.lower()
+    for ext in ALLOWED_IMAGE_EXT:
+        if path.endswith(ext):
+            return ext
+    if body.startswith(b"\x89PNG\r\n\x1a\n"):
+        return ".png"
+    if body[:3] == b"\xff\xd8\xff":
+        return ".jpg"
+    if body[:6] in (b"GIF87a", b"GIF89a"):
+        return ".gif"
+    if len(body) >= 12 and body[:4] == b"RIFF" and body[8:12] == b"WEBP":
+        return ".webp"
+    return None
+
+
+def _unique_image_filename(doc_id: int, index: int, ext: str, alt: str, src_url: str) -> str:
+    base = alt or unquote(urlparse(src_url).path.split("/")[-1] or f"img-{index}")
+    slug = re.sub(r"[^a-zA-Z0-9._-]+", "-", base).strip("-._")[:72] or f"img-{index}"
+    if not slug.lower().endswith(ext):
+        slug = f"{slug}{ext}"
+    candidate = f"doc{doc_id}-{slug}"
+    with _lock:
+        taken = {(im.get("filename") or "").lower() for im in _images}
+    if candidate.lower() not in taken:
+        return candidate
+    stem = candidate[: -len(ext)] if candidate.lower().endswith(ext) else candidate
+    return f"{stem}-{index}{ext}"
+
+
+def _ingest_images_from_html(
+    html: str,
+    page_url: str,
+    doc_id: int,
+    doc_title: str,
+) -> list[dict[str, Any]]:
+    """Download content images from a fetched HTML page into the KB image library."""
+    ingested: list[dict[str, Any]] = []
+    for idx, cand in enumerate(_extract_html_images(html, page_url)):
+        if len(ingested) >= MAX_URL_IMAGES:
+            break
+        img_url = cand["src"]
+        try:
+            _reject_private_url(img_url)
+        except HTTPException:
+            continue
+        try:
+            r = httpx.get(
+                img_url,
+                timeout=20.0,
+                follow_redirects=True,
+                headers=_IMAGE_FETCH_HEADERS,
+            )
+            r.raise_for_status()
+            _reject_private_url(str(r.url))
+        except (httpx.HTTPError, HTTPException):
+            continue
+        body = r.content
+        if len(body) < MIN_IMAGE_BYTES or len(body) > MAX_IMAGE_BYTES:
+            continue
+        ext = _guess_image_ext(str(r.url), r.headers.get("content-type") or "", body)
+        if not ext or ext not in ALLOWED_IMAGE_EXT:
+            continue
+        stored = f"{uuid.uuid4().hex[:12]}{ext}"
+        path = IMAGES_DIR / stored
+        try:
+            path.write_bytes(body)
+        except OSError:
+            continue
+        filename = _unique_image_filename(doc_id, idx, ext, cand["alt"], img_url)
+        caption = cand["alt"] or f"Screenshot from {doc_title}"
+        rec = {
+            "id": _next_id(),
+            "filename": filename,
+            "stored": stored,
+            "url_path": f"/airevolution/uploads/images/{stored}",
+            "caption": caption,
+            "bytes": len(body),
+            "doc_id": doc_id,
+            "source_url": img_url,
+            "created_at": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime()) + "Z",
+        }
+        ingested.append(rec)
+    return ingested
+
+
+def _append_image_index_to_text(raw_text: str, images: list[dict[str, Any]]) -> str:
+    if not images:
+        return raw_text
+    lines = [
+        "",
+        "[Screenshots indexed from this page — embed in replies with [[image: filename]] on its own line]",
+    ]
+    for im in images:
+        cap = (im.get("caption") or "").strip()
+        lines.append(f"- filename={im.get('filename')}: {cap or 'screenshot'}")
+    return raw_text.rstrip() + "\n" + "\n".join(lines)
 
 
 @router.get("/status")
@@ -1095,10 +1297,7 @@ def add_document_from_url(body: UrlIngestIn) -> dict[str, Any]:
             url,
             timeout=30.0,
             follow_redirects=True,
-            headers={
-                "User-Agent": "Mozilla/5.0 (compatible; AIRevolution-KB/1.0)",
-                "Accept": "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.5",
-            },
+            headers=_URL_FETCH_HEADERS,
         )
         r.raise_for_status()
     except httpx.HTTPStatusError as e:
@@ -1127,6 +1326,13 @@ def add_document_from_url(body: UrlIngestIn) -> dict[str, Any]:
         kind = kind_raw
     else:
         kind = _infer_doc_kind(doc_title, None, raw_text)
+
+    page_html = content if ("html" in ctype or content.lstrip()[:1] == "<") else ""
+    ingested_images: list[dict[str, Any]] = []
+    if page_html:
+        ingested_images = _ingest_images_from_html(page_html, str(r.url), doc_id, doc_title)
+        raw_text = _append_image_index_to_text(raw_text, ingested_images)
+
     chunks = _chunk_text(raw_text, doc_id, doc_title)
     entry = {
         "id": doc_id,
@@ -1141,6 +1347,7 @@ def add_document_from_url(body: UrlIngestIn) -> dict[str, Any]:
     }
     with _lock:
         _docs.append(entry)
+        _images.extend(ingested_images)
     _persist_kb_to_disk()
     return {
         "ok": True,
@@ -1150,16 +1357,30 @@ def add_document_from_url(body: UrlIngestIn) -> dict[str, Any]:
         "source_url": url,
         "chars": len(raw_text),
         "chunk_count": len(chunks),
+        "images_ingested": len(ingested_images),
     }
 
 
 @router.delete("/documents/{doc_id}")
 def delete_document(doc_id: int) -> dict[str, bool]:
-    global _docs
+    global _docs, _images
     with _lock:
         before = len(_docs)
         _docs = [d for d in _docs if d["id"] != doc_id]
         removed = len(_docs) < before
+        if removed:
+            kept: list[dict[str, Any]] = []
+            for im in _images:
+                if im.get("doc_id") == doc_id:
+                    p = IMAGES_DIR / im["stored"]
+                    try:
+                        if p.is_file():
+                            p.unlink()
+                    except OSError:
+                        pass
+                else:
+                    kept.append(im)
+            _images = kept
     if removed:
         _persist_kb_to_disk()
     return {"ok": removed}
@@ -1317,9 +1538,10 @@ def chat(body: ChatIn) -> dict[str, Any]:
             "Do not use em dashes in your replies; end the sentence or use a comma instead. "
             "Do not use markdown bold (**). Use quotation marks when naming UI areas, tabs, or settings. "
             "When a screenshot from the knowledge base helps illustrate a step, embed it inline using "
-            "the marker `[[image: FILENAME]]` on its own line, where FILENAME exactly matches the "
-            "`filename=` value listed in the knowledge context. The UI will render that screenshot in "
-            "place. Only reference images that appear in the listing; do not invent filenames."
+            "the marker `[[image: FILENAME]]` on its own line immediately after the step it illustrates, "
+            "where FILENAME exactly matches the `filename=` value listed in the knowledge context. "
+            "The UI will render that screenshot in place. Prefer including screenshots from the matched "
+            "article when they are listed. Only reference images that appear in the listing; do not invent filenames."
         )
     if inquiry_images:
         system += (
