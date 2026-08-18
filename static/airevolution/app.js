@@ -624,8 +624,8 @@ function initChat() {
     const aiImages = el("aiImages");
     const submitBtn = el("chatSubmit");
     const message = getChatInquiryText(input);
-    const images = input ? await extractImages(input) : [];
-    if (!message && !images.length) return;
+    const pastedImages = input ? await extractImages(input) : [];
+    if (!message && !pastedImages.length) return;
     // Release pasted screenshot bytes from the DOM once captured for the API request.
     clearChatInput(input);
     out.textContent = "Working on your request.";
@@ -648,7 +648,7 @@ function initChat() {
     try {
       const payload = {
         message: sentMessage,
-        images,
+        images: pastedImages,
         create_ticket: !!(logTicket && logTicket.checked),
         allow_general: useGeneral ? !!useGeneral.checked : true,
       };
@@ -666,11 +666,11 @@ function initChat() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      const images = Array.isArray(res.images) ? res.images : [];
-      const { html: replyHtml, inlinedIds } = renderReplyWithImages(res.reply || "", images);
+      const kbImages = Array.isArray(res.images) ? res.images : [];
+      const { html: replyHtml, inlinedIds } = renderReplyWithImages(res.reply || "", kbImages);
       out.className = "ai-box";
       out.innerHTML = replyHtml || '<span class="muted">No response.</span>';
-      renderAIImageGallery(images.filter((im) => !inlinedIds.has(im.id)));
+      renderAIImageGallery(kbImages.filter((im) => !inlinedIds.has(im.id)));
       if (copyBtn) copyBtn.hidden = !res.reply?.trim();
       _agentThread.history.push({ role: "user", text: sentMessage });
       if (res.reply?.trim()) {
