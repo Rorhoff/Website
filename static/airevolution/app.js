@@ -127,16 +127,22 @@ async function loadDocuments() {
   const docList = el("docList");
   if (!docList) return;
 
-  const docIds = new Set(docs.map((d) => d.id));
+  const docIds = new Set(docs.map((d) => Number(d.id)));
   const imgsByDoc = new Map();
   const orphans = [];
   for (const im of imgs) {
-    if (im.doc_id != null && docIds.has(im.doc_id)) {
-      if (!imgsByDoc.has(im.doc_id)) imgsByDoc.set(im.doc_id, []);
-      imgsByDoc.get(im.doc_id).push(im);
+    const docId = im.doc_id != null ? Number(im.doc_id) : _docIdFromFilename(im.filename);
+    if (docId != null && docIds.has(docId)) {
+      if (!imgsByDoc.has(docId)) imgsByDoc.set(docId, []);
+      imgsByDoc.get(docId).push(im);
     } else {
       orphans.push(im);
     }
+  }
+
+  function _docIdFromFilename(name) {
+    const m = String(name || "").match(/^doc(\d+)-/i);
+    return m ? Number(m[1]) : null;
   }
 
   function renderImgRow(im) {
@@ -176,14 +182,14 @@ async function loadDocuments() {
   let html = docs.length
     ? docs
         .map((d) => {
-          const docImgs = imgsByDoc.get(d.id) || [];
+          const docImgs = imgsByDoc.get(Number(d.id)) || [];
           if (!docImgs.length) {
             return `<li class="kb-doc-group"><div class="kb-doc-row kb-doc-row-flat"><div class="kb-doc-summary">${docMeta(d)}</div>${docActions(d)}</div></li>`;
           }
           return `<li class="kb-doc-group">
             <div class="kb-doc-row">
               <details class="kb-doc-details">
-                <summary class="kb-doc-summary">${docMeta(d)}</summary>
+                <summary class="kb-doc-summary">${docMeta(d)} <span class="kb-expand-hint muted sm">▸ ${docImgs.length} screenshot${docImgs.length > 1 ? "s" : ""}</span></summary>
                 <ul class="kb-doc-images">${docImgs.map(renderImgRow).join("")}</ul>
               </details>
               ${docActions(d)}

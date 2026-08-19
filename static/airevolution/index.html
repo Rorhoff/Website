@@ -395,6 +395,10 @@
     }
     .kb-doc-row-flat { align-items: center; }
     .kb-doc-details { flex: 1; min-width: 0; }
+    /* Native <details> hiding can lose to .kb-item { display:flex } — force collapse. */
+    .kb-doc-details:not([open]) > :not(summary) {
+      display: none !important;
+    }
     .kb-doc-details > summary {
       list-style: none;
       cursor: pointer;
@@ -409,7 +413,9 @@
       transition: transform 0.15s ease;
     }
     .kb-doc-details[open] > summary::before { transform: rotate(90deg); }
+    .kb-doc-details[open] > summary .kb-expand-hint { display: none; }
     .kb-doc-summary strong { font-weight: 600; }
+    .kb-expand-hint { margin-left: 0.35rem; font-size: 0.78rem; }
     .kb-doc-images {
       list-style: none;
       margin: 0.35rem 0 0 1rem;
@@ -1006,7 +1012,7 @@
   </main>
   </div>
 
-  <script src="/airevolution/app.js?v=2026-08-19-kbimages1" defer></script>
+  <script src="/airevolution/app.js?v=2026-08-19-kbcollapse1" defer></script>
   <script src="/assets/nav-mobile.js"></script>
 </body>
 </html>
