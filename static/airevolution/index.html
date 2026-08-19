@@ -341,7 +341,7 @@
       word-break: break-word;
     }
     .thread-turn.user { background: #ede9fe; border-color: #d6c9f5; }
-    .thread-turn.assistant { background: #f0fdfa; border-color: #b9e6e0; }
+    .thread-turn.assistant { background: #f0fdfa; border-color: #b9e6e0; white-space: normal; }
     .thread-turn .who {
       display: block;
       font-size: 0.72rem;
@@ -351,6 +351,7 @@
       color: var(--muted);
       margin-bottom: 0.15rem;
     }
+    .thread-turn .thread-body { white-space: pre-wrap; word-break: break-word; }
     .ticket-thread { margin-top: 0.5rem; }
     .ticket-reply { display: flex; gap: 0.5rem; margin-top: 0.6rem; align-items: flex-start; }
     .ticket-reply textarea {
@@ -382,7 +383,41 @@
       border-bottom: 1px solid var(--border);
     }
     .kb-item .grow { flex: 1; min-width: 0; }
-    .kb-actions { display: flex; flex-wrap: wrap; gap: 0.35rem; justify-content: flex-end; }
+    .kb-actions { display: flex; flex-wrap: wrap; gap: 0.35rem; justify-content: flex-end; flex-shrink: 0; }
+    .kb-doc-group { list-style: none; border-bottom: 1px solid var(--border); }
+    .kb-doc-group:last-child { border-bottom: none; }
+    .kb-doc-row {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 0.75rem;
+      padding: 0.55rem 0;
+    }
+    .kb-doc-row-flat { align-items: center; }
+    .kb-doc-details { flex: 1; min-width: 0; }
+    .kb-doc-details > summary {
+      list-style: none;
+      cursor: pointer;
+      padding: 0.15rem 0;
+    }
+    .kb-doc-details > summary::-webkit-details-marker { display: none; }
+    .kb-doc-details > summary::before {
+      content: "▸";
+      display: inline-block;
+      width: 1rem;
+      color: var(--muted);
+      transition: transform 0.15s ease;
+    }
+    .kb-doc-details[open] > summary::before { transform: rotate(90deg); }
+    .kb-doc-summary strong { font-weight: 600; }
+    .kb-doc-images {
+      list-style: none;
+      margin: 0.35rem 0 0 1rem;
+      padding: 0 0 0.25rem;
+      border-left: 2px solid var(--border);
+    }
+    .kb-doc-images .kb-item { padding-left: 0.65rem; border-bottom-color: #eef2f7; }
+    .kb-doc-images .kb-item:last-child { border-bottom: none; }
     .pill.warn { background: #fef3c7; color: #92400e; border: 1px solid #fcd34d; }
     .thumb {
       width: 72px;
@@ -512,6 +547,7 @@
       margin-top: 4px;
       line-height: 1.3;
     }
+    .thread-turn .thread-body .inline-img,
     .ai-box .inline-img {
       display: block;
       max-width: 360px;
@@ -521,6 +557,7 @@
       border: 1px solid var(--border);
       cursor: zoom-in;
     }
+    .thread-turn .thread-body .inline-img-missing,
     .ai-box .inline-img-missing {
       display: inline-block;
       font-size: 0.8rem;
@@ -969,7 +1006,7 @@
   </main>
   </div>
 
-  <script src="/airevolution/app.js?v=2026-08-18-syncimages1" defer></script>
+  <script src="/airevolution/app.js?v=2026-08-19-kbimages1" defer></script>
   <script src="/assets/nav-mobile.js"></script>
 </body>
 </html>

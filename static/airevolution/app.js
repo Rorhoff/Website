@@ -72,7 +72,10 @@ function tabSwitch(name) {
   });
   if (name === "knowledge") loadDocuments().catch((e) => setBanner("kbBanner", String(e), "err"));
   if (name === "tickets") loadTickets().catch((e) => setBanner("ticketBanner", String(e), "err"));
-  if (name === "agent") refreshStatus().catch(() => {});
+  if (name === "agent") {
+    refreshStatus().catch(() => {});
+    loadKbImagesCache().catch(() => {});
+  }
 }
 
 function wireGotoTabs() {
@@ -101,43 +104,104 @@ async function refreshStatus() {
   }
 }
 
+let _allKbImages = [];
+
+function kbImagesForReply(fromResponse) {
+  const byId = new Map();
+  for (const im of _allKbImages) byId.set(im.id, im);
+  for (const im of fromResponse || []) byId.set(im.id, im);
+  return [...byId.values()];
+}
+
+async function loadKbImagesCache() {
+  try {
+    _allKbImages = await fetchJSON("/images");
+  } catch {
+    /* keep prior cache */
+  }
+}
+
 async function loadDocuments() {
   const [docs, imgs] = await Promise.all([fetchJSON("/documents"), fetchJSON("/images")]);
+  _allKbImages = imgs;
   const docList = el("docList");
   if (!docList) return;
 
-  let html = docs.length
-    ? docs.map((d) => {
-        const src = d.source_url
-          ? ` <a class="doc-src" href="${escapeAttr(d.source_url)}" target="_blank" rel="noopener" title="${escapeAttr(d.source_url)}">source ↗</a>`
+  const docIds = new Set(docs.map((d) => d.id));
+  const imgsByDoc = new Map();
+  const orphans = [];
+  for (const im of imgs) {
+    if (im.doc_id != null && docIds.has(im.doc_id)) {
+      if (!imgsByDoc.has(im.doc_id)) imgsByDoc.set(im.doc_id, []);
+      imgsByDoc.get(im.doc_id).push(im);
+    } else {
+      orphans.push(im);
+    }
+  }
+
+  function renderImgRow(im) {
+    return `<li class="kb-item img-row" data-id="${im.id}">
+      <a href="${escapeAttr(im.url_path)}" target="_blank" rel="noopener"><img src="${escapeAttr(im.url_path)}" alt="" class="thumb" loading="lazy" decoding="async" /></a>
+      <div class="grow">
+        <div class="muted sm">${escapeHtml(im.filename)}</div>
+        <input type="text" class="caption-in" data-cap="${im.id}" placeholder="What this screenshot shows (settings, error, etc.)" value="${escapeAttr(im.caption || "")}" />
+      </div>
+      <div class="img-actions">
+        <button type="button" class="btn sm" data-save-cap="${im.id}">Save caption</button>
+        <button type="button" class="btn sm danger" data-del-img="${im.id}">Remove</button>
+      </div>
+    </li>`;
+  }
+
+  function docMeta(d) {
+    const src = d.source_url
+      ? ` <a class="doc-src" href="${escapeAttr(d.source_url)}" target="_blank" rel="noopener" title="${escapeAttr(d.source_url)}">source ↗</a>`
+      : "";
+    const imgLabel =
+      d.image_count > 0
+        ? ` <span class="muted">${d.image_count} screenshot${d.image_count > 1 ? "s" : ""}</span>`
+        : d.source_url
+          ? ` <span class="pill warn" style="font-size:0.72rem">0 screenshots</span>`
           : "";
-        const imgs =
-          d.image_count > 0
-            ? ` <span class="muted">${d.image_count} screenshot${d.image_count > 1 ? "s" : ""}</span>`
-            : d.source_url
-              ? ` <span class="pill warn" style="font-size:0.72rem">0 screenshots</span>`
-              : "";
-        const syncBtn =
-          d.source_url
-            ? `<button type="button" class="btn sm" data-sync-img="${d.id}">Sync screenshots</button>`
-            : "";
-        return `<li class="kb-item"><div><strong>${escapeHtml(d.title)}</strong> <span class="pill ${d.kind === "schema" ? "ok" : ""}" style="font-size:0.75rem">${d.kind === "schema" ? "schema" : "support"}</span> <span class="muted">${d.chunk_count} chunks</span>${imgs}${src}</div><div class="kb-actions">${syncBtn}<button type="button" class="btn sm danger" data-del-doc="${d.id}">Remove</button></div></li>`;
-      }).join("")
+    return `<strong>${escapeHtml(d.title)}</strong> <span class="pill ${d.kind === "schema" ? "ok" : ""}" style="font-size:0.75rem">${d.kind === "schema" ? "schema" : "support"}</span> <span class="muted">${d.chunk_count} chunks</span>${imgLabel}${src}`;
+  }
+
+  function docActions(d) {
+    const syncBtn = d.source_url
+      ? `<button type="button" class="btn sm" data-sync-img="${d.id}">Sync screenshots</button>`
+      : "";
+    return `<div class="kb-actions">${syncBtn}<button type="button" class="btn sm danger" data-del-doc="${d.id}">Remove</button></div>`;
+  }
+
+  let html = docs.length
+    ? docs
+        .map((d) => {
+          const docImgs = imgsByDoc.get(d.id) || [];
+          if (!docImgs.length) {
+            return `<li class="kb-doc-group"><div class="kb-doc-row kb-doc-row-flat"><div class="kb-doc-summary">${docMeta(d)}</div>${docActions(d)}</div></li>`;
+          }
+          return `<li class="kb-doc-group">
+            <div class="kb-doc-row">
+              <details class="kb-doc-details">
+                <summary class="kb-doc-summary">${docMeta(d)}</summary>
+                <ul class="kb-doc-images">${docImgs.map(renderImgRow).join("")}</ul>
+              </details>
+              ${docActions(d)}
+            </div>
+          </li>`;
+        })
+        .join("")
     : '<li class="muted">No documents yet.</li>';
 
-  if (imgs.length) {
-    html += imgs.map((im) => `
-      <li class="kb-item img-row" data-id="${im.id}">
-        <a href="${im.url_path}" target="_blank" rel="noopener"><img src="${im.url_path}" alt="" class="thumb" loading="lazy" decoding="async" /></a>
-        <div class="grow">
-          <div class="muted sm">${escapeHtml(im.filename)}</div>
-          <input type="text" class="caption-in" data-cap="${im.id}" placeholder="What this screenshot shows (settings, error, etc.)" value="${escapeAttr(im.caption || "")}" />
-        </div>
-        <div class="img-actions">
-          <button type="button" class="btn sm" data-save-cap="${im.id}">Save caption</button>
-          <button type="button" class="btn sm danger" data-del-img="${im.id}">Remove</button>
-        </div>
-      </li>`).join("");
+  if (orphans.length) {
+    html += `<li class="kb-doc-group">
+      <div class="kb-doc-row">
+        <details class="kb-doc-details">
+          <summary class="kb-doc-summary"><strong>Other screenshots</strong> <span class="muted">${orphans.length} not linked to a document</span></summary>
+          <ul class="kb-doc-images">${orphans.map(renderImgRow).join("")}</ul>
+        </details>
+      </div>
+    </li>`;
   }
 
   docList.innerHTML = html;
@@ -207,17 +271,19 @@ function renderTicketThread(t) {
   const msgs = Array.isArray(t.messages) ? t.messages : [];
   if (!msgs.length) return "";
   const turns = msgs
-    .map(
-      (m) => `
-      <div class="thread-turn ${m.role === "assistant" ? "assistant" : "user"}">
-        <span class="who">${m.role === "assistant" ? "T1 AI agent" : "You"}${m.at ? ` · ${escapeHtml(m.at)}` : ""}</span>${escapeHtml(m.text || "")}
-      </div>`
-    )
+    .map((m) => {
+      if (m.role === "assistant") {
+        const { html } = renderReplyWithImages(m.text || "", _allKbImages);
+        return `<div class="thread-turn assistant"><span class="who">T1 AI agent${m.at ? ` · ${escapeHtml(m.at)}` : ""}</span><div class="thread-body">${html}</div></div>`;
+      }
+      return `<div class="thread-turn user"><span class="who">You${m.at ? ` · ${escapeHtml(m.at)}` : ""}</span>${escapeHtml(m.text || "")}</div>`;
+    })
     .join("");
   return `<details class="ai-out ticket-thread" open><summary>Conversation (${msgs.length})</summary><div class="thread-log" style="max-height:none">${turns}</div></details>`;
 }
 
 async function loadTickets() {
+  await loadKbImagesCache();
   const tickets = await fetchJSON("/tickets");
   const list = el("ticketList");
   if (!list) return;
@@ -264,7 +330,7 @@ async function loadTickets() {
         const res = await fetchJSON(`/tickets/${id}/ai-resolve`, { method: "POST" });
         setBanner("ticketBanner", "AI response recorded.", "ok");
         const out = el("aiOutput");
-        const images = Array.isArray(res.images) ? res.images : [];
+        const images = kbImagesForReply(Array.isArray(res.images) ? res.images : []);
         if (out) {
           const { html, inlinedIds } = renderReplyWithImages(res.reply || "", images);
           out.innerHTML = html || '<span class="muted">No response.</span>';
@@ -487,10 +553,30 @@ function initChatPasteImages(chatInput) {
 
 function _findImageByName(images, name) {
   if (!images || !name) return null;
-  const norm = String(name).trim().toLowerCase();
+  const norm = String(name)
+    .trim()
+    .replace(/^[`'"]+|[`'"]+$/g, "")
+    .toLowerCase();
   if (!norm) return null;
-  return (
+  const basename = (path) => String(path).split(/[/\\]/).pop().toLowerCase();
+
+  let hit =
     images.find((im) => (im.filename || "").toLowerCase() === norm) ||
+    images.find((im) => basename(im.url_path || "") === norm) ||
+    images.find((im) => (im.filename || "").toLowerCase().endsWith(norm)) ||
+    images.find((im) => norm.endsWith((im.filename || "").toLowerCase()));
+  if (hit) return hit;
+
+  const stripped = norm.replace(/^doc\d+-/, "");
+  if (stripped !== norm) {
+    hit =
+      images.find((im) => (im.filename || "").toLowerCase() === norm) ||
+      images.find((im) => (im.filename || "").toLowerCase().endsWith(stripped)) ||
+      images.find((im) => basename(im.filename || "") === stripped);
+    if (hit) return hit;
+  }
+
+  return (
     images.find((im) => (im.url_path || "").toLowerCase().endsWith("/" + norm)) ||
     images.find((im) => (im.url_path || "").toLowerCase().includes(norm)) ||
     null
@@ -498,18 +584,19 @@ function _findImageByName(images, name) {
 }
 
 function renderReplyWithImages(reply, images) {
+  const pool = kbImagesForReply(images);
   const inlinedIds = new Set();
   if (!reply) return { html: "", inlinedIds };
   const parts = [];
-  const regex = /\[\[\s*image\s*:\s*([^\]\n]+?)\s*\]\]/gi;
+  const regex = /\[\[\s*image\s*:\s*([^\]\n]+?)\s*\]\]|\[\s*image\s*:\s*([^\]\n]+?)\s*\]/gi;
   let lastIndex = 0;
   let m;
   while ((m = regex.exec(reply)) !== null) {
     if (m.index > lastIndex) {
       parts.push(escapeHtml(reply.slice(lastIndex, m.index)));
     }
-    const name = (m[1] || "").trim();
-    const img = _findImageByName(images, name);
+    const name = (m[1] || m[2] || "").trim().replace(/^[`'"]+|[`'"]+$/g, "");
+    const img = _findImageByName(pool, name);
     if (img) {
       inlinedIds.add(img.id);
       const cap = img.caption || img.filename || "";
@@ -565,12 +652,13 @@ function renderAgentThreadLog() {
   }
   log.hidden = false;
   log.innerHTML = turns
-    .map(
-      (m) => `
-      <div class="thread-turn ${m.role === "assistant" ? "assistant" : "user"}">
-        <span class="who">${m.role === "assistant" ? "T1 AI agent" : "You"}</span>${escapeHtml(m.text || "")}
-      </div>`
-    )
+    .map((m) => {
+      if (m.role === "assistant") {
+        const { html } = renderReplyWithImages(m.text || "", _allKbImages);
+        return `<div class="thread-turn assistant"><span class="who">T1 AI agent</span><div class="thread-body">${html}</div></div>`;
+      }
+      return `<div class="thread-turn user"><span class="who">You</span>${escapeHtml(m.text || "")}</div>`;
+    })
     .join("");
   log.scrollTop = log.scrollHeight;
 }
@@ -701,7 +789,7 @@ function initChat() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      const kbImages = Array.isArray(res.images) ? res.images : [];
+      const kbImages = kbImagesForReply(Array.isArray(res.images) ? res.images : []);
       const { html: replyHtml, inlinedIds } = renderReplyWithImages(res.reply || "", kbImages);
       out.className = "ai-box";
       out.innerHTML = replyHtml || '<span class="muted">No response.</span>';
@@ -1001,6 +1089,7 @@ function init() {
   initChat();
   initTicketForm();
   wireGotoTabs();
+  loadKbImagesCache().catch(() => {});
   refreshStatus().catch(() => {});
   tabSwitch("home");
 }

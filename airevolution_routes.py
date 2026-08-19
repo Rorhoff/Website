@@ -748,11 +748,47 @@ def _build_context_for_query(
     return ctx, hits, img_hits, broad, sql
 
 
-def _chat_response_images(img_hits: list[dict[str, Any]], hits: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _images_referenced_in_reply(reply: str) -> list[dict[str, Any]]:
+    """Resolve [[image: filename]] markers to stored KB images."""
+    if not reply:
+        return []
+    names = re.findall(r"\[\[\s*image\s*:\s*([^\]\n]+?)\s*\]\]", reply, flags=re.I)
+    names += re.findall(r"\[\s*image\s*:\s*([^\]\n]+?)\s*\]", reply, flags=re.I)
+    out: list[dict[str, Any]] = []
+    seen: set[int] = set()
+    with _lock:
+        all_imgs = list(_images)
+    for raw in names:
+        norm = raw.strip().strip("`'\"").lower()
+        if not norm:
+            continue
+        hit = next(
+            (
+                im
+                for im in all_imgs
+                if (im.get("filename") or "").lower() == norm
+                or (im.get("filename") or "").lower().endswith(norm)
+                or norm.endswith((im.get("filename") or "").lower())
+            ),
+            None,
+        )
+        if hit and hit["id"] not in seen:
+            seen.add(hit["id"])
+            out.append(hit)
+    return out
+
+
+def _chat_response_images(
+    img_hits: list[dict[str, Any]],
+    hits: list[dict[str, Any]],
+    reply: str = "",
+) -> list[dict[str, Any]]:
     """All screenshots to return to the UI for a chat reply."""
     related_doc_ids = {int(h["source_id"]) for h in hits if h.get("source_id") is not None}
     by_id: dict[int, dict[str, Any]] = {im["id"]: im for im in img_hits}
     for im in _images_for_matched_docs(related_doc_ids, limit=24):
+        by_id.setdefault(im["id"], im)
+    for im in _images_referenced_in_reply(reply):
         by_id.setdefault(im["id"], im)
     return [
         {
@@ -1819,7 +1855,7 @@ def chat(body: ChatIn) -> dict[str, Any]:
     return {
         "reply": reply,
         "retrieval": [{"title": h["title"], "part": h.get("part"), "preview": h["text"][:220]} for h in hits],
-        "images": _chat_response_images(img_hits, hits),
+        "images": _chat_response_images(img_hits, hits, reply),
         "status": status_line,
         "sources": sources,
         "broad": broad,
