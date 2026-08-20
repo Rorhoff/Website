@@ -1094,10 +1094,11 @@ function initUrlIngest() {
         }),
       });
       const failNote = res.articles_failed ? ` · ${res.articles_failed} failed` : "";
+      const renameNote = res.articles_renamed ? ` · ${res.articles_renamed} renamed` : "";
       setBanner(
         "kbBanner",
         `Bulk import done: ${res.articles_added} added, ${res.articles_skipped} skipped` +
-          `${failNote} across ${res.categories_processed} categor${res.categories_processed === 1 ? "y" : "ies"}.`,
+          `${renameNote}${failNote} across ${res.categories_processed} categor${res.categories_processed === 1 ? "y" : "ies"}.`,
         res.articles_failed && !res.articles_added ? "err" : "ok"
       );
       loadDocuments().catch(() => {});

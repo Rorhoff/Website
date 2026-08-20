@@ -1294,6 +1294,63 @@ def _extract_anchor_links(
     return out
 
 
+def _extract_scoped_html_blocks(html: str, selectors: list[str]) -> list[str]:
+    """Pull likely main-content fragments before link extraction."""
+    blocks: list[str] = []
+    for sel in selectors:
+        if sel.startswith("class="):
+            cls = re.escape(sel.split("=", 1)[1])
+            for m in re.finditer(
+                rf"<([a-z]+)\b[^>]*class=[\"'][^\"']*\b{cls}\b[^\"']*[\"'][^>]*>(.*?)</\1>",
+                html,
+                re.I | re.S,
+            ):
+                blocks.append(m.group(2))
+        elif sel.startswith("tag="):
+            tag = sel.split("=", 1)[1]
+            for m in re.finditer(rf"<{tag}\b[^>]*>(.*?)</{tag}>", html, re.I | re.S):
+                blocks.append(m.group(1))
+    return blocks
+
+
+def _extract_category_article_links(html: str, page_url: str) -> list[tuple[str, str]]:
+    """Article links listed on a docs category page (not global nav/footer)."""
+    scoped = _extract_scoped_html_blocks(
+        html,
+        [
+            "class=articleList",
+            "class=article-list",
+            "class=collection-category-articles",
+            "tag=main",
+        ],
+    )
+    for block in scoped:
+        links = _extract_anchor_links(block, page_url, path_substr="/article/")
+        if links:
+            return links
+    return _extract_article_links(html, page_url)
+
+
+def _category_label_from_page(html: str, page_url: str, fallback: str = "") -> str:
+    """Best label for a category page (sidebar name, h1, or title tag)."""
+    page_norm = _norm_url(page_url)
+    for label, cat_url in _extract_category_links(html, page_url):
+        if _norm_url(cat_url) == page_norm:
+            return label
+    m = re.search(
+        r'class=["\'][^"\']*categoryHead[^"\']*["\'][^>]*>.*?<h1\b[^>]*>(.*?)</h1>',
+        html,
+        re.I | re.S,
+    )
+    if m:
+        h1 = re.sub(r"<[^>]+>", " ", m.group(1))
+        h1 = re.sub(r"\s+", " ", html_lib.unescape(h1)).strip()
+        if h1:
+            return h1
+    page_title, _ = _html_to_text(html)
+    return _label_from_page_title(page_title) or fallback or page_norm
+
+
 def _extract_category_links(html: str, page_url: str) -> list[tuple[str, str]]:
     return _extract_anchor_links(html, page_url, path_substr="/category/")
 
@@ -1332,12 +1389,31 @@ def _existing_source_urls() -> set[str]:
         return {_norm_url(d["source_url"]) for d in _docs if d.get("source_url")}
 
 
+def _rename_doc_by_source_url(url: str, new_title: str) -> bool:
+    norm = _norm_url(url)
+    changed = False
+    with _lock:
+        for d in _docs:
+            if _norm_url(d.get("source_url") or "") != norm:
+                continue
+            if d["title"] == new_title:
+                return False
+            d["title"] = new_title
+            d["chunks"] = _chunk_text(d.get("full_text") or "", d["id"], new_title)
+            changed = True
+            break
+    if changed:
+        _persist_kb_to_disk()
+    return changed
+
+
 def _ingest_url_as_document(
     url: str,
     title: str | None,
     doc_kind: str | None,
     *,
     skip_if_exists: bool = False,
+    update_title_if_exists: bool = False,
 ) -> dict[str, Any]:
     """Fetch one web page and add it to the KB. Used by single- and bulk-URL ingest."""
     _ensure_storage()
@@ -1347,9 +1423,13 @@ def _ingest_url_as_document(
     _reject_private_url(url)
     norm = _norm_url(url)
     if skip_if_exists and norm in _existing_source_urls():
+        renamed = False
+        if update_title_if_exists and title:
+            renamed = _rename_doc_by_source_url(url, title.strip())
         return {
             "ok": True,
             "skipped": True,
+            "renamed": renamed,
             "source_url": url,
             "title": title or url,
         }
@@ -1573,12 +1653,14 @@ def add_documents_from_url_bulk(body: UrlBulkIngestIn) -> dict[str, Any]:
     is_article = "/article/" in urlparse(start_final).path
 
     results: list[dict[str, Any]] = []
-    added = skipped = failed = 0
+    added = skipped = failed = renamed = 0
     categories_processed = 0
 
     def record(item: dict[str, Any]) -> None:
-        nonlocal added, skipped, failed
+        nonlocal added, skipped, failed, renamed
         results.append(item)
+        if item.get("renamed"):
+            renamed += 1
         if item.get("skipped"):
             skipped += 1
         elif item.get("ok"):
@@ -1606,6 +1688,7 @@ def add_documents_from_url_bulk(body: UrlBulkIngestIn) -> dict[str, Any]:
             "categories_processed": 0,
             "articles_added": added,
             "articles_skipped": skipped,
+            "articles_renamed": renamed,
             "articles_failed": failed,
             "results": results,
         }
@@ -1636,7 +1719,10 @@ def add_documents_from_url_bulk(body: UrlBulkIngestIn) -> dict[str, Any]:
             else:
                 cat_html, _, cat_resp = _fetch_url_html(category_url)
                 cat_resp_url = _norm_url(str(cat_resp.url))
-            articles = _extract_article_links(cat_html, cat_resp_url)[: body.max_articles_per_category]
+            articles = _extract_category_article_links(cat_html, cat_resp_url)[
+                : body.max_articles_per_category
+            ]
+            category_name = _category_label_from_page(cat_html, cat_resp_url, category_label)
         except HTTPException as e:
             record(
                 {
@@ -1659,7 +1745,12 @@ def add_documents_from_url_bulk(body: UrlBulkIngestIn) -> dict[str, Any]:
             )
             continue
 
-        prefix = (body.title_prefix or "").strip() or category_label
+        # When chaining categories, always name from each category page — never one global prefix.
+        if body.crawl_sibling_categories:
+            prefix = category_name
+        else:
+            prefix = (body.title_prefix or "").strip() or category_name
+        update_title = body.crawl_sibling_categories
         for article_label, article_url in articles:
             doc_title = f"{prefix} - {article_label}"
             try:
@@ -1668,6 +1759,7 @@ def add_documents_from_url_bulk(body: UrlBulkIngestIn) -> dict[str, Any]:
                     doc_title,
                     body.doc_kind,
                     skip_if_exists=body.skip_existing,
+                    update_title_if_exists=update_title,
                 )
                 record({**res, "category": prefix})
             except HTTPException as e:
@@ -1682,10 +1774,11 @@ def add_documents_from_url_bulk(body: UrlBulkIngestIn) -> dict[str, Any]:
                 )
 
     return {
-        "ok": failed == 0 or added > 0,
+        "ok": failed == 0 or added > 0 or renamed > 0,
         "categories_processed": categories_processed,
         "articles_added": added,
         "articles_skipped": skipped,
+        "articles_renamed": renamed,
         "articles_failed": failed,
         "results": results,
     }
