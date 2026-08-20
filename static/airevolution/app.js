@@ -1019,33 +1019,86 @@ function initDocUpload() {
 
 function initUrlIngest() {
   const form = el("urlIngestForm");
-  if (!form) return;
-  form.addEventListener("submit", async (ev) => {
+  if (form) {
+    form.addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      const url = (el("urlInput")?.value || "").trim();
+      if (!url) return;
+      const btn = el("urlIngestBtn");
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = "Fetching.";
+      }
+      setBanner("kbBanner", `Fetching ${url}`, "info");
+      try {
+        const res = await fetchJSON("/documents/from-url", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            url,
+            title: (el("urlTitle")?.value || "").trim() || null,
+            doc_kind: el("urlKind")?.value || null,
+          }),
+        });
+        form.reset();
+        setBanner(
+          "kbBanner",
+          `Added "${res.title}" (${res.chunk_count} chunks, ${Math.round((res.chars || 0) / 1000)}k chars` +
+            `${res.images_ingested ? `, ${res.images_ingested} screenshot${res.images_ingested > 1 ? "s" : ""}` : ""}) from the web link.`,
+          "ok"
+        );
+        loadDocuments().catch(() => {});
+        refreshStatus().catch(() => {});
+      } catch (e) {
+        setBanner("kbBanner", String(e), "err");
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = "Fetch & add to KB";
+        }
+      }
+    });
+  }
+
+  const bulkForm = el("urlBulkForm");
+  if (!bulkForm) return;
+  bulkForm.addEventListener("submit", async (ev) => {
     ev.preventDefault();
-    const url = (el("urlInput")?.value || "").trim();
+    const url = (el("urlBulkInput")?.value || "").trim();
     if (!url) return;
-    const btn = el("urlIngestBtn");
+    const btn = el("urlBulkBtn");
+    const crawlSiblings = !!(el("urlBulkSiblings") && el("urlBulkSiblings").checked);
+    const maxCategories = Math.max(1, Math.min(20, parseInt(el("urlBulkMaxCats")?.value || "1", 10) || 1));
     if (btn) {
       btn.disabled = true;
-      btn.textContent = "Fetching.";
+      btn.textContent = "Importing…";
     }
-    setBanner("kbBanner", `Fetching ${url}`, "info");
+    setBanner(
+      "kbBanner",
+      crawlSiblings
+        ? `Bulk import started — crawling up to ${maxCategories} categories. This may take a few minutes.`
+        : "Bulk import started — fetching articles from this category.",
+      "info"
+    );
     try {
-      const res = await fetchJSON("/documents/from-url", {
+      const res = await fetchJSON("/documents/from-url/bulk", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           url,
-          title: (el("urlTitle")?.value || "").trim() || null,
-          doc_kind: el("urlKind")?.value || null,
+          title_prefix: (el("urlBulkPrefix")?.value || "").trim() || null,
+          doc_kind: el("urlBulkKind")?.value || null,
+          crawl_sibling_categories: crawlSiblings,
+          max_categories: crawlSiblings ? maxCategories : 1,
+          skip_existing: !!(el("urlBulkSkipExisting") && el("urlBulkSkipExisting").checked),
         }),
       });
-      form.reset();
+      const failNote = res.articles_failed ? ` · ${res.articles_failed} failed` : "";
       setBanner(
         "kbBanner",
-        `Added "${res.title}" (${res.chunk_count} chunks, ${Math.round((res.chars || 0) / 1000)}k chars` +
-          `${res.images_ingested ? `, ${res.images_ingested} screenshot${res.images_ingested > 1 ? "s" : ""}` : ""}) from the web link.`,
-        "ok"
+        `Bulk import done: ${res.articles_added} added, ${res.articles_skipped} skipped` +
+          `${failNote} across ${res.categories_processed} categor${res.categories_processed === 1 ? "y" : "ies"}.`,
+        res.articles_failed && !res.articles_added ? "err" : "ok"
       );
       loadDocuments().catch(() => {});
       refreshStatus().catch(() => {});
@@ -1054,7 +1107,7 @@ function initUrlIngest() {
     } finally {
       if (btn) {
         btn.disabled = false;
-        btn.textContent = "Fetch & add to KB";
+        btn.textContent = "Bulk import category";
       }
     }
   });

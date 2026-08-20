@@ -22,7 +22,7 @@ from collections import Counter
 from pathlib import Path
 from threading import Lock
 from typing import Any
-from urllib.parse import urljoin, urlparse, unquote
+from urllib.parse import urldefrag, urljoin, urlparse, unquote
 
 import httpx
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
@@ -1010,6 +1010,16 @@ class UrlIngestIn(BaseModel):
     doc_kind: str | None = None
 
 
+class UrlBulkIngestIn(BaseModel):
+    url: str = Field(min_length=8, max_length=2000)
+    title_prefix: str | None = Field(default=None, max_length=200)
+    doc_kind: str | None = None
+    crawl_sibling_categories: bool = False
+    max_categories: int = Field(default=1, ge=1, le=20)
+    max_articles_per_category: int = Field(default=40, ge=1, le=100)
+    skip_existing: bool = True
+
+
 MAX_URL_FETCH_BYTES = 4 * 1024 * 1024
 MAX_URL_IMAGES = 12
 MAX_IMAGE_BYTES = 2 * 1024 * 1024
@@ -1243,6 +1253,158 @@ def _remove_images_for_doc(doc_id: int) -> None:
         _images = kept
 
 
+def _norm_url(url: str) -> str:
+    return urldefrag(url.strip())[0].rstrip("/")
+
+
+def _label_from_page_title(title: str) -> str:
+    title = re.sub(r"\s+", " ", (title or "").strip())
+    for sep in (" - ", " | ", " — ", " – "):
+        if sep in title:
+            return title.split(sep, 1)[0].strip()
+    return title
+
+
+def _extract_anchor_links(
+    html: str,
+    page_url: str,
+    *,
+    path_substr: str,
+) -> list[tuple[str, str]]:
+    """Return [(label, absolute_url), ...] in page order, deduped by URL."""
+    out: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for m in re.finditer(r"<a\b([^>]*)>(.*?)</a>", html, re.I | re.S):
+        attrs, inner = m.group(1), m.group(2)
+        hm = re.search(r'href=["\']([^"\']+)["\']', attrs, re.I)
+        if not hm:
+            continue
+        href = hm.group(1)
+        if path_substr not in href:
+            continue
+        abs_url = _norm_url(_resolve_page_url(page_url, href))
+        if abs_url in seen:
+            continue
+        label = re.sub(r"<[^>]+>", " ", inner)
+        label = re.sub(r"\s+", " ", html_lib.unescape(label)).strip()
+        if not label or len(label) > 160:
+            continue
+        seen.add(abs_url)
+        out.append((label, abs_url))
+    return out
+
+
+def _extract_category_links(html: str, page_url: str) -> list[tuple[str, str]]:
+    return _extract_anchor_links(html, page_url, path_substr="/category/")
+
+
+def _extract_article_links(html: str, page_url: str) -> list[tuple[str, str]]:
+    return _extract_anchor_links(html, page_url, path_substr="/article/")
+
+
+def _category_plan_from_url(
+    start_url: str,
+    html: str,
+    final_url: str,
+    *,
+    crawl_siblings: bool,
+    max_categories: int,
+    title_prefix: str | None,
+) -> list[tuple[str, str]]:
+    """Return [(category_label, category_url), ...] to crawl."""
+    start_norm = _norm_url(final_url)
+    sidebar = _extract_category_links(html, final_url)
+    if crawl_siblings and sidebar:
+        for i, (label, cat_url) in enumerate(sidebar):
+            if _norm_url(cat_url) == start_norm:
+                return sidebar[i : i + max_categories]
+    page_title, _ = _html_to_text(html)
+    label = (title_prefix or "").strip() or _label_from_page_title(page_title) or start_norm
+    for cat_label, cat_url in sidebar:
+        if _norm_url(cat_url) == start_norm:
+            label = (title_prefix or "").strip() or cat_label
+            break
+    return [(label, final_url)]
+
+
+def _existing_source_urls() -> set[str]:
+    with _lock:
+        return {_norm_url(d["source_url"]) for d in _docs if d.get("source_url")}
+
+
+def _ingest_url_as_document(
+    url: str,
+    title: str | None,
+    doc_kind: str | None,
+    *,
+    skip_if_exists: bool = False,
+) -> dict[str, Any]:
+    """Fetch one web page and add it to the KB. Used by single- and bulk-URL ingest."""
+    _ensure_storage()
+    url = url.strip()
+    if not re.match(r"^https?://", url, re.I):
+        raise HTTPException(400, "URL must start with http:// or https://")
+    _reject_private_url(url)
+    norm = _norm_url(url)
+    if skip_if_exists and norm in _existing_source_urls():
+        return {
+            "ok": True,
+            "skipped": True,
+            "source_url": url,
+            "title": title or url,
+        }
+
+    page_html, raw_text, resp = _fetch_url_html(url)
+    if len(raw_text) < 40:
+        raise HTTPException(
+            400,
+            "No readable text found at that URL. If the page is JavaScript-rendered, "
+            "copy the article text and use Paste text instead.",
+        )
+
+    page_title, _ = _html_to_text(page_html) if page_html.lstrip()[:1] == "<" else ("", raw_text)
+    doc_id = _next_id()
+    doc_title = (title or "").strip() or page_title or url
+    kind_raw = (doc_kind or "").strip().lower()
+    if kind_raw in ("schema", "support"):
+        kind = kind_raw
+    else:
+        kind = _infer_doc_kind(doc_title, None, raw_text)
+
+    ingested_images: list[dict[str, Any]] = []
+    if page_html.lstrip()[:1] == "<":
+        ingested_images = _ingest_images_from_html(page_html, str(resp.url), doc_id, doc_title)
+        raw_text = _append_image_index_to_text(raw_text, ingested_images)
+
+    chunks = _chunk_text(raw_text, doc_id, doc_title)
+    entry = {
+        "id": doc_id,
+        "title": doc_title,
+        "filename": None,
+        "kind": kind,
+        "source_url": url,
+        "bytes": len(raw_text.encode("utf-8", errors="replace")),
+        "created_at": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime()) + "Z",
+        "full_text": raw_text,
+        "chunks": chunks,
+    }
+    with _lock:
+        _docs.append(entry)
+        _images.extend(ingested_images)
+    _persist_kb_to_disk()
+    return {
+        "ok": True,
+        "skipped": False,
+        "id": doc_id,
+        "title": doc_title,
+        "kind": kind,
+        "source_url": url,
+        "chars": len(raw_text),
+        "chunk_count": len(chunks),
+        "images_ingested": len(ingested_images),
+    }
+
+
 def _fetch_url_html(url: str) -> tuple[str, str, httpx.Response]:
     _reject_private_url(url)
     try:
@@ -1393,77 +1555,139 @@ async def add_document(
 @router.post("/documents/from-url")
 def add_document_from_url(body: UrlIngestIn) -> dict[str, Any]:
     """Fetch a web page and ingest its readable text as a KB article."""
+    return _ingest_url_as_document(body.url, body.title, body.doc_kind, skip_if_exists=False)
+
+
+@router.post("/documents/from-url/bulk")
+def add_documents_from_url_bulk(body: UrlBulkIngestIn) -> dict[str, Any]:
+    """Crawl a docs category page and ingest each linked article."""
     _ensure_storage()
-    url = body.url.strip()
-    if not re.match(r"^https?://", url, re.I):
+    start_url = body.url.strip()
+    if not re.match(r"^https?://", start_url, re.I):
         raise HTTPException(400, "URL must start with http:// or https://")
-    _reject_private_url(url)
-    try:
-        r = httpx.get(
-            url,
-            timeout=30.0,
-            follow_redirects=True,
-            headers=_URL_FETCH_HEADERS,
-        )
-        r.raise_for_status()
-    except httpx.HTTPStatusError as e:
-        raise HTTPException(400, f"URL returned {e.response.status_code}")
-    except httpx.HTTPError as e:
-        raise HTTPException(400, f"Could not fetch URL: {e}")
+    _reject_private_url(start_url)
 
-    content = r.text[:MAX_URL_FETCH_BYTES]
-    ctype = (r.headers.get("content-type") or "").lower()
-    if "html" in ctype or content.lstrip()[:1] == "<":
-        page_title, raw_text = _html_to_text(content)
-    else:
-        page_title, raw_text = "", content.strip()
+    start_html, _, start_resp = _fetch_url_html(start_url)
+    start_final = _norm_url(str(start_resp.url))
+    is_category = "/category/" in urlparse(start_final).path
+    is_article = "/article/" in urlparse(start_final).path
 
-    if len(raw_text) < 40:
-        raise HTTPException(
-            400,
-            "No readable text found at that URL. If the page is JavaScript-rendered, "
-            "copy the article text and use Paste text instead.",
-        )
+    results: list[dict[str, Any]] = []
+    added = skipped = failed = 0
+    categories_processed = 0
 
-    doc_id = _next_id()
-    doc_title = (body.title or "").strip() or page_title or url
-    kind_raw = (body.doc_kind or "").strip().lower()
-    if kind_raw in ("schema", "support"):
-        kind = kind_raw
-    else:
-        kind = _infer_doc_kind(doc_title, None, raw_text)
+    def record(item: dict[str, Any]) -> None:
+        nonlocal added, skipped, failed
+        results.append(item)
+        if item.get("skipped"):
+            skipped += 1
+        elif item.get("ok"):
+            added += 1
+        else:
+            failed += 1
 
-    page_html = content if ("html" in ctype or content.lstrip()[:1] == "<") else ""
-    ingested_images: list[dict[str, Any]] = []
-    if page_html:
-        ingested_images = _ingest_images_from_html(page_html, str(r.url), doc_id, doc_title)
-        raw_text = _append_image_index_to_text(raw_text, ingested_images)
+    if is_article and not is_category:
+        prefix = (body.title_prefix or "").strip()
+        page_title, _ = _html_to_text(start_html)
+        article_label = _label_from_page_title(page_title) or start_final
+        doc_title = f"{prefix} - {article_label}" if prefix else (body.title_prefix or page_title or start_url)
+        try:
+            res = _ingest_url_as_document(
+                start_url,
+                doc_title,
+                body.doc_kind,
+                skip_if_exists=body.skip_existing,
+            )
+            record({**res, "category": prefix or None})
+        except HTTPException as e:
+            record({"ok": False, "source_url": start_url, "title": doc_title, "error": str(e.detail)})
+        return {
+            "ok": failed == 0,
+            "categories_processed": 0,
+            "articles_added": added,
+            "articles_skipped": skipped,
+            "articles_failed": failed,
+            "results": results,
+        }
 
-    chunks = _chunk_text(raw_text, doc_id, doc_title)
-    entry = {
-        "id": doc_id,
-        "title": doc_title,
-        "filename": None,
-        "kind": kind,
-        "source_url": url,
-        "bytes": len(raw_text.encode("utf-8", errors="replace")),
-        "created_at": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime()) + "Z",
-        "full_text": raw_text,
-        "chunks": chunks,
-    }
-    with _lock:
-        _docs.append(entry)
-        _images.extend(ingested_images)
-    _persist_kb_to_disk()
+    max_cats = body.max_categories if body.crawl_sibling_categories else 1
+    category_plan = _category_plan_from_url(
+        start_url,
+        start_html,
+        start_final,
+        crawl_siblings=body.crawl_sibling_categories,
+        max_categories=max_cats,
+        title_prefix=body.title_prefix,
+    )
+    if not category_plan:
+        category_plan = [
+            (
+                (body.title_prefix or "").strip() or _label_from_page_title(_html_to_text(start_html)[0]),
+                start_final,
+            )
+        ]
+
+    for category_label, category_url in category_plan:
+        categories_processed += 1
+        cat_norm = _norm_url(category_url)
+        try:
+            if cat_norm == start_final:
+                cat_html, cat_resp_url = start_html, start_final
+            else:
+                cat_html, _, cat_resp = _fetch_url_html(category_url)
+                cat_resp_url = _norm_url(str(cat_resp.url))
+            articles = _extract_article_links(cat_html, cat_resp_url)[: body.max_articles_per_category]
+        except HTTPException as e:
+            record(
+                {
+                    "ok": False,
+                    "category": category_label,
+                    "source_url": category_url,
+                    "error": f"Could not load category: {e.detail}",
+                }
+            )
+            continue
+
+        if not articles:
+            record(
+                {
+                    "ok": False,
+                    "category": category_label,
+                    "source_url": category_url,
+                    "error": "No article links found on this page.",
+                }
+            )
+            continue
+
+        prefix = (body.title_prefix or "").strip() or category_label
+        for article_label, article_url in articles:
+            doc_title = f"{prefix} - {article_label}"
+            try:
+                res = _ingest_url_as_document(
+                    article_url,
+                    doc_title,
+                    body.doc_kind,
+                    skip_if_exists=body.skip_existing,
+                )
+                record({**res, "category": prefix})
+            except HTTPException as e:
+                record(
+                    {
+                        "ok": False,
+                        "category": prefix,
+                        "source_url": article_url,
+                        "title": doc_title,
+                        "error": str(e.detail),
+                    }
+                )
+
     return {
-        "ok": True,
-        "id": doc_id,
-        "title": doc_title,
-        "kind": kind,
-        "source_url": url,
-        "chars": len(raw_text),
-        "chunk_count": len(chunks),
-        "images_ingested": len(ingested_images),
+        "ok": failed == 0 or added > 0,
+        "categories_processed": categories_processed,
+        "articles_added": added,
+        "articles_skipped": skipped,
+        "articles_failed": failed,
+        "results": results,
     }
 
 

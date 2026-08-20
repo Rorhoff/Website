@@ -830,6 +830,50 @@
         </form>
       </div>
 
+      <div class="card" style="margin-top:1rem">
+        <h2>Bulk import from category</h2>
+        <p class="sm muted" style="margin:0 0 0.75rem">
+          Paste a documentation <strong>category</strong> page (e.g. Getting Started). Each linked article is added as its own KB entry named
+          <em>Category - Article</em> — such as <em>Getting Started - Welcome</em>. Screenshots are pulled from each page automatically.
+          Optionally continue through the next sidebar categories (Single Sign-On, Video Tutorials, …). May take a few minutes for large imports.
+        </p>
+        <form id="urlBulkForm" class="form-grid">
+          <div>
+            <label for="urlBulkInput">Category page URL</label>
+            <input
+              type="url"
+              id="urlBulkInput"
+              placeholder="https://support.cxalloy.com/category/418-getting-started"
+              required
+            />
+          </div>
+          <div>
+            <label for="urlBulkPrefix">Title prefix (optional)</label>
+            <input type="text" id="urlBulkPrefix" placeholder="Defaults to category name, e.g. Getting Started" />
+          </div>
+          <div>
+            <label for="urlBulkKind">Document type</label>
+            <select id="urlBulkKind">
+              <option value="support">Support guide / runbook</option>
+              <option value="schema">Data dictionary / schema</option>
+            </select>
+          </div>
+          <div>
+            <label for="urlBulkMaxCats">Max categories (when continuing through sidebar)</label>
+            <input type="number" id="urlBulkMaxCats" min="1" max="20" value="3" />
+          </div>
+          <label class="sm" style="display:flex; gap:0.4rem; align-items:flex-start; cursor:pointer; color:var(--text)">
+            <input type="checkbox" id="urlBulkSiblings" />
+            Continue through sidebar categories after this one (Single Sign-On, Video Tutorials, …)
+          </label>
+          <label class="sm" style="display:flex; gap:0.4rem; align-items:flex-start; cursor:pointer; color:var(--text)">
+            <input type="checkbox" id="urlBulkSkipExisting" checked />
+            Skip articles already in the KB (matched by source URL)
+          </label>
+          <button type="submit" class="btn primary" id="urlBulkBtn">Bulk import category</button>
+        </form>
+      </div>
+
       <h3>Indexed knowledge</h3>
       <ul id="docList" class="muted" style="list-style:none;padding:0"></ul>
     </div>
@@ -1012,7 +1056,7 @@
   </main>
   </div>
 
-  <script src="/airevolution/app.js?v=2026-08-19-kbcollapse1" defer></script>
+  <script src="/airevolution/app.js?v=2026-08-20-bulkingest1" defer></script>
   <script src="/assets/nav-mobile.js"></script>
 </body>
 </html>
