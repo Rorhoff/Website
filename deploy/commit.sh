@@ -337,6 +337,15 @@ if systemctl list-unit-files 2>/dev/null | grep -q '^ldbg.service'; then
     ldbg_diag="$(curl -sS --max-time 10 "http://127.0.0.1:3002/ldbg/api/diag" 2>/dev/null || true)"
     if echo "$ldbg_diag" | grep -q '"anthropicConfigured"'; then
       ok "LDBG diag: $ldbg_diag"
+      if ! echo "$ldbg_diag" | grep -q '"puppeteerDepsOk"'; then
+        warn "LDBG diag missing puppeteerDepsOk — running stale build (expected after 26ab94e)."
+        warn "  Fix: cd $DEV_DIR && git pull --ff-only origin main"
+        warn "  Then: cd ldbg && LDBG_BASE_PATH=/ldbg npm ci && LDBG_BASE_PATH=/ldbg npm run build"
+        warn "  Then: sudo systemctl restart ldbg"
+      elif echo "$ldbg_diag" | grep -q '"puppeteerDepsOk":false'; then
+        warn "Puppeteer Chrome libraries missing — PDF/PNG export will fail."
+        warn "  Run: bash $DEV_DIR/deploy/ensure-ldbg-puppeteer-deps.sh && sudo systemctl restart ldbg"
+      fi
     else
       warn "LDBG /api/diag did not return JSON — build is stale or basePath wrong."
       warn "  Fix: cd $DEV_DIR/ldbg && LDBG_BASE_PATH=/ldbg npm ci && LDBG_BASE_PATH=/ldbg npm run build"
