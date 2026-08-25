@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { execSync } from "child_process";
+import { readFileSync } from "fs";
+import path from "path";
 import {
   anthropicKeySource,
   isAnthropicConfigured,
@@ -15,6 +17,14 @@ function puppeteerDepsOk(): boolean {
   }
 }
 
+function buildRev(): string | undefined {
+  try {
+    return readFileSync(path.join(process.cwd(), ".ldbg-build-rev"), "utf8").trim();
+  } catch {
+    return undefined;
+  }
+}
+
 /** Deploy health — confirms Anthropic key + interpret model on the running build. */
 export async function GET() {
   const configured = isAnthropicConfigured();
@@ -23,5 +33,6 @@ export async function GET() {
     anthropicKeySource: configured ? anthropicKeySource() : undefined,
     interpretModel: INTERPRET_MODEL,
     puppeteerDepsOk: puppeteerDepsOk(),
+    buildRev: buildRev(),
   });
 }

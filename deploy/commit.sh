@@ -179,6 +179,14 @@ sync_ldbg() {
 
   ok "LDBG built in ${src_dir} ($(git -C "$DEV_DIR" rev-parse --short HEAD)) basePath=/ldbg"
 
+  git -C "$DEV_DIR" rev-parse --short HEAD >"$src_dir/.ldbg-build-rev"
+
+  if grep -q puppeteerDepsOk "$src_dir/src/app/api/diag/route.ts" 2>/dev/null; then
+    if ! grep -rq puppeteerDepsOk "$src_dir/.next/server" 2>/dev/null; then
+      die "LDBG .next build missing puppeteerDepsOk — rebuild did not pick up api/diag changes."
+    fi
+  fi
+
   if [[ -f "$DEV_DIR/deploy/ensure-ldbg-puppeteer-deps.sh" ]]; then
     log "Ensuring Puppeteer / Chrome system libraries for board export…"
     bash "$DEV_DIR/deploy/ensure-ldbg-puppeteer-deps.sh" || die "Puppeteer Chrome deps missing — PDF export will fail. Run: bash deploy/ensure-ldbg-puppeteer-deps.sh"

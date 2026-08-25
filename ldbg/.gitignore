@@ -42,6 +42,7 @@ next-env.d.ts
 
 # LDBG project data
 /storage/
+.ldbg-build-rev
 /samples/*.jpg
 /samples/*.jpeg
 /samples/*.png
