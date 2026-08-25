@@ -191,6 +191,9 @@ export default function ProjectPage() {
   const northDeg = getNorthRotationDeg(project);
   const georef = isGeoreferenced(project);
   const scaled = isProjectScaled(project);
+  const calibratedForInterpret = Boolean(
+    calibration?.pixelsPerFoot ?? scaled
+  );
   const exportGate = canExportBoard(project);
 
   if (!displayImage) {
@@ -283,7 +286,7 @@ export default function ProjectPage() {
               setFeatures(cloneFeatures(next.features));
             }
           }}
-          calibrated={scaled}
+          calibrated={calibratedForInterpret}
           needsAnnotated={georef && !ann}
         />
         {canEditPolygons && baseImage ? (

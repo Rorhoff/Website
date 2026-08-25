@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { CalibrationPin } from "@/components/CalibrationPin";
 import { computePixelsPerFoot } from "@/lib/calibration";
 import { normalizedImagePointFromClick } from "@/lib/calibration-image-point";
@@ -44,6 +44,31 @@ export function CalibrationTool({
   );
   const [clickTarget, setClickTarget] = useState<"A" | "B">("A");
   const [draggingNorth, setDraggingNorth] = useState(false);
+
+  useEffect(() => {
+    if (!draggingNorth) return;
+
+    const updateNorthFromPointer = (clientX: number, clientY: number) => {
+      const el = containerRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      const cx = rect.left + rect.width / 2;
+      const cy = rect.top + rect.height / 2;
+      const deg =
+        (Math.atan2(clientY - cy, clientX - cx) * 180) / Math.PI + 90;
+      onNorthChange(Math.round(deg));
+    };
+
+    const onMove = (e: MouseEvent) => updateNorthFromPointer(e.clientX, e.clientY);
+    const onUp = () => setDraggingNorth(false);
+
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, [draggingNorth, onNorthChange]);
 
   const handleImageClick = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
@@ -166,23 +191,7 @@ export function CalibrationTool({
         />
       </div>
 
-      <div
-        className="flex flex-wrap items-end gap-3"
-        onMouseMove={(e) => {
-          if (draggingNorth) {
-            const el = containerRef.current;
-            if (!el) return;
-            const rect = el.getBoundingClientRect();
-            const cx = rect.left + rect.width / 2;
-            const cy = rect.top + rect.height / 2;
-            const deg =
-              (Math.atan2(e.clientY - cy, e.clientX - cx) * 180) / Math.PI + 90;
-            onNorthChange(Math.round(deg));
-          }
-        }}
-        onMouseUp={() => setDraggingNorth(false)}
-        onMouseLeave={() => setDraggingNorth(false)}
-      >
+      <div className="flex flex-wrap items-end gap-3">
         <label className="text-sm">
           <span className="text-stone-600">Real-world distance (feet)</span>
           <input
@@ -244,9 +253,10 @@ function NorthArrow({
         <div className="h-8 w-0.5 bg-stone-800" />
         <button
           type="button"
-          className={`mt-1 h-4 w-4 rounded-full border-2 border-stone-800 bg-white ${dragging ? "ring-2 ring-emerald-500" : ""}`}
+          className={`mt-1 h-4 w-4 cursor-grab rounded-full border-2 border-stone-800 bg-white active:cursor-grabbing ${dragging ? "ring-2 ring-emerald-500" : ""}`}
           title="Drag to rotate north"
           onMouseDown={(e) => {
+            e.preventDefault();
             e.stopPropagation();
             onMouseDown();
           }}

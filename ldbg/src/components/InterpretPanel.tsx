@@ -102,7 +102,7 @@ export function InterpretPanel({
                 ? "Export annotation base and upload your annotated sketch first"
                 : calibrated
                   ? undefined
-                  : "Save scale calibration first"
+                  : "Click Apply scale after setting calibration points"
             }
           >
             {busy ? "Running…" : interpretation ? "Re-run interpret" : "Run interpret"}
