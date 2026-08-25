@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { AnnotationBasePanel } from "@/components/AnnotationBasePanel";
 import { ImageRegistrationPanel } from "@/components/ImageRegistrationPanel";
@@ -30,7 +30,6 @@ import { getGeorefDisplayContext } from "@/lib/georef-display";
 import { projectImageUrl } from "@/lib/image-utils";
 import { cloneFeatures } from "@/lib/feature-geometry";
 import {
-  needsReview,
   type InterpretFeature,
   type StoredInterpretation,
 } from "@/lib/interpret-schema";
@@ -144,12 +143,6 @@ export default function ProjectPage() {
     [id]
   );
 
-  const canEditPolygons = useMemo(() => {
-    if (!interpretation || features.length === 0) return false;
-    if (!needsReview(interpretation)) return true;
-    return !!interpretation.reviewClearedAt;
-  }, [interpretation, features.length]);
-
   const handleScaleDraft = useCallback((cal: Calibration | undefined) => {
     setCalibration(cal);
   }, []);
@@ -222,6 +215,7 @@ export default function ProjectPage() {
     displayImage.width,
     displayImage.height
   );
+  const canEditPolygons = true;
 
   return (
     <>
@@ -291,18 +285,6 @@ export default function ProjectPage() {
           onSave={() => persist({ metadata })}
           saving={saving}
         />
-        <InterpretPanel
-          projectId={id}
-          interpretation={interpretation}
-          onInterpretation={(next) => {
-            setInterpretation(next);
-            if (!project.features?.length) {
-              setFeatures(cloneFeatures(next.features));
-            }
-          }}
-          calibrated={calibratedForInterpret}
-          needsAnnotated={georef && !ann}
-        />
         {canEditPolygons && baseImage ? (
           <PolygonEditorLoader
             projectId={id}
@@ -321,15 +303,18 @@ export default function ProjectPage() {
             editorSettings={editorSettings}
             onAutosave={handleEditorAutosave}
           />
-        ) : interpretation && features.length === 0 ? (
-          <section className="rounded-xl border border-dashed border-stone-300 p-6 text-sm text-stone-600">
-            Run interpret to populate features, then refine them here.
-          </section>
-        ) : interpretation && needsReview(interpretation) && !interpretation.reviewClearedAt ? (
-          <section className="rounded-xl border border-amber-200 bg-amber-50 p-6 text-sm text-amber-900">
-            Clear the interpret review queue above before editing polygons.
-          </section>
         ) : null}
+        <InterpretPanel
+          projectId={id}
+          interpretation={interpretation}
+          hasHandDrawnFeatures={features.length > 0}
+          onInterpretation={(next) => {
+            setInterpretation(next);
+            setFeatures(cloneFeatures(next.features));
+          }}
+          calibrated={calibratedForInterpret}
+          needsAnnotated={georef && !ann}
+        />
         {features.length > 0 && baseImage ? (
           <PlanPanel
             features={features}
