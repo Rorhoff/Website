@@ -1,6 +1,12 @@
 import { useMemo } from "react";
 import type { LegendEntry } from "@/config/legend";
-import { normToPx } from "@/lib/feature-geometry";
+import type { StoredElevationAnalysis } from "@/lib/elevation-schema";
+import type { GeorefDisplayContext } from "@/lib/georef-display";
+import { projectedToPixel } from "@/lib/georef-transform";
+import {
+  geometryRadiusPx,
+  geometryToPxPoints,
+} from "@/lib/feature-georef";
 import { labelForFeatureType } from "@/lib/feature-styles";
 import type { InterpretFeature } from "@/lib/interpret-schema";
 import {
@@ -8,7 +14,7 @@ import {
   CALLOUT_RADIUS,
   computeArchScaleLabel,
   pickScaleBarFeet,
-  polygonPointsAttr,
+  pxPointsAttr,
   SHEET_HEIGHT_PX,
   SHEET_WIDTH_PX,
 } from "@/lib/plan-layout";
@@ -19,6 +25,9 @@ export type PlanDrawingProject = {
   features: InterpretFeature[];
   northRotationDeg: number;
   calibration?: { pixelsPerFoot: number };
+  pixelsPerFoot?: number;
+  georefCtx?: GeorefDisplayContext;
+  elevationAnalysis?: StoredElevationAnalysis;
   editorSettings?: { hiddenFeatureTypes?: string[] };
   metadata: { projectTitle?: string };
 };
@@ -55,7 +64,8 @@ function renderFeature(
   f: InterpretFeature,
   legend: LegendEntry[],
   w: number,
-  h: number
+  h: number,
+  georefCtx?: GeorefDisplayContext
 ) {
   const entry = legend.find((e) => e.featureType === f.featureType);
   const rs = entry?.renderStyle;
@@ -64,10 +74,13 @@ function renderFeature(
   const fillBase = rs?.fill === "none" ? "transparent" : (rs?.fill ?? "#94a3b8");
   const opacity = rs?.opacity ?? 0.85;
   const pat = patternUrl(rs?.patternId);
+  const pxPts = geometryToPxPoints(f, w, h, georefCtx);
 
   if (f.geometry.kind === "point" || isTreeType(f.featureType)) {
-    const c = normToPx(f.geometry.points[0], w, h);
-    const r = (f.geometry.radius ?? 0.025) * Math.max(w, h);
+    const c = pxPts[0] ?? { x: w / 2, y: h / 2 };
+    const r =
+      geometryRadiusPx(f, w, h, georefCtx) ??
+      0.025 * Math.max(w, h);
     return (
       <g key={f.id} opacity={opacity}>
         <circle
@@ -87,7 +100,7 @@ function renderFeature(
     return (
       <polyline
         key={f.id}
-        points={polygonPointsAttr(f.geometry.points, w, h)}
+        points={pxPointsAttr(pxPts)}
         fill="none"
         stroke={stroke}
         strokeWidth={strokeWidth}
@@ -99,7 +112,7 @@ function renderFeature(
   return (
     <polygon
       key={f.id}
-      points={polygonPointsAttr(f.geometry.points, w, h)}
+      points={pxPointsAttr(pxPts)}
       fill={pat ?? fillBase}
       stroke={stroke}
       strokeWidth={strokeWidth}
@@ -216,7 +229,39 @@ export function PlanDrawing({
     [visibleFeatures]
   );
 
-  const pixelsPerFoot = project.calibration?.pixelsPerFoot;
+  const pixelsPerFoot =
+    project.pixelsPerFoot ?? project.calibration?.pixelsPerFoot;
+  const georefCtx = project.georefCtx;
+  const showContours = planSettings?.showContours ?? false;
+  const showDrainage = planSettings?.showDrainageArrows ?? false;
+  const elevationAnalysis = project.elevationAnalysis;
+
+  const contourPolylines = useMemo(() => {
+    if (!showContours || !georefCtx || !elevationAnalysis?.contours.length) return [];
+    return elevationAnalysis.contours.map((c) => ({
+      ...c,
+      px: c.coordinates.map((pt) =>
+        projectedToPixel(pt.x, pt.y, georefCtx.affine)
+      ),
+    }));
+  }, [showContours, georefCtx, elevationAnalysis?.contours]);
+
+  const drainagePx = useMemo(() => {
+    if (!showDrainage || !georefCtx || !elevationAnalysis?.drainageArrows.length) {
+      return [];
+    }
+    return elevationAnalysis.drainageArrows.map((a) => {
+      const origin = projectedToPixel(a.x, a.y, georefCtx.affine);
+      const len = 24;
+      return {
+        ...a,
+        x1: origin.x,
+        y1: origin.y,
+        x2: origin.x + a.dx * len,
+        y2: origin.y + a.dy * len,
+      };
+    });
+  }, [showDrainage, georefCtx, elevationAnalysis?.drainageArrows]);
 
   const { callouts, legendRows } = useMemo(
     () =>
@@ -225,9 +270,10 @@ export function PlanDrawing({
         legend,
         planW,
         planH,
-        pixelsPerFoot
+        pixelsPerFoot,
+        { georefCtx }
       ),
-    [designFeatures, legend, planW, planH, pixelsPerFoot]
+    [designFeatures, legend, planW, planH, pixelsPerFoot, georefCtx]
   );
 
   const scaleBarFeet =
@@ -264,6 +310,18 @@ export function PlanDrawing({
         aria-label={`Plan drawing: ${project.metadata.projectTitle || "landscape plan"}`}
       >
         <PlanPatternDefs />
+        <defs>
+          <marker
+            id="drain-arrow"
+            markerWidth="8"
+            markerHeight="8"
+            refX="6"
+            refY="3"
+            orient="auto"
+          >
+            <path d="M0,0 L6,3 L0,6 Z" fill="#2563eb" />
+          </marker>
+        </defs>
 
         <rect x={0} y={0} width={sheetW} height={sheetH} fill="#fafaf9" />
 
@@ -296,15 +354,41 @@ export function PlanDrawing({
 
           {baseMode === "white"
             ? existingFeatures.filter(isHouseExisting).map((f) =>
-                renderFeature(f, legend, planW, planH)
+                renderFeature(f, legend, planW, planH, georefCtx)
               )
             : null}
 
           {baseMode === "orthophoto"
-            ? existingFeatures.map((f) => renderFeature(f, legend, planW, planH))
+            ? existingFeatures.map((f) => renderFeature(f, legend, planW, planH, georefCtx))
             : null}
 
-          {designFeatures.map((f) => renderFeature(f, legend, planW, planH))}
+          {designFeatures.map((f) => renderFeature(f, legend, planW, planH, georefCtx))}
+
+          {contourPolylines.map((c, i) => (
+            <polyline
+              key={`contour-${i}-${c.elevationFeet}`}
+              points={pxPointsAttr(c.px)}
+              fill="none"
+              stroke={c.major ? "#78716c" : "#a8a29e"}
+              strokeWidth={c.major ? 2 : 1}
+              opacity={0.85}
+              vectorEffect="non-scaling-stroke"
+            />
+          ))}
+
+          {drainagePx.map((a, i) => (
+            <line
+              key={`drain-${i}`}
+              x1={a.x1}
+              y1={a.y1}
+              x2={a.x2}
+              y2={a.y2}
+              stroke="#2563eb"
+              strokeWidth={2}
+              markerEnd="url(#drain-arrow)"
+              opacity={0.75}
+            />
+          ))}
 
           {callouts.map((c) => (
             <g key={c.featureId}>

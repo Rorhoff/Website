@@ -21,8 +21,8 @@ export function WebodmGeorefPanel({ webodm, georeference }: Props) {
 
       {webodm?.georeferencingMode === "gps" ? (
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          <strong>GPS georeferenced</strong> — no ground control points found. Scale is
-          unverified until you complete an independent scale check (Addendum A2).
+          <strong>GPS georeferenced</strong> — scale is unverified until you pass an
+          independent scale check below.
         </div>
       ) : null}
 

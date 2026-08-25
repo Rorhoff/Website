@@ -2,6 +2,8 @@
 
 Paste this into Cursor as `SPEC.md` at the project root, then work through the milestones in order. Do not skip ahead. Ask me before adding dependencies not listed here.
 
+For WebODM georeferenced projects, use the revised build order in **§13** (from Addendum A §A9). Read [`SPEC-A-webodm.md`](SPEC-A-webodm.md) alongside this file; where they conflict, the addendum wins.
+
 ---
 
 ## 1. What this app does
@@ -222,6 +224,25 @@ Also let me upload my own render or photo into any render slot manually. Sometim
 
 ## 13. Build order, do not deviate
 
+**Superseded for WebODM projects by Addendum A §A9.** The list below is the authoritative order when ingesting a georeferenced WebODM export. Legacy single-image upload (§5) remains supported for dev and samples, but new production work follows this path.
+
+1. **WebODM folder ingest** — GeoTIFF parsing, CRS and transform extraction, tile pyramid generation (Addendum A1, A8)
+2. **Annotation base export and re-upload matching** (A3)
+3. **`POST /api/interpret`** with immediate conversion to projected coordinates (A4)
+4. **Polygon editor** working in projected space with true areas (A4)
+5. **Scale verification gate and accuracy banner** (A2)
+6. **SVG plan renderer** with legend and callouts (SPEC §7)
+7. **DTM sampling, slope analysis, cut and fill** (A5)
+8. **`POST /api/design-content`** with elevation facts included when DTM is present (A5)
+9. **Board template and PDF/PNG export** (SPEC §9)
+10. **DXF and GeoJSON export** — projected DXF for Vectorworks, WGS84 GeoJSON, KML/KMZ, stakeout CSV, contours DXF (A7)
+11. **Blender render pipeline** from textured OBJ (A6)
+12. **Image-to-image finishing pass** behind a feature flag (A6)
+
+Steps **1 through 6** are the product. Everything after is upside.
+
+### Legacy build order (pre-WebODM, single JPEG upload)
+
 1. Project scaffold, storage layer, project.json read/write, upload page
 2. Scale calibration and metadata form
 3. `/api/interpret` with Zod validation, results shown as a raw JSON dump
@@ -231,7 +252,7 @@ Also let me upload my own render or photo into any render slot manually. Sometim
 7. Board template and Puppeteer export
 8. Image render provider behind a flag
 
-Get a real end-to-end pass working with my sample images at step 5 before adding anything cosmetic.
+Get a real end-to-end pass working with sample images at step 5 before adding anything cosmetic.
 
 ## 14. Test assets
 

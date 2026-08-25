@@ -11,6 +11,7 @@ type Params = { params: Promise<{ id: string }> };
 const PostBodySchema = z.object({
   slot: z.string(),
   force: z.boolean().optional(),
+  quality: z.enum(["draft", "final"]).optional(),
 });
 
 export async function POST(req: Request, { params }: Params) {
@@ -31,6 +32,7 @@ export async function POST(req: Request, { params }: Params) {
 
   const result = await generateRenderForSlot(id, body.slot, {
     force: body.force,
+    quality: body.quality,
   });
 
   if ("error" in result) {

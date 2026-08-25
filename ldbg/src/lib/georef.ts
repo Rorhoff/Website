@@ -7,6 +7,16 @@ export function pixelsPerFootFromGsdMeters(gsdMeters: number): number {
 }
 
 export function getPixelsPerFoot(project: Project): number | undefined {
+  const ann = project.images.annotated;
+  const base = project.annotationBase;
+  if (
+    base &&
+    ann &&
+    ann.width === base.width &&
+    ann.height === base.height
+  ) {
+    return base.pixelsPerFoot;
+  }
   if (project.georeference?.pixelsPerFoot) {
     return project.georeference.pixelsPerFoot;
   }
@@ -30,6 +40,39 @@ export function getDisplayImage(project: Project):
     project.images.preview ??
     project.images.clean
   );
+}
+
+/** Full-resolution orthophoto pixel dimensions (WebODM / tile pyramid). */
+export function getFullOrthoDimensions(
+  project: Project
+): { width: number; height: number } | undefined {
+  if (project.tilePyramid) {
+    return {
+      width: project.tilePyramid.fullWidthPx,
+      height: project.tilePyramid.fullHeightPx,
+    };
+  }
+  if (project.georeference) {
+    return {
+      width: project.georeference.widthPx,
+      height: project.georeference.heightPx,
+    };
+  }
+  return undefined;
+}
+
+/** Higher-resolution ortho for board print export when available. */
+export function getPrintBoardImage(project: Project):
+  | { filename: string; width: number; height: number }
+  | undefined {
+  if (project.printOrtho) {
+    return {
+      filename: project.printOrtho.filename,
+      width: project.printOrtho.width,
+      height: project.printOrtho.height,
+    };
+  }
+  return getDisplayImage(project);
 }
 
 /** North rotation for plan arrow — georeferenced projects use map north (0°). */

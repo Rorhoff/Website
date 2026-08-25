@@ -1,6 +1,9 @@
 import type { LegendEntry } from "@/config/legend";
+import type { GeorefDisplayContext } from "@/lib/georef-display";
 import {
-  centroidNorm,
+  centroidNormFromFeature,
+} from "@/lib/feature-georef";
+import {
   featureAreaSqFt,
   normToPx,
 } from "@/lib/feature-geometry";
@@ -36,21 +39,23 @@ export function orderFeaturesForLegend(
   legend: LegendEntry[],
   imageW: number,
   imageH: number,
-  pixelsPerFoot?: number
+  pixelsPerFoot?: number,
+  georefCtx?: GeorefDisplayContext
 ): InterpretFeature[] {
   const typeOrder = new Map(legend.map((e, i) => [e.featureType, i]));
+  const canMeasure = georefCtx != null || pixelsPerFoot != null;
 
   return [...features].sort((a, b) => {
     const ta = typeOrder.get(a.featureType) ?? 999;
     const tb = typeOrder.get(b.featureType) ?? 999;
     if (ta !== tb) return ta - tb;
     const aa =
-      pixelsPerFoot != null
-        ? featureAreaSqFt(a, imageW, imageH, pixelsPerFoot) ?? 0
+      canMeasure
+        ? featureAreaSqFt(a, imageW, imageH, pixelsPerFoot, georefCtx) ?? 0
         : 0;
     const bb =
-      pixelsPerFoot != null
-        ? featureAreaSqFt(b, imageW, imageH, pixelsPerFoot) ?? 0
+      canMeasure
+        ? featureAreaSqFt(b, imageW, imageH, pixelsPerFoot, georefCtx) ?? 0
         : 0;
     return bb - aa;
   });
@@ -62,20 +67,23 @@ export function buildCalloutsAndLegend(
   imageW: number,
   imageH: number,
   pixelsPerFoot?: number,
-  options?: { includeExisting?: boolean }
+  options?: { includeExisting?: boolean; georefCtx?: GeorefDisplayContext }
 ): { callouts: Callout[]; legendRows: LegendRow[] } {
   const includeExisting = options?.includeExisting ?? false;
+  const georefCtx = options?.georefCtx;
+  const canMeasure = georefCtx != null || pixelsPerFoot != null;
   const eligible = features.filter((f) => includeExisting || !f.existing);
   const ordered = orderFeaturesForLegend(
     eligible,
     legend,
     imageW,
     imageH,
-    pixelsPerFoot
+    pixelsPerFoot,
+    georefCtx
   );
 
   let callouts: Callout[] = ordered.map((f, i) => {
-    const c = centroidNorm(f.geometry.points);
+    const c = centroidNormFromFeature(f, imageW, imageH, georefCtx);
     const px = normToPx(c, imageW, imageH);
     const entry = legend.find((e) => e.featureType === f.featureType);
     return {
@@ -86,8 +94,8 @@ export function buildCalloutsAndLegend(
       label: f.label || entry?.label || f.featureType,
       featureType: f.featureType,
       areaSqFt:
-        pixelsPerFoot != null
-          ? featureAreaSqFt(f, imageW, imageH, pixelsPerFoot)
+        canMeasure
+          ? featureAreaSqFt(f, imageW, imageH, pixelsPerFoot, georefCtx)
           : null,
     };
   });
@@ -174,6 +182,10 @@ export function computeArchScaleLabel(
     }
   }
   return best.label;
+}
+
+export function pxPointsAttr(points: { x: number; y: number }[]): string {
+  return points.map((p) => `${p.x},${p.y}`).join(" ");
 }
 
 export function polygonPointsAttr(

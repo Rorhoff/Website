@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { validateAnnotatedDimensions } from "@/lib/annotation-base-utils";
 import { getStorage } from "@/lib/storage";
 
 type Params = { params: Promise<{ id: string }> };
@@ -37,6 +38,11 @@ export async function POST(req: Request, { params }: Params) {
       { error: "Image dimensions missing — reload and try again" },
       { status: 400 }
     );
+  }
+
+  const dimCheck = validateAnnotatedDimensions(project, annW, annH);
+  if (!dimCheck.ok) {
+    return NextResponse.json({ error: dimCheck.error }, { status: 400 });
   }
 
   const annExt =

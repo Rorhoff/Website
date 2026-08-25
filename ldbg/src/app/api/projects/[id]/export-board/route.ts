@@ -2,7 +2,10 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { exportBoardDocument } from "@/lib/board-export";
 import type { BoardPageSize } from "@/lib/board-sizes";
+import { isGeoreferenced } from "@/lib/georef";
+import { canExportBoard } from "@/lib/scale-verification";
 import { getStorage } from "@/lib/storage";
+import { ensurePrintOrthoForProject } from "@/lib/tile-pyramid-service";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -31,6 +34,11 @@ export async function POST(req: Request, { params }: Params) {
     );
   }
 
+  const exportGate = canExportBoard(project);
+  if (!exportGate.allowed) {
+    return NextResponse.json({ error: exportGate.reason }, { status: 403 });
+  }
+
   let body: z.infer<typeof BodySchema>;
   try {
     body = BodySchema.parse(await req.json());
@@ -42,6 +50,17 @@ export async function POST(req: Request, { params }: Params) {
     body.pageSize ?? project.boardSettings?.pageSize ?? "24x36";
 
   try {
+    if (isGeoreferenced(project)) {
+      try {
+        await ensurePrintOrthoForProject(id);
+      } catch (e) {
+        console.warn(
+          `[export-board] print ortho generation failed project=${id}:`,
+          e instanceof Error ? e.message : e
+        );
+      }
+    }
+
     const { buffer, contentType, filename } = await exportBoardDocument(
       id,
       pageSize,

@@ -12,6 +12,7 @@ import {
   WEBODM_MANIFEST,
   type WebodmManifestEntry,
 } from "@/lib/webodm-manifest";
+import { buildPerformanceAssetsOnIngest } from "@/lib/tile-pyramid-service";
 
 export type IngestFile = {
   relativePath: string;
@@ -231,7 +232,8 @@ export async function ingestWebodmDataset(options: {
     `[webodm-ingest] project=${projectId} crs=${georeference.crs} gsd=${georeference.gsdInches.toFixed(3)}in mode=${georeferencingMode}`
   );
 
-  return { project };
+  const withPerformance = await buildPerformanceAssetsOnIngest(project);
+  return { project: withPerformance };
 }
 
 export function missingRequiredFromChecklist(checklist: WebodmFileCheck[]): WebodmManifestEntry[] {

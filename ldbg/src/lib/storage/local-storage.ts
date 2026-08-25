@@ -7,6 +7,7 @@ import {
   type ProjectSummary,
 } from "@/lib/project-schema";
 import { isProjectScaled } from "@/lib/georef";
+import { scaleVerificationPassed } from "@/lib/scale-verification";
 import type { StorageProvider } from "./types";
 
 const PROJECT_JSON = "project.json";
@@ -48,6 +49,7 @@ export class LocalStorageProvider implements StorageProvider {
         hasAnnotated: !!p.images.annotated,
         hasWebodm: !!p.webodm,
         calibrated: isProjectScaled(p),
+        scaleVerified: scaleVerificationPassed(p),
       });
     }
     summaries.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));

@@ -120,7 +120,7 @@ The georeferenced geometry needs to leave this app in formats other software acc
 
 ## A9. Revised build order
 
-Replaces SPEC §13.
+Replaces SPEC §13 (applied in `SPEC.md`).
 
 1. WebODM folder ingest, GeoTIFF parsing, CRS and transform extraction, tile pyramid generation
 2. Annotation base export and re-upload matching

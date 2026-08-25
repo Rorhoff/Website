@@ -14,6 +14,7 @@ type Props = {
   interpretation?: StoredInterpretation;
   onInterpretation: (next: StoredInterpretation) => void;
   calibrated: boolean;
+  needsAnnotated?: boolean;
 };
 
 export function InterpretPanel({
@@ -21,6 +22,7 @@ export function InterpretPanel({
   interpretation,
   onInterpretation,
   calibrated,
+  needsAnnotated,
 }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -78,6 +80,8 @@ export function InterpretPanel({
     }
   }
 
+  const canRun = calibrated && !needsAnnotated;
+
   return (
     <section className="space-y-4 rounded-xl border border-stone-200 bg-white p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -90,10 +94,16 @@ export function InterpretPanel({
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
-            disabled={busy || !calibrated}
+            disabled={busy || !canRun}
             onClick={() => runInterpret(!!interpretation)}
             className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-            title={calibrated ? undefined : "Save scale calibration first"}
+            title={
+              needsAnnotated
+                ? "Export annotation base and upload your annotated sketch first"
+                : calibrated
+                  ? undefined
+                  : "Save scale calibration first"
+            }
           >
             {busy ? "Running…" : interpretation ? "Re-run interpret" : "Run interpret"}
           </button>
@@ -109,7 +119,14 @@ export function InterpretPanel({
         </div>
       </div>
 
-      {!calibrated ? (
+      {needsAnnotated ? (
+        <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          Export annotation base, draw on your phone, and upload the annotated sketch before
+          running interpret.
+        </p>
+      ) : null}
+
+      {!calibrated && !needsAnnotated ? (
         <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900">
           Calibrate scale before interpreting — metadata and scale help Claude contextualize the
           site.

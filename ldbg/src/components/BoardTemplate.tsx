@@ -4,7 +4,11 @@ import { PlanDrawing } from "@/components/PlanDrawing";
 import type { StoredDesignContent } from "@/lib/design-content-schema";
 import type { InterpretFeature } from "@/lib/interpret-schema";
 import { boardDimensions, type BoardPageSize } from "@/lib/board-sizes";
-import type { PlanSettings, ProjectMetadata } from "@/lib/project-schema";
+import type { PlanSettings, ProjectMetadata, ScaleVerification } from "@/lib/project-schema";
+import {
+  formatScaleVerificationSummary,
+  PHOTOGRAMMETRY_DISCLAIMER,
+} from "@/lib/scale-verification";
 import styles from "./board.module.css";
 
 export type BoardRenderSlots = {
@@ -30,6 +34,8 @@ type Props = {
   renderSlots?: BoardRenderSlots;
   pageSize: BoardPageSize;
   basePath?: string;
+  scaleVerification?: ScaleVerification;
+  showPhotogrammetryDisclaimer?: boolean;
 };
 
 function renderImageSlot(url: string | undefined, placeholder: string) {
@@ -61,6 +67,8 @@ export function BoardTemplate({
   renderSlots,
   pageSize,
   basePath = "",
+  scaleVerification,
+  showPhotogrammetryDisclaimer = false,
 }: Props) {
   const dims = boardDimensions(pageSize);
   const logoUrl = brandingLogoUrl(basePath);
@@ -256,6 +264,14 @@ export function BoardTemplate({
             <div className={styles.boardMeta}>
               {metadata.designStyle} · {metadata.climateZone}
             </div>
+            {showPhotogrammetryDisclaimer ? (
+              <div className={styles.boardDisclaimer}>{PHOTOGRAMMETRY_DISCLAIMER}</div>
+            ) : null}
+            {scaleVerification?.passed ? (
+              <div className={styles.boardScaleVerify}>
+                Scale check: {formatScaleVerificationSummary(scaleVerification)}
+              </div>
+            ) : null}
           </div>
         </div>
       </div>

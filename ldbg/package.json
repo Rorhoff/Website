@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
+    "@google/genai": "^2.18.0",
     "konva": "^10.3.1",
     "next": "15.5.23",
     "puppeteer": "^25.8.0",

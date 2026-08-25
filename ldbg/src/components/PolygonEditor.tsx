@@ -4,13 +4,26 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Circle, Group, Image as KonvaImage, Layer, Line, Stage, Transformer } from "react-konva";
 import type Konva from "konva";
 import type { LegendEntry } from "@/config/legend";
+import type { GeorefDisplayContext } from "@/lib/georef-display";
 import {
-  centroidNorm,
+  centroidNormFromFeature,
+  createProjectedGeometryFromPx,
+  deleteVertexAtGeoref,
+  geometryRadiusPx,
+  geometryToPxPoints,
+  geometryVertexCount,
+  insertVertexAtGeoref,
+  moveFeatureGeoref,
+  transformFeatureGeoref,
+  updateFeatureVertexGeoref,
+} from "@/lib/feature-georef";
+import {
   cloneFeatures,
   collectSnapSegments,
   deleteVertexAt,
   featureAreaSqFt,
   featurePerimeterLf,
+  flatFeaturePoints,
   flatNormPoints,
   insertVertexAt,
   moveFeature,
@@ -24,6 +37,8 @@ import {
 import { labelForFeatureType, styleForFeatureType } from "@/lib/feature-styles";
 import { useBoundedHistory } from "@/hooks/useBoundedHistory";
 import type { InterpretFeature } from "@/lib/interpret-schema";
+import type { TilePyramid } from "@/lib/tile-pyramid-schema";
+import { TiledOrthoBackground } from "@/components/TiledOrthoBackground";
 
 type Tool = "select" | "draw";
 
@@ -38,7 +53,12 @@ type Props = {
   features: InterpretFeature[];
   legend: LegendEntry[];
   pixelsPerFoot?: number;
+  georefContext?: GeorefDisplayContext;
   editorSettings?: EditorSettings;
+  projectId?: string;
+  tilePyramid?: TilePyramid;
+  fullOrthoWidth?: number;
+  fullOrthoHeight?: number;
   onAutosave: (payload: {
     features: InterpretFeature[];
     editorSettings: EditorSettings;
@@ -48,6 +68,10 @@ type Props = {
 function useHtmlImage(src: string) {
   const [image, setImage] = useState<HTMLImageElement | null>(null);
   useEffect(() => {
+    if (!src) {
+      setImage(null);
+      return;
+    }
     const img = new window.Image();
     img.crossOrigin = "anonymous";
     img.onload = () => setImage(img);
@@ -70,7 +94,12 @@ export default function PolygonEditor({
   features: initialFeatures,
   legend,
   pixelsPerFoot,
+  georefContext,
   editorSettings,
+  projectId,
+  tilePyramid,
+  fullOrthoWidth,
+  fullOrthoHeight,
   onAutosave,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -91,7 +120,15 @@ export default function PolygonEditor({
   );
   const [saveLabel, setSaveLabel] = useState("");
 
-  const image = useHtmlImage(imageUrl);
+  const useTiledBackground =
+    !!projectId &&
+    !!tilePyramid &&
+    !!fullOrthoWidth &&
+    !!fullOrthoHeight &&
+    fullOrthoWidth > 0 &&
+    fullOrthoHeight > 0;
+
+  const image = useHtmlImage(useTiledBackground ? "" : imageUrl);
 
   const history = useBoundedHistory<InterpretFeature[]>(
     cloneFeatures(initialFeatures)
@@ -127,8 +164,8 @@ export default function PolygonEditor({
   const displayH = Math.round(imageHeight * scale);
 
   const snapSegments = useMemo(
-    () => collectSnapSegments(features, displayW, displayH),
-    [features, displayW, displayH]
+    () => collectSnapSegments(features, displayW, displayH, georefContext),
+    [features, displayW, displayH, georefContext]
   );
 
   const selected = features.find((f) => f.id === selectedId) ?? null;
@@ -235,15 +272,24 @@ export default function PolygonEditor({
     if (drawAsPoint) {
       const prefix = drawFeatureType.replace(/_/g, "-");
       const entry = legend.find((l) => l.featureType === drawFeatureType);
+      const px = normToPx(pt, displayW, displayH);
+      const defaultRadiusPx = 0.025 * Math.max(displayW, displayH);
       const f: InterpretFeature = {
         id: newFeatureId(prefix, features),
         featureType: drawFeatureType,
         label: entry?.label ?? drawFeatureType,
-        geometry: {
-          kind: "point",
-          points: [pt],
-          radius: 0.025,
-        },
+        geometry: georefContext
+          ? createProjectedGeometryFromPx(
+              "point",
+              [px],
+              georefContext,
+              defaultRadiusPx
+            )
+          : {
+              kind: "point",
+              points: [pt],
+              radius: 0.025,
+            },
         existing: false,
         confidence: 1,
         notes: "",
@@ -261,11 +307,14 @@ export default function PolygonEditor({
     if (drawPoints.length < 3) return;
     const prefix = drawFeatureType.replace(/_/g, "-");
     const entry = legend.find((l) => l.featureType === drawFeatureType);
+    const pxPoints = drawPoints.map((p) => normToPx(p, displayW, displayH));
     const f: InterpretFeature = {
       id: newFeatureId(prefix, features),
       featureType: drawFeatureType,
       label: entry?.label ?? drawFeatureType,
-      geometry: { kind: "polygon", points: drawPoints },
+      geometry: georefContext
+        ? createProjectedGeometryFromPx("polygon", pxPoints, georefContext)
+        : { kind: "polygon", points: drawPoints },
       existing: false,
       confidence: 1,
       notes: "",
@@ -284,7 +333,12 @@ export default function PolygonEditor({
   function onTransformEnd() {
     const group = selectedGroupRef.current;
     if (!group || !selected) return;
-    const center = centroidNorm(selected.geometry.points);
+    const center = centroidNormFromFeature(
+      selected,
+      displayW,
+      displayH,
+      georefContext
+    );
     const scaleX = group.scaleX();
     const scaleY = group.scaleY();
     const rotation = group.rotation();
@@ -294,27 +348,57 @@ export default function PolygonEditor({
     group.x(0);
     group.y(0);
     updateFeature(selected.id, (f) =>
-      transformFeaturePoints(f, displayW, displayH, center, scaleX, scaleY, rotation)
+      georefContext
+        ? transformFeatureGeoref(
+            f,
+            displayW,
+            displayH,
+            center,
+            scaleX,
+            scaleY,
+            rotation,
+            georefContext
+          )
+        : transformFeaturePoints(
+            f,
+            displayW,
+            displayH,
+            center,
+            scaleX,
+            scaleY,
+            rotation
+          )
     );
   }
 
   function onGroupDragEnd(e: Konva.KonvaEventObject<DragEvent>) {
     const node = e.target;
+    if (!selected) return;
+    if (georefContext) {
+      const dxPx = node.x();
+      const dyPx = node.y();
+      node.x(0);
+      node.y(0);
+      updateFeature(selected.id, (f) =>
+        moveFeatureGeoref(f, dxPx, dyPx, georefContext)
+      );
+      return;
+    }
     const dx = node.x() / displayW;
     const dy = node.y() / displayH;
     node.x(0);
     node.y(0);
-    if (!selected) return;
     updateFeature(selected.id, (f) => moveFeature(f, dx, dy));
   }
 
+  const canMeasure = georefContext != null || pixelsPerFoot != null;
   const area =
-    selected && pixelsPerFoot
-      ? featureAreaSqFt(selected, displayW, displayH, pixelsPerFoot)
+    selected && canMeasure
+      ? featureAreaSqFt(selected, displayW, displayH, pixelsPerFoot, georefContext)
       : null;
   const perimeter =
-    selected && pixelsPerFoot
-      ? featurePerimeterLf(selected, displayW, displayH, pixelsPerFoot)
+    selected && canMeasure
+      ? featurePerimeterLf(selected, displayW, displayH, pixelsPerFoot, georefContext)
       : null;
 
   const types = featureTypes(features, legend);
@@ -389,7 +473,18 @@ export default function PolygonEditor({
             style={{ cursor: tool === "draw" ? "crosshair" : "default" }}
           >
             <Layer>
-              {image ? (
+              {useTiledBackground ? (
+                <TiledOrthoBackground
+                  projectId={projectId!}
+                  pyramid={tilePyramid!}
+                  editorWidth={imageWidth}
+                  editorHeight={imageHeight}
+                  fullWidth={fullOrthoWidth!}
+                  fullHeight={fullOrthoHeight!}
+                  displayW={displayW}
+                  displayH={displayH}
+                />
+              ) : image ? (
                 <KonvaImage image={image} width={displayW} height={displayH} listening={false} />
               ) : null}
 
@@ -398,12 +493,14 @@ export default function PolygonEditor({
                 const isSel = f.id === selectedId;
                 if (isSel && tool === "select") return null;
                 const style = styleForFeatureType(f.featureType, legend, f.existing);
-                const pts = flatNormPoints(f.geometry.points, displayW, displayH);
+                const pts = flatFeaturePoints(f, displayW, displayH, georefContext);
 
                 if (f.geometry.kind === "point") {
-                  const c = normToPx(f.geometry.points[0], displayW, displayH);
+                  const pxPts = geometryToPxPoints(f, displayW, displayH, georefContext);
+                  const c = pxPts[0] ?? { x: displayW / 2, y: displayH / 2 };
                   const r =
-                    (f.geometry.radius ?? 0.02) * Math.max(displayW, displayH);
+                    geometryRadiusPx(f, displayW, displayH, georefContext) ??
+                    0.02 * Math.max(displayW, displayH);
                   return (
                     <Circle
                       key={f.id}
@@ -471,10 +568,16 @@ export default function PolygonEditor({
                       selected.existing
                     );
                     if (selected.geometry.kind === "point") {
-                      const c = normToPx(selected.geometry.points[0], displayW, displayH);
+                      const pxPts = geometryToPxPoints(
+                        selected,
+                        displayW,
+                        displayH,
+                        georefContext
+                      );
+                      const c = pxPts[0] ?? { x: displayW / 2, y: displayH / 2 };
                       const r =
-                        (selected.geometry.radius ?? 0.02) *
-                        Math.max(displayW, displayH);
+                        geometryRadiusPx(selected, displayW, displayH, georefContext) ??
+                        0.02 * Math.max(displayW, displayH);
                       return (
                         <Circle
                           x={c.x}
@@ -489,7 +592,12 @@ export default function PolygonEditor({
                     }
                     return (
                       <Line
-                        points={flatNormPoints(selected.geometry.points, displayW, displayH)}
+                        points={flatFeaturePoints(
+                          selected,
+                          displayW,
+                          displayH,
+                          georefContext
+                        )}
                         closed={selected.geometry.kind === "polygon"}
                         fill={
                           selected.geometry.kind === "polygon" ? selStyle.fill : undefined
@@ -502,71 +610,103 @@ export default function PolygonEditor({
                   })()}
 
                   {selected.geometry.kind !== "point"
-                    ? selected.geometry.points.map((p, vi) => {
-                        const px = normToPx(p, displayW, displayH);
-                        return (
-                          <Circle
-                            key={`v-${vi}`}
-                            x={px.x}
-                            y={px.y}
-                            radius={7}
-                            fill="#fff"
-                            stroke="#059669"
-                            strokeWidth={2}
-                            draggable
-                            onDragMove={(e) => {
-                              let norm = pxToNorm(
-                                { x: e.target.x(), y: e.target.y() },
-                                displayW,
-                                displayH
-                              );
-                              norm = applySnapNorm(norm);
-                              e.target.x(normToPx(norm, displayW, displayH).x);
-                              e.target.y(normToPx(norm, displayW, displayH).y);
-                              patchFeatures(
-                                features.map((f) =>
-                                  f.id === selected.id ? updateVertex(f, vi, norm) : f
-                                )
-                              );
-                            }}
-                            onDragEnd={(e) => {
-                              let norm = pxToNorm(
-                                { x: e.target.x(), y: e.target.y() },
-                                displayW,
-                                displayH
-                              );
-                              norm = applySnapNorm(norm);
-                              commitFeatures(
-                                features.map((f) =>
-                                  f.id === selected.id ? updateVertex(f, vi, norm) : f
-                                )
-                              );
-                            }}
-                          />
-                        );
-                      })
+                    ? geometryToPxPoints(
+                        selected,
+                        displayW,
+                        displayH,
+                        georefContext
+                      ).map((px, vi) => (
+                        <Circle
+                          key={`v-${vi}`}
+                          x={px.x}
+                          y={px.y}
+                          radius={7}
+                          fill="#fff"
+                          stroke="#059669"
+                          strokeWidth={2}
+                          draggable
+                          onDragMove={(e) => {
+                            let nextPx = { x: e.target.x(), y: e.target.y() };
+                            if (snapEnabled && snapSegments.length > 0) {
+                              nextPx = snapPxPoint(nextPx, snapSegments, 10);
+                            }
+                            e.target.x(nextPx.x);
+                            e.target.y(nextPx.y);
+                            patchFeatures(
+                              features.map((f) =>
+                                f.id === selected.id
+                                  ? georefContext
+                                    ? updateFeatureVertexGeoref(
+                                        f,
+                                        vi,
+                                        nextPx,
+                                        georefContext
+                                      )
+                                    : updateVertex(
+                                        f,
+                                        vi,
+                                        pxToNorm(nextPx, displayW, displayH)
+                                      )
+                                  : f
+                              )
+                            );
+                          }}
+                          onDragEnd={(e) => {
+                            let nextPx = { x: e.target.x(), y: e.target.y() };
+                            if (snapEnabled && snapSegments.length > 0) {
+                              nextPx = snapPxPoint(nextPx, snapSegments, 10);
+                            }
+                            commitFeatures(
+                              features.map((f) =>
+                                f.id === selected.id
+                                  ? georefContext
+                                    ? updateFeatureVertexGeoref(
+                                        f,
+                                        vi,
+                                        nextPx,
+                                        georefContext
+                                      )
+                                    : updateVertex(
+                                        f,
+                                        vi,
+                                        pxToNorm(nextPx, displayW, displayH)
+                                      )
+                                  : f
+                              )
+                            );
+                          }}
+                        />
+                      ))
                     : null}
 
                   {selected.geometry.kind === "polygon"
-                    ? selected.geometry.points.map((p, ei) => {
-                        const next = selected.geometry.points[(ei + 1) % selected.geometry.points.length];
+                    ? geometryToPxPoints(
+                        selected,
+                        displayW,
+                        displayH,
+                        georefContext
+                      ).map((p, ei, pxPts) => {
+                        const next = pxPts[(ei + 1) % pxPts.length];
                         const mid = {
                           x: (p.x + next.x) / 2,
                           y: (p.y + next.y) / 2,
                         };
-                        const mpx = normToPx(mid, displayW, displayH);
                         return (
                           <Circle
                             key={`m-${ei}`}
-                            x={mpx.x}
-                            y={mpx.y}
+                            x={mid.x}
+                            y={mid.y}
                             radius={5}
                             fill="#d1fae5"
                             stroke="#059669"
                             strokeWidth={1}
                             onClick={(e) => {
                               e.cancelBubble = true;
-                              updateFeature(selected.id, (f) => insertVertexAt(f, ei));
+                              updateFeature(selected.id, (f) =>
+                                georefContext
+                                  ? insertVertexAtGeoref(f, ei, georefContext)
+                                  : insertVertexAt(f, ei)
+                              );
                             }}
                           />
                         );
@@ -665,7 +805,7 @@ export default function PolygonEditor({
                   ) : null}
                 </select>
               </label>
-              {pixelsPerFoot ? (
+              {pixelsPerFoot || georefContext ? (
                 <dl className="mt-3 space-y-1 text-xs text-stone-600">
                   {area != null ? (
                     <div className="flex justify-between">
@@ -699,13 +839,15 @@ export default function PolygonEditor({
                   Delete feature
                 </button>
                 {selected.geometry.kind !== "point" &&
-                selected.geometry.points.length >
+                geometryVertexCount(selected) >
                   (selected.geometry.kind === "polygon" ? 3 : 2) ? (
                   <button
                     type="button"
                     onClick={() => {
-                      const last = selected.geometry.points.length - 1;
-                      const next = deleteVertexAt(selected, last);
+                      const last = geometryVertexCount(selected) - 1;
+                      const next = georefContext
+                        ? deleteVertexAtGeoref(selected, last)
+                        : deleteVertexAt(selected, last);
                       if (next) updateFeature(selected.id, () => next);
                     }}
                     className="rounded bg-stone-100 px-2 py-1 text-xs"

@@ -1,4 +1,11 @@
 import type { InterpretFeature } from "@/lib/interpret-schema";
+import type { GeorefDisplayContext } from "@/lib/georef-display";
+import {
+  featureAreaSqFtGeoref,
+  featurePerimeterLfGeoref,
+  geometryToPxPoints,
+  isNormalizedGeometry,
+} from "@/lib/feature-georef";
 
 export type NormPoint = { x: number; y: number };
 export type PxPoint = { x: number; y: number };
@@ -54,12 +61,31 @@ function dist(a: PxPoint, b: PxPoint): number {
   return Math.hypot(b.x - a.x, b.y - a.y);
 }
 
+export function flatPxPoints(points: PxPoint[]): number[] {
+  return points.flatMap((p) => [p.x, p.y]);
+}
+
+export function flatFeaturePoints(
+  feature: InterpretFeature,
+  imageW: number,
+  imageH: number,
+  ctx?: GeorefDisplayContext
+): number[] {
+  return flatPxPoints(geometryToPxPoints(feature, imageW, imageH, ctx));
+}
+
 export function featureAreaSqFt(
   feature: InterpretFeature,
   imageW: number,
   imageH: number,
-  pixelsPerFoot: number
+  pixelsPerFoot?: number,
+  _ctx?: GeorefDisplayContext
 ): number | null {
+  const georef = featureAreaSqFtGeoref(feature);
+  if (georef != null) return georef;
+
+  if (pixelsPerFoot == null || !isNormalizedGeometry(feature.geometry)) return null;
+
   const pxf = pixelsPerFoot * pixelsPerFoot;
   const pts = feature.geometry.points.map((p) => normToPx(p, imageW, imageH));
 
@@ -77,8 +103,14 @@ export function featurePerimeterLf(
   feature: InterpretFeature,
   imageW: number,
   imageH: number,
-  pixelsPerFoot: number
+  pixelsPerFoot?: number,
+  _ctx?: GeorefDisplayContext
 ): number | null {
+  const georef = featurePerimeterLfGeoref(feature);
+  if (georef != null) return georef;
+
+  if (pixelsPerFoot == null || !isNormalizedGeometry(feature.geometry)) return null;
+
   const pts = feature.geometry.points.map((p) => normToPx(p, imageW, imageH));
 
   if (feature.geometry.kind === "polygon") {
@@ -111,6 +143,7 @@ export function moveFeature(
   dx: number,
   dy: number
 ): InterpretFeature {
+  if (!isNormalizedGeometry(feature.geometry)) return feature;
   return {
     ...feature,
     geometry: {
@@ -132,6 +165,7 @@ export function transformFeaturePoints(
   scaleY: number,
   rotationDeg: number
 ): InterpretFeature {
+  if (!isNormalizedGeometry(feature.geometry)) return feature;
   const rad = (rotationDeg * Math.PI) / 180;
   const cos = Math.cos(rad);
   const sin = Math.sin(rad);
@@ -162,6 +196,7 @@ export function insertVertexAt(
   feature: InterpretFeature,
   edgeIndex: number
 ): InterpretFeature {
+  if (!isNormalizedGeometry(feature.geometry)) return feature;
   const pts = feature.geometry.points;
   if (pts.length < 2) return feature;
   const a = pts[edgeIndex];
@@ -176,6 +211,7 @@ export function deleteVertexAt(
   feature: InterpretFeature,
   vertexIndex: number
 ): InterpretFeature | null {
+  if (!isNormalizedGeometry(feature.geometry)) return null;
   const min =
     feature.geometry.kind === "polygon" ? 3 : feature.geometry.kind === "polyline" ? 2 : 1;
   if (feature.geometry.points.length <= min) return null;
@@ -188,6 +224,7 @@ export function updateVertex(
   vertexIndex: number,
   point: NormPoint
 ): InterpretFeature {
+  if (!isNormalizedGeometry(feature.geometry)) return feature;
   const next = feature.geometry.points.map((p, i) =>
     i === vertexIndex ? point : p
   );
@@ -197,12 +234,13 @@ export function updateVertex(
 export function collectSnapSegments(
   features: InterpretFeature[],
   imageW: number,
-  imageH: number
+  imageH: number,
+  ctx?: GeorefDisplayContext
 ): Segment[] {
   const segs: Segment[] = [];
   for (const f of features) {
     if (!f.existing) continue;
-    const pts = f.geometry.points.map((p) => normToPx(p, imageW, imageH));
+    const pts = geometryToPxPoints(f, imageW, imageH, ctx);
     if (f.geometry.kind === "polygon") {
       for (let i = 0; i < pts.length; i++) {
         segs.push({ a: pts[i], b: pts[(i + 1) % pts.length] });

@@ -2,6 +2,8 @@
 
 import { PlanDrawing } from "@/components/PlanDrawing";
 import type { LegendEntry } from "@/config/legend";
+import type { StoredElevationAnalysis } from "@/lib/elevation-schema";
+import type { GeorefDisplayContext } from "@/lib/georef-display";
 import type { InterpretFeature } from "@/lib/interpret-schema";
 import type { Calibration, EditorSettings, PlanSettings, ProjectMetadata } from "@/lib/project-schema";
 
@@ -10,6 +12,9 @@ type Props = {
   legend: LegendEntry[];
   metadata: ProjectMetadata;
   calibration?: Calibration;
+  pixelsPerFoot?: number;
+  georefCtx?: GeorefDisplayContext;
+  elevationAnalysis?: StoredElevationAnalysis;
   northRotationDeg: number;
   editorSettings?: EditorSettings;
   imageWidth: number;
@@ -26,6 +31,9 @@ export function PlanPanel({
   legend,
   metadata,
   calibration,
+  pixelsPerFoot,
+  georefCtx,
+  elevationAnalysis,
   northRotationDeg,
   editorSettings,
   imageWidth,
@@ -39,6 +47,10 @@ export function PlanPanel({
   const settings: PlanSettings = planSettings ?? {
     baseMode: "orthophoto",
     orthophotoOpacity: 0.4,
+    showContours: false,
+    showDrainageArrows: false,
+    contourMinorFt: 1,
+    contourMajorFt: 5,
   };
 
   return (
@@ -109,6 +121,9 @@ export function PlanPanel({
             features,
             northRotationDeg,
             calibration,
+            pixelsPerFoot,
+            georefCtx,
+            elevationAnalysis,
             editorSettings,
             metadata,
           }}

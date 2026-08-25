@@ -1,4 +1,5 @@
 import type { LegendEntry } from "@/config/legend";
+import type { GeorefDisplayContext } from "@/lib/georef-display";
 import {
   featureAreaSqFt,
   featurePerimeterLf,
@@ -21,9 +22,11 @@ export function buildTakeoff(
   legend: LegendEntry[],
   imageW: number,
   imageH: number,
-  pixelsPerFoot?: number
+  pixelsPerFoot?: number,
+  georefCtx?: GeorefDisplayContext
 ): TakeoffLine[] {
   const lines: TakeoffLine[] = [];
+  const canMeasure = georefCtx != null || pixelsPerFoot != null;
 
   for (const f of features) {
     if (f.existing) continue;
@@ -34,10 +37,12 @@ export function buildTakeoff(
 
     if (unit === "each") {
       quantity = 1;
-    } else if (unit === "sqft" && pixelsPerFoot != null) {
-      quantity = featureAreaSqFt(f, imageW, imageH, pixelsPerFoot) ?? 0;
-    } else if (unit === "lf" && pixelsPerFoot != null) {
-      quantity = featurePerimeterLf(f, imageW, imageH, pixelsPerFoot) ?? 0;
+    } else if (unit === "sqft" && canMeasure) {
+      quantity =
+        featureAreaSqFt(f, imageW, imageH, pixelsPerFoot, georefCtx) ?? 0;
+    } else if (unit === "lf" && canMeasure) {
+      quantity =
+        featurePerimeterLf(f, imageW, imageH, pixelsPerFoot, georefCtx) ?? 0;
     }
 
     quantity = Math.round(quantity * 10) / 10;
@@ -59,6 +64,11 @@ export function buildTakeoff(
   }
 
   return lines.sort((a, b) => a.featureType.localeCompare(b.featureType));
+}
+
+/** Area quantities only — for design-content prompt (no elevation / slope fields). */
+export function takeoffAreasForPrompt(takeoff: TakeoffLine[]): TakeoffLine[] {
+  return takeoff.filter((line) => line.unit === "sqft");
 }
 
 export function featuresSummaryForPrompt(

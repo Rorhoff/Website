@@ -64,6 +64,15 @@ export default async function HomePage() {
                         Needs scale
                       </span>
                     )}
+                    {p.hasWebodm && !p.scaleVerified ? (
+                      <span className="rounded bg-amber-100 px-2 py-1 text-amber-900">
+                        Needs verify
+                      </span>
+                    ) : p.scaleVerified ? (
+                      <span className="rounded bg-emerald-100 px-2 py-1 text-emerald-900">
+                        Verified
+                      </span>
+                    ) : null}
                   </div>
                 </Link>
               </li>

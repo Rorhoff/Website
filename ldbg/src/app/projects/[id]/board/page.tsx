@@ -3,6 +3,12 @@ export const dynamic = "force-dynamic";
 import { notFound } from "next/navigation";
 import { BoardTemplate } from "@/components/BoardTemplate";
 import { parseBoardPageSize } from "@/lib/board-sizes";
+import {
+  getDisplayImage,
+  getNorthRotationDeg,
+  getPrintBoardImage,
+  isGeoreferenced,
+} from "@/lib/georef";
 import { getLegend, getStorage } from "@/lib/storage";
 
 type Props = {
@@ -43,7 +49,7 @@ export default async function BoardPage({ params, searchParams }: Props) {
 
   const ann = project.images.annotated;
   const clean = project.images.clean;
-  const baseImage = clean ?? ann;
+  const baseImage = exportMode ? getPrintBoardImage(project) : getDisplayImage(project);
 
   const bp = basePath();
   const renderSlots = project.renderSlots
@@ -86,7 +92,7 @@ export default async function BoardPage({ params, searchParams }: Props) {
           metadata={project.metadata}
           features={features}
           legend={legend}
-          northRotationDeg={project.northRotationDeg}
+          northRotationDeg={getNorthRotationDeg(project)}
           designContent={project.designContent}
           planSettings={project.planSettings}
           imageWidth={baseImage?.width ?? 1000}
@@ -101,6 +107,12 @@ export default async function BoardPage({ params, searchParams }: Props) {
           renderSlots={renderSlots}
           pageSize={pageSize}
           basePath={bp}
+          scaleVerification={
+            project.scaleVerification?.passed
+              ? project.scaleVerification
+              : undefined
+          }
+          showPhotogrammetryDisclaimer={isGeoreferenced(project)}
         />
     </>
   );

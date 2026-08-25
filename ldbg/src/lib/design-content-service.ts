@@ -6,16 +6,23 @@ import {
   CLAUDE_DESIGN_CONTENT_HINT,
 } from "@/lib/design-content-prompts";
 import {
+  elevationFactsForDesignContent,
+  runElevationAnalysisForProject,
+} from "@/lib/elevation-service";
+import {
   DesignContentResultSchema,
   RenderPromptSchema,
   type StoredDesignContent,
 } from "@/lib/design-content-schema";
 import { estimateInterpretCostUsd } from "@/lib/interpret-cost";
 import { getDisplayImage, getPixelsPerFoot } from "@/lib/georef";
+import { getGeorefDisplayContext } from "@/lib/georef-display";
+import { projectHasDtm } from "@/lib/elevation-utils";
 import type { Project } from "@/lib/project-schema";
 import {
   buildTakeoff,
   featuresSummaryForPrompt,
+  takeoffAreasForPrompt,
 } from "@/lib/takeoff-builder";
 import { getLegend, getStorage } from "@/lib/storage";
 import {
@@ -124,21 +131,35 @@ export async function runDesignContentForProject(
   const display = getDisplayImage(project);
   const imageW = display?.width ?? 1000;
   const imageH = display?.height ?? 1000;
+  const georefCtx = getGeorefDisplayContext(project, imageW, imageH);
   const takeoff = buildTakeoff(
     features,
     legend,
     imageW,
     imageH,
-    getPixelsPerFoot(project)
+    getPixelsPerFoot(project),
+    georefCtx
   );
+  const takeoffForPrompt = takeoffAreasForPrompt(takeoff);
+
+  let elevationFacts: Record<string, unknown>[] | undefined;
+  if (project.elevationAnalysis) {
+    elevationFacts = elevationFactsForDesignContent(project.elevationAnalysis);
+  } else if (projectHasDtm(project)) {
+    const elev = await runElevationAnalysisForProject(projectId);
+    if ("elevationAnalysis" in elev) {
+      elevationFacts = elevationFactsForDesignContent(elev.elevationAnalysis);
+    }
+  }
 
   const featuresJson = featuresSummaryForPrompt(features, legend);
-  const system = buildDesignContentSystemPrompt();
+  const system = buildDesignContentSystemPrompt(!!elevationFacts?.length);
   const userText = buildDesignContentUserPrompt(
     project.metadata,
     featuresJson,
-    takeoff,
-    legend
+    takeoffForPrompt,
+    legend,
+    elevationFacts
   );
 
   const client = new Anthropic({ apiKey });

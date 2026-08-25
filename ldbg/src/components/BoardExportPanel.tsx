@@ -12,6 +12,8 @@ type Props = {
   onBoardSettingsChange: (settings: BoardSettings) => void;
   onSaveBoardSettings: () => void;
   hasFeatures: boolean;
+  exportBlocked?: boolean;
+  exportBlockReason?: string;
   saving?: boolean;
 };
 
@@ -21,6 +23,8 @@ export function BoardExportPanel({
   onBoardSettingsChange,
   onSaveBoardSettings,
   hasFeatures,
+  exportBlocked,
+  exportBlockReason,
   saving,
 }: Props) {
   const [pageSize, setPageSize] = useState<BoardPageSize>(
@@ -33,6 +37,8 @@ export function BoardExportPanel({
     setPageSize(size);
     onBoardSettingsChange({ pageSize: size });
   }
+
+  const exportDisabled = !hasFeatures || exporting !== null || exportBlocked;
 
   async function download(format: "pdf" | "png") {
     setExporting(format);
@@ -115,7 +121,7 @@ export function BoardExportPanel({
         </Link>
         <button
           type="button"
-          disabled={!hasFeatures || exporting !== null}
+          disabled={exportDisabled}
           onClick={() => download("pdf")}
           className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
         >
@@ -123,7 +129,7 @@ export function BoardExportPanel({
         </button>
         <button
           type="button"
-          disabled={!hasFeatures || exporting !== null}
+          disabled={exportDisabled}
           onClick={() => download("png")}
           className="rounded-lg bg-stone-800 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
         >
@@ -133,6 +139,12 @@ export function BoardExportPanel({
 
       {!hasFeatures ? (
         <p className="text-sm text-amber-800">Add features before exporting a board.</p>
+      ) : null}
+
+      {exportBlocked && exportBlockReason ? (
+        <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          {exportBlockReason}
+        </p>
       ) : null}
 
       {error ? (

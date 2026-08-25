@@ -2,24 +2,30 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
+import { AnnotationBasePanel } from "@/components/AnnotationBasePanel";
 import { AppHeader } from "@/components/AppHeader";
 import { CalibrationTool } from "@/components/CalibrationTool";
 import { BoardExportPanel } from "@/components/BoardExportPanel";
+import { GeometryExportPanel } from "@/components/GeometryExportPanel";
 import { DesignContentPanel } from "@/components/DesignContentPanel";
+import { ElevationPanel } from "@/components/ElevationPanel";
 import { InterpretPanel } from "@/components/InterpretPanel";
 import { MetadataForm } from "@/components/MetadataForm";
 import { PlanPanel } from "@/components/PlanPanel";
 import { PolygonEditorLoader } from "@/components/PolygonEditorLoader";
 import { RenderPanel } from "@/components/RenderPanel";
+import { ScaleVerificationPanel } from "@/components/ScaleVerificationPanel";
 import { WebodmGeorefPanel } from "@/components/WebodmGeorefPanel";
 import { DEFAULT_LEGEND, type LegendEntry } from "@/config/legend";
 import {
   getDisplayImage,
+  getFullOrthoDimensions,
   getNorthRotationDeg,
   getPixelsPerFoot,
   isGeoreferenced,
   isProjectScaled,
 } from "@/lib/georef";
+import { getGeorefDisplayContext } from "@/lib/georef-display";
 import { projectImageUrl } from "@/lib/image-utils";
 import { cloneFeatures } from "@/lib/feature-geometry";
 import {
@@ -28,8 +34,22 @@ import {
   type StoredInterpretation,
 } from "@/lib/interpret-schema";
 import type { StoredDesignContent } from "@/lib/design-content-schema";
+import type { BlenderRenders } from "@/lib/blender-schema";
+import { projectHasMesh } from "@/lib/blender-utils";
+import type { StoredElevationAnalysis } from "@/lib/elevation-schema";
 import { withBasePath } from "@/lib/paths";
-import type { BoardSettings, Calibration, EditorSettings, PlanSettings, Project, ProjectMetadata, RenderMeta, RenderSlots } from "@/lib/project-schema";
+import { canExportBoard } from "@/lib/scale-verification";
+import type {
+  BoardSettings,
+  Calibration,
+  EditorSettings,
+  PlanSettings,
+  Project,
+  ProjectMetadata,
+  RenderMeta,
+  RenderSlots,
+  ScaleVerification,
+} from "@/lib/project-schema";
 
 export default function ProjectPage() {
   const params = useParams();
@@ -43,9 +63,16 @@ export default function ProjectPage() {
   const [editorSettings, setEditorSettings] = useState<EditorSettings | undefined>();
   const [planSettings, setPlanSettings] = useState<PlanSettings | undefined>();
   const [designContent, setDesignContent] = useState<StoredDesignContent | undefined>();
+  const [elevationAnalysis, setElevationAnalysis] = useState<
+    StoredElevationAnalysis | undefined
+  >();
   const [renderSlots, setRenderSlots] = useState<RenderSlots | undefined>();
   const [renderMeta, setRenderMeta] = useState<RenderMeta | undefined>();
+  const [blenderRenders, setBlenderRenders] = useState<BlenderRenders | undefined>();
   const [boardSettings, setBoardSettings] = useState<BoardSettings | undefined>();
+  const [scaleVerification, setScaleVerification] = useState<
+    ScaleVerification | undefined
+  >();
   const [legend, setLegend] = useState<LegendEntry[]>(DEFAULT_LEGEND);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -72,9 +99,12 @@ export default function ProjectPage() {
         setEditorSettings(p.editorSettings);
         setPlanSettings(p.planSettings);
         setDesignContent(p.designContent);
+        setElevationAnalysis(p.elevationAnalysis);
         setRenderSlots(p.renderSlots);
         setRenderMeta(p.renderMeta);
+        setBlenderRenders(p.blenderRenders);
         setBoardSettings(p.boardSettings);
+        setScaleVerification(p.scaleVerification);
         if (p.features?.length) {
           setFeatures(p.features);
         } else if (p.interpretation?.features?.length) {
@@ -113,6 +143,16 @@ export default function ProjectPage() {
     return !!interpretation.reviewClearedAt;
   }, [interpretation, features.length]);
 
+  const handleProjectRefresh = useCallback((p: Project) => {
+    setProject(p);
+    setMetadata(p.metadata);
+    setInterpretation(p.interpretation);
+    setScaleVerification(p.scaleVerification);
+    if (p.features?.length) {
+      setFeatures(p.features);
+    }
+  }, []);
+
   const handleEditorAutosave = useCallback(
     (payload: { features: InterpretFeature[]; editorSettings: EditorSettings }) => {
       setFeatures(payload.features);
@@ -150,6 +190,7 @@ export default function ProjectPage() {
   const northDeg = getNorthRotationDeg(project);
   const georef = isGeoreferenced(project);
   const scaled = isProjectScaled(project);
+  const exportGate = canExportBoard(project);
 
   if (!displayImage) {
     return (
@@ -162,10 +203,28 @@ export default function ProjectPage() {
     );
   }
 
+  const georefContext = getGeorefDisplayContext(
+    project,
+    displayImage.width,
+    displayImage.height
+  );
+  const fullOrtho = getFullOrthoDimensions(project);
+
   return (
     <>
       <AppHeader />
       <main className="mx-auto max-w-6xl space-y-6 px-4 py-8">
+        {georef &&
+        project.webodm?.georeferencingMode === "gps" &&
+        !scaleVerification?.passed ? (
+          <div
+            role="status"
+            className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950"
+          >
+            <strong>GPS georeferenced</strong> — scale is unverified. Complete an
+            independent scale check before exporting.
+          </div>
+        ) : null}
         {georef ? (
           <WebodmGeorefPanel webodm={project.webodm} georeference={project.georeference} />
         ) : (
@@ -186,11 +245,27 @@ export default function ProjectPage() {
             saving={saving}
           />
         )}
-        {!ann && georef ? (
-          <section className="rounded-xl border border-dashed border-stone-300 p-6 text-sm text-stone-600">
-            Orthophoto preview is loaded from WebODM. Export an annotation base (Addendum A3)
-            or upload your annotated sketch when that flow is ready.
-          </section>
+        {georef && pixelsPerFoot ? (
+          <ScaleVerificationPanel
+            imageUrl={projectImageUrl(id, displayImage.filename)}
+            imageWidth={displayImage.width}
+            imageHeight={displayImage.height}
+            pixelsPerFoot={pixelsPerFoot}
+            scaleVerification={scaleVerification}
+            georeferencingMode={project.webodm?.georeferencingMode}
+            onChange={setScaleVerification}
+            onSave={() => persist({ scaleVerification })}
+            saving={saving}
+          />
+        ) : null}
+        {georef ? (
+          <AnnotationBasePanel
+            projectId={id}
+            annotationBase={project.annotationBase}
+            hasAnnotated={!!ann}
+            annotatedFilename={ann?.filename}
+            onProjectUpdate={handleProjectRefresh}
+          />
         ) : null}
         <MetadataForm
           metadata={metadata}
@@ -208,15 +283,21 @@ export default function ProjectPage() {
             }
           }}
           calibrated={scaled}
+          needsAnnotated={georef && !ann}
         />
         {canEditPolygons && baseImage ? (
           <PolygonEditorLoader
+            projectId={id}
+            tilePyramid={project.tilePyramid}
+            fullOrthoWidth={fullOrtho?.width}
+            fullOrthoHeight={fullOrtho?.height}
             imageUrl={projectImageUrl(id, baseImage.filename)}
             imageWidth={baseImage.width}
             imageHeight={baseImage.height}
             features={features}
             legend={legend}
             pixelsPerFoot={pixelsPerFoot}
+            georefContext={georefContext}
             editorSettings={editorSettings}
             onAutosave={handleEditorAutosave}
           />
@@ -235,6 +316,9 @@ export default function ProjectPage() {
             legend={legend}
             metadata={metadata}
             calibration={calibration}
+            pixelsPerFoot={pixelsPerFoot}
+            georefCtx={georefContext}
+            elevationAnalysis={elevationAnalysis}
             northRotationDeg={northDeg}
             editorSettings={editorSettings}
             imageWidth={baseImage.width}
@@ -242,6 +326,21 @@ export default function ProjectPage() {
             baseImageUrl={projectImageUrl(id, baseImage.filename)}
             planSettings={planSettings}
             onPlanSettingsChange={setPlanSettings}
+            onSavePlanSettings={() => persist({ planSettings })}
+            saving={saving}
+          />
+        ) : null}
+        {features.length > 0 && georef ? (
+          <ElevationPanel
+            projectId={id}
+            project={project}
+            features={features}
+            elevationAnalysis={elevationAnalysis}
+            planSettings={planSettings}
+            onElevationAnalysis={setElevationAnalysis}
+            onFeaturesChange={setFeatures}
+            onPlanSettingsChange={setPlanSettings}
+            onSaveFeatures={() => persist({ features })}
             onSavePlanSettings={() => persist({ planSettings })}
             saving={saving}
           />
@@ -260,7 +359,9 @@ export default function ProjectPage() {
             projectId={id}
             renderSlots={renderSlots}
             renderMeta={renderMeta}
+            blenderRenders={blenderRenders}
             hasDesignContent={!!designContent?.renderPrompts?.length}
+            hasMesh={projectHasMesh(project)}
             onRendersChange={(payload) => {
               if (payload.renderSlots !== undefined) {
                 setRenderSlots(payload.renderSlots);
@@ -268,16 +369,30 @@ export default function ProjectPage() {
               if (payload.renderMeta !== undefined) {
                 setRenderMeta(payload.renderMeta);
               }
+              if (payload.blenderRenders !== undefined) {
+                setBlenderRenders(payload.blenderRenders);
+              }
               setProject((p) =>
                 p
                   ? {
                       ...p,
                       renderSlots: payload.renderSlots ?? p.renderSlots,
                       renderMeta: payload.renderMeta ?? p.renderMeta,
+                      blenderRenders: payload.blenderRenders ?? p.blenderRenders,
                     }
                   : p
               );
             }}
+          />
+        ) : null}
+        {features.length > 0 && georef ? (
+          <GeometryExportPanel
+            projectId={id}
+            hasFeatures={features.length > 0}
+            hasGeoref={!!georef}
+            hasElevationAnalysis={!!elevationAnalysis?.contours?.length}
+            exportBlocked={!exportGate.allowed}
+            exportBlockReason={exportGate.reason}
           />
         ) : null}
         {features.length > 0 ? (
@@ -287,6 +402,8 @@ export default function ProjectPage() {
             onBoardSettingsChange={setBoardSettings}
             onSaveBoardSettings={() => persist({ boardSettings })}
             hasFeatures={features.length > 0}
+            exportBlocked={!exportGate.allowed}
+            exportBlockReason={exportGate.reason}
             saving={saving}
           />
         ) : null}

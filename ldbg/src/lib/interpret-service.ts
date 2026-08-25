@@ -7,10 +7,12 @@ import {
 import { prepareImageForClaude } from "@/lib/interpret-image";
 import { estimateInterpretCostUsd } from "@/lib/interpret-cost";
 import {
-  InterpretationResultSchema,
+  ClaudeInterpretationResultSchema,
   normalizeInterpretationToOriginal,
   type StoredInterpretation,
 } from "@/lib/interpret-schema";
+import { getGeorefDisplayContext } from "@/lib/georef-display";
+import { convertFeaturesToProjected } from "@/lib/feature-georef";
 import type { Project } from "@/lib/project-schema";
 import { getLegend, getStorage } from "@/lib/storage";
 import {
@@ -39,7 +41,7 @@ function stripJsonFences(text: string): string {
 }
 
 function parseInterpretJson(text: string) {
-  return InterpretationResultSchema.parse(JSON.parse(stripJsonFences(text)));
+  return ClaudeInterpretationResultSchema.parse(JSON.parse(stripJsonFences(text)));
 }
 
 async function sleep(ms: number) {
@@ -84,7 +86,15 @@ export async function runInterpretForProject(
   if (!project) return { error: "Project not found" };
 
   const annotated = project.images.annotated;
-  if (!annotated) return { error: "Project has no annotated image" };
+  if (!annotated) {
+    if (project.webodm) {
+      return {
+        error:
+          "Upload your annotated sketch first — export annotation-base.jpg, draw on it, then upload.",
+      };
+    }
+    return { error: "Project has no annotated image" };
+  }
 
   if (!options?.force && project.interpretation) {
     return { interpretation: project.interpretation, cached: true };
@@ -181,6 +191,20 @@ export async function runInterpretForProject(
       annotated.height
     );
 
+    const georefCtx = getGeorefDisplayContext(
+      project,
+      annotated.width,
+      annotated.height
+    );
+    const projectedFeatures = georefCtx
+      ? convertFeaturesToProjected(
+          normalized.features,
+          annotated.width,
+          annotated.height,
+          georefCtx
+        )
+      : normalized.features;
+
     const inputTokens = message.usage?.input_tokens ?? 0;
     const outputTokens = message.usage?.output_tokens ?? 0;
     const estimatedCostUsd = estimateInterpretCostUsd(inputTokens, outputTokens);
@@ -191,6 +215,7 @@ export async function runInterpretForProject(
 
     const interpretation: StoredInterpretation = {
       ...normalized,
+      features: projectedFeatures,
       interpretedAt: new Date().toISOString(),
       model: INTERPRET_MODEL,
       downscaleFactor:
@@ -202,6 +227,7 @@ export async function runInterpretForProject(
     const updated: Project = {
       ...project,
       interpretation,
+      features: projectedFeatures,
       updatedAt: new Date().toISOString(),
     };
     await storage.saveProject(updated);

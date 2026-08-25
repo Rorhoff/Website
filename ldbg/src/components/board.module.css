@@ -293,6 +293,24 @@
   margin-top: 0.35em;
 }
 
+.boardDisclaimer {
+  font-size: 0.4em;
+  color: #78716c;
+  margin-top: 0.5em;
+  max-width: 22em;
+  margin-left: auto;
+  line-height: 1.35;
+}
+
+.boardScaleVerify {
+  font-size: 0.38em;
+  color: #a8a29e;
+  margin-top: 0.35em;
+  max-width: 24em;
+  margin-left: auto;
+  line-height: 1.3;
+}
+
 .boardEmpty {
   color: #a8a29e;
   font-style: italic;

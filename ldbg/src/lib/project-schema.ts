@@ -1,6 +1,9 @@
 import { z } from "zod";
 import { StoredInterpretationSchema, InterpretFeatureSchema } from "@/lib/interpret-schema";
 import { StoredDesignContentSchema } from "@/lib/design-content-schema";
+import { BlenderRenderSettingsSchema, BlenderRendersSchema } from "@/lib/blender-schema";
+import { DtmCacheSchema, StoredElevationAnalysisSchema } from "@/lib/elevation-schema";
+import { PrintOrthoSchema, TilePyramidSchema } from "@/lib/tile-pyramid-schema";
 
 export const DesignStyleSchema = z.enum([
   "Modern",
@@ -26,6 +29,8 @@ export const AffineTransformSchema = z.object({
   e: z.number(),
   f: z.number(),
 });
+
+export type AffineTransform = z.infer<typeof AffineTransformSchema>;
 
 export const BoundingBoxSchema = z.object({
   minX: z.number(),
@@ -67,6 +72,21 @@ export const WebodmIngestSchema = z.object({
   projStoredAs: z.string().optional(),
 });
 
+export const AnnotationBaseSchema = z.object({
+  filename: z.string(),
+  metaFilename: z.string(),
+  width: z.number().int().positive(),
+  height: z.number().int().positive(),
+  longEdgePx: z.number().int().positive(),
+  downscaleFactor: z.number().positive(),
+  affine: AffineTransformSchema,
+  pixelsPerFoot: z.number().positive(),
+  crs: z.string().optional(),
+  fullWidthPx: z.number().int().positive(),
+  fullHeightPx: z.number().int().positive(),
+  exportedAt: z.string(),
+});
+
 const NormalizedPointSchema = z.object({
   x: z.number().min(0).max(1),
   y: z.number().min(0).max(1),
@@ -77,6 +97,17 @@ export const CalibrationSchema = z.object({
   pointB: NormalizedPointSchema,
   distanceFeet: z.number().positive(),
   pixelsPerFoot: z.number().positive(),
+});
+
+export const ScaleVerificationSchema = z.object({
+  description: z.string(),
+  pointA: NormalizedPointSchema,
+  pointB: NormalizedPointSchema,
+  expectedFeet: z.number().positive(),
+  measuredFeet: z.number().positive(),
+  ratio: z.number().positive(),
+  passed: z.boolean(),
+  verifiedAt: z.string(),
 });
 
 export const ProjectMetadataSchema = z.object({
@@ -95,6 +126,10 @@ export const EditorSettingsSchema = z.object({
 export const PlanSettingsSchema = z.object({
   baseMode: z.enum(["orthophoto", "white"]).default("orthophoto"),
   orthophotoOpacity: z.number().min(0.05).max(1).default(0.4),
+  showContours: z.boolean().default(false),
+  showDrainageArrows: z.boolean().default(false),
+  contourMinorFt: z.number().positive().default(1),
+  contourMajorFt: z.number().positive().default(5),
 });
 
 export const RenderSlotsSchema = z.object({
@@ -105,9 +140,10 @@ export const RenderSlotsSchema = z.object({
 });
 
 export const RenderMetaEntrySchema = z.object({
-  source: z.enum(["generated", "upload"]),
+  source: z.enum(["generated", "upload", "blender", "blender+gemini"]),
   generatedAt: z.string().optional(),
   provider: z.enum(["gemini", "flux", "openai"]).optional(),
+  blenderBase: z.string().optional(),
 });
 
 export const RenderMetaSchema = z.object({
@@ -138,12 +174,20 @@ export const ProjectSchema = z.object({
   }),
   georeference: GeoreferenceSchema.optional(),
   webodm: WebodmIngestSchema.optional(),
+  annotationBase: AnnotationBaseSchema.optional(),
+  scaleVerification: ScaleVerificationSchema.optional(),
   calibration: CalibrationSchema.optional(),
   northRotationDeg: z.number().default(0),
   interpretation: StoredInterpretationSchema.optional(),
   features: z.array(InterpretFeatureSchema).optional(),
   editorSettings: EditorSettingsSchema.optional(),
   planSettings: PlanSettingsSchema.optional(),
+  dtmCache: DtmCacheSchema.optional(),
+  tilePyramid: TilePyramidSchema.optional(),
+  printOrtho: PrintOrthoSchema.optional(),
+  elevationAnalysis: StoredElevationAnalysisSchema.optional(),
+  blenderRenders: BlenderRendersSchema.optional(),
+  blenderSettings: BlenderRenderSettingsSchema.optional(),
   designContent: StoredDesignContentSchema.optional(),
   renderSlots: RenderSlotsSchema.optional(),
   renderMeta: RenderMetaSchema.optional(),
@@ -154,9 +198,11 @@ export const ProjectSchema = z.object({
 export type Project = z.infer<typeof ProjectSchema>;
 export type ProjectMetadata = z.infer<typeof ProjectMetadataSchema>;
 export type Calibration = z.infer<typeof CalibrationSchema>;
+export type ScaleVerification = z.infer<typeof ScaleVerificationSchema>;
 export type Georeference = z.infer<typeof GeoreferenceSchema>;
 export type WebodmIngest = z.infer<typeof WebodmIngestSchema>;
 export type WebodmFileCheck = z.infer<typeof WebodmFileCheckSchema>;
+export type AnnotationBase = z.infer<typeof AnnotationBaseSchema>;
 
 export const ProjectSummarySchema = z.object({
   id: z.string().uuid(),
@@ -166,6 +212,7 @@ export const ProjectSummarySchema = z.object({
   hasAnnotated: z.boolean(),
   hasWebodm: z.boolean(),
   calibrated: z.boolean(),
+  scaleVerified: z.boolean(),
 });
 
 export type ProjectSummary = z.infer<typeof ProjectSummarySchema>;
