@@ -1,37 +1,81 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
+import { readImageDimensions } from "@/lib/image-utils";
 import { withBasePath } from "@/lib/paths";
 import {
-  UPLOAD_SAFE_COMBINED_BYTES,
-  compressOrthophotoForUpload,
+  UPLOAD_MAX_BYTES,
+  formatUploadMb,
+  uploadPreflightError,
+} from "@/lib/upload-limits";
+import {
   formatMb,
+  prepareOrthophotoPairForUpload,
 } from "@/lib/resize-orthophoto";
+import {
+  parseUploadErrorResponse,
+  xhrUploadFormData,
+  type UploadProgress,
+} from "@/lib/upload-xhr";
 
 export function UploadForm() {
   const router = useRouter();
+  const abortRef = useRef<AbortController | null>(null);
   const [annotated, setAnnotated] = useState<File | null>(null);
   const [clean, setClean] = useState<File | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [phase, setPhase] = useState<"idle" | "optimizing" | "uploading">("idle");
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
+  const [progress, setProgress] = useState<UploadProgress | null>(null);
 
   const totalBytes = useMemo(
     () => (annotated?.size ?? 0) + (clean?.size ?? 0),
     [annotated, clean]
   );
 
+  const overLimit = totalBytes > UPLOAD_MAX_BYTES;
+
+  const validateFile = useCallback((f: File, label: string) => {
+    if (f.size > UPLOAD_MAX_BYTES) {
+      return uploadPreflightError(f.size, label);
+    }
+    return null;
+  }, []);
+
   const onDrop = useCallback(
     (kind: "annotated" | "clean", files: FileList | null) => {
       const f = files?.[0];
       if (!f || !f.type.startsWith("image/")) return;
+      const label = kind === "annotated" ? "Annotated orthophoto" : "Clean orthophoto";
+      const fileErr = validateFile(f, label);
+      if (fileErr) {
+        setError(fileErr);
+        return;
+      }
+      const other = kind === "annotated" ? clean : annotated;
+      if (other && f.size + other.size > UPLOAD_MAX_BYTES) {
+        setError(
+          `Combined size would be ${formatUploadMb(f.size + other.size)} MB — limit is ${formatUploadMb(UPLOAD_MAX_BYTES)} MB. ` +
+            `We'll try to compress automatically on submit, or choose smaller files.`
+        );
+      } else {
+        setError("");
+      }
       if (kind === "annotated") setAnnotated(f);
       else setClean(f);
-      setError("");
     },
-    []
+    [annotated, clean, validateFile]
   );
+
+  function cancelUpload() {
+    abortRef.current?.abort();
+    abortRef.current = null;
+    setPhase("idle");
+    setProgress(null);
+    setStatus("");
+    setError("Upload cancelled.");
+  }
 
   async function submit() {
     if (!annotated) {
@@ -42,61 +86,94 @@ export function UploadForm() {
       setError("Clean orthophoto is required — upload the same frame without markings.");
       return;
     }
-    setBusy(true);
+
+    const annErr = validateFile(annotated, "Annotated orthophoto");
+    const cleanErr = validateFile(clean, "Clean orthophoto");
+    if (annErr || cleanErr) {
+      setError(annErr ?? cleanErr ?? "File too large");
+      return;
+    }
+
+    setPhase("optimizing");
     setError("");
     setStatus("");
+    setProgress(null);
+    abortRef.current = new AbortController();
+    const signal = abortRef.current.signal;
+
     try {
       setStatus(
-        `Optimizing annotated (${formatMb(annotated.size)} MB)… desktop full-size files are resized like mobile uploads.`
+        totalBytes > UPLOAD_MAX_BYTES
+          ? `Combined ${formatMb(totalBytes)} MB exceeds ${formatMb(UPLOAD_MAX_BYTES)} MB — compressing…`
+          : `Preparing ${formatMb(totalBytes)} MB for upload…`
       );
-      const annBudget = Math.floor(UPLOAD_SAFE_COMBINED_BYTES * 0.45);
-      const ann = await compressOrthophotoForUpload(annotated, {
-        maxBytes: annBudget,
-      });
 
-      setStatus(
-        `Optimizing clean (${formatMb(clean.size)} MB) → target under ${formatMb(UPLOAD_SAFE_COMBINED_BYTES)} MB combined…`
+      const { annotated: ann, clean: cl } = await prepareOrthophotoPairForUpload(
+        annotated,
+        clean
       );
-      const cleanBudget = UPLOAD_SAFE_COMBINED_BYTES - ann.file.size;
-      const cl = await compressOrthophotoForUpload(clean, {
-        maxBytes: cleanBudget,
-      });
+
+      if (signal.aborted) return;
 
       const combined = ann.file.size + cl.file.size;
-      setStatus(
-        `Ready: ${formatMb(ann.originalBytes)}+${formatMb(cl.originalBytes)} MB → ${formatMb(combined)} MB (${ann.width}×${ann.height}). Uploading…`
-      );
+      if (combined > UPLOAD_MAX_BYTES) {
+        throw new Error(uploadPreflightError(combined, "Combined upload"));
+      }
 
-      const createRes = await fetch(withBasePath("/api/projects"), { method: "POST" });
+      setStatus("Creating project…");
+      const createRes = await fetch(withBasePath("/api/projects"), {
+        method: "POST",
+        signal,
+      });
       if (!createRes.ok) throw new Error("Could not create project");
       const project = await createRes.json();
 
+      const annDim = ann.wasCompressed
+        ? { width: ann.width, height: ann.height }
+        : await readImageDimensions(ann.file);
+      const cleanDim = cl.wasCompressed
+        ? { width: cl.width, height: cl.height }
+        : await readImageDimensions(cl.file);
+
       const fd = new FormData();
       fd.set("annotated", ann.file);
-      fd.set("annotatedWidth", String(ann.width));
-      fd.set("annotatedHeight", String(ann.height));
+      fd.set("annotatedWidth", String(annDim.width));
+      fd.set("annotatedHeight", String(annDim.height));
       fd.set("clean", cl.file);
-      fd.set("cleanWidth", String(cl.width));
-      fd.set("cleanHeight", String(cl.height));
+      fd.set("cleanWidth", String(cleanDim.width));
+      fd.set("cleanHeight", String(cleanDim.height));
 
-      const up = await fetch(withBasePath(`/api/projects/${project.id}/upload`), {
-        method: "POST",
-        body: fd,
-      });
-      if (!up.ok) {
-        const err = await up.json().catch(() => ({}));
-        if (up.status === 413) {
-          throw new Error(
-            `Server rejected ${formatMb(combined)} MB (413). Run on EC2: sudo cp ~/Website/deploy/nginx-rorhoff.conf /etc/nginx/sites-available/rorhoff.conf && sudo nginx -t && sudo systemctl reload nginx — then ~/commit.sh`
-          );
-        }
-        throw new Error(err.error ?? "Upload failed");
+      setPhase("uploading");
+      setStatus(
+        ann.wasCompressed || cl.wasCompressed
+          ? `Uploading ${formatMb(combined)} MB (compressed from ${formatMb(ann.originalBytes + cl.originalBytes)} MB)…`
+          : `Uploading ${formatMb(combined)} MB…`
+      );
+
+      const result = await xhrUploadFormData(
+        withBasePath(`/api/projects/${project.id}/upload`),
+        fd,
+        (p) => setProgress(p),
+        signal
+      );
+
+      if (!result.ok) {
+        throw new Error(
+          parseUploadErrorResponse(result.status, result.responseText, formatMb(combined))
+        );
       }
+
       router.push(`/projects/${project.id}`);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Upload failed");
+      if (e instanceof DOMException && e.name === "AbortError") {
+        setError("Upload cancelled.");
+      } else {
+        setError(e instanceof Error ? e.message : "Upload failed");
+      }
     } finally {
-      setBusy(false);
+      abortRef.current = null;
+      setPhase("idle");
+      setProgress(null);
       setStatus("");
     }
   }
@@ -136,7 +213,13 @@ export function UploadForm() {
         </span>
         <span className="mt-1 text-sm text-stone-500">{hint}</span>
         {file ? (
-          <span className="mt-3 rounded bg-white px-2 py-1 text-sm text-emerald-800 ring-1 ring-emerald-200">
+          <span
+            className={`mt-3 rounded px-2 py-1 text-sm ring-1 ${
+              file.size > UPLOAD_MAX_BYTES
+                ? "bg-red-50 text-red-900 ring-red-200"
+                : "bg-white text-emerald-800 ring-emerald-200"
+            }`}
+          >
             {file.name} ({formatMb(file.size)} MB)
           </span>
         ) : null}
@@ -144,11 +227,14 @@ export function UploadForm() {
     );
   }
 
+  const busy = phase !== "idle";
+
   return (
     <div className="space-y-4">
       <p className="text-sm text-stone-600">
-        Both photos required. Email/desktop full-size files (often 20–50 MB each) are auto-resized
-        before upload — same as when you pick from a phone gallery.
+        Both photos required. Maximum upload size is{" "}
+        <strong>{formatUploadMb(UPLOAD_MAX_BYTES)} MB</strong> combined. Files over the limit are
+        rejected immediately; slightly over may be compressed automatically before upload.
       </p>
       <div className="grid gap-4 md:grid-cols-2">
         <DropZone
@@ -167,28 +253,56 @@ export function UploadForm() {
         />
       </div>
       {annotated && clean ? (
-        <p className="text-xs text-amber-800">
+        <p className={`text-xs ${overLimit ? "text-amber-800" : "text-stone-500"}`}>
           Selected: {formatMb(annotated.size)} MB + {formatMb(clean.size)} MB ={" "}
           <strong>{formatMb(totalBytes)} MB</strong>
-          {totalBytes > UPLOAD_SAFE_COMBINED_BYTES
-            ? " — will shrink before upload (your 23 MB clean ortho is normal from email)."
-            : null}
+          {overLimit
+            ? " — over the 200 MB cap; will compress on submit if possible."
+            : " — within the 200 MB limit."}
         </p>
       ) : null}
-      {status ? (
-        <p className="text-sm text-stone-600">{status}</p>
+      {status ? <p className="text-sm text-stone-600">{status}</p> : null}
+      {phase === "uploading" && progress ? (
+        <div className="space-y-2">
+          <div className="h-2 overflow-hidden rounded-full bg-stone-200">
+            <div
+              className="h-full bg-emerald-600 transition-all duration-150"
+              style={{ width: `${progress.percent}%` }}
+            />
+          </div>
+          <p className="text-xs text-stone-500">
+            {progress.total > 0
+              ? `${formatMb(progress.loaded)} / ${formatMb(progress.total)} MB (${Math.round(progress.percent)}%)`
+              : `${formatMb(progress.loaded)} MB sent…`}
+          </p>
+        </div>
       ) : null}
       {error ? (
         <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>
       ) : null}
-      <button
-        type="button"
-        disabled={busy || !annotated || !clean}
-        onClick={submit}
-        className="rounded-lg bg-emerald-700 px-5 py-2.5 text-sm font-medium text-white disabled:opacity-50"
-      >
-        {busy ? "Optimizing & uploading…" : "Create project & continue"}
-      </button>
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          disabled={busy || !annotated || !clean}
+          onClick={submit}
+          className="rounded-lg bg-emerald-700 px-5 py-2.5 text-sm font-medium text-white disabled:opacity-50"
+        >
+          {phase === "optimizing"
+            ? "Optimizing…"
+            : phase === "uploading"
+              ? "Uploading…"
+              : "Create project & continue"}
+        </button>
+        {phase === "uploading" ? (
+          <button
+            type="button"
+            onClick={cancelUpload}
+            className="rounded-lg border border-stone-300 px-4 py-2.5 text-sm text-stone-700"
+          >
+            Cancel upload
+          </button>
+        ) : null}
+      </div>
     </div>
   );
 }

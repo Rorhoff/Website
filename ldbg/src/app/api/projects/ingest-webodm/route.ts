@@ -1,7 +1,15 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { ingestWebodmDataset, type IngestFile } from "@/lib/webodm-ingest";
+import {
+  checkContentLengthHeader,
+  payloadTooLargeResponse,
+  sumFileSizes,
+  UPLOAD_MAX_BYTES,
+} from "@/lib/upload-limits";
 import { normalizeRelativePath } from "@/lib/webodm-manifest";
+
+export const maxDuration = 300;
 
 const JsonBodySchema = z.object({
   folderPath: z.string().min(1),
@@ -45,6 +53,9 @@ export async function POST(req: Request) {
   }
 
   if (contentType.includes("multipart/form-data")) {
+    const tooLarge = checkContentLengthHeader(req);
+    if (tooLarge) return tooLarge;
+
     const form = await req.formData();
     const files: IngestFile[] = [];
 
@@ -55,9 +66,20 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "No files uploaded" }, { status: 400 });
     }
 
+    const uploadFiles = fileEntries.filter(
+      (v): v is File => v instanceof File && v.size > 0
+    );
+    const totalBytes = sumFileSizes(uploadFiles);
+    if (totalBytes > UPLOAD_MAX_BYTES) {
+      return payloadTooLargeResponse(totalBytes);
+    }
+
     for (let i = 0; i < fileEntries.length; i++) {
       const value = fileEntries[i];
       if (!(value instanceof File) || value.size === 0) continue;
+      if (value.size > UPLOAD_MAX_BYTES) {
+        return payloadTooLargeResponse(value.size);
+      }
       const rel =
         pathEntries[i] ??
         value.name ??

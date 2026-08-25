@@ -73,6 +73,30 @@ Projects live in `./storage/{uuid}/`:
 
 Legacy upload projects use `annotated.jpg` / `clean.jpg` at project root.
 
+## Upload size limits (200 MB ceiling)
+
+When a user hits **HTTP 413**, check every layer below — the smallest active limit wins.
+
+| Layer | Where | Limit | Notes |
+|-------|--------|-------|--------|
+| **Browser preflight** | `src/lib/upload-limits.ts` (`UPLOAD_MAX_BYTES`) | **200 MB** | Client rejects oversize files before upload; orthophoto + WebODM forms show progress + cancel. |
+| **nginx** | `deploy/nginx-rorhoff.conf` → `/etc/nginx/sites-available/rorhoff.conf` | **200 MB** on `location /ldbg` only; **12 MB** elsewhere on the vhost | Also `client_body_timeout 300s`, `proxy_read_timeout 300s`, `proxy_send_timeout 300s` on `/ldbg`. |
+| **FastAPI proxy** | `ldbg_proxy.py` | No separate body cap | Streams full body to Next.js; `httpx` timeout **300 s**. nginx must allow 200M first or you get 413 from nginx (HTML, not JSON). |
+| **Next.js Route Handlers** | `POST …/upload`, `upload-annotated`, `render-upload`, `ingest-webodm` | **200 MB** enforced in code via `upload-limits.ts` | Uploads use **`req.formData()` Route Handlers**, not Server Actions. `maxDuration = 300` on large routes. |
+| **Next.js Server Actions** | `next.config.ts` → `experimental.serverActions.bodySizeLimit` | **200 MB** | Only applies if a Server Action is added later; current upload UI does not use Server Actions. |
+| **Next.js middleware** | `next.config.ts` → `experimental.middlewareClientMaxBodySize` | **200 MB** | No `middleware.ts` in this app today; reserved if middleware is added. |
+| **CDN / load balancer** | Production (rorhoff.com) | **None in front of nginx** | Traffic is HTTPS → nginx on EC2. If Cloudflare or another CDN is added later, set its upload limit here too. |
+
+**Canonical constant:** keep `UPLOAD_MAX_BYTES` in `src/lib/upload-limits.ts` aligned with nginx `client_max_body_size` and this table.
+
+**Deploy nginx manually on EC2** (also copied by `~/commit.sh` when the file differs):
+
+```bash
+sudo cp ~/Website/deploy/nginx-rorhoff.conf /etc/nginx/sites-available/rorhoff.conf
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
 ## Samples
 
 Drop test orthophotos or a WebODM export folder under `./samples/` for local iteration.

@@ -1,9 +1,12 @@
-/** Client-side resize/compress for large drone orthophotos before upload. */
+/** Client-side resize/compress when combined size exceeds the upload ceiling. */
 
-/** Stay under default nginx 12MB until /ldbg 200M location is installed. */
-export const UPLOAD_SAFE_COMBINED_BYTES = 10 * 1024 * 1024;
+import {
+  UPLOAD_MAX_BYTES,
+  formatUploadMb,
+  uploadPreflightError,
+} from "@/lib/upload-limits";
 
-const DEFAULT_MAX_LONG_EDGE = 5000;
+export { UPLOAD_MAX_BYTES, formatUploadMb as formatMb };
 
 export type CompressOptions = {
   maxLongEdge?: number;
@@ -65,28 +68,33 @@ export type OrthophotoCompressResult = {
 };
 
 /**
- * Shrink desktop full-size drone JPEGs (often 20–50 MB) before upload.
- * Mobile gallery picks are usually pre-shrunk by the OS — this matches that behavior.
+ * Only compress when over budget. Under the 200 MB ceiling files upload as-is.
  */
 export async function compressOrthophotoForUpload(
   file: File,
   options: CompressOptions = {}
 ): Promise<OrthophotoCompressResult> {
-  const maxBytes = options.maxBytes ?? UPLOAD_SAFE_COMBINED_BYTES / 2;
+  const maxBytes = options.maxBytes ?? UPLOAD_MAX_BYTES;
   const img = await loadImage(file);
   const naturalW = img.naturalWidth;
   const naturalH = img.naturalHeight;
-  const longEdge = Math.max(naturalW, naturalH);
 
-  let edge =
-    options.maxLongEdge ??
-    (longEdge > 8000 ? 4500 : longEdge > 6000 ? 5000 : DEFAULT_MAX_LONG_EDGE);
-
-  if (file.size > 15 * 1024 * 1024) {
-    edge = Math.min(edge, 4500);
+  if (file.size <= maxBytes) {
+    return {
+      file,
+      width: naturalW,
+      height: naturalH,
+      wasCompressed: false,
+      originalBytes: file.size,
+    };
   }
 
-  let quality = file.size > 10 * 1024 * 1024 ? 0.82 : 0.88;
+  const longEdge = Math.max(naturalW, naturalH);
+  let edge =
+    options.maxLongEdge ??
+    (longEdge > 8000 ? 5000 : longEdge > 6000 ? 5500 : 6000);
+
+  let quality = 0.88;
   let blob = await renderToBlob(img, edge, quality);
 
   while (blob.size > maxBytes && quality > 0.45) {
@@ -95,8 +103,8 @@ export async function compressOrthophotoForUpload(
   }
 
   while (blob.size > maxBytes && edge > 2000) {
-    edge = Math.round(edge * 0.8);
-    quality = 0.8;
+    edge = Math.round(edge * 0.82);
+    quality = 0.82;
     blob = await renderToBlob(img, edge, quality);
     while (blob.size > maxBytes && quality > 0.45) {
       quality -= 0.05;
@@ -105,9 +113,7 @@ export async function compressOrthophotoForUpload(
   }
 
   if (blob.size > maxBytes) {
-    throw new Error(
-      `${file.name} is still ${formatMb(blob.size)} MB after compression — try a smaller export from your drone app.`
-    );
+    throw new Error(uploadPreflightError(file.size, file.name));
   }
 
   const baseName = file.name.replace(/\.[^.]+$/, "") || "orthophoto";
@@ -129,6 +135,37 @@ export async function compressOrthophotoForUpload(
   };
 }
 
-export function formatMb(bytes: number): string {
-  return (bytes / (1024 * 1024)).toFixed(1);
+/** Shrink a pair of files only when their combined size exceeds the ceiling. */
+export async function prepareOrthophotoPairForUpload(
+  annotated: File,
+  clean: File
+): Promise<{ annotated: OrthophotoCompressResult; clean: OrthophotoCompressResult }> {
+  const combined = annotated.size + clean.size;
+  if (combined <= UPLOAD_MAX_BYTES) {
+    const annImg = await loadImage(annotated);
+    const cleanImg = await loadImage(clean);
+    return {
+      annotated: {
+        file: annotated,
+        width: annImg.naturalWidth,
+        height: annImg.naturalHeight,
+        wasCompressed: false,
+        originalBytes: annotated.size,
+      },
+      clean: {
+        file: clean,
+        width: cleanImg.naturalWidth,
+        height: cleanImg.naturalHeight,
+        wasCompressed: false,
+        originalBytes: clean.size,
+      },
+    };
+  }
+
+  const annBudget = Math.floor(UPLOAD_MAX_BYTES * 0.48);
+  const ann = await compressOrthophotoForUpload(annotated, { maxBytes: annBudget });
+  const cl = await compressOrthophotoForUpload(clean, {
+    maxBytes: UPLOAD_MAX_BYTES - ann.file.size,
+  });
+  return { annotated: ann, clean: cl };
 }

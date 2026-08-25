@@ -5,6 +5,11 @@ import { DEFAULT_ANNOTATION_LONG_EDGE } from "@/lib/annotation-base-constants";
 import { readImageDimensions, projectImageUrl } from "@/lib/image-utils";
 import { withBasePath } from "@/lib/paths";
 import type { AnnotationBase, Project } from "@/lib/project-schema";
+import {
+  UPLOAD_MAX_BYTES,
+  uploadPreflightError,
+} from "@/lib/upload-limits";
+import { parseUploadErrorResponse, xhrUploadFormData } from "@/lib/upload-xhr";
 
 type Props = {
   projectId: string;
@@ -57,6 +62,11 @@ export function AnnotationBasePanel({
   }
 
   async function uploadAnnotated(file: File) {
+    if (file.size > UPLOAD_MAX_BYTES) {
+      setError(uploadPreflightError(file.size, "Annotated sketch"));
+      return;
+    }
+
     setBusy("upload");
     setError("");
     try {
@@ -66,12 +76,24 @@ export function AnnotationBasePanel({
       fd.set("annotatedWidth", String(dim.width));
       fd.set("annotatedHeight", String(dim.height));
 
-      const res = await fetch(
+      const result = await xhrUploadFormData(
         withBasePath(`/api/projects/${projectId}/upload-annotated`),
-        { method: "POST", body: fd }
+        fd
       );
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Upload failed");
+
+      let data: Project & { error?: string } = {} as Project & { error?: string };
+      try {
+        data = JSON.parse(result.responseText);
+      } catch {
+        // ignore
+      }
+
+      if (!result.ok) {
+        throw new Error(
+          parseUploadErrorResponse(result.status, result.responseText)
+        );
+      }
+
       onProjectUpdate(data);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Upload failed");

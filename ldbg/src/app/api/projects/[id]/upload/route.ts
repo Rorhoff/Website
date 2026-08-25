@@ -1,14 +1,18 @@
 import { NextResponse } from "next/server";
 import { validateAnnotatedDimensions } from "@/lib/annotation-base-utils";
 import { getStorage } from "@/lib/storage";
+import { checkContentLengthHeader, payloadTooLargeResponse, UPLOAD_MAX_BYTES } from "@/lib/upload-limits";
 
-export const maxDuration = 120;
+export const maxDuration = 300;
 
 type Params = { params: Promise<{ id: string }> };
 
 const ALLOWED = new Set(["image/jpeg", "image/png", "image/webp"]);
 
 export async function POST(req: Request, { params }: Params) {
+  const tooLarge = checkContentLengthHeader(req);
+  if (tooLarge) return tooLarge;
+
   const { id } = await params;
   const storage = getStorage();
   const project = await storage.loadProject(id);
@@ -25,6 +29,9 @@ export async function POST(req: Request, { params }: Params) {
       { error: "Annotated orthophoto is required" },
       { status: 400 }
     );
+  }
+  if (annotated.size > UPLOAD_MAX_BYTES) {
+    return payloadTooLargeResponse(annotated.size);
   }
   if (!ALLOWED.has(annotated.type)) {
     return NextResponse.json(
@@ -70,6 +77,12 @@ export async function POST(req: Request, { params }: Params) {
       { error: "Clean orthophoto is required" },
       { status: 400 }
     );
+  }
+  if (clean.size > UPLOAD_MAX_BYTES) {
+    return payloadTooLargeResponse(clean.size);
+  }
+  if (annotated.size + clean.size > UPLOAD_MAX_BYTES) {
+    return payloadTooLargeResponse(annotated.size + clean.size);
   }
   if (!ALLOWED.has(clean.type)) {
     return NextResponse.json(

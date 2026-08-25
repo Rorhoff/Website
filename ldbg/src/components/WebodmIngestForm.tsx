@@ -1,32 +1,80 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { withBasePath } from "@/lib/paths";
+import {
+  UPLOAD_MAX_BYTES,
+  formatUploadMb,
+  uploadPreflightError,
+} from "@/lib/upload-limits";
+import { formatMb } from "@/lib/resize-orthophoto";
+import {
+  parseUploadErrorResponse,
+  xhrUploadFormData,
+  type UploadProgress,
+} from "@/lib/upload-xhr";
 import { WEBODM_MANIFEST } from "@/lib/webodm-manifest";
 
 export function WebodmIngestForm() {
   const router = useRouter();
+  const abortRef = useRef<AbortController | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [status, setStatus] = useState("");
+  const [progress, setProgress] = useState<UploadProgress | null>(null);
   const [folderPath, setFolderPath] = useState("");
   const [selectedCount, setSelectedCount] = useState(0);
   const [fileList, setFileList] = useState<FileList | null>(null);
 
+  const totalBytes = useMemo(() => {
+    if (!fileList) return 0;
+    let n = 0;
+    for (let i = 0; i < fileList.length; i++) n += fileList[i]!.size;
+    return n;
+  }, [fileList]);
+
   const onFolderPick = useCallback((files: FileList | null) => {
     if (!files?.length) return;
+    let total = 0;
+    for (let i = 0; i < files.length; i++) total += files[i]!.size;
+    if (total > UPLOAD_MAX_BYTES) {
+      setError(uploadPreflightError(total, "Selected folder"));
+      setFileList(null);
+      setSelectedCount(0);
+      return;
+    }
     setFileList(files);
     setSelectedCount(files.length);
     setError("");
   }, []);
+
+  function cancelUpload() {
+    abortRef.current?.abort();
+    abortRef.current = null;
+    setBusy(false);
+    setProgress(null);
+    setStatus("");
+    setError("Upload cancelled.");
+  }
 
   async function ingestFromUpload() {
     if (!fileList?.length) {
       setError("Select your WebODM export folder first.");
       return;
     }
+    if (totalBytes > UPLOAD_MAX_BYTES) {
+      setError(uploadPreflightError(totalBytes, "Selected folder"));
+      return;
+    }
+
     setBusy(true);
     setError("");
+    setStatus(`Uploading ${formatMb(totalBytes)} MB (${selectedCount} files)…`);
+    setProgress(null);
+    abortRef.current = new AbortController();
+    const signal = abortRef.current.signal;
+
     try {
       const fd = new FormData();
       for (let i = 0; i < fileList.length; i++) {
@@ -38,23 +86,50 @@ export function WebodmIngestForm() {
         fd.append("paths", rel);
       }
 
-      const res = await fetch(withBasePath("/api/projects/ingest-webodm"), {
-        method: "POST",
-        body: fd,
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        const checklist = data.checklist as { label: string; found: boolean }[] | undefined;
+      const result = await xhrUploadFormData(
+        withBasePath("/api/projects/ingest-webodm"),
+        fd,
+        (p) => setProgress(p),
+        signal
+      );
+
+      let data: {
+        error?: string;
+        checklist?: { label: string; found: boolean }[];
+        id?: string;
+      } = {};
+      try {
+        data = JSON.parse(result.responseText);
+      } catch {
+        // ignore
+      }
+
+      if (!result.ok) {
+        if (result.status === 413) {
+          throw new Error(
+            parseUploadErrorResponse(result.status, result.responseText, formatMb(totalBytes))
+          );
+        }
+        const checklist = data.checklist;
         const missing = checklist?.filter((c) => !c.found && c.label).map((c) => c.label);
         throw new Error(
-          data.error + (missing?.length ? ` — missing: ${missing.join(", ")}` : "")
+          (data.error ?? parseUploadErrorResponse(result.status, result.responseText)) +
+            (missing?.length ? ` — missing: ${missing.join(", ")}` : "")
         );
       }
+
       router.push(`/projects/${data.id}`);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Ingest failed");
+      if (e instanceof DOMException && e.name === "AbortError") {
+        setError("Upload cancelled.");
+      } else {
+        setError(e instanceof Error ? e.message : "Ingest failed");
+      }
     } finally {
+      abortRef.current = null;
       setBusy(false);
+      setProgress(null);
+      setStatus("");
     }
   }
 
@@ -83,6 +158,11 @@ export function WebodmIngestForm() {
 
   return (
     <div className="space-y-6">
+      <p className="text-sm text-stone-600">
+        Maximum folder upload size is <strong>{formatUploadMb(UPLOAD_MAX_BYTES)} MB</strong> combined.
+        Oversized folders are rejected before upload starts.
+      </p>
+
       <div className="rounded-xl border border-stone-200 bg-stone-50 p-4">
         <h3 className="text-sm font-semibold text-stone-900">Expected WebODM files</h3>
         <ul className="mt-2 space-y-1 text-xs text-stone-600">
@@ -113,19 +193,47 @@ export function WebodmIngestForm() {
         </span>
         {selectedCount > 0 ? (
           <span className="mt-3 rounded bg-emerald-50 px-2 py-1 text-sm text-emerald-800 ring-1 ring-emerald-200">
-            {selectedCount} file(s) selected
+            {selectedCount} file(s), {formatMb(totalBytes)} MB
           </span>
         ) : null}
       </label>
 
-      <button
-        type="button"
-        disabled={busy || !fileList?.length}
-        onClick={ingestFromUpload}
-        className="rounded-lg bg-emerald-700 px-5 py-2.5 text-sm font-medium text-white disabled:opacity-50"
-      >
-        {busy ? "Ingesting…" : "Ingest folder & create project"}
-      </button>
+      {status ? <p className="text-sm text-stone-600">{status}</p> : null}
+      {busy && progress ? (
+        <div className="space-y-2">
+          <div className="h-2 overflow-hidden rounded-full bg-stone-200">
+            <div
+              className="h-full bg-emerald-600 transition-all duration-150"
+              style={{ width: `${progress.percent}%` }}
+            />
+          </div>
+          <p className="text-xs text-stone-500">
+            {progress.total > 0
+              ? `${formatMb(progress.loaded)} / ${formatMb(progress.total)} MB (${Math.round(progress.percent)}%)`
+              : `${formatMb(progress.loaded)} MB sent…`}
+          </p>
+        </div>
+      ) : null}
+
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          disabled={busy || !fileList?.length}
+          onClick={ingestFromUpload}
+          className="rounded-lg bg-emerald-700 px-5 py-2.5 text-sm font-medium text-white disabled:opacity-50"
+        >
+          {busy ? "Ingesting…" : "Ingest folder & create project"}
+        </button>
+        {busy ? (
+          <button
+            type="button"
+            onClick={cancelUpload}
+            className="rounded-lg border border-stone-300 px-4 py-2.5 text-sm text-stone-700"
+          >
+            Cancel upload
+          </button>
+        ) : null}
+      </div>
 
       <details className="rounded-lg border border-stone-200 bg-white p-4">
         <summary className="cursor-pointer text-sm font-medium text-stone-800">

@@ -11,6 +11,8 @@ import {
   SLOT_LABELS,
   type RenderSlotKey,
 } from "@/lib/render-slots";
+import { UPLOAD_MAX_BYTES, uploadPreflightError } from "@/lib/upload-limits";
+import { parseUploadErrorResponse, xhrUploadFormData } from "@/lib/upload-xhr";
 
 type Props = {
   projectId: string;
@@ -90,18 +92,39 @@ export function RenderPanel({
   }
 
   async function upload(slot: RenderSlotKey, file: File) {
+    if (file.size > UPLOAD_MAX_BYTES) {
+      setError(uploadPreflightError(file.size, SLOT_LABELS[slot]));
+      return;
+    }
+
     setBusySlot(slot);
     setError("");
     try {
       const form = new FormData();
       form.set("slot", slot);
       form.set("file", file);
-      const res = await fetch(
+      const result = await xhrUploadFormData(
         withBasePath(`/api/projects/${projectId}/render-upload`),
-        { method: "POST", body: form }
+        form
       );
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Upload failed");
+
+      let data: {
+        error?: string;
+        renderSlots?: RenderSlots;
+        renderMeta?: RenderMeta;
+      } = {};
+      try {
+        data = JSON.parse(result.responseText);
+      } catch {
+        // ignore
+      }
+
+      if (!result.ok) {
+        throw new Error(
+          parseUploadErrorResponse(result.status, result.responseText)
+        );
+      }
+
       onRendersChange({
         renderSlots: data.renderSlots,
         renderMeta: data.renderMeta,
