@@ -178,6 +178,11 @@ sync_ldbg() {
   fi
 
   ok "LDBG built in ${src_dir} ($(git -C "$DEV_DIR" rev-parse --short HEAD)) basePath=/ldbg"
+
+  if [[ -f "$DEV_DIR/deploy/ensure-ldbg-puppeteer-deps.sh" ]]; then
+    log "Ensuring Puppeteer / Chrome system libraries for board export…"
+    bash "$DEV_DIR/deploy/ensure-ldbg-puppeteer-deps.sh" || warn "Puppeteer deps install skipped — PDF export may fail until you run deploy/ensure-ldbg-puppeteer-deps.sh"
+  fi
 }
 
 install_ldbg_service() {

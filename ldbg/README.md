@@ -97,6 +97,17 @@ sudo nginx -t
 sudo systemctl reload nginx
 ```
 
+## Board PDF / PNG export (Puppeteer)
+
+Export uses headless Chrome via Puppeteer. On Ubuntu servers, install system libraries once:
+
+```bash
+bash ~/Website/deploy/ensure-ldbg-puppeteer-deps.sh
+sudo systemctl restart ldbg
+```
+
+If export fails with `libatk-1.0.so.0: cannot open shared object file`, run the script above. `commit.sh` runs it automatically after each LDBG build.
+
 ## Samples
 
 Drop test orthophotos or a WebODM export folder under `./samples/` for local iteration.

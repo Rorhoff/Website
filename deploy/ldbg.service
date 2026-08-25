@@ -20,6 +20,7 @@ EnvironmentFile=-/home/ubuntu/Website/.env.dev
 EnvironmentFile=-/home/ubuntu/Website/ldbg/.env.local
 Environment=ENV_FILE=/home/ubuntu/Website/.env
 Environment=LDBG_BASE_PATH=/ldbg
+Environment=LDBG_EXPORT_BASE_URL=http://127.0.0.1:3002
 Environment=PORT=3002
 Environment=NODE_ENV=production
 ExecStart=/usr/bin/npm run start

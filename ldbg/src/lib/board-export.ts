@@ -24,7 +24,20 @@ export async function exportBoardDocument(
 
   const browser = await puppeteer.launch({
     headless: true,
-    args: ["--no-sandbox", "--disable-setuid-sandbox", "--font-render-hinting=none"],
+    args: [
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-dev-shm-usage",
+      "--font-render-hinting=none",
+    ],
+  }).catch((err: unknown) => {
+    const detail = err instanceof Error ? err.message : String(err);
+    if (/libatk|shared libraries|Failed to launch the browser/i.test(detail)) {
+      throw new Error(
+        `${detail}\n\nInstall headless Chrome libraries on the server: bash deploy/ensure-ldbg-puppeteer-deps.sh`
+      );
+    }
+    throw err;
   });
 
   try {
