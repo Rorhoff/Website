@@ -32,24 +32,30 @@ _HOP_BY_HOP = {
 }
 
 
+def _rewrite_location(location: str) -> str:
+    """Keep redirects on the public host, not 127.0.0.1:3002."""
+    if location.startswith(LDBG_INTERNAL):
+        path = location[len(LDBG_INTERNAL) :] or "/"
+        return path if path.startswith("/") else f"/{path}"
+    return location
+
+
 def _filter_headers(headers: httpx.Headers) -> dict[str, str]:
     out: dict[str, str] = {}
     for k, v in headers.items():
-        if k.lower() not in _HOP_BY_HOP:
-            out[k] = v
+        lk = k.lower()
+        if lk in _HOP_BY_HOP:
+            continue
+        if lk == "location":
+            v = _rewrite_location(v)
+        out[k] = v
     return out
 
 
 async def _proxy(request: Request, subpath: str) -> Response:
-    path = f"/ldbg/{subpath}".rstrip("/") if subpath else "/ldbg"
-    # Do not force a trailing slash on the app root — Next.js basePath serves
-    # /ldbg and 308s /ldbg/ back to /ldbg, which causes ERR_TOO_MANY_REDIRECTS.
-    if (
-        path != "/ldbg"
-        and not path.endswith("/")
-        and "." not in path.split("/")[-1]
-    ):
-        path = path + "/"
+    # Pass paths through unchanged — Next.js App Router does not use trailing
+    # slashes; adding them causes 308 loops (including RSC ?_rsc= fetches).
+    path = f"/ldbg/{subpath}" if subpath else "/ldbg"
     url = f"{LDBG_INTERNAL}{path}"
     if request.url.query:
         url = f"{url}?{request.url.query}"
