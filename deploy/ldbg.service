@@ -1,8 +1,10 @@
-; systemd unit for the LDBG Next.js app (landscape design board generator).
+; systemd unit for the LDBG Next.js server (landscape design board generator).
 ; Installs to: /etc/systemd/system/ldbg.service
 ; Runs from:   /home/ubuntu/Website/ldbg
 ; Proxied by:  FastAPI ldbg_proxy at /ldbg/ → http://127.0.0.1:3002
 ; Reload:      sudo systemctl daemon-reload && sudo systemctl restart ldbg
+;
+; ANTHROPIC_API_KEY: same file as roryportfolio (AIRevolution) — usually .env, not .env.dev.
 
 [Unit]
 Description=LDBG — Landscape Design Board Generator (Next.js)
@@ -13,10 +15,10 @@ Type=simple
 User=ubuntu
 Group=ubuntu
 WorkingDirectory=/home/ubuntu/Website/ldbg
-EnvironmentFile=/home/ubuntu/Website/.env.dev
-EnvironmentFile=-/home/ubuntu/Website/.env
+EnvironmentFile=/home/ubuntu/Website/.env
+EnvironmentFile=-/home/ubuntu/Website/.env.dev
 EnvironmentFile=-/home/ubuntu/Website/ldbg/.env.local
-Environment=ENV_FILE=/home/ubuntu/Website/.env.dev
+Environment=ENV_FILE=/home/ubuntu/Website/.env
 Environment=LDBG_BASE_PATH=/ldbg
 Environment=PORT=3002
 Environment=NODE_ENV=production

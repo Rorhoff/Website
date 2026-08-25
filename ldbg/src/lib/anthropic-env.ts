@@ -1,58 +1,49 @@
+import dotenv from "dotenv";
 import fs from "fs";
 import path from "path";
 
 let cachedKey: string | undefined | null = null;
 
-function parseEnvValue(raw: string): string {
-  const trimmed = raw.trim();
-  if (
-    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
-    (trimmed.startsWith("'") && trimmed.endsWith("'"))
-  ) {
-    return trimmed.slice(1, -1).trim();
-  }
-  return trimmed;
-}
+/** Same env files as roryportfolio (AIRevolution) on EC2 — .env first, not .env.dev. */
+function siteEnvCandidates(cwd: string): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  const add = (p: string | undefined) => {
+    if (!p || seen.has(p)) return;
+    seen.add(p);
+    out.push(p);
+  };
 
-function normalizeEnvKey(rawKey: string): string {
-  let key = rawKey.trim();
-  if (key.startsWith("export ")) {
-    key = key.slice("export ".length).trim();
-  }
-  return key;
+  // Production: key lives in roryportfolio's .env (confirmed via /api/airevolution/status).
+  add("/home/ubuntu/Website/.env");
+  add("/home/ubuntu/Website/.env.dev");
+  add(process.env.ENV_FILE);
+  add(path.resolve(cwd, "..", ".env"));
+  add(path.resolve(cwd, "..", ".env.dev"));
+  add(path.resolve(cwd, ".env.local"));
+  add(path.resolve(cwd, ".env"));
+  add("/home/ubuntu/Website/ldbg/.env.local");
+
+  return out;
 }
 
 function readKeyFromFile(filePath: string): string | undefined {
   try {
-    const content = fs.readFileSync(filePath, "utf8");
-    for (const line of content.split(/\r?\n/)) {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith("#")) continue;
-      const eq = trimmed.indexOf("=");
-      if (eq <= 0) continue;
-      const key = normalizeEnvKey(trimmed.slice(0, eq));
+    if (!fs.existsSync(filePath)) return undefined;
+    const parsed = dotenv.parse(fs.readFileSync(filePath));
+    for (const [rawKey, rawValue] of Object.entries(parsed)) {
+      const key = rawKey.trim().replace(/^export\s+/i, "");
       if (key !== "ANTHROPIC_API_KEY") continue;
-      const value = parseEnvValue(trimmed.slice(eq + 1));
+      const value = rawValue.trim();
       if (value) return value;
     }
   } catch {
-    // missing or unreadable
+    // unreadable
   }
   return undefined;
 }
 
-/** Env files shared with webapi-dev / AIRevolution (t1airevolution.com). */
-function sharedSiteEnvCandidates(cwd: string): string[] {
-  return [
-    process.env.ENV_FILE,
-    path.join(cwd, "..", ".env.dev"),
-    path.join(cwd, "..", ".env"),
-    "/home/ubuntu/Website/.env.dev",
-    "/home/ubuntu/Website/.env",
-  ].filter((p): p is string => Boolean(p));
-}
-
-/** Resolve Anthropic key from process env or shared site env files (same as AIRevolution). */
+/** Resolve Anthropic key — same ANTHROPIC_API_KEY as AIRevolution / roryportfolio. */
 export function getAnthropicApiKey(): string | undefined {
   if (cachedKey !== null) {
     return cachedKey || undefined;
@@ -64,16 +55,7 @@ export function getAnthropicApiKey(): string | undefined {
     return fromProcess;
   }
 
-  const cwd = process.cwd();
-  // Prefer parent site .env.dev (AIRevolution / webapi-dev) before ldbg-local overrides.
-  const candidates = [
-    ...sharedSiteEnvCandidates(cwd),
-    path.join(cwd, ".env.local"),
-    path.join(cwd, ".env"),
-    "/home/ubuntu/Website/ldbg/.env.local",
-  ];
-
-  for (const filePath of candidates) {
+  for (const filePath of siteEnvCandidates(process.cwd())) {
     const key = readKeyFromFile(filePath);
     if (key) {
       cachedKey = key;
@@ -90,16 +72,12 @@ export function anthropicKeySource(): string | undefined {
   const fromProcess = process.env.ANTHROPIC_API_KEY?.trim();
   if (fromProcess) return "process.env.ANTHROPIC_API_KEY";
 
-  const cwd = process.cwd();
-  const candidates = [
-    ...sharedSiteEnvCandidates(cwd),
-    path.join(cwd, ".env.local"),
-    path.join(cwd, ".env"),
-    "/home/ubuntu/Website/ldbg/.env.local",
-  ];
-
-  for (const filePath of candidates) {
+  for (const filePath of siteEnvCandidates(process.cwd())) {
     if (readKeyFromFile(filePath)) return filePath;
   }
   return undefined;
+}
+
+export function isAnthropicConfigured(): boolean {
+  return Boolean(getAnthropicApiKey());
 }

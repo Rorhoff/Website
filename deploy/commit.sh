@@ -250,6 +250,7 @@ sync_referr_all || warn "Referr-All sync skipped — using placeholder from Webs
 sync_ldbg || warn "LDBG sync skipped — build manually in ldbg/"
 install_ldbg_service
 install_nginx_ldbg_upload
+bash "$DEV_DIR/deploy/ensure-ldbg-anthropic-env.sh" || warn "LDBG Anthropic env sync skipped"
 
 after=$(git -C "$DEV_DIR" rev-parse --short HEAD)
 if [[ "$before" == "$after" ]]; then
@@ -316,8 +317,12 @@ if systemctl list-unit-files 2>/dev/null | grep -q '^ldbg.service'; then
   sleep 2
   if systemctl is-active --quiet ldbg; then
     ok "ldbg is running."
-    if [[ -f /home/ubuntu/Website/.env.dev ]] && ! grep -Eq '^(export[[:space:]]+)?ANTHROPIC_API_KEY=' /home/ubuntu/Website/.env.dev; then
-      warn "ANTHROPIC_API_KEY not in .env.dev — LDBG interpret/design-content will fail (AIRevolution uses the same var)."
+    if [[ -f /home/ubuntu/Website/.env ]] && ! grep -Eq '^(export[[:space:]]+)?ANTHROPIC_API_KEY=' /home/ubuntu/Website/.env; then
+      if [[ -f /home/ubuntu/Website/.env.dev ]] && grep -Eq '^(export[[:space:]]+)?ANTHROPIC_API_KEY=' /home/ubuntu/Website/.env.dev; then
+        : # key in .env.dev only
+      else
+        warn "ANTHROPIC_API_KEY not in .env or .env.dev — LDBG interpret will fail (AIRevolution uses the same var)."
+      fi
     fi
   else
     warn "ldbg is not active — run: journalctl -u ldbg -n 50"
