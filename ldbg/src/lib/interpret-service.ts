@@ -22,7 +22,7 @@ import {
 } from "@/lib/rate-limit";
 
 export const INTERPRET_MODEL =
-  process.env.LDBG_INTERPRET_MODEL ?? "claude-sonnet-4-20250514";
+  process.env.LDBG_INTERPRET_MODEL ?? "claude-sonnet-4-6";
 
 export type InterpretSuccess = {
   interpretation: StoredInterpretation;

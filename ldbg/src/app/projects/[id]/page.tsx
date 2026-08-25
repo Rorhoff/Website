@@ -239,13 +239,16 @@ export default function ProjectPage() {
             calibration={calibration}
             northRotationDeg={northRotationDeg}
             onCalibrationChange={setCalibration}
+            onApply={(cal) => {
+              setCalibration(cal);
+              void persist({ calibration: cal, northRotationDeg });
+            }}
             onNorthChange={setNorthRotationDeg}
-            onSave={() =>
-              persist({
-                calibration,
-                northRotationDeg,
-              })
-            }
+            onSave={({ calibration: cal, northRotationDeg: north }) => {
+              setCalibration(cal);
+              setNorthRotationDeg(north);
+              void persist({ calibration: cal, northRotationDeg: north });
+            }}
             saving={saving}
           />
         )}

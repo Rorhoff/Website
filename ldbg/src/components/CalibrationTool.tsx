@@ -15,8 +15,10 @@ type Props = {
   calibration?: Calibration;
   northRotationDeg: number;
   onCalibrationChange: (cal: Calibration | undefined) => void;
+  /** Called after Apply scale — parent should persist so interpret works without a separate Save. */
+  onApply: (cal: Calibration) => void;
   onNorthChange: (deg: number) => void;
-  onSave: () => void;
+  onSave: (payload: { calibration?: Calibration; northRotationDeg: number }) => void;
   saving: boolean;
 };
 
@@ -27,6 +29,7 @@ export function CalibrationTool({
   calibration,
   northRotationDeg,
   onCalibrationChange,
+  onApply,
   onNorthChange,
   onSave,
   saving,
@@ -84,6 +87,28 @@ export function CalibrationTool({
     [clickTarget]
   );
 
+  function buildCalibration(): Calibration | undefined {
+    if (!pointA || !pointB) return calibration;
+    const feet = parseFloat(distanceFeet);
+    if (!feet || feet <= 0) return calibration;
+    try {
+      return {
+        pointA,
+        pointB,
+        distanceFeet: feet,
+        pixelsPerFoot: computePixelsPerFoot(
+          pointA,
+          pointB,
+          imageWidth,
+          imageHeight,
+          feet
+        ),
+      };
+    } catch {
+      return calibration;
+    }
+  }
+
   function applyCalibration() {
     if (!pointA || !pointB) return;
     const feet = parseFloat(distanceFeet);
@@ -95,12 +120,14 @@ export function CalibrationTool({
       imageHeight,
       feet
     );
-    onCalibrationChange({
+    const cal: Calibration = {
       pointA,
       pointB,
       distanceFeet: feet,
       pixelsPerFoot,
-    });
+    };
+    onCalibrationChange(cal);
+    onApply(cal);
   }
 
   function clearCalibration() {
@@ -111,7 +138,11 @@ export function CalibrationTool({
     onCalibrationChange(undefined);
   }
 
-  const pxf = calibration?.pixelsPerFoot;
+  const pxf =
+    calibration?.pixelsPerFoot ??
+    (pointA && pointB && distanceFeet
+      ? buildCalibration()?.pixelsPerFoot
+      : undefined);
 
   return (
     <div className="space-y-4 rounded-xl border border-stone-200 bg-white p-4">
@@ -206,10 +237,10 @@ export function CalibrationTool({
         <button
           type="button"
           onClick={applyCalibration}
-          disabled={!pointA || !pointB || !distanceFeet}
+          disabled={!pointA || !pointB || !distanceFeet || saving}
           className="rounded-lg bg-emerald-700 px-4 py-2 text-sm text-white disabled:opacity-50"
         >
-          Apply scale
+          {saving ? "Saving…" : "Apply scale"}
         </button>
         <button
           type="button"
@@ -220,7 +251,12 @@ export function CalibrationTool({
         </button>
         <button
           type="button"
-          onClick={onSave}
+          onClick={() =>
+            onSave({
+              calibration: buildCalibration(),
+              northRotationDeg,
+            })
+          }
           disabled={saving}
           className="rounded-lg bg-stone-800 px-4 py-2 text-sm text-white disabled:opacity-50"
         >

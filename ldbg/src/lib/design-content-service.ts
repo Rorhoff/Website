@@ -32,7 +32,7 @@ import {
 } from "@/lib/rate-limit";
 
 export const DESIGN_CONTENT_MODEL =
-  process.env.LDBG_DESIGN_CONTENT_MODEL ?? "claude-sonnet-4-20250514";
+  process.env.LDBG_DESIGN_CONTENT_MODEL ?? "claude-sonnet-4-6";
 
 const ClaudePartialSchema = z.object({
   conceptOverview: DesignContentResultSchema.shape.conceptOverview,
