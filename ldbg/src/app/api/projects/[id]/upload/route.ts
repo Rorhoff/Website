@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { validateAnnotatedDimensions } from "@/lib/annotation-base-utils";
 import { getStorage } from "@/lib/storage";
 
+export const maxDuration = 120;
+
 type Params = { params: Promise<{ id: string }> };
 
 const ALLOWED = new Set(["image/jpeg", "image/png", "image/webp"]);

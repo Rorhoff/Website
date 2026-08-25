@@ -1,9 +1,16 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { readImageDimensions } from "@/lib/image-utils";
 import { withBasePath } from "@/lib/paths";
+
+/** Keep in sync with nginx `client_max_body_size` for /ldbg (deploy/nginx-rorhoff.conf). */
+const MAX_UPLOAD_BYTES = 200 * 1024 * 1024;
+
+function formatMb(bytes: number): string {
+  return (bytes / (1024 * 1024)).toFixed(1);
+}
 
 export function UploadForm() {
   const router = useRouter();
@@ -11,6 +18,11 @@ export function UploadForm() {
   const [clean, setClean] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+
+  const totalBytes = useMemo(
+    () => (annotated?.size ?? 0) + (clean?.size ?? 0),
+    [annotated, clean]
+  );
 
   const onDrop = useCallback(
     (kind: "annotated" | "clean", files: FileList | null) => {
@@ -31,6 +43,11 @@ export function UploadForm() {
     setBusy(true);
     setError("");
     try {
+      if (totalBytes > MAX_UPLOAD_BYTES) {
+        throw new Error(
+          `Combined upload is ${formatMb(totalBytes)} MB — limit is ${formatMb(MAX_UPLOAD_BYTES)} MB. Export smaller JPEGs from your drone app.`
+        );
+      }
       const createRes = await fetch(withBasePath("/api/projects"), { method: "POST" });
       if (!createRes.ok) throw new Error("Could not create project");
       const project = await createRes.json();
@@ -51,6 +68,11 @@ export function UploadForm() {
       });
       if (!up.ok) {
         const err = await up.json().catch(() => ({}));
+        if (up.status === 413) {
+          throw new Error(
+            `Upload too large (${formatMb(totalBytes)} MB combined). Server limit is ${formatMb(MAX_UPLOAD_BYTES)} MB — if this persists after deploy, run: sudo nginx -t && sudo systemctl reload nginx on the server.`
+          );
+        }
         throw new Error(err.error ?? "Upload failed");
       }
       router.push(`/projects/${project.id}`);
@@ -97,7 +119,7 @@ export function UploadForm() {
         <span className="mt-1 text-sm text-stone-500">{hint}</span>
         {file ? (
           <span className="mt-3 rounded bg-white px-2 py-1 text-sm text-emerald-800 ring-1 ring-emerald-200">
-            {file.name}
+            {file.name} ({formatMb(file.size)} MB)
           </span>
         ) : null}
       </label>
@@ -121,6 +143,11 @@ export function UploadForm() {
           kind="clean"
         />
       </div>
+      {annotated || clean ? (
+        <p className="text-xs text-stone-500">
+          Combined size: {formatMb(totalBytes)} MB (max {formatMb(MAX_UPLOAD_BYTES)} MB)
+        </p>
+      ) : null}
       {error ? (
         <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>
       ) : null}

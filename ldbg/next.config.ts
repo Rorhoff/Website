@@ -8,6 +8,12 @@ const nextConfig: NextConfig = {
   env: {
     NEXT_PUBLIC_BASE_PATH: basePath,
   },
+  experimental: {
+    serverActions: {
+      bodySizeLimit: "200mb",
+    },
+    middlewareClientMaxBodySize: "200mb",
+  },
 };
 
 export default nextConfig;

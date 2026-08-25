@@ -62,7 +62,7 @@ async def _proxy(request: Request, subpath: str) -> Response:
 
     body = await request.body()
     try:
-        async with httpx.AsyncClient(follow_redirects=False, timeout=120.0) as client:
+        async with httpx.AsyncClient(follow_redirects=False, timeout=300.0) as client:
             upstream = await client.request(
                 request.method,
                 url,
