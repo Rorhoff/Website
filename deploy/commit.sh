@@ -252,6 +252,7 @@ install_nginx_ldbg_upload
 bash "$DEV_DIR/deploy/ensure-ldbg-anthropic-env.sh" || warn "LDBG Anthropic env sync skipped"
 
 after=$(git -C "$DEV_DIR" rev-parse --short HEAD)
+log "Deploying commit ${after} from origin/main"
 if [[ "$before" == "$after" ]]; then
   log "No code change — restarting anyway in case env/config moved."
 else
@@ -324,13 +325,15 @@ if systemctl list-unit-files 2>/dev/null | grep -q '^ldbg.service'; then
       fi
     fi
     ldbg_diag=""
-    ldbg_diag="$(curl -sS --max-time 10 "http://127.0.0.1:3002/ldbg/api/legend?diag=1" 2>/dev/null || true)"
+    ldbg_diag="$(curl -sS --max-time 10 "http://127.0.0.1:3002/ldbg/api/diag" 2>/dev/null || true)"
     if echo "$ldbg_diag" | grep -q '"anthropicConfigured"'; then
       ok "LDBG diag: $ldbg_diag"
     else
-      warn "LDBG diag endpoint did not return JSON — stale build or wrong basePath."
-      warn "  Check: ls ~/Website/ldbg/.next/server/app/api/status/route.js"
-      warn "  Check: curl -sS http://127.0.0.1:3002/ldbg/api/status | head -c 120"
+      warn "LDBG /api/diag did not return JSON — build is stale or basePath wrong."
+      warn "  Fix: cd $DEV_DIR/ldbg && LDBG_BASE_PATH=/ldbg npm ci && LDBG_BASE_PATH=/ldbg npm run build"
+      warn "  Then: sudo systemctl restart ldbg"
+      warn "  Check: ls $DEV_DIR/ldbg/.next/server/app/api/diag/route.js"
+      warn "  Check: curl -sS http://127.0.0.1:3002/ldbg/api/diag | head -c 200"
       warn "  Check: journalctl -u ldbg -n 40 --no-pager"
     fi
   else
