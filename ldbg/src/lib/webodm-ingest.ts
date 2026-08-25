@@ -13,6 +13,7 @@ import {
   type WebodmManifestEntry,
 } from "@/lib/webodm-manifest";
 import { buildPerformanceAssetsOnIngest } from "@/lib/tile-pyramid-service";
+import { logImageIngestDiagnostic } from "@/lib/image-dimensions";
 
 export type IngestFile = {
   relativePath: string;
@@ -179,6 +180,14 @@ export async function ingestWebodmDataset(options: {
     typeof rawGeo.previewWidth === "number" ? rawGeo.previewWidth : georeference.widthPx;
   const previewHeight =
     typeof rawGeo.previewHeight === "number" ? rawGeo.previewHeight : georeference.heightPx;
+
+  logImageIngestDiagnostic(`project=${projectId}`, "clean-orthophoto-ingest", previewWidth, previewHeight);
+  logImageIngestDiagnostic(
+    `project=${projectId}`,
+    "full-ortho-geotiff",
+    georeference.widthPx,
+    georeference.heightPx
+  );
 
   let gcpCount = 0;
   if (gcp) {

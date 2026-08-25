@@ -74,6 +74,18 @@ export const InterpretationMetaSchema = z.object({
   interpretedAt: z.string(),
   model: z.string(),
   downscaleFactor: z.number().positive().optional(),
+  /** Pixel space used for normalized→pixel conversion (annotated file bytes, not clean ortho). */
+  interpretImageSpace: z
+    .object({
+      coordWidth: z.number().int().positive(),
+      coordHeight: z.number().int().positive(),
+      sentWidth: z.number().int().positive(),
+      sentHeight: z.number().int().positive(),
+      downscaleFactor: z.number().positive(),
+      storedAnnotatedWidth: z.number().int().positive().optional(),
+      storedAnnotatedHeight: z.number().int().positive().optional(),
+    })
+    .optional(),
   tokenUsage: z
     .object({
       input: z.number().int().nonnegative(),

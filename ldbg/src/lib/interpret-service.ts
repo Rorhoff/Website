@@ -190,22 +190,35 @@ export async function runInterpretForProject(
       }
     }
 
+    const coordWidth = prepared.originalWidth;
+    const coordHeight = prepared.originalHeight;
+
+    if (coordWidth !== annotated.width || coordHeight !== annotated.height) {
+      console.warn(
+        `[interpret] project=${projectId} stored annotated dims ${annotated.width}×${annotated.height} differ from file bytes ${coordWidth}×${coordHeight} — using file bytes for coordinate conversion`
+      );
+    }
+
+    console.info(
+      `[interpret] project=${projectId} coordSpace=${coordWidth}×${coordHeight} sentToClaude=${prepared.width}×${prepared.height} downscale=${prepared.downscaleFactor.toFixed(3)} (prepareImageForClaude → normalized 0–1, not clean ortho dims)`
+    );
+
     const normalized = normalizeInterpretationToOriginal(
       parsed,
-      annotated.width,
-      annotated.height
+      coordWidth,
+      coordHeight
     );
 
     const georefCtx = getGeorefDisplayContext(
       project,
-      annotated.width,
-      annotated.height
+      coordWidth,
+      coordHeight
     );
     const projectedFeatures = georefCtx
       ? convertFeaturesToProjected(
           normalized.features,
-          annotated.width,
-          annotated.height,
+          coordWidth,
+          coordHeight,
           georefCtx
         )
       : normalized.features;
@@ -225,6 +238,15 @@ export async function runInterpretForProject(
       model: INTERPRET_MODEL,
       downscaleFactor:
         prepared.downscaleFactor > 1 ? prepared.downscaleFactor : undefined,
+      interpretImageSpace: {
+        coordWidth,
+        coordHeight,
+        sentWidth: prepared.width,
+        sentHeight: prepared.height,
+        downscaleFactor: prepared.downscaleFactor,
+        storedAnnotatedWidth: annotated.width,
+        storedAnnotatedHeight: annotated.height,
+      },
       tokenUsage: { input: inputTokens, output: outputTokens },
       estimatedCostUsd,
     };

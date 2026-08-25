@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
-import { validateAnnotatedDimensions } from "@/lib/annotation-base-utils";
+import { validateAnnotatedUpload } from "@/lib/annotation-base-validation";
+import {
+  logImageIngestDiagnostic,
+} from "@/lib/image-dimensions";
+import { readImageDimensionsFromBuffer } from "@/lib/image-dimensions-server";
 import { getStorage } from "@/lib/storage";
 import { checkContentLengthHeader, payloadTooLargeResponse, UPLOAD_MAX_BYTES } from "@/lib/upload-limits";
 
@@ -49,28 +53,24 @@ export async function POST(req: Request, { params }: Params) {
     );
   }
 
-  const dimCheck = validateAnnotatedDimensions(project, annW, annH);
-  if (!dimCheck.ok) {
-    return NextResponse.json({ error: dimCheck.error }, { status: 400 });
-  }
+  const annBuf = Buffer.from(await annotated.arrayBuffer());
 
-  const annExt =
-    annotated.type === "image/png"
-      ? "png"
-      : annotated.type === "image/webp"
-        ? "webp"
-        : "jpg";
-  const annName = `annotated.${annExt}`;
-  await storage.saveProjectFile(
-    id,
-    annName,
-    Buffer.from(await annotated.arrayBuffer())
-  );
-  project.images.annotated = {
-    filename: annName,
-    width: annW,
-    height: annH,
-  };
+  if (project.annotationBase) {
+    const dimCheck = await validateAnnotatedUpload(project, annBuf, annW, annH);
+    if (!dimCheck.ok) {
+      return NextResponse.json({ error: dimCheck.error }, { status: 400 });
+    }
+  } else {
+    const fileDims = await readImageDimensionsFromBuffer(annBuf);
+    if (fileDims.width !== annW || fileDims.height !== annH) {
+      return NextResponse.json(
+        {
+          error: `Annotated file bytes are ${fileDims.width}×${fileDims.height}px but client reported ${annW}×${annH}px.`,
+        },
+        { status: 400 }
+      );
+    }
+  }
 
   if (!(clean instanceof File) || clean.size === 0) {
     return NextResponse.json(
@@ -98,6 +98,35 @@ export async function POST(req: Request, { params }: Params) {
       { status: 400 }
     );
   }
+
+  const cleanBuf = Buffer.from(await clean.arrayBuffer());
+  const cleanFileDims = await readImageDimensionsFromBuffer(cleanBuf);
+  if (cleanFileDims.width !== cleanW || cleanFileDims.height !== cleanH) {
+    return NextResponse.json(
+      {
+        error: `Clean file bytes are ${cleanFileDims.width}×${cleanFileDims.height}px but client reported ${cleanW}×${cleanH}px.`,
+      },
+      { status: 400 }
+    );
+  }
+
+  logImageIngestDiagnostic(`project=${id}`, "annotated-upload", annW, annH);
+  logImageIngestDiagnostic(`project=${id}`, "clean-upload", cleanW, cleanH);
+
+  const annExt =
+    annotated.type === "image/png"
+      ? "png"
+      : annotated.type === "image/webp"
+        ? "webp"
+        : "jpg";
+  const annName = `annotated.${annExt}`;
+  await storage.saveProjectFile(id, annName, annBuf);
+  project.images.annotated = {
+    filename: annName,
+    width: annW,
+    height: annH,
+  };
+
   const cleanExt =
     clean.type === "image/png"
       ? "png"
@@ -105,11 +134,7 @@ export async function POST(req: Request, { params }: Params) {
         ? "webp"
         : "jpg";
   const cleanName = `clean.${cleanExt}`;
-  await storage.saveProjectFile(
-    id,
-    cleanName,
-    Buffer.from(await clean.arrayBuffer())
-  );
+  await storage.saveProjectFile(id, cleanName, cleanBuf);
   project.images.clean = {
     filename: cleanName,
     width: cleanW,

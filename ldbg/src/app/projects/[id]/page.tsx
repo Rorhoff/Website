@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { AnnotationBasePanel } from "@/components/AnnotationBasePanel";
+import { ImageRegistrationPanel } from "@/components/ImageRegistrationPanel";
 import { AppHeader } from "@/components/AppHeader";
 import { CalibrationTool } from "@/components/CalibrationTool";
 import { BoardExportPanel } from "@/components/BoardExportPanel";
@@ -20,7 +21,6 @@ import { WebodmGeorefPanel } from "@/components/WebodmGeorefPanel";
 import { DEFAULT_LEGEND, type LegendEntry } from "@/config/legend";
 import {
   getDisplayImage,
-  getFullOrthoDimensions,
   getNorthRotationDeg,
   getPixelsPerFoot,
   isGeoreferenced,
@@ -222,7 +222,6 @@ export default function ProjectPage() {
     displayImage.width,
     displayImage.height
   );
-  const fullOrtho = getFullOrthoDimensions(project);
 
   return (
     <>
@@ -285,6 +284,7 @@ export default function ProjectPage() {
             onProjectUpdate={handleProjectRefresh}
           />
         ) : null}
+        <ImageRegistrationPanel project={project} />
         <MetadataForm
           metadata={metadata}
           onChange={setMetadata}
@@ -306,10 +306,12 @@ export default function ProjectPage() {
         {canEditPolygons && baseImage ? (
           <PolygonEditorLoader
             projectId={id}
-            tilePyramid={project.tilePyramid}
-            fullOrthoWidth={fullOrtho?.width}
-            fullOrthoHeight={fullOrtho?.height}
-            imageUrl={projectImageUrl(id, baseImage.filename)}
+            annotatedImageUrl={projectImageUrl(id, ann?.filename ?? baseImage.filename)}
+            cleanImageUrl={
+              project.images.clean
+                ? projectImageUrl(id, project.images.clean.filename)
+                : undefined
+            }
             imageWidth={baseImage.width}
             imageHeight={baseImage.height}
             features={features}

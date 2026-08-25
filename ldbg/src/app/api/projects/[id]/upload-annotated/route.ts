@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { validateAnnotatedDimensions } from "@/lib/annotation-base-utils";
+import { validateAnnotatedUpload } from "@/lib/annotation-base-validation";
+import { logImageIngestDiagnostic } from "@/lib/image-dimensions";
 import { getStorage } from "@/lib/storage";
 import {
   checkContentLengthHeader,
@@ -57,10 +58,23 @@ export async function POST(req: Request, { params }: Params) {
     );
   }
 
-  const dimCheck = validateAnnotatedDimensions(project, annW, annH);
+  const fileBuf = Buffer.from(await annotated.arrayBuffer());
+  const dimCheck = await validateAnnotatedUpload(project, fileBuf, annW, annH);
   if (!dimCheck.ok) {
     return NextResponse.json({ error: dimCheck.error }, { status: 400 });
   }
+
+  const clean = project.images.clean ?? project.images.preview;
+  if (clean) {
+    logImageIngestDiagnostic(`project=${id}`, "clean-orthophoto-on-record", clean.width, clean.height);
+  }
+  logImageIngestDiagnostic(`project=${id}`, "annotated-upload", dimCheck.fileWidth, dimCheck.fileHeight);
+  logImageIngestDiagnostic(
+    `project=${id}`,
+    "annotation-base-expected",
+    project.annotationBase.width,
+    project.annotationBase.height
+  );
 
   const annExt =
     annotated.type === "image/png"
@@ -69,16 +83,12 @@ export async function POST(req: Request, { params }: Params) {
         ? "webp"
         : "jpg";
   const annName = `annotated.${annExt}`;
-  await storage.saveProjectFile(
-    id,
-    annName,
-    Buffer.from(await annotated.arrayBuffer())
-  );
+  await storage.saveProjectFile(id, annName, fileBuf);
 
   project.images.annotated = {
     filename: annName,
-    width: annW,
-    height: annH,
+    width: dimCheck.fileWidth,
+    height: dimCheck.fileHeight,
   };
   project.updatedAt = new Date().toISOString();
   await storage.saveProject(project);

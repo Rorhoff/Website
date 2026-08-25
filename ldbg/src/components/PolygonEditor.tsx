@@ -38,16 +38,19 @@ import { labelForFeatureType, styleForFeatureType } from "@/lib/feature-styles";
 import { useBoundedHistory } from "@/hooks/useBoundedHistory";
 import type { InterpretFeature } from "@/lib/interpret-schema";
 import type { TilePyramid } from "@/lib/tile-pyramid-schema";
-import { TiledOrthoBackground } from "@/components/TiledOrthoBackground";
 
 type Tool = "select" | "draw";
+type BaseLayer = "annotated" | "clean";
 
 export type EditorSettings = {
   hiddenFeatureTypes: string[];
 };
 
 type Props = {
-  imageUrl: string;
+  /** Annotated sketch (default base layer). */
+  annotatedImageUrl: string;
+  /** Clean orthophoto for registration comparison. */
+  cleanImageUrl?: string;
   imageWidth: number;
   imageHeight: number;
   features: InterpretFeature[];
@@ -56,6 +59,7 @@ type Props = {
   georefContext?: GeorefDisplayContext;
   editorSettings?: EditorSettings;
   projectId?: string;
+  /** @deprecated Editor no longer uses tiled full ortho — file-based layers only. */
   tilePyramid?: TilePyramid;
   fullOrthoWidth?: number;
   fullOrthoHeight?: number;
@@ -88,7 +92,8 @@ function featureTypes(features: InterpretFeature[], legend: LegendEntry[]): stri
 }
 
 export default function PolygonEditor({
-  imageUrl,
+  annotatedImageUrl,
+  cleanImageUrl,
   imageWidth,
   imageHeight,
   features: initialFeatures,
@@ -96,10 +101,6 @@ export default function PolygonEditor({
   pixelsPerFoot,
   georefContext,
   editorSettings,
-  projectId,
-  tilePyramid,
-  fullOrthoWidth,
-  fullOrthoHeight,
   onAutosave,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -119,16 +120,11 @@ export default function PolygonEditor({
     () => new Set(editorSettings?.hiddenFeatureTypes ?? [])
   );
   const [saveLabel, setSaveLabel] = useState("");
+  const [baseLayer, setBaseLayer] = useState<BaseLayer>("annotated");
 
-  const useTiledBackground =
-    !!projectId &&
-    !!tilePyramid &&
-    !!fullOrthoWidth &&
-    !!fullOrthoHeight &&
-    fullOrthoWidth > 0 &&
-    fullOrthoHeight > 0;
-
-  const image = useHtmlImage(useTiledBackground ? "" : imageUrl);
+  const activeImageUrl =
+    baseLayer === "clean" && cleanImageUrl ? cleanImageUrl : annotatedImageUrl;
+  const image = useHtmlImage(activeImageUrl);
 
   const history = useBoundedHistory<InterpretFeature[]>(
     cloneFeatures(initialFeatures)
@@ -409,8 +405,8 @@ export default function PolygonEditor({
         <div>
           <h2 className="text-lg font-semibold text-stone-900">Polygon editor</h2>
           <p className="text-sm text-stone-600">
-            Refine Claude&apos;s shapes on the clean orthophoto — drag vertices, transform features,
-            draw new areas.
+            Refine Claude&apos;s shapes — drag vertices, transform features, draw new areas. Toggle
+            the base layer to verify polygon registration against marker strokes.
           </p>
         </div>
         <span className="text-xs text-stone-500">{saveLabel}</span>
@@ -462,6 +458,23 @@ export default function PolygonEditor({
           />
           Snap to existing edges
         </label>
+        <span className="mx-1 self-center text-stone-300">|</span>
+        <button
+          type="button"
+          onClick={() => setBaseLayer("annotated")}
+          className={`rounded-md px-3 py-1.5 text-sm ${baseLayer === "annotated" ? "bg-emerald-700 text-white" : "bg-stone-100"}`}
+        >
+          Annotated base
+        </button>
+        <button
+          type="button"
+          disabled={!cleanImageUrl}
+          onClick={() => setBaseLayer("clean")}
+          title={cleanImageUrl ? "Show clean orthophoto under polygons" : "No clean orthophoto on project"}
+          className={`rounded-md px-3 py-1.5 text-sm disabled:opacity-40 ${baseLayer === "clean" ? "bg-emerald-700 text-white" : "bg-stone-100"}`}
+        >
+          Clean orthophoto
+        </button>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[1fr_240px]">
@@ -473,18 +486,7 @@ export default function PolygonEditor({
             style={{ cursor: tool === "draw" ? "crosshair" : "default" }}
           >
             <Layer>
-              {useTiledBackground ? (
-                <TiledOrthoBackground
-                  projectId={projectId!}
-                  pyramid={tilePyramid!}
-                  editorWidth={imageWidth}
-                  editorHeight={imageHeight}
-                  fullWidth={fullOrthoWidth!}
-                  fullHeight={fullOrthoHeight!}
-                  displayW={displayW}
-                  displayH={displayH}
-                />
-              ) : image ? (
+              {image ? (
                 <KonvaImage image={image} width={displayW} height={displayH} listening={false} />
               ) : null}
 
