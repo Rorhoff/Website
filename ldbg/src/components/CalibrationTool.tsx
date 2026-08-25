@@ -1,0 +1,287 @@
+"use client";
+
+import { useCallback, useRef, useState } from "react";
+import { computePixelsPerFoot } from "@/lib/calibration";
+import type { Calibration } from "@/lib/project-schema";
+
+type Point = { x: number; y: number };
+
+type Props = {
+  imageUrl: string;
+  imageWidth: number;
+  imageHeight: number;
+  calibration?: Calibration;
+  northRotationDeg: number;
+  onCalibrationChange: (cal: Calibration | undefined) => void;
+  onNorthChange: (deg: number) => void;
+  onSave: () => void;
+  saving: boolean;
+};
+
+export function CalibrationTool({
+  imageUrl,
+  imageWidth,
+  imageHeight,
+  calibration,
+  northRotationDeg,
+  onCalibrationChange,
+  onNorthChange,
+  onSave,
+  saving,
+}: Props) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [pointA, setPointA] = useState<Point | null>(
+    calibration?.pointA ?? null
+  );
+  const [pointB, setPointB] = useState<Point | null>(
+    calibration?.pointB ?? null
+  );
+  const [distanceFeet, setDistanceFeet] = useState(
+    calibration?.distanceFeet?.toString() ?? ""
+  );
+  const [clickTarget, setClickTarget] = useState<"A" | "B">("A");
+  const [draggingNorth, setDraggingNorth] = useState(false);
+
+  const handleImageClick = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      const rect = e.currentTarget.getBoundingClientRect();
+      const x = (e.clientX - rect.left) / rect.width;
+      const y = (e.clientY - rect.top) / rect.height;
+      const p = {
+        x: Math.min(1, Math.max(0, x)),
+        y: Math.min(1, Math.max(0, y)),
+      };
+      if (clickTarget === "A") {
+        setPointA(p);
+        setClickTarget("B");
+      } else {
+        setPointB(p);
+      }
+    },
+    [clickTarget]
+  );
+
+  function applyCalibration() {
+    if (!pointA || !pointB) return;
+    const feet = parseFloat(distanceFeet);
+    if (!feet || feet <= 0) return;
+    const pixelsPerFoot = computePixelsPerFoot(
+      pointA,
+      pointB,
+      imageWidth,
+      imageHeight,
+      feet
+    );
+    onCalibrationChange({
+      pointA,
+      pointB,
+      distanceFeet: feet,
+      pixelsPerFoot,
+    });
+  }
+
+  function clearCalibration() {
+    setPointA(null);
+    setPointB(null);
+    setDistanceFeet("");
+    setClickTarget("A");
+    onCalibrationChange(undefined);
+  }
+
+  const pxf = calibration?.pixelsPerFoot;
+
+  return (
+    <div className="space-y-4 rounded-xl border border-stone-200 bg-white p-4">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <h2 className="text-lg font-semibold text-stone-900">Scale calibration</h2>
+          <p className="text-sm text-stone-600">
+            Click two points with a known distance (driveway width, GCP, etc.).
+            Image: {imageWidth}×{imageHeight}px
+          </p>
+        </div>
+        {pxf ? (
+          <span className="rounded-full bg-emerald-100 px-3 py-1 text-sm font-medium text-emerald-900">
+            {pxf.toFixed(2)} px/ft
+          </span>
+        ) : (
+          <span className="rounded-full bg-amber-100 px-3 py-1 text-sm text-amber-900">
+            Not calibrated
+          </span>
+        )}
+      </div>
+
+      <div className="flex flex-wrap gap-2 text-sm">
+        <button
+          type="button"
+          className={`rounded-md px-3 py-1 ${clickTarget === "A" ? "bg-emerald-700 text-white" : "bg-stone-100"}`}
+          onClick={() => setClickTarget("A")}
+        >
+          Set point A {pointA ? "✓" : ""}
+        </button>
+        <button
+          type="button"
+          className={`rounded-md px-3 py-1 ${clickTarget === "B" ? "bg-emerald-700 text-white" : "bg-stone-100"}`}
+          onClick={() => setClickTarget("B")}
+        >
+          Set point B {pointB ? "✓" : ""}
+        </button>
+      </div>
+
+      <div
+        ref={containerRef}
+        className="relative mx-auto max-w-full cursor-crosshair overflow-hidden rounded-lg border border-stone-300 bg-stone-100"
+        style={{ aspectRatio: `${imageWidth} / ${imageHeight}` }}
+        onClick={handleImageClick}
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={imageUrl}
+          alt="Calibration base"
+          className="block h-full w-full object-contain"
+          draggable={false}
+        />
+        {pointA ? (
+          <Marker label="A" point={pointA} color="#059669" />
+        ) : null}
+        {pointB ? (
+          <Marker label="B" point={pointB} color="#2563eb" />
+        ) : null}
+        {pointA && pointB ? (
+          <svg
+            className="pointer-events-none absolute inset-0 h-full w-full"
+            viewBox="0 0 1 1"
+            preserveAspectRatio="none"
+          >
+            <line
+              x1={pointA.x}
+              y1={pointA.y}
+              x2={pointB.x}
+              y2={pointB.y}
+              stroke="#f59e0b"
+              strokeWidth={0.004}
+              strokeDasharray="0.01 0.008"
+            />
+          </svg>
+        ) : null}
+        <NorthArrow
+          rotationDeg={northRotationDeg}
+          dragging={draggingNorth}
+          onMouseDown={() => setDraggingNorth(true)}
+        />
+      </div>
+
+      <div
+        className="flex flex-wrap items-end gap-3"
+        onMouseMove={(e) => {
+          if (draggingNorth) {
+            const el = containerRef.current;
+            if (!el) return;
+            const rect = el.getBoundingClientRect();
+            const cx = rect.left + rect.width / 2;
+            const cy = rect.top + rect.height / 2;
+            const deg =
+              (Math.atan2(e.clientY - cy, e.clientX - cx) * 180) / Math.PI + 90;
+            onNorthChange(Math.round(deg));
+          }
+        }}
+        onMouseUp={() => setDraggingNorth(false)}
+        onMouseLeave={() => setDraggingNorth(false)}
+      >
+        <label className="text-sm">
+          <span className="text-stone-600">Real-world distance (feet)</span>
+          <input
+            type="number"
+            min="0.1"
+            step="0.1"
+            className="mt-1 block w-40 rounded-md border border-stone-300 px-3 py-2"
+            value={distanceFeet}
+            onChange={(e) => setDistanceFeet(e.target.value)}
+          />
+        </label>
+        <button
+          type="button"
+          onClick={applyCalibration}
+          disabled={!pointA || !pointB || !distanceFeet}
+          className="rounded-lg bg-emerald-700 px-4 py-2 text-sm text-white disabled:opacity-50"
+        >
+          Apply scale
+        </button>
+        <button
+          type="button"
+          onClick={clearCalibration}
+          className="rounded-lg border border-stone-300 px-4 py-2 text-sm"
+        >
+          Clear
+        </button>
+        <button
+          type="button"
+          onClick={onSave}
+          disabled={saving}
+          className="rounded-lg bg-stone-800 px-4 py-2 text-sm text-white disabled:opacity-50"
+        >
+          {saving ? "Saving…" : "Save project"}
+        </button>
+      </div>
+      <p className="text-xs text-stone-500">
+        North arrow: drag the handle on the image to set north ({northRotationDeg}°).
+      </p>
+    </div>
+  );
+}
+
+function Marker({
+  label,
+  point,
+  color,
+}: {
+  label: string;
+  point: Point;
+  color: string;
+}) {
+  return (
+    <div
+      className="pointer-events-none absolute -translate-x-1/2 -translate-y-1/2"
+      style={{ left: `${point.x * 100}%`, top: `${point.y * 100}%` }}
+    >
+      <div
+        className="flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold text-white shadow"
+        style={{ backgroundColor: color }}
+      >
+        {label}
+      </div>
+    </div>
+  );
+}
+
+function NorthArrow({
+  rotationDeg,
+  dragging,
+  onMouseDown,
+}: {
+  rotationDeg: number;
+  dragging: boolean;
+  onMouseDown: () => void;
+}) {
+  return (
+    <div
+      className="absolute right-4 top-4 select-none"
+      style={{ transform: `rotate(${rotationDeg}deg)` }}
+    >
+      <div className="flex flex-col items-center">
+        <div className="text-xs font-bold text-stone-800">N</div>
+        <div className="h-8 w-0.5 bg-stone-800" />
+        <button
+          type="button"
+          className={`mt-1 h-4 w-4 rounded-full border-2 border-stone-800 bg-white ${dragging ? "ring-2 ring-emerald-500" : ""}`}
+          title="Drag to rotate north"
+          onMouseDown={(e) => {
+            e.stopPropagation();
+            onMouseDown();
+          }}
+          onClick={(e) => e.stopPropagation()}
+        />
+      </div>
+    </div>
+  );
+}

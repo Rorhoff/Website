@@ -189,6 +189,48 @@ sync_in_the_wild() {
   ok "In the Wild deployed to ${target}"
 }
 
+# Build LDBG (Next.js) in ldbg/ and restart the ldbg systemd unit.
+sync_ldbg() {
+  local src_dir="$DEV_DIR/ldbg"
+
+  if ! command -v npm >/dev/null 2>&1; then
+    warn "npm not found — skipping LDBG build."
+    return 0
+  fi
+
+  if [[ ! -f "$src_dir/package.json" ]]; then
+    warn "ldbg/package.json not found — skipping LDBG build."
+    return 0
+  fi
+
+  log "Building LDBG from ${src_dir}…"
+  if ! (cd "$src_dir" && npm ci); then
+    warn "LDBG npm ci failed."
+    return 0
+  fi
+
+  log "Building LDBG with basePath /ldbg…"
+  if ! (cd "$src_dir" && LDBG_BASE_PATH=/ldbg npm run build); then
+    warn "LDBG build failed."
+    return 0
+  fi
+
+  ok "LDBG built in ${src_dir}"
+}
+
+install_ldbg_service() {
+  local unit="/etc/systemd/system/ldbg.service"
+  if [[ ! -f "$DEV_DIR/deploy/ldbg.service" ]]; then
+    return 0
+  fi
+  if ! cmp -s "$DEV_DIR/deploy/ldbg.service" "$unit" 2>/dev/null; then
+    log "Installing ldbg.service…"
+    sudo cp "$DEV_DIR/deploy/ldbg.service" "$unit"
+    sudo systemctl daemon-reload
+    sudo systemctl enable ldbg 2>/dev/null || true
+  fi
+}
+
 # ---------------------------------------------------------------------------
 # Sanity checks: refuse to run if the checkout has uncommitted edits, since
 # `git pull` would silently lose or conflict with them.
@@ -220,6 +262,8 @@ git -C "$DEV_DIR" pull --ff-only origin main
 
 sync_referr_all || warn "Referr-All sync skipped — using placeholder from Website git"
 sync_in_the_wild || warn "In the Wild sync skipped — using placeholder from Website git"
+sync_ldbg || warn "LDBG sync skipped — build manually in ldbg/"
+install_ldbg_service
 
 after=$(git -C "$DEV_DIR" rev-parse --short HEAD)
 if [[ "$before" == "$after" ]]; then
@@ -288,6 +332,17 @@ if ! systemctl is-active --quiet "$DEV_SERVICE"; then
   die "${DEV_SERVICE} failed to start."
 fi
 ok "${DEV_SERVICE} is running."
+
+if systemctl list-unit-files 2>/dev/null | grep -q '^ldbg.service'; then
+  log "Restarting ldbg…"
+  sudo systemctl restart ldbg || warn "ldbg failed to restart — check journalctl -u ldbg"
+  sleep 2
+  if systemctl is-active --quiet ldbg; then
+    ok "ldbg is running."
+  else
+    warn "ldbg is not active — run: journalctl -u ldbg -n 50"
+  fi
+fi
 
 if command -v curl >/dev/null 2>&1; then
   if curl --fail --silent --max-time 5 "$DEV_HEALTH_URL" >/dev/null; then

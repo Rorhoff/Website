@@ -1,0 +1,304 @@
+.boardRoot {
+  box-sizing: border-box;
+  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+  color: #1c1917;
+  background: #fafaf9;
+  overflow: hidden;
+}
+
+.boardRoot *,
+.boardRoot *::before,
+.boardRoot *::after {
+  box-sizing: border-box;
+}
+
+.boardCanvas {
+  display: grid;
+  grid-template-rows: 1fr auto;
+  width: 100%;
+  height: 100%;
+  padding: 2.5%;
+  gap: 2%;
+}
+
+.boardMain {
+  display: grid;
+  grid-template-columns: 11% 1fr 28%;
+  gap: 2%;
+  min-height: 0;
+}
+
+.boardRail {
+  display: flex;
+  flex-direction: column;
+  gap: 3%;
+}
+
+.boardThumb {
+  flex: 1;
+  min-height: 0;
+  border: 1px solid #d6d3d1;
+  border-radius: 4px;
+  overflow: hidden;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+}
+
+.boardThumbLabel {
+  font-size: 0.65em;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #78716c;
+  padding: 0.4em 0.5em;
+  border-bottom: 1px solid #e7e5e4;
+}
+
+.boardThumbImg {
+  flex: 1;
+  width: 100%;
+  object-fit: cover;
+  display: block;
+  min-height: 2em;
+}
+
+.boardCenter {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid #d6d3d1;
+  border-radius: 4px;
+  background: #fff;
+  overflow: hidden;
+}
+
+.boardCenterTitle {
+  font-size: 0.75em;
+  font-weight: 600;
+  padding: 0.5em 0.75em;
+  border-bottom: 1px solid #e7e5e4;
+  color: var(--board-accent, #059669);
+}
+
+.boardPlanWrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.5%;
+  overflow: hidden;
+}
+
+.boardPlanWrap svg {
+  max-width: 100%;
+  max-height: 100%;
+  width: auto !important;
+  height: auto !important;
+}
+
+.boardRight {
+  display: flex;
+  flex-direction: column;
+  gap: 2%;
+  min-height: 0;
+}
+
+.boardPanel {
+  border: 1px solid #d6d3d1;
+  border-radius: 4px;
+  background: #fff;
+  overflow: hidden;
+}
+
+.boardPanelHead {
+  font-size: 0.6em;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0.45em 0.6em;
+  background: #f5f5f4;
+  border-bottom: 1px solid #e7e5e4;
+  color: #57534e;
+}
+
+.boardPanelBody {
+  padding: 0.5em;
+  font-size: 0.55em;
+  line-height: 1.35;
+}
+
+.boardRenderSlot {
+  flex: 1;
+  min-height: 4em;
+  display: flex;
+  flex-direction: column;
+}
+
+.boardRenderImg {
+  flex: 1;
+  min-height: 3em;
+  background: #f5f5f4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #a8a29e;
+  font-size: 0.5em;
+  overflow: hidden;
+}
+
+.boardRenderImg img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.boardSwatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5em;
+}
+
+.boardSwatchItem {
+  text-align: center;
+  max-width: 4em;
+}
+
+.boardSwatch {
+  width: 1.8em;
+  height: 1.8em;
+  border-radius: 3px;
+  border: 1px solid #d6d3d1;
+  margin: 0 auto;
+}
+
+.boardSwatchLabel {
+  font-size: 0.75em;
+  margin-top: 0.2em;
+  color: #57534e;
+  line-height: 1.2;
+}
+
+.boardPlants {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.35em;
+  max-height: 14em;
+  overflow: hidden;
+}
+
+.boardPlantCard {
+  border: 1px solid #e7e5e4;
+  border-radius: 3px;
+  padding: 0.35em;
+  font-size: 0.9em;
+}
+
+.boardPlantName {
+  font-weight: 600;
+  color: #1c1917;
+}
+
+.boardPlantSci {
+  font-style: italic;
+  color: #78716c;
+  font-size: 0.85em;
+}
+
+.boardBottom {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2%;
+  align-items: end;
+}
+
+.boardConcept {
+  border: 1px solid #d6d3d1;
+  border-radius: 4px;
+  background: #fff;
+  padding: 0.75em 1em;
+}
+
+.boardConceptTitle {
+  font-size: 0.65em;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--board-accent, #059669);
+  margin-bottom: 0.5em;
+}
+
+.boardConcept ul {
+  margin: 0;
+  padding-left: 1.2em;
+  font-size: 0.58em;
+  line-height: 1.45;
+}
+
+.boardConcept li {
+  margin-bottom: 0.25em;
+}
+
+.boardSupporting {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 2%;
+  margin-top: 2%;
+}
+
+.boardSupportSlot {
+  border: 1px solid #d6d3d1;
+  border-radius: 4px;
+  background: #fff;
+  overflow: hidden;
+}
+
+.boardSupportCaption {
+  font-size: 0.45em;
+  padding: 0.35em 0.5em;
+  border-top: 1px solid #e7e5e4;
+  color: #57534e;
+}
+
+.boardBrand {
+  text-align: right;
+  padding: 0.5em;
+}
+
+.boardLogo {
+  height: 2.2em;
+  width: auto;
+  margin-left: auto;
+  display: block;
+}
+
+.boardBrandName {
+  font-size: 0.85em;
+  font-weight: 700;
+  color: #1c1917;
+  margin-top: 0.35em;
+}
+
+.boardTagline {
+  font-size: 0.55em;
+  color: #78716c;
+  margin-top: 0.15em;
+}
+
+.boardMeta {
+  font-size: 0.45em;
+  color: #a8a29e;
+  margin-top: 0.35em;
+}
+
+.boardEmpty {
+  color: #a8a29e;
+  font-style: italic;
+  font-size: 0.9em;
+}
+
+.boardBottomLeft {
+  min-width: 0;
+}

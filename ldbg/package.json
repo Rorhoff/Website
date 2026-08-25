@@ -1,0 +1,36 @@
+{
+  "name": "ldbg",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --turbopack -p 3002",
+    "build": "next build --turbopack",
+    "start": "next start -p 3002",
+    "lint": "eslint",
+    "test:interpret": "tsx scripts/test-interpret.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
+    "konva": "^10.3.1",
+    "next": "15.5.23",
+    "puppeteer": "^25.8.0",
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
+    "react-konva": "^19.2.5",
+    "sharp": "^0.34.3",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3",
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "dotenv": "^16.4.7",
+    "eslint": "^9",
+    "eslint-config-next": "15.5.23",
+    "tailwindcss": "^4",
+    "tsx": "^4.19.4",
+    "typescript": "^5"
+  }
+}
