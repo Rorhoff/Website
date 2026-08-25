@@ -26,6 +26,9 @@ _HOP_BY_HOP = {
     "upgrade",
     "host",
     "content-length",
+    # httpx auto-decompresses; forwarding these makes browsers fail with
+    # ERR_CONTENT_DECODING_FAILED on _next/static assets.
+    "content-encoding",
 }
 
 
@@ -61,7 +64,8 @@ async def _proxy(request: Request, subpath: str) -> Response:
                     k: v
                     for k, v in request.headers.items()
                     if k.lower() not in _HOP_BY_HOP
-                },
+                }
+                | {"accept-encoding": "identity"},
                 content=body if body else None,
             )
     except httpx.HTTPError:
@@ -97,4 +101,4 @@ async def ldbg_path(request: Request, path: str) -> Response:
 
 @router.get("/ldbg.html", include_in_schema=False)
 async def ldbg_legacy() -> Response:
-    return Response(status_code=301, headers={"Location": "/ldbg/"})
+    return Response(status_code=301, headers={"Location": "/ldbg"})
