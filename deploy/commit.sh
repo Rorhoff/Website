@@ -167,28 +167,10 @@ sync_ldbg() {
     die "LDBG npm ci failed — fix package-lock or network and re-run commit.sh."
   fi
 
-  log "Clean LDBG .next (avoid stale CSS/JS chunk 404s after deploy)…"
-  rm -rf "$src_dir/.next"
-
   log "Building LDBG with basePath /ldbg…"
-  if ! (cd "$src_dir" && LDBG_BASE_PATH=/ldbg npm run build); then
-    die "LDBG build failed — fix errors in ldbg/ and re-run commit.sh."
-  fi
-
-  if find "$src_dir/.next/static/chunks" -name '*.js' -empty -print -quit 2>/dev/null | grep -q .; then
-    die "LDBG build produced empty JS chunk files — re-run build after rm -rf ldbg/.next"
-  fi
-
-  bash "$DEV_DIR/deploy/verify-ldbg-build-manifest.sh" || die "LDBG build manifest missing chunks on disk"
-
-  if grep -rq '"/_next/static' "$src_dir/.next/server" 2>/dev/null \
-    && ! grep -rq '"/ldbg/_next/static' "$src_dir/.next/server" 2>/dev/null; then
-    die "LDBG build missing basePath /ldbg — static assets would 400 at site root. Re-run with LDBG_BASE_PATH=/ldbg npm run build."
-  fi
+  LDBG_REPO_ROOT="$DEV_DIR" bash "$DEV_DIR/deploy/ldbg-build.sh" || die "LDBG build failed — see errors above."
 
   ok "LDBG built in ${src_dir} ($(git -C "$DEV_DIR" rev-parse --short HEAD)) basePath=/ldbg"
-
-  git -C "$DEV_DIR" rev-parse --short HEAD >"$src_dir/.ldbg-build-rev"
 
   if grep -q puppeteerDepsOk "$src_dir/src/app/api/diag/route.ts" 2>/dev/null; then
     if ! grep -rq puppeteerDepsOk "$src_dir/.next/server" 2>/dev/null; then
