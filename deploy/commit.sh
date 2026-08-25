@@ -179,6 +179,8 @@ sync_ldbg() {
     die "LDBG build produced empty JS chunk files — re-run build after rm -rf ldbg/.next"
   fi
 
+  bash "$DEV_DIR/deploy/verify-ldbg-build-manifest.sh" || die "LDBG build manifest missing chunks on disk"
+
   if grep -rq '"/_next/static' "$src_dir/.next/server" 2>/dev/null \
     && ! grep -rq '"/ldbg/_next/static' "$src_dir/.next/server" 2>/dev/null; then
     die "LDBG build missing basePath /ldbg — static assets would 400 at site root. Re-run with LDBG_BASE_PATH=/ldbg npm run build."

@@ -2,12 +2,21 @@
 # verify-ldbg-static.sh — confirm HTML-referenced _next/static assets return 200 (post-restart).
 set -euo pipefail
 
+ROOT="${LDBG_REPO_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 ORIGIN="${LDBG_VERIFY_ORIGIN:-http://127.0.0.1:3002}"
+MANIFEST="$ROOT/ldbg/.next/app-build-manifest.json"
 PATHS=(
   "/ldbg/"
   "/ldbg/projects/new"
   "/ldbg/projects/00000000-0000-0000-0000-000000000000"
 )
+
+manifest_assets() {
+  [[ -f "$MANIFEST" ]] || return 0
+  grep -oE 'static/chunks/[^"'\'' ]+\.(js|css)' "$MANIFEST" \
+    | sed 's|^|/ldbg/_next/|' \
+    | sort -u
+}
 
 collect_assets() {
   local url="$1"
@@ -21,6 +30,10 @@ collect_assets() {
 }
 
 ALL_ASSETS=()
+while IFS= read -r asset; do
+  [[ -z "$asset" ]] && continue
+  ALL_ASSETS+=("$asset")
+done < <(manifest_assets || true)
 for path in "${PATHS[@]}"; do
   while IFS= read -r asset; do
     [[ -z "$asset" ]] && continue
