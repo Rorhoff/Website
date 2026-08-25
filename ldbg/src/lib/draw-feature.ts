@@ -1,7 +1,7 @@
 import type { LegendEntry } from "@/config/legend";
 import { createProjectedGeometryFromPx } from "@/lib/feature-georef";
 import type { NormPoint } from "@/lib/feature-geometry";
-import { newFeatureId, normToPx } from "@/lib/feature-geometry";
+import { newFeatureId, normToPx, pxToNorm } from "@/lib/feature-geometry";
 import type { GeorefDisplayContext } from "@/lib/georef-display";
 import type { InterpretFeature } from "@/lib/interpret-schema";
 
@@ -20,31 +20,53 @@ export function rectangleNormPoints(a: NormPoint, b: NormPoint): NormPoint[] {
   ];
 }
 
+/** Circle polygon in image pixel space so aspect ratio stays round on screen. */
 export function circleNormPoints(
   center: NormPoint,
   edge: NormPoint,
+  displayW: number,
+  displayH: number,
   segments = 32
 ): NormPoint[] {
-  const dx = edge.x - center.x;
-  const dy = edge.y - center.y;
-  const r = Math.hypot(dx, dy);
-  if (r < 0.0005) return [];
+  const centerPx = normToPx(center, displayW, displayH);
+  const edgePx = normToPx(edge, displayW, displayH);
+  const rPx = Math.hypot(edgePx.x - centerPx.x, edgePx.y - centerPx.y);
+  if (rPx < 1) return [];
   const points: NormPoint[] = [];
   for (let i = 0; i < segments; i++) {
     const t = (i / segments) * Math.PI * 2;
-    points.push({
-      x: Math.min(1, Math.max(0, center.x + Math.cos(t) * r)),
-      y: Math.min(1, Math.max(0, center.y + Math.sin(t) * r)),
-    });
+    points.push(
+      pxToNorm(
+        {
+          x: centerPx.x + Math.cos(t) * rPx,
+          y: centerPx.y + Math.sin(t) * rPx,
+        },
+        displayW,
+        displayH
+      )
+    );
   }
   return points;
 }
 
+export function radiusPx(
+  center: NormPoint,
+  edge: NormPoint,
+  displayW: number,
+  displayH: number
+): number {
+  const centerPx = normToPx(center, displayW, displayH);
+  const edgePx = normToPx(edge, displayW, displayH);
+  return Math.hypot(edgePx.x - centerPx.x, edgePx.y - centerPx.y);
+}
+
 export function normalizedRadius(
   center: NormPoint,
-  edge: NormPoint
+  edge: NormPoint,
+  displayW: number,
+  displayH: number
 ): number {
-  return Math.min(1, Math.hypot(edge.x - center.x, edge.y - center.y));
+  return Math.min(1, radiusPx(center, edge, displayW, displayH) / Math.max(displayW, displayH));
 }
 
 export function createDrawnFeature(options: {
@@ -57,6 +79,8 @@ export function createDrawnFeature(options: {
   georefContext?: GeorefDisplayContext;
   displayW: number;
   displayH: number;
+  label?: string;
+  notes?: string;
 }): InterpretFeature {
   const {
     featureType,
@@ -68,6 +92,8 @@ export function createDrawnFeature(options: {
     georefContext,
     displayW,
     displayH,
+    label: labelOverride,
+    notes: notesOverride,
   } = options;
   const prefix = featureType.replace(/_/g, "-");
   const entry = legend.find((l) => l.featureType === featureType);
@@ -76,7 +102,7 @@ export function createDrawnFeature(options: {
   return {
     id: newFeatureId(prefix, features),
     featureType,
-    label: entry?.label ?? featureType,
+    label: labelOverride ?? entry?.label ?? featureType,
     geometry:
       geometryKind === "point"
         ? georefContext
@@ -92,6 +118,6 @@ export function createDrawnFeature(options: {
           : { kind: geometryKind, points },
     existing: false,
     confidence: 1,
-    notes: "",
+    notes: notesOverride ?? "",
   };
 }

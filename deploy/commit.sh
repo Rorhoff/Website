@@ -181,7 +181,7 @@ sync_ldbg() {
 
   if [[ -f "$DEV_DIR/deploy/ensure-ldbg-puppeteer-deps.sh" ]]; then
     log "Ensuring Puppeteer / Chrome system libraries for board export…"
-    bash "$DEV_DIR/deploy/ensure-ldbg-puppeteer-deps.sh" || warn "Puppeteer deps install skipped — PDF export may fail until you run deploy/ensure-ldbg-puppeteer-deps.sh"
+    bash "$DEV_DIR/deploy/ensure-ldbg-puppeteer-deps.sh" || die "Puppeteer Chrome deps missing — PDF export will fail. Run: bash deploy/ensure-ldbg-puppeteer-deps.sh"
   fi
 }
 

@@ -30,16 +30,8 @@ for candidate in \
   fi
 done
 
-if [[ -n "$CHROME" ]] && ldd "$CHROME" 2>/dev/null | grep -q 'not found'; then
-  log "Puppeteer Chrome missing shared libraries — installing packages…"
-elif [[ -n "$CHROME" ]]; then
-  ok "Puppeteer Chrome shared libraries look satisfied ($CHROME)"
-  exit 0
-else
-  log "Puppeteer Chrome not cached yet — installing common headless Chrome deps…"
-fi
-
 export DEBIAN_FRONTEND=noninteractive
+log "Installing headless Chrome system libraries (Puppeteer PDF/PNG export)…"
 sudo apt-get update -qq
 
 PACKAGES=(
@@ -87,8 +79,15 @@ if ! sudo apt-get install -y -qq "${PACKAGES[@]}" 2>/dev/null; then
     libnspr4 libnss3 libpango-1.0-0 libpangocairo-1.0-0 \
     libx11-6 libx11-xcb1 libxcb1 libxcomposite1 libxcursor1 \
     libxdamage1 libxext6 libxfixes3 libxi6 libxkbcommon0 \
-    libxrandr2 libxrender1 libxss1 libxtst6 \
-    || warn "Some packages failed — PDF export may still fail until deps are installed."
+    libxrandr2 libxrender1 libxss1 libxtst6
+fi
+
+if ! ldconfig -p 2>/dev/null | grep -q 'libatk-1\.0\.so'; then
+  warn "libatk-1.0 still not on ldconfig path after install."
+  if [[ -n "$CHROME" ]]; then
+    ldd "$CHROME" 2>/dev/null | grep 'not found' || true
+  fi
+  exit 1
 fi
 
 if [[ -n "$CHROME" ]] && ldd "$CHROME" 2>/dev/null | grep -q 'not found'; then

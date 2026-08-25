@@ -75,7 +75,8 @@ export default function ProjectPage() {
   >();
   const [legend, setLegend] = useState<LegendEntry[]>(DEFAULT_LEGEND);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
+  const [loadError, setLoadError] = useState("");
+  const [saveNotice, setSaveNotice] = useState("");
 
   useEffect(() => {
     fetch(withBasePath("/api/legend"))
@@ -113,31 +114,42 @@ export default function ProjectPage() {
           setFeatures([]);
         }
       })
-      .catch(() => setError("Could not load project"));
+      .catch(() => setLoadError("Could not load project"));
   }, [id]);
 
   const persist = useCallback(
-    async (patch: Partial<Project>) => {
-      setSaving(true);
+    async (patch: Partial<Project>, options?: { silent?: boolean }) => {
+      if (!options?.silent) setSaving(true);
       try {
         const res = await fetch(withBasePath(`/api/projects/${id}`), {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(patch),
         });
-        if (!res.ok) throw new Error("Save failed");
+        if (!res.ok) {
+          let detail = "Save failed";
+          try {
+            const data = (await res.json()) as { error?: string };
+            if (data.error) detail = data.error;
+          } catch {
+            if (res.status === 503) detail = "LDBG is restarting — try again in a few seconds";
+          }
+          throw new Error(detail);
+        }
         const updated = await res.json();
         setProject(updated);
+        setSaveNotice("");
         if ("calibration" in patch) {
           setCalibration(updated.calibration);
         }
         if ("northRotationDeg" in patch) {
           setNorthRotationDeg(updated.northRotationDeg ?? 0);
         }
-      } catch {
-        setError("Save failed");
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "Save failed";
+        setSaveNotice(options?.silent ? `Autosave failed — ${msg}` : msg);
       } finally {
-        setSaving(false);
+        if (!options?.silent) setSaving(false);
       }
     },
     [id]
@@ -161,19 +173,22 @@ export default function ProjectPage() {
     (payload: { features: InterpretFeature[]; editorSettings: EditorSettings }) => {
       setFeatures(payload.features);
       setEditorSettings(payload.editorSettings);
-      persist({
-        features: payload.features,
-        editorSettings: payload.editorSettings,
-      });
+      void persist(
+        {
+          features: payload.features,
+          editorSettings: payload.editorSettings,
+        },
+        { silent: true }
+      );
     },
     [persist]
   );
 
-  if (error) {
+  if (loadError) {
     return (
       <>
         <AppHeader />
-        <main className="p-8 text-red-700">{error}</main>
+        <main className="p-8 text-red-700">{loadError}</main>
       </>
     );
   }
@@ -221,6 +236,21 @@ export default function ProjectPage() {
     <>
       <AppHeader />
       <main className="mx-auto max-w-6xl space-y-6 px-4 py-8">
+        {saveNotice ? (
+          <div
+            role="alert"
+            className="flex flex-wrap items-start justify-between gap-3 rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-900"
+          >
+            <p>{saveNotice}</p>
+            <button
+              type="button"
+              onClick={() => setSaveNotice("")}
+              className="shrink-0 rounded border border-red-300 bg-white px-2 py-0.5 text-xs font-medium text-red-800 hover:bg-red-100"
+            >
+              Dismiss
+            </button>
+          </div>
+        ) : null}
         {georef &&
         project.webodm?.georeferencingMode === "gps" &&
         !scaleVerification?.passed ? (

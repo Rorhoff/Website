@@ -1,14 +1,20 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Circle, Group, Image as KonvaImage, Layer, Line, Stage, Transformer } from "react-konva";
+import { Circle, Group, Image as KonvaImage, Layer, Line, Rect, Stage, Transformer } from "react-konva";
 import type Konva from "konva";
 import type { LegendEntry } from "@/config/legend";
+import {
+  getUtahPlant,
+  isTreeFeatureType,
+  UTAH_PLANT_PALETTE,
+} from "@/config/utah-plants";
 import type { GeorefDisplayContext } from "@/lib/georef-display";
 import {
   circleNormPoints,
   createDrawnFeature,
   normalizedRadius,
+  radiusPx,
   rectangleNormPoints,
   type DrawShapeKind,
 } from "@/lib/draw-feature";
@@ -31,6 +37,7 @@ import {
   featurePerimeterLf,
   flatFeaturePoints,
   flatNormPoints,
+  flatPxPoints,
   insertVertexAt,
   moveFeature,
   normToPx,
@@ -40,16 +47,25 @@ import {
   updateVertex,
 } from "@/lib/feature-geometry";
 import { labelForFeatureType, styleForFeatureType } from "@/lib/feature-styles";
+import { canopyRadiusNorm, plantNotes } from "@/lib/plant-scale";
 import { useBoundedHistory } from "@/hooks/useBoundedHistory";
 import { useStageViewport } from "@/hooks/useStageViewport";
 import type { InterpretFeature } from "@/lib/interpret-schema";
+import {
+  appendStrokePoint,
+  smoothPolygonEdgeWithStroke,
+} from "@/lib/polygon-smooth";
 import type { TilePyramid } from "@/lib/tile-pyramid-schema";
 
-type EditorTool = "select" | DrawShapeKind;
+type EditorTool = "select" | DrawShapeKind | "smoothEdge";
 type BaseLayer = "annotated" | "clean";
 
+/** Debounce before persisting editor geometry (avoids hammering save + UI flash). */
+const EDITOR_AUTOSAVE_MS = 4000;
 /** 44px touch target diameter for vertex handles. */
 const VERTEX_HIT_RADIUS = 22;
+const NUDGE_STEP_PX = 2;
+const NUDGE_STEP_LARGE_PX = 10;
 
 export type EditorSettings = {
   hiddenFeatureTypes: string[];
@@ -105,6 +121,10 @@ function isClickShapeTool(tool: EditorTool): boolean {
   return tool === "polygon" || tool === "polyline" || tool === "point";
 }
 
+function isDrawTool(tool: EditorTool): boolean {
+  return tool !== "select" && tool !== "smoothEdge";
+}
+
 export default function PolygonEditor({
   annotatedImageUrl,
   cleanImageUrl,
@@ -124,12 +144,21 @@ export default function PolygonEditor({
   const onAutosaveRef = useRef(onAutosave);
   onAutosaveRef.current = onAutosave;
   const dragShapeRef = useRef(false);
+  const smoothStrokeRef = useRef(false);
+  const smoothStrokePointsRef = useRef<{ x: number; y: number }[]>([]);
+  const featuresRef = useRef<InterpretFeature[]>([]);
+  const lastSavedJsonRef = useRef("");
+  const selectedLineRef = useRef<Konva.Line>(null);
+  const draggingVertexRef = useRef(false);
 
   const [containerW, setContainerW] = useState(800);
   const [tool, setTool] = useState<EditorTool>("select");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [draggingVertex, setDraggingVertex] = useState(false);
   const [drawPoints, setDrawPoints] = useState<{ x: number; y: number }[]>([]);
+  const [smoothStroke, setSmoothStroke] = useState<{ x: number; y: number }[]>([]);
   const [drawFeatureType, setDrawFeatureType] = useState(legend[0]?.featureType ?? "lawn");
+  const [selectedPlantId, setSelectedPlantId] = useState("");
   const [shapeDrag, setShapeDrag] = useState<{
     start: { x: number; y: number };
     current: { x: number; y: number };
@@ -157,7 +186,12 @@ export default function PolygonEditor({
     setFeatures(cloneFeatures(current));
   }, [index, current]);
 
+  featuresRef.current = features;
+
   useEffect(() => {
+    const incoming = JSON.stringify(initialFeatures);
+    if (incoming === lastSavedJsonRef.current) return;
+    lastSavedJsonRef.current = incoming;
     const snap = cloneFeatures(initialFeatures);
     replace(snap);
     setFeatures(snap);
@@ -188,6 +222,7 @@ export default function PolygonEditor({
   const drawStyle = styleForFeatureType(drawFeatureType, legend, false);
   const drawAsPoint =
     tool === "point" || (tool === "circle" && drawEntry?.unit === "each");
+  const activePlant = selectedPlantId ? getUtahPlant(selectedPlantId) : undefined;
 
   const commitFeatures = useCallback(
     (next: InterpretFeature[]) => {
@@ -196,9 +231,57 @@ export default function PolygonEditor({
     [push]
   );
 
-  const patchFeatures = useCallback((next: InterpretFeature[]) => {
-    setFeatures(cloneFeatures(next));
-  }, []);
+  function plantPlacementRadius(): number | undefined {
+    if (!activePlant) return undefined;
+    return canopyRadiusNorm(
+      activePlant.canopyDiameterFt,
+      displayW,
+      displayH,
+      pixelsPerFoot
+    );
+  }
+
+  function addFeatureFromDraw(
+    geometryKind: "polygon" | "polyline" | "point",
+    points: { x: number; y: number }[],
+    radius?: number,
+    overrides?: {
+      featureType?: string;
+      label?: string;
+      notes?: string;
+    }
+  ) {
+    if (geometryKind === "point" && points.length < 1) return;
+    if (geometryKind === "polyline" && points.length < 2) return;
+    if (geometryKind === "polygon" && points.length < 3) return;
+
+    const plant = activePlant;
+    const featureType = overrides?.featureType ?? plant?.featureType ?? drawFeatureType;
+    const pointRadius =
+      radius ??
+      (geometryKind === "point" && plant
+        ? plantPlacementRadius()
+        : undefined);
+
+    const f = createDrawnFeature({
+      featureType,
+      legend,
+      geometryKind,
+      points,
+      radius: pointRadius,
+      features,
+      georefContext,
+      displayW,
+      displayH,
+      label: overrides?.label ?? plant?.commonName,
+      notes: overrides?.notes ?? (plant ? plantNotes(plant) : ""),
+    });
+    commitFeatures([...features, f]);
+    setSelectedId(f.id);
+    setDrawPoints([]);
+    setShapeDrag(null);
+    setTool("select");
+  }
 
   const updateFeature = useCallback(
     (id: string, updater: (f: InterpretFeature) => InterpretFeature) => {
@@ -214,14 +297,16 @@ export default function PolygonEditor({
     }
     setSaveLabel("Saving…");
     const t = setTimeout(() => {
-      onAutosaveRef.current({
+      const payload = {
         features,
         editorSettings: { hiddenFeatureTypes: [...hiddenTypes] },
-      });
+      };
+      lastSavedJsonRef.current = JSON.stringify(features);
+      onAutosaveRef.current(payload);
       setSaveLabel("Saved");
       const clear = setTimeout(() => setSaveLabel(""), 1500);
       return () => clearTimeout(clear);
-    }, 500);
+    }, EDITOR_AUTOSAVE_MS);
     return () => clearTimeout(t);
   }, [features, hiddenTypes, index]);
 
@@ -236,6 +321,12 @@ export default function PolygonEditor({
       tr.nodes([]);
     }
   }, [selectedId, tool, features, displayW, displayH]);
+
+  useEffect(() => {
+    const g = selectedGroupRef.current;
+    if (!g || draggingVertex) return;
+    g.position({ x: 0, y: 0 });
+  }, [features, selectedId, draggingVertex]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -253,14 +344,38 @@ export default function PolygonEditor({
       if (e.key === "Delete" || e.key === "Backspace") {
         if (selectedId && tool === "select") {
           e.preventDefault();
-          commitFeatures(features.filter((f) => f.id !== selectedId));
+          commitFeatures(featuresRef.current.filter((f) => f.id !== selectedId));
           setSelectedId(null);
         }
+      }
+      if (
+        selectedId &&
+        tool === "select" &&
+        (e.key === "ArrowUp" ||
+          e.key === "ArrowDown" ||
+          e.key === "ArrowLeft" ||
+          e.key === "ArrowRight")
+      ) {
+        e.preventDefault();
+        const step = e.shiftKey ? NUDGE_STEP_LARGE_PX : NUDGE_STEP_PX;
+        let dx = 0;
+        let dy = 0;
+        if (e.key === "ArrowUp") dy = -step;
+        if (e.key === "ArrowDown") dy = step;
+        if (e.key === "ArrowLeft") dx = -step;
+        if (e.key === "ArrowRight") dx = step;
+        const next = featuresRef.current.map((f) => {
+          if (f.id !== selectedId) return f;
+          return georefContext
+            ? moveFeatureGeoref(f, dx, dy, georefContext)
+            : moveFeature(f, dx / displayW, dy / displayH);
+        });
+        commitFeatures(next);
       }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [undo, redo, selectedId, features, commitFeatures, tool]);
+  }, [undo, redo, selectedId, commitFeatures, tool, georefContext, displayW, displayH]);
 
   function contentNormFromStage(stage: Konva.Stage) {
     const content = viewport.pointerToContent(stage);
@@ -275,33 +390,6 @@ export default function PolygonEditor({
     return pxToNorm(snapped, displayW, displayH);
   }
 
-  function addFeatureFromDraw(
-    geometryKind: "polygon" | "polyline" | "point",
-    points: { x: number; y: number }[],
-    radius?: number
-  ) {
-    if (geometryKind === "point" && points.length < 1) return;
-    if (geometryKind === "polyline" && points.length < 2) return;
-    if (geometryKind === "polygon" && points.length < 3) return;
-
-    const f = createDrawnFeature({
-      featureType: drawFeatureType,
-      legend,
-      geometryKind,
-      points,
-      radius,
-      features,
-      georefContext,
-      displayW,
-      displayH,
-    });
-    commitFeatures([...features, f]);
-    setSelectedId(f.id);
-    setDrawPoints([]);
-    setShapeDrag(null);
-    setTool("select");
-  }
-
   function finishPolygonOrPolyline() {
     const kind = tool === "polyline" ? "polyline" : "polygon";
     addFeatureFromDraw(kind, drawPoints);
@@ -311,7 +399,7 @@ export default function PolygonEditor({
     if (tool === "select") return;
     if (isDragShapeTool(tool)) {
       const stage = e.target.getStage();
-      if (!stage || e.target !== stage) return;
+      if (!stage) return;
       const norm = contentNormFromStage(stage);
       if (!norm) return;
       dragShapeRef.current = true;
@@ -344,10 +432,13 @@ export default function PolygonEditor({
 
     if (tool === "circle") {
       if (drawAsPoint) {
-        const r = normalizedRadius(start, current);
+        const r =
+          activePlant && plantPlacementRadius() != null
+            ? plantPlacementRadius()!
+            : normalizedRadius(start, current, displayW, displayH);
         if (r > 0.002) addFeatureFromDraw("point", [start], r);
       } else {
-        const pts = circleNormPoints(start, current);
+        const pts = circleNormPoints(start, current, displayW, displayH);
         if (pts.length >= 3) addFeatureFromDraw("polygon", pts);
       }
     }
@@ -362,18 +453,47 @@ export default function PolygonEditor({
     if (!isClickShapeTool(tool)) return;
 
     const stage = e.target.getStage();
-    if (!stage || e.target !== stage) return;
+    if (!stage) return;
     const norm = contentNormFromStage(stage);
     if (!norm) return;
     const pt = applySnapNorm(norm);
 
     if (tool === "point" || (tool === "circle" && drawEntry?.unit === "each")) {
-      const defaultRadius = 0.025;
-      addFeatureFromDraw("point", [pt], defaultRadius);
+      const r = activePlant ? plantPlacementRadius() : 0.025;
+      addFeatureFromDraw("point", [pt], r);
       return;
     }
 
     setDrawPoints((prev) => [...prev, pt]);
+  }
+
+  function resetSelectedGroupPosition() {
+    const g = selectedGroupRef.current;
+    if (g) g.position({ x: 0, y: 0 });
+  }
+
+  function applyVertexPx(
+    feature: InterpretFeature,
+    vertexIndex: number,
+    nextPx: { x: number; y: number }
+  ): InterpretFeature {
+    return georefContext
+      ? updateFeatureVertexGeoref(feature, vertexIndex, nextPx, georefContext)
+      : updateVertex(feature, vertexIndex, pxToNorm(nextPx, displayW, displayH));
+  }
+
+  function syncSelectedLinePoints(
+    feature: InterpretFeature,
+    vertexIndex: number,
+    nextPx: { x: number; y: number }
+  ) {
+    const line = selectedLineRef.current;
+    if (!line) return;
+    const pts = geometryToPxPoints(feature, displayW, displayH, georefContext);
+    if (vertexIndex < 0 || vertexIndex >= pts.length) return;
+    pts[vertexIndex] = nextPx;
+    line.points(flatPxPoints(pts));
+    line.getLayer()?.batchDraw();
   }
 
   function onTransformEnd() {
@@ -404,22 +524,27 @@ export default function PolygonEditor({
     );
   }
 
+  function onGroupDragStart(e: Konva.KonvaEventObject<DragEvent>) {
+    if (draggingVertexRef.current) {
+      e.target.stopDrag();
+    }
+  }
+
   function onGroupDragEnd(e: Konva.KonvaEventObject<DragEvent>) {
     const node = e.target;
-    if (!selected) return;
-    if (georefContext) {
-      const dxPx = node.x() / viewport.zoom;
-      const dyPx = node.y() / viewport.zoom;
-      node.x(0);
-      node.y(0);
-      updateFeature(selected.id, (f) => moveFeatureGeoref(f, dxPx, dyPx, georefContext));
-      return;
-    }
-    const dx = node.x() / viewport.zoom / displayW;
-    const dy = node.y() / viewport.zoom / displayH;
-    node.x(0);
-    node.y(0);
-    updateFeature(selected.id, (f) => moveFeature(f, dx, dy));
+    if (!selectedId) return;
+    const dxPx = node.x() / viewport.zoom;
+    const dyPx = node.y() / viewport.zoom;
+    node.position({ x: 0, y: 0 });
+    if (Math.abs(dxPx) < 0.5 && Math.abs(dyPx) < 0.5) return;
+
+    const next = featuresRef.current.map((f) => {
+      if (f.id !== selectedId) return f;
+      return georefContext
+        ? moveFeatureGeoref(f, dxPx, dyPx, georefContext)
+        : moveFeature(f, dxPx / displayW, dyPx / displayH);
+    });
+    commitFeatures(next);
   }
 
   const canMeasure = georefContext != null || pixelsPerFoot != null;
@@ -433,24 +558,75 @@ export default function PolygonEditor({
       : null;
 
   const types = featureTypes(features, legend);
-  const drawing = tool !== "select";
+  const drawing = isDrawTool(tool);
+  const smoothing = tool === "smoothEdge";
+  const overlayActive = drawing || smoothing;
+  const canSmooth =
+    selected != null &&
+    selected.geometry.kind === "polygon" &&
+    !hiddenTypes.has(selected.featureType);
 
   const previewPoints = useMemo(() => {
     if (shapeDrag && tool === "rectangle") {
       return rectangleNormPoints(shapeDrag.start, shapeDrag.current);
     }
     if (shapeDrag && tool === "circle" && !drawAsPoint) {
-      return circleNormPoints(shapeDrag.start, shapeDrag.current);
+      return circleNormPoints(shapeDrag.start, shapeDrag.current, displayW, displayH);
     }
     return drawPoints;
-  }, [shapeDrag, tool, drawAsPoint, drawPoints]);
+  }, [shapeDrag, tool, drawAsPoint, drawPoints, displayW, displayH]);
 
   function selectDrawTool(next: DrawShapeKind) {
     setTool(next);
     setDrawPoints([]);
     setShapeDrag(null);
+    setSmoothStroke([]);
+    smoothStrokePointsRef.current = [];
+    smoothStrokeRef.current = false;
     setSelectedId(null);
     dragShapeRef.current = false;
+  }
+
+  function handleSmoothPointerDown(e: Konva.KonvaEventObject<MouseEvent | TouchEvent>) {
+    if (tool !== "smoothEdge") return;
+    const stage = e.target.getStage();
+    if (!stage) return;
+    const content = viewport.pointerToContent(stage);
+    if (!content) return;
+    smoothStrokeRef.current = true;
+    smoothStrokePointsRef.current = [content];
+    setSmoothStroke([content]);
+  }
+
+  function handleSmoothPointerMove(e: Konva.KonvaEventObject<MouseEvent | TouchEvent>) {
+    if (!smoothStrokeRef.current || tool !== "smoothEdge") return;
+    const stage = e.target.getStage();
+    if (!stage) return;
+    const content = viewport.pointerToContent(stage);
+    if (!content) return;
+    smoothStrokePointsRef.current = appendStrokePoint(smoothStrokePointsRef.current, content);
+    setSmoothStroke(smoothStrokePointsRef.current);
+  }
+
+  function handleSmoothPointerUp() {
+    if (!smoothStrokeRef.current || tool !== "smoothEdge") return;
+    smoothStrokeRef.current = false;
+    const stroke = smoothStrokePointsRef.current;
+    const target = selectedId ? features.find((f) => f.id === selectedId) : null;
+    if (target?.geometry.kind === "polygon") {
+      const next = smoothPolygonEdgeWithStroke(
+        target,
+        stroke,
+        displayW,
+        displayH,
+        georefContext
+      );
+      if (next) {
+        commitFeatures(features.map((f) => (f.id === target.id ? next : f)));
+      }
+    }
+    smoothStrokePointsRef.current = [];
+    setSmoothStroke([]);
   }
 
   function toolBtn(active: boolean, label: string, onClick: () => void, disabled = false) {
@@ -486,12 +662,29 @@ export default function PolygonEditor({
           setTool("select");
           setDrawPoints([]);
           setShapeDrag(null);
+          setSmoothStroke([]);
+          smoothStrokePointsRef.current = [];
+          smoothStrokeRef.current = false;
         })}
         {toolBtn(tool === "polygon", "Polygon", () => selectDrawTool("polygon"))}
         {toolBtn(tool === "rectangle", "Rectangle", () => selectDrawTool("rectangle"))}
         {toolBtn(tool === "circle", "Circle", () => selectDrawTool("circle"))}
         {toolBtn(tool === "polyline", "Polyline", () => selectDrawTool("polyline"))}
         {toolBtn(tool === "point", "Point", () => selectDrawTool("point"))}
+        {toolBtn(
+          tool === "smoothEdge",
+          "Smooth edge",
+          () => {
+            setTool("smoothEdge");
+            setDrawPoints([]);
+            setShapeDrag(null);
+            setSmoothStroke([]);
+            smoothStrokePointsRef.current = [];
+            smoothStrokeRef.current = false;
+            dragShapeRef.current = false;
+          },
+          !canSmooth
+        )}
         <button
           type="button"
           disabled={!canUndo}
@@ -527,11 +720,37 @@ export default function PolygonEditor({
             <select
               className="mt-1 min-h-11 w-full min-w-[12rem] rounded border px-2 py-2"
               value={drawFeatureType}
-              onChange={(e) => setDrawFeatureType(e.target.value)}
+              onChange={(e) => {
+                setDrawFeatureType(e.target.value);
+                if (!isTreeFeatureType(e.target.value)) setSelectedPlantId("");
+              }}
             >
               {legend.map((e) => (
                 <option key={e.id} value={e.featureType}>
                   {e.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block text-sm text-emerald-950">
+            <span className="font-medium">Utah / Salt Lake plant</span>
+            <select
+              className="mt-1 min-h-11 w-full min-w-[12rem] rounded border px-2 py-2"
+              value={selectedPlantId}
+              onChange={(e) => {
+                const id = e.target.value;
+                setSelectedPlantId(id);
+                const plant = getUtahPlant(id);
+                if (plant) {
+                  setDrawFeatureType(plant.featureType);
+                  if (tool !== "point" && tool !== "circle") setTool("point");
+                }
+              }}
+            >
+              <option value="">Custom size (manual)</option>
+              {UTAH_PLANT_PALETTE.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.commonName} (~{p.canopyDiameterFt} ft)
                 </option>
               ))}
             </select>
@@ -549,8 +768,15 @@ export default function PolygonEditor({
             {tool === "polyline" && "Tap each vertex, then Finish line (min 2)."}
             {tool === "rectangle" && "Press and drag a rectangle."}
             {tool === "circle" &&
-              (drawAsPoint ? "Press and drag from center to set canopy radius." : "Press and drag a circle.")}
-            {tool === "point" && "Tap once to place a point feature."}
+              (drawAsPoint
+                ? activePlant
+                  ? `Tap to place ${activePlant.commonName} at ~${activePlant.canopyDiameterFt} ft canopy.`
+                  : "Press and drag from center to set canopy radius."
+                : "Press and drag a circle.")}
+            {tool === "point" &&
+              (activePlant
+                ? `Tap to place ${activePlant.commonName} (~${activePlant.canopyDiameterFt} ft canopy).`
+                : "Tap once to place a point feature.")}
           </p>
           {(tool === "polygon" || tool === "polyline") && (
             <div className="flex gap-2">
@@ -639,7 +865,7 @@ export default function PolygonEditor({
               handlePointerUp(e);
             }}
             onWheel={viewport.onWheel}
-            style={{ cursor: drawing ? "crosshair" : "default", touchAction: "none" }}
+            style={{ cursor: overlayActive ? "crosshair" : "default", touchAction: "none" }}
           >
             <Layer>
               <Group x={viewport.pan.x} y={viewport.pan.y} scaleX={viewport.zoom} scaleY={viewport.zoom}>
@@ -653,6 +879,7 @@ export default function PolygonEditor({
                   if (isSel && tool === "select") return null;
                   const style = styleForFeatureType(f.featureType, legend, f.existing);
                   const pts = flatFeaturePoints(f, displayW, displayH, georefContext);
+                  const highlightSmooth = isSel && smoothing;
 
                   if (f.geometry.kind === "point") {
                     const pxPts = geometryToPxPoints(f, displayW, displayH, georefContext);
@@ -670,6 +897,7 @@ export default function PolygonEditor({
                         stroke={isSel ? "#059669" : style.stroke}
                         strokeWidth={isSel ? 3 : style.strokeWidth}
                         opacity={style.opacity}
+                        listening={!overlayActive}
                         onClick={(ev) => {
                           ev.cancelBubble = true;
                           if (tool === "select") setSelectedId(f.id);
@@ -684,9 +912,10 @@ export default function PolygonEditor({
                       points={pts}
                       closed={f.geometry.kind === "polygon"}
                       fill={f.geometry.kind === "polygon" ? style.fill : undefined}
-                      stroke={isSel ? "#059669" : style.stroke}
-                      strokeWidth={isSel ? 3 : style.strokeWidth}
+                      stroke={highlightSmooth ? "#f59e0b" : isSel ? "#059669" : style.stroke}
+                      strokeWidth={highlightSmooth ? 4 : isSel ? 3 : style.strokeWidth}
                       opacity={style.opacity}
+                      listening={!overlayActive}
                       onClick={(ev) => {
                         ev.cancelBubble = true;
                         if (tool === "select") setSelectedId(f.id);
@@ -694,6 +923,18 @@ export default function PolygonEditor({
                     />
                   );
                 })}
+
+                {smoothing && smoothStroke.length > 1 ? (
+                  <Line
+                    points={flatPxPoints(smoothStroke)}
+                    stroke="#f59e0b"
+                    strokeWidth={4}
+                    opacity={0.95}
+                    lineCap="round"
+                    lineJoin="round"
+                    listening={false}
+                  />
+                ) : null}
 
                 {drawing && previewPoints.length > 0 ? (
                   <>
@@ -713,19 +954,18 @@ export default function PolygonEditor({
                         tool === "rectangle" ||
                         (tool === "circle" && !drawAsPoint && previewPoints.length >= 3)
                       }
+                      listening={false}
                     />
                     {tool === "circle" && shapeDrag && drawAsPoint ? (
                       <Circle
                         x={normToPx(shapeDrag.start, displayW, displayH).x}
                         y={normToPx(shapeDrag.start, displayW, displayH).y}
-                        radius={
-                          normalizedRadius(shapeDrag.start, shapeDrag.current) *
-                          Math.max(displayW, displayH)
-                        }
+                        radius={radiusPx(shapeDrag.start, shapeDrag.current, displayW, displayH)}
                         fill={drawStyle.fill}
                         stroke={drawStyle.stroke}
                         strokeWidth={drawStyle.strokeWidth}
                         opacity={drawStyle.opacity * 0.85}
+                        listening={false}
                       />
                     ) : null}
                     {drawPoints.map((p, i) => {
@@ -738,6 +978,7 @@ export default function PolygonEditor({
                           radius={VERTEX_HIT_RADIUS / viewport.zoom}
                           fill={drawStyle.stroke}
                           opacity={0.9}
+                          listening={false}
                         />
                       );
                     })}
@@ -747,7 +988,8 @@ export default function PolygonEditor({
                 {selected && tool === "select" && !hiddenTypes.has(selected.featureType) ? (
                   <Group
                     ref={selectedGroupRef}
-                    draggable
+                    draggable={!draggingVertex}
+                    onDragStart={onGroupDragStart}
                     onDragEnd={onGroupDragEnd}
                     onTransformEnd={onTransformEnd}
                   >
@@ -782,6 +1024,7 @@ export default function PolygonEditor({
                       }
                       return (
                         <Line
+                          ref={selectedLineRef}
                           points={flatFeaturePoints(selected, displayW, displayH, georefContext)}
                           closed={selected.geometry.kind === "polygon"}
                           fill={
@@ -806,58 +1049,43 @@ export default function PolygonEditor({
                               stroke="#059669"
                               strokeWidth={2}
                               draggable
-                              onDragMove={(ev) => {
-                                let nextPx = {
-                                  x: (ev.target.x() - 0) ,
-                                  y: ev.target.y(),
-                                };
-                                if (snapEnabled && snapSegments.length > 0) {
-                                  nextPx = snapPxPoint(nextPx, snapSegments, 12);
-                                }
-                                ev.target.x(nextPx.x);
-                                ev.target.y(nextPx.y);
-                                patchFeatures(
-                                  features.map((f) =>
-                                    f.id === selected.id
-                                      ? georefContext
-                                        ? updateFeatureVertexGeoref(
-                                            f,
-                                            vi,
-                                            nextPx,
-                                            georefContext
-                                          )
-                                        : updateVertex(
-                                            f,
-                                            vi,
-                                            pxToNorm(nextPx, displayW, displayH)
-                                          )
-                                      : f
-                                  )
-                                );
+                              onMouseDown={(ev) => {
+                                ev.cancelBubble = true;
                               }}
-                              onDragEnd={(ev) => {
+                              onDragStart={(ev) => {
+                                ev.cancelBubble = true;
+                                draggingVertexRef.current = true;
+                                setDraggingVertex(true);
+                                resetSelectedGroupPosition();
+                              }}
+                              onDragMove={(ev) => {
+                                ev.cancelBubble = true;
                                 let nextPx = { x: ev.target.x(), y: ev.target.y() };
                                 if (snapEnabled && snapSegments.length > 0) {
                                   nextPx = snapPxPoint(nextPx, snapSegments, 12);
                                 }
-                                commitFeatures(
-                                  features.map((f) =>
-                                    f.id === selected.id
-                                      ? georefContext
-                                        ? updateFeatureVertexGeoref(
-                                            f,
-                                            vi,
-                                            nextPx,
-                                            georefContext
-                                          )
-                                        : updateVertex(
-                                            f,
-                                            vi,
-                                            pxToNorm(nextPx, displayW, displayH)
-                                          )
-                                      : f
-                                  )
+                                ev.target.position(nextPx);
+                                resetSelectedGroupPosition();
+                                const currentFeature = featuresRef.current.find(
+                                  (f) => f.id === selected.id
                                 );
+                                if (currentFeature) {
+                                  syncSelectedLinePoints(currentFeature, vi, nextPx);
+                                }
+                              }}
+                              onDragEnd={(ev) => {
+                                ev.cancelBubble = true;
+                                draggingVertexRef.current = false;
+                                setDraggingVertex(false);
+                                let nextPx = { x: ev.target.x(), y: ev.target.y() };
+                                if (snapEnabled && snapSegments.length > 0) {
+                                  nextPx = snapPxPoint(nextPx, snapSegments, 12);
+                                }
+                                resetSelectedGroupPosition();
+                                const next = featuresRef.current.map((f) =>
+                                  f.id === selected.id ? applyVertexPx(f, vi, nextPx) : f
+                                );
+                                commitFeatures(next);
                               }}
                             />
                           )
@@ -875,6 +1103,37 @@ export default function PolygonEditor({
                     return newBox;
                   }}
                 />
+
+                {drawing ? (
+                  <Rect
+                    x={0}
+                    y={0}
+                    width={displayW}
+                    height={displayH}
+                    fill="rgba(0,0,0,0)"
+                    onClick={handleStageClick}
+                    onTap={handleStageClick}
+                    onMouseDown={handlePointerDown}
+                    onMouseMove={handlePointerMove}
+                    onMouseUp={handlePointerUp}
+                  />
+                ) : null}
+
+                {smoothing ? (
+                  <Rect
+                    x={0}
+                    y={0}
+                    width={displayW}
+                    height={displayH}
+                    fill="rgba(0,0,0,0)"
+                    onMouseDown={handleSmoothPointerDown}
+                    onMouseMove={handleSmoothPointerMove}
+                    onMouseUp={handleSmoothPointerUp}
+                    onTouchStart={handleSmoothPointerDown}
+                    onTouchMove={handleSmoothPointerMove}
+                    onTouchEnd={handleSmoothPointerUp}
+                  />
+                ) : null}
               </Group>
             </Layer>
           </Stage>
@@ -923,6 +1182,9 @@ export default function PolygonEditor({
               ) : (
                 <p className="mt-2 text-xs text-amber-700">Save calibration for measurements.</p>
               )}
+              <p className="mt-2 text-xs text-stone-500">
+                Arrow keys nudge 2px · Shift+arrow 10px
+              </p>
               <button
                 type="button"
                 onClick={() => {
@@ -933,12 +1195,31 @@ export default function PolygonEditor({
               >
                 Delete feature
               </button>
+              {selected.geometry.kind === "polygon" ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTool("smoothEdge");
+                    setDrawPoints([]);
+                    setShapeDrag(null);
+                    setSmoothStroke([]);
+                    smoothStrokePointsRef.current = [];
+                    smoothStrokeRef.current = false;
+                    dragShapeRef.current = false;
+                  }}
+                  className="mt-2 min-h-11 w-full rounded bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900"
+                >
+                  Smooth edge…
+                </button>
+              ) : null}
             </div>
-          ) : (
+              ) : (
             <p className="text-stone-500">
               {drawing
                 ? "Drawing — finish the current shape or switch to Select."
-                : "Select a feature to edit or delete."}
+                : smoothing
+                  ? "Drag along an edge to smooth it."
+                  : "Select a polygon, then use Smooth edge to round a side."}
             </p>
           )}
 

@@ -91,9 +91,7 @@ export function BoardExportPanel({
     }
   }
 
-  const previewHref = withBasePath(
-    `/projects/${projectId}/board?size=${pageSize}`
-  );
+  const previewHref = `/projects/${projectId}/board?size=${pageSize}`;
 
   return (
     <section className="space-y-4 rounded-xl border border-stone-200 bg-white p-5">
