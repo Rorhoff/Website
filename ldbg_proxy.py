@@ -39,8 +39,13 @@ def _filter_headers(headers: httpx.Headers) -> dict[str, str]:
 
 async def _proxy(request: Request, subpath: str) -> Response:
     path = f"/ldbg/{subpath}".rstrip("/") if subpath else "/ldbg"
-    if not path.endswith("/") and "." not in path.split("/")[-1]:
-        # Next.js often expects trailing slash on app routes
+    # Do not force a trailing slash on the app root — Next.js basePath serves
+    # /ldbg and 308s /ldbg/ back to /ldbg, which causes ERR_TOO_MANY_REDIRECTS.
+    if (
+        path != "/ldbg"
+        and not path.endswith("/")
+        and "." not in path.split("/")[-1]
+    ):
         path = path + "/"
     url = f"{LDBG_INTERNAL}{path}"
     if request.url.query:
