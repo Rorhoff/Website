@@ -164,8 +164,7 @@ sync_ldbg() {
 
   log "Building LDBG from ${src_dir}…"
   if ! (cd "$src_dir" && npm ci); then
-    warn "LDBG npm ci failed."
-    return 0
+    die "LDBG npm ci failed — fix package-lock or network and re-run commit.sh."
   fi
 
   log "Building LDBG with basePath /ldbg…"
