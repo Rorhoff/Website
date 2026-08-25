@@ -167,6 +167,9 @@ sync_ldbg() {
     die "LDBG npm ci failed — fix package-lock or network and re-run commit.sh."
   fi
 
+  log "Clean LDBG .next (avoid stale CSS/JS chunk 404s after deploy)…"
+  rm -rf "$src_dir/.next"
+
   log "Building LDBG with basePath /ldbg…"
   if ! (cd "$src_dir" && LDBG_BASE_PATH=/ldbg npm run build); then
     die "LDBG build failed — fix errors in ldbg/ and re-run commit.sh."
@@ -345,6 +348,9 @@ if systemctl list-unit-files 2>/dev/null | grep -q '^ldbg.service'; then
     ldbg_diag="$(curl -sS --max-time 10 "http://127.0.0.1:3002/ldbg/api/diag" 2>/dev/null || true)"
     if echo "$ldbg_diag" | grep -q '"anthropicConfigured"'; then
       ok "LDBG diag: $ldbg_diag"
+      if [[ -f "$DEV_DIR/deploy/verify-ldbg-static.sh" ]]; then
+        bash "$DEV_DIR/deploy/verify-ldbg-static.sh" || warn "LDBG static asset check failed — UI may load unstyled until rebuild."
+      fi
       if ! echo "$ldbg_diag" | grep -q '"puppeteerDepsOk"'; then
         warn "LDBG diag missing puppeteerDepsOk — running stale build (expected after 26ab94e)."
         warn "  Fix: cd $DEV_DIR && git pull --ff-only origin main"
