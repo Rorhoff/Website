@@ -1,6 +1,12 @@
 import type { NextConfig } from "next";
 
-const basePath = process.env.LDBG_BASE_PATH ?? "";
+/** Production is always served at /ldbg — basePath is baked in at build time, not runtime. */
+const basePath =
+  process.env.LDBG_BASE_PATH !== undefined
+    ? process.env.LDBG_BASE_PATH
+    : process.env.NODE_ENV === "production"
+      ? "/ldbg"
+      : "";
 
 const nextConfig: NextConfig = {
   basePath,

@@ -172,7 +172,12 @@ sync_ldbg() {
     die "LDBG build failed — fix errors in ldbg/ and re-run commit.sh."
   fi
 
-  ok "LDBG built in ${src_dir} ($(git -C "$DEV_DIR" rev-parse --short HEAD))"
+  if grep -rq '"/_next/static' "$src_dir/.next/server" 2>/dev/null \
+    && ! grep -rq '"/ldbg/_next/static' "$src_dir/.next/server" 2>/dev/null; then
+    die "LDBG build missing basePath /ldbg — static assets would 400 at site root. Re-run with LDBG_BASE_PATH=/ldbg npm run build."
+  fi
+
+  ok "LDBG built in ${src_dir} ($(git -C "$DEV_DIR" rev-parse --short HEAD)) basePath=/ldbg"
 }
 
 install_ldbg_service() {
