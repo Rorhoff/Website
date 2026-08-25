@@ -5,6 +5,7 @@ import { formatUsd } from "@/lib/interpret-cost";
 import {
   needsReview,
   reviewItems,
+  type InterpretFeature,
   type StoredInterpretation,
 } from "@/lib/interpret-schema";
 import { withBasePath } from "@/lib/paths";
@@ -30,11 +31,23 @@ export function InterpretPanel({
   const [error, setError] = useState("");
   const [rawDump, setRawDump] = useState(false);
   const [open, setOpen] = useState(!!interpretation);
+  const [reviewDismissed, setReviewDismissed] = useState(false);
+  const [inspectType, setInspectType] = useState("water_feature");
 
   const review = useMemo(
     () => (interpretation ? reviewItems(interpretation) : []),
     [interpretation]
   );
+
+  const inspectedFeatures = useMemo(() => {
+    if (!interpretation) return [] as InterpretFeature[];
+    return interpretation.features.filter((f) => f.featureType === inspectType);
+  }, [interpretation, inspectType]);
+
+  const featureTypes = useMemo(() => {
+    if (!interpretation) return [];
+    return [...new Set(interpretation.features.map((f) => f.featureType))].sort();
+  }, [interpretation]);
 
   async function runInterpret(force = false) {
     if (
@@ -47,6 +60,7 @@ export function InterpretPanel({
     }
     setBusy(true);
     setError("");
+    setReviewDismissed(false);
     try {
       const res = await fetch(withBasePath("/api/interpret"), {
         method: "POST",
@@ -70,6 +84,11 @@ export function InterpretPanel({
   }
 
   const canRun = !needsAnnotated;
+  const showReview =
+    interpretation &&
+    needsReview(interpretation) &&
+    review.length > 0 &&
+    !reviewDismissed;
 
   return (
     <section className="rounded-xl border border-stone-200 bg-stone-50">
@@ -151,17 +170,56 @@ export function InterpretPanel({
             </div>
           ) : null}
 
-          {interpretation && needsReview(interpretation) && review.length > 0 ? (
+          {showReview ? (
             <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
-              <p className="font-medium text-amber-950">Import notes (informational)</p>
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <p className="font-medium text-amber-950">Import review (advisory)</p>
+                <button
+                  type="button"
+                  onClick={() => setReviewDismissed(true)}
+                  className="min-h-11 rounded-md border border-amber-300 bg-white px-3 py-1.5 text-sm text-amber-900"
+                >
+                  Dismiss
+                </button>
+              </div>
               <ul className="mt-2 list-inside list-disc text-sm text-amber-900">
                 {review.map((item) => (
                   <li key={item}>{item}</li>
                 ))}
               </ul>
               <p className="mt-2 text-xs text-amber-800">
-                These do not block editing — refine shapes in the feature editor.
+                Informational only — does not block editing or export.
               </p>
+            </div>
+          ) : null}
+
+          {interpretation && featureTypes.length > 0 ? (
+            <div className="rounded-lg border border-stone-200 p-4">
+              <p className="text-sm font-medium text-stone-800">Feature JSON inspector</p>
+              <p className="mt-1 text-xs text-stone-600">
+                Compare imported geometry to the source annotation (e.g. water_feature extent).
+              </p>
+              <label className="mt-3 block text-xs text-stone-600">
+                Feature type
+                <select
+                  className="mt-1 min-h-11 w-full max-w-xs rounded border px-2 py-2 text-sm"
+                  value={inspectType}
+                  onChange={(e) => setInspectType(e.target.value)}
+                >
+                  {featureTypes.map((t) => (
+                    <option key={t} value={t}>
+                      {t}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {inspectedFeatures.length === 0 ? (
+                <p className="mt-2 text-sm text-stone-500">No features of this type in import.</p>
+              ) : (
+                <pre className="mt-3 max-h-80 overflow-auto rounded-lg bg-stone-900 p-4 text-xs text-stone-100">
+                  {JSON.stringify(inspectedFeatures, null, 2)}
+                </pre>
+              )}
             </div>
           ) : null}
 
@@ -188,7 +246,7 @@ export function InterpretPanel({
               onClick={() => setRawDump((v) => !v)}
               className="text-sm text-stone-600 underline"
             >
-              {rawDump ? "Hide JSON" : "Show JSON"}
+              {rawDump ? "Hide full import JSON" : "Show full import JSON"}
             </button>
           ) : null}
         </div>

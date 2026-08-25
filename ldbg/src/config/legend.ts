@@ -13,6 +13,15 @@ export type RenderStyle = {
   opacity?: number;
 };
 
+/** Default styling for `existing: true` site geometry on plans and editor. */
+export const DEFAULT_EXISTING_RENDER_STYLE: RenderStyle = {
+  fill: "none",
+  stroke: "#999999",
+  strokeWidth: 0.35,
+  patternId: "existing-hatch",
+  opacity: 1,
+};
+
 export type LegendEntry = {
   id: string;
   label: string;
@@ -21,6 +30,8 @@ export type LegendEntry = {
   shapeHint: string;
   defaultMaterial: string;
   renderStyle: RenderStyle;
+  /** Optional override for existing site geometry of this type. */
+  existingRenderStyle?: RenderStyle;
   unit: FeatureUnit;
   notes?: string;
 };

@@ -4,6 +4,17 @@ export function PlanPatternDefs() {
   return (
     <defs>
       <pattern
+        id="existing-hatch"
+        patternUnits="userSpaceOnUse"
+        width="8"
+        height="8"
+        patternTransform="rotate(45)"
+      >
+        <rect width="8" height="8" fill="#ffffff" opacity="0" />
+        <line x1="0" y1="0" x2="0" y2="8" stroke="#999999" strokeWidth="0.8" opacity="0.45" />
+      </pattern>
+
+      <pattern
         id="turf-stipple"
         patternUnits="userSpaceOnUse"
         width="12"

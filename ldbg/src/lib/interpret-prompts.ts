@@ -13,6 +13,7 @@ Rules:
 - Report coordinates as normalized floats 0.0 to 1.0, where (0,0) is the top-left of the image
   and (1,1) is the bottom-right.
 - For area features return a polygon of 6 to 24 points tracing the annotation boundary.
+- When marker strokes form one connected shape (pond, lawn blob, patio), trace the full outer extent as a single feature — do not shrink to the densest interior portion or return only part of the annotation.
 - For point features (trees, fire pit) return a single center point and an estimated canopy or
   fixture radius in normalized units.
 - Annotations are rough freehand. Smooth obvious hand-jitter into a clean shape but do not

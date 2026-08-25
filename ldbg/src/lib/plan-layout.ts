@@ -67,7 +67,11 @@ export function buildCalloutsAndLegend(
   imageW: number,
   imageH: number,
   pixelsPerFoot?: number,
-  options?: { includeExisting?: boolean; georefCtx?: GeorefDisplayContext }
+  options?: {
+    includeExisting?: boolean;
+    georefCtx?: GeorefDisplayContext;
+    obstacles?: CalloutObstacle[];
+  }
 ): { callouts: Callout[]; legendRows: LegendRow[] } {
   const includeExisting = options?.includeExisting ?? false;
   const georefCtx = options?.georefCtx;
@@ -100,7 +104,7 @@ export function buildCalloutsAndLegend(
     };
   });
 
-  callouts = nudgeCallouts(callouts, CALLOUT_MIN_DIST);
+  callouts = nudgeCallouts(callouts, CALLOUT_MIN_DIST, options?.obstacles ?? []);
 
   const legendRows: LegendRow[] = callouts.map((c) => ({
     number: c.number,
@@ -113,11 +117,36 @@ export function buildCalloutsAndLegend(
   return { callouts, legendRows };
 }
 
-export function nudgeCallouts(callouts: Callout[], minDist: number): Callout[] {
+export type CalloutObstacle = {
+  x: number;
+  y: number;
+  radius: number;
+};
+
+export function nudgeCallouts(
+  callouts: Callout[],
+  minDist: number,
+  obstacles: CalloutObstacle[] = []
+): Callout[] {
   const out = callouts.map((c) => ({ ...c }));
   for (let iter = 0; iter < 24; iter++) {
     let moved = false;
     for (let i = 0; i < out.length; i++) {
+      for (const obs of obstacles) {
+        const dx = out[i].x - obs.x;
+        const dy = out[i].y - obs.y;
+        const d = Math.hypot(dx, dy);
+        const need = CALLOUT_RADIUS + obs.radius;
+        if (d < need && d > 0.001) {
+          const push = need - d;
+          out[i].x += (dx / d) * push;
+          out[i].y += (dy / d) * push;
+          moved = true;
+        } else if (d <= 0.001) {
+          out[i].x += need;
+          moved = true;
+        }
+      }
       for (let j = i + 1; j < out.length; j++) {
         const dx = out[j].x - out[i].x;
         const dy = out[j].y - out[i].y;
@@ -163,14 +192,16 @@ const ARCH_SCALES: { label: string; inchesPerFoot: number }[] = [
   { label: '1/16" = 1\'-0"', inchesPerFoot: 0.0625 },
 ];
 
-/** Derive closest architectural scale text for print width on a 24×36 sheet. */
+/** Derive closest architectural scale text from fitted plan width on sheet (300 DPI). */
 export function computeArchScaleLabel(
-  planWidthPx: number,
+  contentWidthPx: number,
   pixelsPerFoot: number,
-  printPlanWidthInches: number
+  fittedWidthSheetPx: number,
+  dpi = 300
 ): string {
-  const planWidthFeet = planWidthPx / pixelsPerFoot;
-  if (planWidthFeet <= 0) return 'Scale N/A';
+  const planWidthFeet = contentWidthPx / pixelsPerFoot;
+  if (planWidthFeet <= 0) return "Scale N/A";
+  const printPlanWidthInches = fittedWidthSheetPx / dpi;
   const inchesPerFoot = printPlanWidthInches / planWidthFeet;
   let best = ARCH_SCALES[0];
   let bestDiff = Math.abs(inchesPerFoot - best.inchesPerFoot);

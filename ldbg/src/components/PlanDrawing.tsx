@@ -7,8 +7,9 @@ import {
   geometryRadiusPx,
   geometryToPxPoints,
 } from "@/lib/feature-georef";
-import { labelForFeatureType } from "@/lib/feature-styles";
+import { labelForFeatureType, styleForFeatureType } from "@/lib/feature-styles";
 import type { InterpretFeature } from "@/lib/interpret-schema";
+import { computePlanContentBounds, sheetPxFromInches } from "@/lib/plan-bounds";
 import {
   buildCalloutsAndLegend,
   CALLOUT_RADIUS,
@@ -17,6 +18,7 @@ import {
   pxPointsAttr,
   SHEET_HEIGHT_PX,
   SHEET_WIDTH_PX,
+  type CalloutObstacle,
 } from "@/lib/plan-layout";
 import { patternUrl, PlanPatternDefs } from "@/lib/plan-patterns";
 import type { PlanSettings } from "@/lib/project-schema";
@@ -46,6 +48,8 @@ type Props = {
 const PLAN_MARGIN = 120;
 const LEGEND_WIDTH = 520;
 const FOOTER_H = 200;
+const SHEET_DPI = 300;
+const NORTH_ARROW_MAX_IN = 0.75;
 
 function isTreeType(featureType: string): boolean {
   return featureType === "tree" || featureType === "tree_specimen";
@@ -65,18 +69,23 @@ function renderFeature(
   legend: LegendEntry[],
   w: number,
   h: number,
-  georefCtx?: GeorefDisplayContext
+  georefCtx?: GeorefDisplayContext,
+  fitScale = 1
 ) {
-  const entry = legend.find((e) => e.featureType === f.featureType);
-  const rs = entry?.renderStyle;
-  const stroke = rs?.stroke ?? "#64748b";
-  const strokeWidth = rs?.strokeWidth ?? 1.5;
-  const fillBase = rs?.fill === "none" ? "transparent" : (rs?.fill ?? "#94a3b8");
-  const opacity = rs?.opacity ?? 0.85;
-  const pat = patternUrl(rs?.patternId);
+  const style = styleForFeatureType(f.featureType, legend, f.existing);
+  const stroke = style.stroke;
+  const strokeWidth = f.existing
+    ? Math.max(0.5, (style.strokeWidth * SHEET_DPI) / 72 / fitScale)
+    : (style.strokeWidth ?? 1.5);
+  const fillBase = style.fill;
+  const opacity = style.opacity;
+  const pat = patternUrl(style.patternId);
   const pxPts = geometryToPxPoints(f, w, h, georefCtx);
+  const strokeProps = f.existing
+    ? { vectorEffect: "non-scaling-stroke" as const }
+    : {};
 
-  if (f.geometry.kind === "point" || isTreeType(f.featureType)) {
+  if (!f.existing && (f.geometry.kind === "point" || isTreeType(f.featureType))) {
     const c = pxPts[0] ?? { x: w / 2, y: h / 2 };
     const r =
       geometryRadiusPx(f, w, h, georefCtx) ??
@@ -96,6 +105,26 @@ function renderFeature(
     );
   }
 
+  if (f.existing && (f.geometry.kind === "point" || isTreeType(f.featureType))) {
+    const c = pxPts[0] ?? { x: w / 2, y: h / 2 };
+    const r =
+      geometryRadiusPx(f, w, h, georefCtx) ??
+      0.015 * Math.max(w, h);
+    return (
+      <g key={f.id} opacity={opacity}>
+        <circle
+          cx={c.x}
+          cy={c.y}
+          r={r}
+          fill={pat ?? fillBase}
+          stroke={stroke}
+          strokeWidth={strokeWidth}
+          {...strokeProps}
+        />
+      </g>
+    );
+  }
+
   if (f.geometry.kind === "polyline") {
     return (
       <polyline
@@ -105,6 +134,7 @@ function renderFeature(
         stroke={stroke}
         strokeWidth={strokeWidth}
         opacity={opacity}
+        {...strokeProps}
       />
     );
   }
@@ -117,6 +147,7 @@ function renderFeature(
       stroke={stroke}
       strokeWidth={strokeWidth}
       opacity={opacity}
+      {...strokeProps}
     />
   );
 }
@@ -263,6 +294,50 @@ export function PlanDrawing({
     });
   }, [showDrainage, georefCtx, elevationAnalysis?.drainageArrows]);
 
+  const planFeaturesForBounds = useMemo(() => {
+    const list = [...designFeatures];
+    if (baseMode === "orthophoto") list.push(...existingFeatures);
+    else if (baseMode === "white") {
+      list.push(...existingFeatures.filter(isHouseExisting));
+    }
+    return list;
+  }, [designFeatures, existingFeatures, baseMode]);
+
+  const contentBounds = useMemo(
+    () => computePlanContentBounds(planFeaturesForBounds, planW, planH, georefCtx),
+    [planFeaturesForBounds, planW, planH, georefCtx]
+  );
+
+  const planAreaX = PLAN_MARGIN;
+  const planAreaY = PLAN_MARGIN;
+  const planAreaW = sheetW - PLAN_MARGIN * 2 - LEGEND_WIDTH - 40;
+  const planAreaH = sheetH - PLAN_MARGIN * 2 - FOOTER_H;
+  const fitScale = Math.min(planAreaW / contentBounds.width, planAreaH / contentBounds.height);
+  const drawnW = contentBounds.width * fitScale;
+  const drawnH = contentBounds.height * fitScale;
+  const planOffsetX = planAreaX + (planAreaW - drawnW) / 2;
+  const planOffsetY = planAreaY + (planAreaH - drawnH) / 2;
+
+  const northArrowSheetPx = sheetPxFromInches(NORTH_ARROW_MAX_IN, SHEET_DPI);
+  const northArrowSheetX = planAreaX + planAreaW - northArrowSheetPx * 0.65;
+  const northArrowSheetY = planAreaY + northArrowSheetPx * 0.65;
+  const northArrowPlanX =
+    contentBounds.x + (northArrowSheetX - planOffsetX) / fitScale;
+  const northArrowPlanY =
+    contentBounds.y + (northArrowSheetY - planOffsetY) / fitScale;
+  const northArrowObstacleRadius = (northArrowSheetPx * 0.55) / fitScale;
+
+  const calloutObstacles: CalloutObstacle[] = useMemo(
+    () => [
+      {
+        x: northArrowPlanX,
+        y: northArrowPlanY,
+        radius: northArrowObstacleRadius,
+      },
+    ],
+    [northArrowPlanX, northArrowPlanY, northArrowObstacleRadius]
+  );
+
   const { callouts, legendRows } = useMemo(
     () =>
       buildCalloutsAndLegend(
@@ -271,30 +346,26 @@ export function PlanDrawing({
         planW,
         planH,
         pixelsPerFoot,
-        { georefCtx }
+        { georefCtx, obstacles: calloutObstacles }
       ),
-    [designFeatures, legend, planW, planH, pixelsPerFoot, georefCtx]
+    [designFeatures, legend, planW, planH, pixelsPerFoot, georefCtx, calloutObstacles]
   );
 
   const scaleBarFeet =
     pixelsPerFoot != null
-      ? pickScaleBarFeet(planW, pixelsPerFoot, planW * 0.18)
+      ? pickScaleBarFeet(contentBounds.width, pixelsPerFoot, contentBounds.width * 0.22)
       : 20;
-  const scaleBarPx = pixelsPerFoot != null ? scaleBarFeet * pixelsPerFoot : planW * 0.12;
+  const scaleBarPx =
+    pixelsPerFoot != null ? scaleBarFeet * pixelsPerFoot : contentBounds.width * 0.12;
   const scaleLabel =
     pixelsPerFoot != null
-      ? computeArchScaleLabel(planW, pixelsPerFoot, 20)
+      ? computeArchScaleLabel(
+          contentBounds.width,
+          pixelsPerFoot,
+          drawnW,
+          SHEET_DPI
+        )
       : "Calibrate for scale";
-
-  const planAreaX = PLAN_MARGIN;
-  const planAreaY = PLAN_MARGIN;
-  const planAreaW = sheetW - PLAN_MARGIN * 2 - LEGEND_WIDTH - 40;
-  const planAreaH = sheetH - PLAN_MARGIN * 2 - FOOTER_H;
-  const fitScale = Math.min(planAreaW / planW, planAreaH / planH);
-  const drawnW = planW * fitScale;
-  const drawnH = planH * fitScale;
-  const planOffsetX = planAreaX + (planAreaW - drawnW) / 2;
-  const planOffsetY = planAreaY + (planAreaH - drawnH) / 2;
 
   const legendX = sheetW - LEGEND_WIDTH - PLAN_MARGIN + 20;
   const legendY = PLAN_MARGIN + 40;
@@ -336,7 +407,9 @@ export function PlanDrawing({
           {project.metadata.projectTitle || "Landscape plan"}
         </text>
 
-        <g transform={`translate(${planOffsetX}, ${planOffsetY}) scale(${fitScale})`}>
+        <g
+          transform={`translate(${planOffsetX}, ${planOffsetY}) scale(${fitScale}) translate(${-contentBounds.x}, ${-contentBounds.y})`}
+        >
           {baseMode === "orthophoto" && baseImageUrl ? (
             <image
               href={baseImageUrl}
@@ -349,20 +422,32 @@ export function PlanDrawing({
               preserveAspectRatio="xMidYMid meet"
             />
           ) : (
-            <rect x={0} y={0} width={planW} height={planH} fill="#ffffff" stroke="#e7e5e4" strokeWidth={2} />
+            <rect
+              x={contentBounds.x}
+              y={contentBounds.y}
+              width={contentBounds.width}
+              height={contentBounds.height}
+              fill="#ffffff"
+              stroke="#e7e5e4"
+              strokeWidth={2}
+            />
           )}
 
           {baseMode === "white"
             ? existingFeatures.filter(isHouseExisting).map((f) =>
-                renderFeature(f, legend, planW, planH, georefCtx)
+                renderFeature(f, legend, planW, planH, georefCtx, fitScale)
               )
             : null}
 
           {baseMode === "orthophoto"
-            ? existingFeatures.map((f) => renderFeature(f, legend, planW, planH, georefCtx))
+            ? existingFeatures.map((f) =>
+                renderFeature(f, legend, planW, planH, georefCtx, fitScale)
+              )
             : null}
 
-          {designFeatures.map((f) => renderFeature(f, legend, planW, planH, georefCtx))}
+          {designFeatures.map((f) =>
+            renderFeature(f, legend, planW, planH, georefCtx, fitScale)
+          )}
 
           {contourPolylines.map((c, i) => (
             <polyline
@@ -414,30 +499,24 @@ export function PlanDrawing({
               </text>
             </g>
           ))}
-        </g>
 
-        <g
-          transform={`translate(${planOffsetX + drawnW - 180 * fitScale}, ${planOffsetY + 40 * fitScale}) scale(${fitScale})`}
-        >
-          <NorthArrow
-            x={0}
-            y={0}
-            size={80}
-            rotationDeg={project.northRotationDeg}
-          />
-        </g>
-
-        {pixelsPerFoot != null ? (
-          <g transform={`translate(${planOffsetX + 24}, ${planOffsetY + drawnH - 80}) scale(${fitScale})`}>
+          {pixelsPerFoot != null ? (
             <ScaleBar
-              x={0}
-              y={0}
+              x={contentBounds.x + 24}
+              y={contentBounds.y + contentBounds.height - 90}
               barPx={scaleBarPx}
               feet={scaleBarFeet}
               scaleLabel={scaleLabel}
             />
-          </g>
-        ) : null}
+          ) : null}
+        </g>
+
+        <NorthArrow
+          x={northArrowSheetX}
+          y={northArrowSheetY}
+          size={northArrowSheetPx}
+          rotationDeg={project.northRotationDeg}
+        />
 
         <g transform={`translate(${legendX}, ${legendY})`}>
           <text

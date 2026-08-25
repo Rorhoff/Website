@@ -91,5 +91,5 @@ export function computeBoardScaleLabel(
   planPrintWidthIn = 20
 ): string {
   if (!pixelsPerFoot || pixelsPerFoot <= 0) return "Scale N/A";
-  return computeArchScaleLabel(planWidthPx, pixelsPerFoot, planPrintWidthIn);
+  return computeArchScaleLabel(planWidthPx, pixelsPerFoot, planPrintWidthIn * 300, 300);
 }
