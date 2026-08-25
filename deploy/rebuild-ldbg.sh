@@ -20,6 +20,7 @@ LDBG_BASE_PATH=/ldbg npm run build
 bash "$ROOT/deploy/verify-ldbg-build-manifest.sh"
 git -C "$ROOT" rev-parse --short HEAD >"$LDBG/.ldbg-build-rev"
 
+bash "$ROOT/deploy/ensure-ldbg-python-deps.sh"
 bash "$ROOT/deploy/ensure-ldbg-puppeteer-deps.sh"
 
 sudo systemctl restart ldbg

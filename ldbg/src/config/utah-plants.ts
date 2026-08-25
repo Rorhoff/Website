@@ -1,23 +1,32 @@
 /** Common landscape plants for Utah County / Salt Lake County (Wasatch Front). */
 
+export type PlantFeatureType =
+  | "tree"
+  | "tree_specimen"
+  | "ornamental_grass"
+  | "lavender"
+  | "blue_grass"
+  | "sagebrush";
+
 export type UtahPlant = {
   id: string;
   commonName: string;
   botanicalName: string;
-  featureType: "tree" | "tree_specimen";
-  /** Typical mature canopy diameter in feet at landscape size. */
+  featureType: PlantFeatureType;
+  /** Typical planting size canopy/spread diameter in feet (not full mature). */
   canopyDiameterFt: number;
   sun: string;
   water: string;
 };
 
+/** New-install sizes — 10 ft smaller than typical mature catalog sizes. */
 export const UTAH_PLANT_PALETTE: UtahPlant[] = [
   {
     id: "quaking-aspen",
     commonName: "Quaking Aspen",
     botanicalName: "Populus tremuloides",
     featureType: "tree",
-    canopyDiameterFt: 24,
+    canopyDiameterFt: 14,
     sun: "Full sun",
     water: "Moderate",
   },
@@ -26,7 +35,7 @@ export const UTAH_PLANT_PALETTE: UtahPlant[] = [
     commonName: "Colorado Blue Spruce",
     botanicalName: "Picea pungens",
     featureType: "tree_specimen",
-    canopyDiameterFt: 18,
+    canopyDiameterFt: 8,
     sun: "Full sun",
     water: "Low–moderate",
   },
@@ -35,7 +44,7 @@ export const UTAH_PLANT_PALETTE: UtahPlant[] = [
     commonName: "Rocky Mountain Juniper",
     botanicalName: "Juniperus scopulorum",
     featureType: "tree",
-    canopyDiameterFt: 14,
+    canopyDiameterFt: 8,
     sun: "Full sun",
     water: "Low",
   },
@@ -44,7 +53,7 @@ export const UTAH_PLANT_PALETTE: UtahPlant[] = [
     commonName: "Gambel Oak",
     botanicalName: "Quercus gambelii",
     featureType: "tree",
-    canopyDiameterFt: 16,
+    canopyDiameterFt: 8,
     sun: "Full sun–part shade",
     water: "Low–moderate",
   },
@@ -53,7 +62,7 @@ export const UTAH_PLANT_PALETTE: UtahPlant[] = [
     commonName: "Bigtooth Maple",
     botanicalName: "Acer grandidentatum",
     featureType: "tree_specimen",
-    canopyDiameterFt: 20,
+    canopyDiameterFt: 10,
     sun: "Full sun–part shade",
     water: "Moderate",
   },
@@ -62,7 +71,7 @@ export const UTAH_PLANT_PALETTE: UtahPlant[] = [
     commonName: "Honeylocust (thornless)",
     botanicalName: "Gleditsia triacanthos",
     featureType: "tree",
-    canopyDiameterFt: 32,
+    canopyDiameterFt: 22,
     sun: "Full sun",
     water: "Moderate",
   },
@@ -71,7 +80,7 @@ export const UTAH_PLANT_PALETTE: UtahPlant[] = [
     commonName: "Autumn Blaze Maple",
     botanicalName: "Acer × freemanii",
     featureType: "tree",
-    canopyDiameterFt: 30,
+    canopyDiameterFt: 20,
     sun: "Full sun",
     water: "Moderate",
   },
@@ -80,7 +89,7 @@ export const UTAH_PLANT_PALETTE: UtahPlant[] = [
     commonName: "Crabapple",
     botanicalName: "Malus spp.",
     featureType: "tree_specimen",
-    canopyDiameterFt: 14,
+    canopyDiameterFt: 8,
     sun: "Full sun",
     water: "Moderate",
   },
@@ -89,7 +98,7 @@ export const UTAH_PLANT_PALETTE: UtahPlant[] = [
     commonName: "Serviceberry",
     botanicalName: "Amelanchier spp.",
     featureType: "tree_specimen",
-    canopyDiameterFt: 12,
+    canopyDiameterFt: 8,
     sun: "Full sun–part shade",
     water: "Moderate",
   },
@@ -98,7 +107,7 @@ export const UTAH_PLANT_PALETTE: UtahPlant[] = [
     commonName: "Eastern Redbud",
     botanicalName: "Cercis canadensis",
     featureType: "tree_specimen",
-    canopyDiameterFt: 18,
+    canopyDiameterFt: 8,
     sun: "Full sun–part shade",
     water: "Moderate",
   },
@@ -107,7 +116,7 @@ export const UTAH_PLANT_PALETTE: UtahPlant[] = [
     commonName: "Purple Leaf Plum",
     botanicalName: "Prunus cerasifera",
     featureType: "tree_specimen",
-    canopyDiameterFt: 16,
+    canopyDiameterFt: 8,
     sun: "Full sun",
     water: "Moderate",
   },
@@ -116,7 +125,7 @@ export const UTAH_PLANT_PALETTE: UtahPlant[] = [
     commonName: "Austrian Pine",
     botanicalName: "Pinus nigra",
     featureType: "tree",
-    canopyDiameterFt: 28,
+    canopyDiameterFt: 18,
     sun: "Full sun",
     water: "Low–moderate",
   },
@@ -125,7 +134,7 @@ export const UTAH_PLANT_PALETTE: UtahPlant[] = [
     commonName: "Pinyon Pine",
     botanicalName: "Pinus edulis",
     featureType: "tree",
-    canopyDiameterFt: 16,
+    canopyDiameterFt: 8,
     sun: "Full sun",
     water: "Low",
   },
@@ -134,7 +143,7 @@ export const UTAH_PLANT_PALETTE: UtahPlant[] = [
     commonName: "American Linden",
     botanicalName: "Tilia americana",
     featureType: "tree",
-    canopyDiameterFt: 34,
+    canopyDiameterFt: 24,
     sun: "Full sun–part shade",
     water: "Moderate",
   },
@@ -143,7 +152,7 @@ export const UTAH_PLANT_PALETTE: UtahPlant[] = [
     commonName: "Hackberry",
     botanicalName: "Celtis occidentalis",
     featureType: "tree",
-    canopyDiameterFt: 30,
+    canopyDiameterFt: 20,
     sun: "Full sun",
     water: "Low–moderate",
   },
@@ -152,7 +161,7 @@ export const UTAH_PLANT_PALETTE: UtahPlant[] = [
     commonName: "London Planetree",
     botanicalName: "Platanus × acerifolia",
     featureType: "tree",
-    canopyDiameterFt: 36,
+    canopyDiameterFt: 26,
     sun: "Full sun",
     water: "Moderate",
   },
@@ -161,7 +170,7 @@ export const UTAH_PLANT_PALETTE: UtahPlant[] = [
     commonName: "Japanese Zelkova",
     botanicalName: "Zelkova serrata",
     featureType: "tree",
-    canopyDiameterFt: 28,
+    canopyDiameterFt: 18,
     sun: "Full sun",
     water: "Moderate",
   },
@@ -170,9 +179,45 @@ export const UTAH_PLANT_PALETTE: UtahPlant[] = [
     commonName: "Flowering Pear",
     botanicalName: "Pyrus calleryana",
     featureType: "tree_specimen",
-    canopyDiameterFt: 22,
+    canopyDiameterFt: 12,
     sun: "Full sun",
     water: "Moderate",
+  },
+  {
+    id: "lavender-munstead",
+    commonName: "Lavender (Munstead)",
+    botanicalName: "Lavandula angustifolia",
+    featureType: "lavender",
+    canopyDiameterFt: 2,
+    sun: "Full sun",
+    water: "Low",
+  },
+  {
+    id: "ornamental-grass-karl-foerster",
+    commonName: "Karl Foerster Grass",
+    botanicalName: "Calamagrostis × acutiflora",
+    featureType: "ornamental_grass",
+    canopyDiameterFt: 2,
+    sun: "Full sun",
+    water: "Moderate",
+  },
+  {
+    id: "blue-grama-grass",
+    commonName: "Blue Grama Grass",
+    botanicalName: "Bouteloua gracilis",
+    featureType: "blue_grass",
+    canopyDiameterFt: 1.5,
+    sun: "Full sun",
+    water: "Low",
+  },
+  {
+    id: "sagebrush-wyoming",
+    commonName: "Wyoming Big Sagebrush",
+    botanicalName: "Artemisia tridentata wyomingensis",
+    featureType: "sagebrush",
+    canopyDiameterFt: 3,
+    sun: "Full sun",
+    water: "Low",
   },
 ];
 
@@ -182,4 +227,8 @@ export function getUtahPlant(id: string): UtahPlant | undefined {
 
 export function isTreeFeatureType(featureType: string): boolean {
   return featureType === "tree" || featureType === "tree_specimen";
+}
+
+export function isPlantPointFeatureType(featureType: string): boolean {
+  return UTAH_PLANT_PALETTE.some((p) => p.featureType === featureType);
 }

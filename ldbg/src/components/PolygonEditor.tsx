@@ -84,6 +84,8 @@ type Props = {
   georefContext?: GeorefDisplayContext;
   editorSettings?: EditorSettings;
   projectId?: string;
+  /** CV import annotation mask overlay (PNG). */
+  maskImageUrl?: string;
   tilePyramid?: TilePyramid;
   fullOrthoWidth?: number;
   fullOrthoHeight?: number;
@@ -137,6 +139,7 @@ export default function PolygonEditor({
   pixelsPerFoot,
   georefContext,
   editorSettings,
+  maskImageUrl,
   onAutosave,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -172,12 +175,14 @@ export default function PolygonEditor({
   );
   const [saveLabel, setSaveLabel] = useState("");
   const [baseLayer, setBaseLayer] = useState<BaseLayer>("annotated");
+  const [showMaskOverlay, setShowMaskOverlay] = useState(false);
 
   const viewport = useStageViewport();
 
   const activeImageUrl =
     baseLayer === "clean" && cleanImageUrl ? cleanImageUrl : annotatedImageUrl;
   const image = useHtmlImage(activeImageUrl);
+  const maskImage = useHtmlImage(showMaskOverlay && maskImageUrl ? maskImageUrl : "");
 
   const history = useBoundedHistory<InterpretFeature[]>(cloneFeatures(initialFeatures));
   const [features, setFeatures] = useState<InterpretFeature[]>(() =>
@@ -875,6 +880,15 @@ export default function PolygonEditor({
         >
           Clean orthophoto
         </button>
+        {maskImageUrl ? (
+          <button
+            type="button"
+            onClick={() => setShowMaskOverlay((v) => !v)}
+            className={`min-h-11 rounded-md px-3 py-2 text-sm ${showMaskOverlay ? "bg-violet-700 text-white" : "bg-stone-100"}`}
+          >
+            {showMaskOverlay ? "Hide CV mask" : "Show CV mask"}
+          </button>
+        ) : null}
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[1fr_240px]">
@@ -917,6 +931,15 @@ export default function PolygonEditor({
               <Group x={viewport.pan.x} y={viewport.pan.y} scaleX={viewport.zoom} scaleY={viewport.zoom}>
                 {image ? (
                   <KonvaImage image={image} width={displayW} height={displayH} listening={false} />
+                ) : null}
+                {showMaskOverlay && maskImage ? (
+                  <KonvaImage
+                    image={maskImage}
+                    width={displayW}
+                    height={displayH}
+                    opacity={0.55}
+                    listening={false}
+                  />
                 ) : null}
 
                 {features.map((f) => {
@@ -1068,19 +1091,22 @@ export default function PolygonEditor({
                           />
                         );
                       }
+                      const isPolyline = selected.geometry.kind === "polyline";
                       return (
                         <>
-                          <Line
-                            points={flatFeaturePoints(selected, displayW, displayH, georefContext)}
-                            closed={selected.geometry.kind === "polygon"}
-                            fill={
-                              selected.geometry.kind === "polygon" ? selStyle.fill : undefined
-                            }
-                            stroke="#ffffff"
-                            strokeWidth={1 / viewport.zoom}
-                            opacity={selStyle.opacity}
-                            listening={false}
-                          />
+                          {!isPolyline ? (
+                            <Line
+                              points={flatFeaturePoints(selected, displayW, displayH, georefContext)}
+                              closed={selected.geometry.kind === "polygon"}
+                              fill={
+                                selected.geometry.kind === "polygon" ? selStyle.fill : undefined
+                              }
+                              stroke="#ffffff"
+                              strokeWidth={1 / viewport.zoom}
+                              opacity={selStyle.opacity}
+                              listening={false}
+                            />
+                          ) : null}
                           <Line
                             ref={selectedLineRef}
                             points={flatFeaturePoints(selected, displayW, displayH, georefContext)}
@@ -1089,7 +1115,9 @@ export default function PolygonEditor({
                               selected.geometry.kind === "polygon" ? selStyle.fill : undefined
                             }
                             stroke="#059669"
-                            strokeWidth={2 / viewport.zoom}
+                            strokeWidth={isPolyline ? Math.max(selStyle.strokeWidth, 2) / viewport.zoom : 2 / viewport.zoom}
+                            lineCap={isPolyline ? "round" : "butt"}
+                            lineJoin={isPolyline ? "round" : "miter"}
                             opacity={selStyle.opacity}
                           />
                         </>
@@ -1098,15 +1126,25 @@ export default function PolygonEditor({
 
                     {selected.geometry.kind !== "point" && !isCirclePolygonFeature(selected)
                       ? geometryToPxPoints(selected, displayW, displayH, georefContext).map(
-                          (px, vi) => (
+                          (px, vi) => {
+                            const isPolyline = selected.geometry.kind === "polyline";
+                            const lineStyle = styleForFeatureType(
+                              selected.featureType,
+                              legend,
+                              selected.existing
+                            );
+                            const handleRadius = isPolyline
+                              ? Math.max(lineStyle.strokeWidth * 0.75, 2) / viewport.zoom
+                              : 6 / viewport.zoom;
+                            return (
                             <Circle
                               key={`v-${vi}`}
                               x={px.x}
                               y={px.y}
-                              radius={6 / viewport.zoom}
-                              stroke="#ffffff"
-                              strokeWidth={2 / viewport.zoom}
-                              fill="#059669"
+                              radius={handleRadius}
+                              stroke={isPolyline ? lineStyle.stroke : "#ffffff"}
+                              strokeWidth={isPolyline ? 0 : 2 / viewport.zoom}
+                              fill={isPolyline ? lineStyle.stroke : "#059669"}
                               hitStrokeWidth={VERTEX_HIT_RADIUS / viewport.zoom}
                               draggable
                               onMouseDown={(ev) => {
@@ -1148,7 +1186,8 @@ export default function PolygonEditor({
                                 commitFeatures(next);
                               }}
                             />
-                          )
+                            );
+                          }
                         )
                       : null}
                   </Group>

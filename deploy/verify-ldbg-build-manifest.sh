@@ -13,8 +13,8 @@ fi
 
 collect_refs() {
   grep -oE 'static/chunks/[^"'\'' ]+\.(js|css)' "$MANIFEST" 2>/dev/null || true
-  grep -roE 'static/chunks/[a-f0-9]+\.(js|css)' "$LDBG/.next/server" 2>/dev/null || true
-  grep -roE '/ldbg/_next/static/chunks/[a-f0-9]+\.(js|css)' "$LDBG/.next/server" 2>/dev/null \
+  grep -roE 'static/chunks/[a-f0-9-]+\.(js|css)' "$LDBG/.next/server" 2>/dev/null || true
+  grep -roE '/ldbg/_next/static/chunks/[a-f0-9-]+\.(js|css)' "$LDBG/.next/server" 2>/dev/null \
     | sed 's|.*/ldbg/_next/||' || true
 }
 

@@ -200,6 +200,11 @@ sync_ldbg() {
     log "Ensuring Puppeteer / Chrome system libraries for board export…"
     bash "$DEV_DIR/deploy/ensure-ldbg-puppeteer-deps.sh" || die "Puppeteer Chrome deps missing — PDF export will fail. Run: bash deploy/ensure-ldbg-puppeteer-deps.sh"
   fi
+
+  if [[ -f "$DEV_DIR/deploy/ensure-ldbg-python-deps.sh" ]]; then
+    log "Ensuring LDBG Python geo/CV deps in project venv…"
+    bash "$DEV_DIR/deploy/ensure-ldbg-python-deps.sh" || die "LDBG Python deps missing — run: bash deploy/ensure-ldbg-python-deps.sh"
+  fi
 }
 
 install_ldbg_service() {

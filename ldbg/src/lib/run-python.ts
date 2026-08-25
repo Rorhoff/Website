@@ -1,4 +1,5 @@
 import { spawn } from "child_process";
+import fs from "fs";
 import path from "path";
 
 export type PythonRunResult = {
@@ -11,6 +12,14 @@ function ldbgRoot(): string {
   return path.join(process.cwd());
 }
 
+function defaultPythonCmd(): string {
+  if (process.env.LDBG_PYTHON) return process.env.LDBG_PYTHON;
+  if (process.platform === "win32") return "python";
+  const venvPy = path.join(process.cwd(), "..", ".venv", "bin", "python");
+  if (fs.existsSync(venvPy)) return venvPy;
+  return "python3";
+}
+
 export function parseGeotiffScriptPath(): string {
   return path.join(ldbgRoot(), "scripts", "parse_geotiff.py");
 }
@@ -20,7 +29,7 @@ export function runPythonScript(
   args: string[],
   options?: { cwd?: string; timeoutMs?: number }
 ): Promise<PythonRunResult> {
-  const pythonCmd = process.env.LDBG_PYTHON ?? (process.platform === "win32" ? "python" : "python3");
+  const pythonCmd = defaultPythonCmd();
   const timeoutMs = options?.timeoutMs ?? 120_000;
 
   return new Promise((resolve, reject) => {

@@ -13,7 +13,9 @@ PATHS=(
 
 manifest_assets() {
   [[ -f "$MANIFEST" ]] || return 0
-  grep -oE 'static/chunks/[^"'\'' ]+\.(js|css)' "$MANIFEST" \
+  # Webpack emits app-route chunks with literal [id] in paths — only hash chunks for HTTP probe;
+  # app-route chunks are verified on disk in verify-ldbg-build-manifest.sh.
+  grep -oE 'static/chunks/[a-f0-9][a-f0-9-]*\.(js|css)' "$MANIFEST" \
     | sed 's|^|/ldbg/_next/|' \
     | sort -u
 }
@@ -21,7 +23,7 @@ manifest_assets() {
 collect_assets() {
   local url="$1"
   local html
-  html="$(curl -sS --max-time 20 "${ORIGIN}${url}" || true)"
+  html="$(curl -g -sS --max-time 20 "${ORIGIN}${url}" || true)"
   if [[ -z "$html" ]]; then
     echo "ERR  Empty response: ${url}" >&2
     return 1
@@ -49,7 +51,7 @@ fi
 
 FAIL=0
 for rel in "${UNIQUE_ASSETS[@]}"; do
-  code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 "${ORIGIN}${rel}" || echo 000)"
+  code="$(curl -g -sS -o /dev/null -w '%{http_code}' --max-time 20 "${ORIGIN}${rel}" || echo 000)"
   if [[ "$code" != "200" ]]; then
     echo "ERR  ${rel} -> HTTP ${code}" >&2
     FAIL=1

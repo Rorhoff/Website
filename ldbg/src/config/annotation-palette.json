@@ -1,0 +1,156 @@
+[
+  {
+    "id": "putting_green",
+    "label": "Putting green",
+    "hexRef": "#7CFC7C",
+    "hueRange": [95, 145],
+    "satMin": 0.35,
+    "valRange": [0.45, 1.0],
+    "geometryType": "area",
+    "featureType": "putting_green",
+    "maxLabDistance": 28
+  },
+  {
+    "id": "lawn",
+    "label": "Lawn",
+    "hexRef": "#228B22",
+    "hueRange": [80, 140],
+    "satMin": 0.25,
+    "valRange": [0.2, 0.75],
+    "geometryType": "area",
+    "featureType": "lawn",
+    "maxLabDistance": 32
+  },
+  {
+    "id": "tree",
+    "label": "Shade tree",
+    "hexRef": "#006400",
+    "hueRange": [100, 150],
+    "satMin": 0.4,
+    "valRange": [0.08, 0.45],
+    "geometryType": "point",
+    "featureType": "tree",
+    "maxLabDistance": 30
+  },
+  {
+    "id": "tree_specimen",
+    "label": "Specimen tree",
+    "hexRef": "#FF8C00",
+    "hueRange": [15, 45],
+    "satMin": 0.5,
+    "valRange": [0.45, 1.0],
+    "geometryType": "point",
+    "featureType": "tree_specimen",
+    "maxLabDistance": 32
+  },
+  {
+    "id": "water_feature",
+    "label": "Water feature",
+    "hexRef": "#1E90FF",
+    "hueRange": [190, 230],
+    "satMin": 0.35,
+    "valRange": [0.35, 1.0],
+    "geometryType": "area",
+    "featureType": "water_feature",
+    "maxLabDistance": 30
+  },
+  {
+    "id": "paver_patio",
+    "label": "Paver patio",
+    "hexRef": "#808080",
+    "hueRange": [0, 360],
+    "satMin": 0.0,
+    "valRange": [0.25, 0.75],
+    "geometryType": "area",
+    "featureType": "paver_patio",
+    "maxLabDistance": 22
+  },
+  {
+    "id": "pergola",
+    "label": "Pergola",
+    "hexRef": "#000000",
+    "hueRange": [0, 360],
+    "satMin": 0.0,
+    "valRange": [0.0, 0.2],
+    "geometryType": "area",
+    "featureType": "pergola",
+    "maxLabDistance": 18
+  },
+  {
+    "id": "fire_pit",
+    "label": "Fire pit",
+    "hexRef": "#FF4500",
+    "hueRange": [5, 25],
+    "satMin": 0.55,
+    "valRange": [0.45, 1.0],
+    "geometryType": "point",
+    "featureType": "fire_pit",
+    "maxLabDistance": 35
+  },
+  {
+    "id": "ornamental_grass",
+    "label": "Ornamental grass",
+    "hexRef": "#32CD32",
+    "hueRange": [85, 130],
+    "satMin": 0.4,
+    "valRange": [0.4, 0.95],
+    "geometryType": "area",
+    "featureType": "ornamental_grass",
+    "maxLabDistance": 30
+  },
+  {
+    "id": "lavender",
+    "label": "Lavender",
+    "hexRef": "#9370DB",
+    "hueRange": [250, 290],
+    "satMin": 0.25,
+    "valRange": [0.35, 0.85],
+    "geometryType": "area",
+    "featureType": "lavender",
+    "maxLabDistance": 32
+  },
+  {
+    "id": "blue_grass",
+    "label": "Blue grama grass",
+    "hexRef": "#6B8E23",
+    "hueRange": [55, 95],
+    "satMin": 0.3,
+    "valRange": [0.25, 0.7],
+    "geometryType": "area",
+    "featureType": "blue_grass",
+    "maxLabDistance": 30
+  },
+  {
+    "id": "sagebrush",
+    "label": "Sagebrush",
+    "hexRef": "#9CAF88",
+    "hueRange": [70, 110],
+    "satMin": 0.08,
+    "valRange": [0.45, 0.85],
+    "geometryType": "area",
+    "featureType": "sagebrush",
+    "maxLabDistance": 28
+  },
+  {
+    "id": "steel_edging",
+    "label": "Steel edging",
+    "hexRef": "#4169E1",
+    "hueRange": [200, 240],
+    "satMin": 0.45,
+    "valRange": [0.35, 0.95],
+    "geometryType": "line",
+    "featureType": "steel_edging",
+    "maxLabDistance": 30
+  },
+  {
+    "id": "boulder_edge",
+    "label": "Boulder retaining edge",
+    "hexRef": "#8B4513",
+    "hueRange": [10, 35],
+    "satMin": 0.35,
+    "valRange": [0.15, 0.55],
+    "geometryType": "line",
+    "featureType": "boulder_retaining_edge",
+    "maxLabDistance": 32
+  }
+]

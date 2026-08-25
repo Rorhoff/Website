@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { runInterpretForProject } from "@/lib/interpret-service";
+import { runCvImportForProject } from "@/lib/cv-import-service";
 import { getStorage } from "@/lib/storage";
 
 const BodySchema = z.object({
@@ -16,11 +16,10 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid body — need projectId (uuid)" }, { status: 400 });
   }
 
-  const result = await runInterpretForProject(body.projectId, { force: body.force });
+  const result = await runCvImportForProject(body.projectId, { force: body.force });
 
   if ("error" in result) {
-    const status = result.retryAfterSec ? 429 : 502;
-    return NextResponse.json(result, { status });
+    return NextResponse.json(result, { status: 502 });
   }
 
   return NextResponse.json(result);

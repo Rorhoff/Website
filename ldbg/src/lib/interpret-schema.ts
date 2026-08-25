@@ -42,11 +42,16 @@ export const InterpretFeatureSchema = z.object({
   targetElevationFeet: z.number().optional(),
   /** Proposed pad slope (%). */
   targetSlopePct: z.number().optional(),
+  /** CV palette match distance (Lab space); advisory when high. */
+  paletteMatchDistance: z.number().optional(),
 });
 
 /** Claude vision output — always normalized image coordinates. */
-export const ClaudeInterpretFeatureSchema = InterpretFeatureSchema.extend({
+export const ClaudeInterpretFeatureSchema = InterpretFeatureSchema.omit({
+  paletteMatchDistance: true,
+}).extend({
   geometry: NormalizedGeometrySchema,
+  paletteMatchDistance: z.number().optional(),
 });
 
 export const ClaudeInterpretationResultSchema = z.object({
@@ -94,6 +99,9 @@ export const InterpretationMetaSchema = z.object({
     .optional(),
   estimatedCostUsd: z.number().nonnegative().optional(),
   reviewClearedAt: z.string().optional(),
+  /** cv = mask-diff pipeline; claude-vision = legacy full-scene interpret */
+  method: z.enum(["cv", "claude-vision"]).optional(),
+  importMaskFilename: z.string().optional(),
 });
 
 export const StoredInterpretationSchema = InterpretationResultSchema.merge(
@@ -103,21 +111,82 @@ export const StoredInterpretationSchema = InterpretationResultSchema.merge(
 export type StoredInterpretation = z.infer<typeof StoredInterpretationSchema>;
 
 export const REVIEW_CONFIDENCE_THRESHOLD = 0.6;
+export const REVIEW_PALETTE_DISTANCE_WARN = 28;
+export const REVIEW_MAX_FRAME_FRACTION = 0.25;
+
+export function featureFrameFraction(
+  f: InterpretFeature,
+  imageWidth: number,
+  imageHeight: number
+): number | null {
+  if (f.geometry.kind !== "polygon" || !("points" in f.geometry)) return null;
+  const pts = f.geometry.points;
+  if (pts.length < 3) return null;
+  let area = 0;
+  for (let i = 0; i < pts.length; i++) {
+    const x1 = pts[i].x * imageWidth;
+    const y1 = pts[i].y * imageHeight;
+    const x2 = pts[(i + 1) % pts.length].x * imageWidth;
+    const y2 = pts[(i + 1) % pts.length].y * imageHeight;
+    area += x1 * y2 - x2 * y1;
+  }
+  return Math.abs(area) * 0.5 / (imageWidth * imageHeight);
+}
+
+function geometryVertexCount(f: InterpretFeature): number {
+  if ("points" in f.geometry) return f.geometry.points.length;
+  if ("coordinates" in f.geometry) return f.geometry.coordinates.length;
+  return 0;
+}
 
 export function needsReview(result: InterpretationResult): boolean {
   if (result.ambiguities.length > 0) return true;
-  return result.features.some((f) => f.confidence < REVIEW_CONFIDENCE_THRESHOLD);
+  if (result.features.some((f) => f.confidence < REVIEW_CONFIDENCE_THRESHOLD)) return true;
+  if (
+    result.features.some(
+      (f) =>
+        (f.paletteMatchDistance ?? 0) > REVIEW_PALETTE_DISTANCE_WARN ||
+        (f.geometry.kind === "polyline" && geometryVertexCount(f) < 3)
+    )
+  ) {
+    return true;
+  }
+  const w = result.imageSize.width;
+  const h = result.imageSize.height;
+  return result.features.some((f) => {
+    const frac = featureFrameFraction(f, w, h);
+    return frac != null && frac > REVIEW_MAX_FRAME_FRACTION;
+  });
 }
 
 export function reviewItems(result: InterpretationResult): string[] {
   const items: string[] = [...result.ambiguities];
+  const w = result.imageSize.width;
+  const h = result.imageSize.height;
   for (const f of result.features) {
     if (f.confidence < REVIEW_CONFIDENCE_THRESHOLD) {
       items.push(
         `Low confidence (${f.confidence.toFixed(2)}): ${f.label || f.featureType} (${f.id})`
       );
     }
+    if ((f.paletteMatchDistance ?? 0) > REVIEW_PALETTE_DISTANCE_WARN) {
+      items.push(
+        `Weak palette match (ΔE ${f.paletteMatchDistance?.toFixed(1)}): ${f.label || f.featureType}`
+      );
+    }
+    if (f.geometry.kind === "polyline" && geometryVertexCount(f) < 3) {
+      items.push(`Line feature has fewer than 3 vertices: ${f.label || f.featureType}`);
+    }
+    const frac = featureFrameFraction(f, w, h);
+    if (frac != null && frac > REVIEW_MAX_FRAME_FRACTION) {
+      items.push(
+        `Large feature (${(frac * 100).toFixed(0)}% of frame): ${f.label || f.featureType}`
+      );
+    }
   }
+  const labels = result.features.map((f) => f.label);
+  const dup = labels.find((l, i) => labels.indexOf(l) !== i);
+  if (dup) items.push(`Duplicate feature label: ${dup}`);
   return items;
 }
 

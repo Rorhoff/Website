@@ -230,6 +230,10 @@ export default function ProjectPage() {
     displayImage.width,
     displayImage.height
   );
+  const hasPropertyBoundary = features.some((f) => f.featureType === "property_boundary");
+  const cvMaskUrl = interpretation?.importMaskFilename
+    ? projectImageUrl(id, interpretation.importMaskFilename)
+    : undefined;
   const canEditPolygons = true;
 
   return (
@@ -331,6 +335,7 @@ export default function ProjectPage() {
             pixelsPerFoot={pixelsPerFoot}
             georefContext={georefContext}
             editorSettings={editorSettings}
+            maskImageUrl={cvMaskUrl}
             onAutosave={handleEditorAutosave}
           />
         ) : null}
@@ -338,6 +343,8 @@ export default function ProjectPage() {
           projectId={id}
           interpretation={interpretation}
           hasHandDrawnFeatures={features.length > 0}
+          hasPropertyBoundary={hasPropertyBoundary}
+          hasCleanOrtho={!!project.images.clean}
           onInterpretation={(next) => {
             setInterpretation(next);
             setFeatures(cloneFeatures(next.features));

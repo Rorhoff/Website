@@ -12,6 +12,7 @@ import type { StorageProvider } from "./types";
 
 const PROJECT_JSON = "project.json";
 const LEGEND_OVERRIDES = "legend-overrides.json";
+const PALETTE_OVERRIDES = "annotation-palette-overrides.json";
 
 export class LocalStorageProvider implements StorageProvider {
   constructor(private rootDir: string) {}
@@ -131,5 +132,39 @@ export class LocalStorageProvider implements StorageProvider {
       JSON.stringify(entries, null, 2),
       "utf8"
     );
+  }
+
+  private paletteOverridesPath() {
+    return path.join(this.rootDir, PALETTE_OVERRIDES);
+  }
+
+  async getPaletteOverrides(): Promise<
+    import("@/lib/annotation-palette").AnnotationPaletteEntry[] | null
+  > {
+    try {
+      const raw = await fs.readFile(this.paletteOverridesPath(), "utf8");
+      return JSON.parse(raw) as import("@/lib/annotation-palette").AnnotationPaletteEntry[];
+    } catch {
+      return null;
+    }
+  }
+
+  async savePaletteOverrides(
+    entries: import("@/lib/annotation-palette").AnnotationPaletteEntry[]
+  ): Promise<void> {
+    await this.ensureRoot();
+    await fs.writeFile(
+      this.paletteOverridesPath(),
+      JSON.stringify(entries, null, 2),
+      "utf8"
+    );
+  }
+
+  async clearPaletteOverrides(): Promise<void> {
+    try {
+      await fs.unlink(this.paletteOverridesPath());
+    } catch {
+      /* no overrides */
+    }
   }
 }

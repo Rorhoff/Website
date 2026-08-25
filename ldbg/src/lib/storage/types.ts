@@ -11,4 +11,9 @@ export interface StorageProvider {
   projectFileExists(projectId: string, filename: string): Promise<boolean>;
   getLegendOverrides(): Promise<LegendEntry[] | null>;
   saveLegendOverrides(entries: LegendEntry[]): Promise<void>;
+  getPaletteOverrides(): Promise<import("@/lib/annotation-palette").AnnotationPaletteEntry[] | null>;
+  savePaletteOverrides(
+    entries: import("@/lib/annotation-palette").AnnotationPaletteEntry[]
+  ): Promise<void>;
+  clearPaletteOverrides(): Promise<void>;
 }

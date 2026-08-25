@@ -17,6 +17,9 @@ type Props = {
   calibrated: boolean;
   needsAnnotated?: boolean;
   hasHandDrawnFeatures?: boolean;
+  hasPropertyBoundary?: boolean;
+  hasCleanOrtho?: boolean;
+  onShowMask?: () => void;
 };
 
 export function InterpretPanel({
@@ -26,6 +29,8 @@ export function InterpretPanel({
   calibrated,
   needsAnnotated,
   hasHandDrawnFeatures,
+  hasPropertyBoundary,
+  hasCleanOrtho,
 }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -53,7 +58,7 @@ export function InterpretPanel({
     if (
       hasHandDrawnFeatures &&
       !window.confirm(
-        "Import from annotated photo will replace your current hand-drawn features with Claude's interpretation. Continue?"
+        "Import from annotated photo will replace your current hand-drawn features with the CV import pipeline. Continue?"
       )
     ) {
       return;
@@ -83,7 +88,7 @@ export function InterpretPanel({
     }
   }
 
-  const canRun = !needsAnnotated;
+  const canRun = !needsAnnotated && hasPropertyBoundary !== false;
   const showReview =
     interpretation &&
     needsReview(interpretation) &&
@@ -96,11 +101,11 @@ export function InterpretPanel({
         <div>
           <h2 className="text-base font-semibold text-stone-800">
             Import from annotated photo
-            <span className="ml-2 text-xs font-normal text-stone-500">(optional)</span>
+            <span className="ml-2 text-xs font-normal text-stone-500">(CV pipeline)</span>
           </h2>
           <p className="text-sm text-stone-600">
-            Claude vision can seed features from a hand-annotated orthophoto — correct them in the
-            feature editor above.
+            Mask-diff extraction classifies ink by palette color, then optional LLM naming on
+            crops — no coordinate guessing. Draw a property boundary polygon first.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -112,7 +117,9 @@ export function InterpretPanel({
             title={
               needsAnnotated
                 ? "Export annotation base and upload your annotated sketch first"
-                : undefined
+                : hasPropertyBoundary === false
+                  ? "Draw a property boundary polygon (property_boundary) in the editor first"
+                  : undefined
             }
           >
             {busy ? "Importing…" : interpretation ? "Re-import" : "Import from photo"}
@@ -131,6 +138,21 @@ export function InterpretPanel({
 
       {open ? (
         <div className="space-y-4 border-t border-stone-200 bg-white p-4">
+          {hasPropertyBoundary === false ? (
+            <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              Draw a <strong>property boundary</strong> polygon (feature type{" "}
+              <code className="text-xs">property_boundary</code>) in the editor before import —
+              extracted features are clipped to it.
+            </p>
+          ) : null}
+
+          {!hasCleanOrtho && !needsAnnotated ? (
+            <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              No clean orthophoto — import will use HSV saturation fallback instead of pixel diff
+              (less precise).
+            </p>
+          ) : null}
+
           {needsAnnotated ? (
             <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900">
               Export annotation base, draw on your phone, and upload the annotated sketch before
