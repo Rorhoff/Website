@@ -2,15 +2,12 @@
 
 import { useRouter } from "next/navigation";
 import { useCallback, useMemo, useState } from "react";
-import { readImageDimensions } from "@/lib/image-utils";
 import { withBasePath } from "@/lib/paths";
 import {
+  UPLOAD_SAFE_COMBINED_BYTES,
   compressOrthophotoForUpload,
   formatMb,
 } from "@/lib/resize-orthophoto";
-
-/** Keep in sync with nginx `client_max_body_size` for /ldbg (deploy/nginx-rorhoff.conf). */
-const MAX_UPLOAD_BYTES = 200 * 1024 * 1024;
 
 export function UploadForm() {
   const router = useRouter();
@@ -49,41 +46,39 @@ export function UploadForm() {
     setError("");
     setStatus("");
     try {
-      setStatus("Optimizing annotated photo…");
-      const ann = await compressOrthophotoForUpload(annotated);
-      setStatus("Optimizing clean photo…");
-      const cl = await compressOrthophotoForUpload(clean);
+      setStatus(
+        `Optimizing annotated (${formatMb(annotated.size)} MB)… desktop full-size files are resized like mobile uploads.`
+      );
+      const annBudget = Math.floor(UPLOAD_SAFE_COMBINED_BYTES * 0.45);
+      const ann = await compressOrthophotoForUpload(annotated, {
+        maxBytes: annBudget,
+      });
+
+      setStatus(
+        `Optimizing clean (${formatMb(clean.size)} MB) → target under ${formatMb(UPLOAD_SAFE_COMBINED_BYTES)} MB combined…`
+      );
+      const cleanBudget = UPLOAD_SAFE_COMBINED_BYTES - ann.file.size;
+      const cl = await compressOrthophotoForUpload(clean, {
+        maxBytes: cleanBudget,
+      });
 
       const combined = ann.file.size + cl.file.size;
-      if (combined > MAX_UPLOAD_BYTES) {
-        throw new Error(
-          `Combined upload is ${formatMb(combined)} MB after compression — limit is ${formatMb(MAX_UPLOAD_BYTES)} MB.`
-        );
-      }
+      setStatus(
+        `Ready: ${formatMb(ann.originalBytes)}+${formatMb(cl.originalBytes)} MB → ${formatMb(combined)} MB (${ann.width}×${ann.height}). Uploading…`
+      );
 
-      setStatus("Creating project…");
       const createRes = await fetch(withBasePath("/api/projects"), { method: "POST" });
       if (!createRes.ok) throw new Error("Could not create project");
       const project = await createRes.json();
 
-      const annDim =
-        ann.wasCompressed
-          ? { width: ann.width, height: ann.height }
-          : await readImageDimensions(ann.file);
-      const cleanDim =
-        cl.wasCompressed
-          ? { width: cl.width, height: cl.height }
-          : await readImageDimensions(cl.file);
-
       const fd = new FormData();
       fd.set("annotated", ann.file);
-      fd.set("annotatedWidth", String(annDim.width));
-      fd.set("annotatedHeight", String(annDim.height));
+      fd.set("annotatedWidth", String(ann.width));
+      fd.set("annotatedHeight", String(ann.height));
       fd.set("clean", cl.file);
-      fd.set("cleanWidth", String(cleanDim.width));
-      fd.set("cleanHeight", String(cleanDim.height));
+      fd.set("cleanWidth", String(cl.width));
+      fd.set("cleanHeight", String(cl.height));
 
-      setStatus("Uploading…");
       const up = await fetch(withBasePath(`/api/projects/${project.id}/upload`), {
         method: "POST",
         body: fd,
@@ -92,7 +87,7 @@ export function UploadForm() {
         const err = await up.json().catch(() => ({}));
         if (up.status === 413) {
           throw new Error(
-            `Upload too large (${formatMb(combined)} MB). Ask admin to reload nginx with the /ldbg 200MB limit.`
+            `Server rejected ${formatMb(combined)} MB (413). Run on EC2: sudo cp ~/Website/deploy/nginx-rorhoff.conf /etc/nginx/sites-available/rorhoff.conf && sudo nginx -t && sudo systemctl reload nginx — then ~/commit.sh`
           );
         }
         throw new Error(err.error ?? "Upload failed");
@@ -152,7 +147,8 @@ export function UploadForm() {
   return (
     <div className="space-y-4">
       <p className="text-sm text-stone-600">
-        Both photos are required. Large drone files are automatically resized before upload.
+        Both photos required. Email/desktop full-size files (often 20–50 MB each) are auto-resized
+        before upload — same as when you pick from a phone gallery.
       </p>
       <div className="grid gap-4 md:grid-cols-2">
         <DropZone
@@ -171,8 +167,12 @@ export function UploadForm() {
         />
       </div>
       {annotated && clean ? (
-        <p className="text-xs text-stone-500">
-          Original combined: {formatMb(totalBytes)} MB — will compress to ≤6000px long edge (~8 MB each) before upload
+        <p className="text-xs text-amber-800">
+          Selected: {formatMb(annotated.size)} MB + {formatMb(clean.size)} MB ={" "}
+          <strong>{formatMb(totalBytes)} MB</strong>
+          {totalBytes > UPLOAD_SAFE_COMBINED_BYTES
+            ? " — will shrink before upload (your 23 MB clean ortho is normal from email)."
+            : null}
         </p>
       ) : null}
       {status ? (
@@ -187,7 +187,7 @@ export function UploadForm() {
         onClick={submit}
         className="rounded-lg bg-emerald-700 px-5 py-2.5 text-sm font-medium text-white disabled:opacity-50"
       >
-        {busy ? "Processing…" : "Create project & continue"}
+        {busy ? "Optimizing & uploading…" : "Create project & continue"}
       </button>
     </div>
   );

@@ -190,6 +190,29 @@ install_ldbg_service() {
   fi
 }
 
+# LDBG orthophoto uploads need client_max_body_size 200M on /ldbg (not the global 12M).
+install_nginx_ldbg_upload() {
+  local src="$DEV_DIR/deploy/nginx-rorhoff.conf"
+  local dst="/etc/nginx/sites-available/rorhoff.conf"
+  if [[ ! -f "$src" ]]; then
+    return 0
+  fi
+  if [[ ! -f "$dst" ]]; then
+    warn "nginx vhost not found at $dst — install deploy/nginx-rorhoff.conf manually for large /ldbg uploads."
+    return 0
+  fi
+  if ! cmp -s "$src" "$dst" 2>/dev/null; then
+    log "Updating nginx rorhoff.conf (/ldbg upload limit 200M)…"
+    sudo cp "$src" "$dst"
+    if sudo nginx -t 2>/dev/null; then
+      sudo systemctl reload nginx
+      ok "nginx reloaded — /ldbg accepts large orthophoto uploads"
+    else
+      warn "nginx -t failed after config copy — restore $dst and reload manually"
+    fi
+  fi
+}
+
 # ---------------------------------------------------------------------------
 # Sanity checks: refuse to run if the checkout has uncommitted edits, since
 # `git pull` would silently lose or conflict with them.
@@ -226,6 +249,7 @@ _maybe_refresh_commit_script
 sync_referr_all || warn "Referr-All sync skipped — using placeholder from Website git"
 sync_ldbg || warn "LDBG sync skipped — build manually in ldbg/"
 install_ldbg_service
+install_nginx_ldbg_upload
 
 after=$(git -C "$DEV_DIR" rev-parse --short HEAD)
 if [[ "$before" == "$after" ]]; then

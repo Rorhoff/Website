@@ -1,7 +1,14 @@
 /** Client-side resize/compress for large drone orthophotos before upload. */
 
-const DEFAULT_MAX_LONG_EDGE = 6000;
-const DEFAULT_MAX_BYTES = 8 * 1024 * 1024;
+/** Stay under default nginx 12MB until /ldbg 200M location is installed. */
+export const UPLOAD_SAFE_COMBINED_BYTES = 10 * 1024 * 1024;
+
+const DEFAULT_MAX_LONG_EDGE = 5000;
+
+export type CompressOptions = {
+  maxLongEdge?: number;
+  maxBytes?: number;
+};
 
 function loadImage(file: File): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
@@ -13,7 +20,7 @@ function loadImage(file: File): Promise<HTMLImageElement> {
     };
     img.onerror = () => {
       URL.revokeObjectURL(url);
-      reject(new Error("Could not load image"));
+      reject(new Error(`Could not load ${file.name} — file may be corrupt`));
     };
     img.src = url;
   });
@@ -54,41 +61,53 @@ export type OrthophotoCompressResult = {
   width: number;
   height: number;
   wasCompressed: boolean;
+  originalBytes: number;
 };
 
-/** Shrink 50MP+ JPEGs for upload while preserving aspect ratio. */
+/**
+ * Shrink desktop full-size drone JPEGs (often 20–50 MB) before upload.
+ * Mobile gallery picks are usually pre-shrunk by the OS — this matches that behavior.
+ */
 export async function compressOrthophotoForUpload(
   file: File,
-  maxLongEdge = DEFAULT_MAX_LONG_EDGE,
-  maxBytes = DEFAULT_MAX_BYTES
+  options: CompressOptions = {}
 ): Promise<OrthophotoCompressResult> {
+  const maxBytes = options.maxBytes ?? UPLOAD_SAFE_COMBINED_BYTES / 2;
   const img = await loadImage(file);
   const naturalW = img.naturalWidth;
   const naturalH = img.naturalHeight;
-  const needsResize = Math.max(naturalW, naturalH) > maxLongEdge;
-  const needsCompress = file.size > maxBytes || file.type !== "image/jpeg";
+  const longEdge = Math.max(naturalW, naturalH);
 
-  if (!needsResize && !needsCompress) {
-    return { file, width: naturalW, height: naturalH, wasCompressed: false };
+  let edge =
+    options.maxLongEdge ??
+    (longEdge > 8000 ? 4500 : longEdge > 6000 ? 5000 : DEFAULT_MAX_LONG_EDGE);
+
+  if (file.size > 15 * 1024 * 1024) {
+    edge = Math.min(edge, 4500);
   }
 
-  let edge = needsResize ? maxLongEdge : Math.max(naturalW, naturalH);
-  let quality = 0.92;
+  let quality = file.size > 10 * 1024 * 1024 ? 0.82 : 0.88;
   let blob = await renderToBlob(img, edge, quality);
 
-  while (blob.size > maxBytes && quality > 0.5) {
-    quality -= 0.06;
+  while (blob.size > maxBytes && quality > 0.45) {
+    quality -= 0.05;
     blob = await renderToBlob(img, edge, quality);
   }
 
-  while (blob.size > maxBytes && edge > 2400) {
-    edge = Math.round(edge * 0.82);
-    quality = 0.88;
+  while (blob.size > maxBytes && edge > 2000) {
+    edge = Math.round(edge * 0.8);
+    quality = 0.8;
     blob = await renderToBlob(img, edge, quality);
-    while (blob.size > maxBytes && quality > 0.5) {
-      quality -= 0.06;
+    while (blob.size > maxBytes && quality > 0.45) {
+      quality -= 0.05;
       blob = await renderToBlob(img, edge, quality);
     }
+  }
+
+  if (blob.size > maxBytes) {
+    throw new Error(
+      `${file.name} is still ${formatMb(blob.size)} MB after compression — try a smaller export from your drone app.`
+    );
   }
 
   const baseName = file.name.replace(/\.[^.]+$/, "") || "orthophoto";
@@ -97,7 +116,7 @@ export async function compressOrthophotoForUpload(
     lastModified: Date.now(),
   });
 
-  const scale = edge / Math.max(naturalW, naturalH);
+  const scale = edge / longEdge;
   const outW = Math.max(1, Math.round(naturalW * Math.min(1, scale)));
   const outH = Math.max(1, Math.round(naturalH * Math.min(1, scale)));
 
@@ -106,6 +125,7 @@ export async function compressOrthophotoForUpload(
     width: outW,
     height: outH,
     wasCompressed: true,
+    originalBytes: file.size,
   };
 }
 
