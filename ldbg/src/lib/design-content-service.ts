@@ -31,8 +31,11 @@ import {
   recordDesignContentCall,
 } from "@/lib/rate-limit";
 
-export const DESIGN_CONTENT_MODEL =
-  process.env.LDBG_DESIGN_CONTENT_MODEL ?? "claude-sonnet-4-6";
+export const DESIGN_CONTENT_MODEL = (() => {
+  const raw = process.env.LDBG_DESIGN_CONTENT_MODEL?.trim();
+  if (!raw || raw.includes("20250514")) return "claude-sonnet-4-6";
+  return raw;
+})();
 
 const ClaudePartialSchema = z.object({
   conceptOverview: DesignContentResultSchema.shape.conceptOverview,

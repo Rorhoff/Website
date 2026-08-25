@@ -73,7 +73,13 @@ if dst.exists():
 out: list[str] = []
 found = False
 for line in lines:
-    if re.match(r"^(?:export\s+)?ANTHROPIC_API_KEY\s*=", line.strip(), re.I):
+    stripped = line.strip()
+    if re.match(r"^(?:export\s+)?LDBG_INTERPRET_MODEL\s*=", stripped, re.I):
+        if "20250514" in line:
+            continue
+        out.append(line)
+        continue
+    if re.match(r"^(?:export\s+)?ANTHROPIC_API_KEY\s*=", stripped, re.I):
         out.append(f"ANTHROPIC_API_KEY={key}")
         found = True
     else:

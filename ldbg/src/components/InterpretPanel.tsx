@@ -80,7 +80,7 @@ export function InterpretPanel({
     }
   }
 
-  const canRun = calibrated && !needsAnnotated;
+  const canRun = !needsAnnotated;
 
   return (
     <section className="space-y-4 rounded-xl border border-stone-200 bg-white p-5">
@@ -100,9 +100,7 @@ export function InterpretPanel({
             title={
               needsAnnotated
                 ? "Export annotation base and upload your annotated sketch first"
-                : calibrated
-                  ? undefined
-                  : "Set points A and B, then enter a real-world distance (feet)"
+                : undefined
             }
           >
             {busy ? "Running…" : interpretation ? "Re-run interpret" : "Run interpret"}

@@ -21,8 +21,12 @@ import {
   recordInterpretCall,
 } from "@/lib/rate-limit";
 
-export const INTERPRET_MODEL =
-  process.env.LDBG_INTERPRET_MODEL ?? "claude-sonnet-4-6";
+export const INTERPRET_MODEL = (() => {
+  const raw = process.env.LDBG_INTERPRET_MODEL?.trim();
+  // Retired snapshot id — fall back to the same model family AIRevolution uses.
+  if (!raw || raw.includes("20250514")) return "claude-sonnet-4-6";
+  return raw;
+})();
 
 export type InterpretSuccess = {
   interpretation: StoredInterpretation;
@@ -235,7 +239,11 @@ export async function runInterpretForProject(
 
     return { interpretation, cached: false };
   } catch (e) {
-    const msg = e instanceof Error ? e.message : "Interpretation failed";
+    let msg = e instanceof Error ? e.message : "Interpretation failed";
+    if (msg.includes("not_found_error") || msg.includes("404")) {
+      msg =
+        `Claude model unavailable (${INTERPRET_MODEL}). Deploy the latest LDBG build or set LDBG_INTERPRET_MODEL=claude-sonnet-4-6 on the server.`;
+    }
     return { error: msg, rawResponse: rawResponse || undefined };
   }
 }

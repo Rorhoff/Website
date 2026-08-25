@@ -39,6 +39,7 @@ export function CalibrationTool({
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const imageRef = useRef<HTMLImageElement>(null);
+  const suppressImageClickRef = useRef(false);
   const [pointA, setPointA] = useState<Point | null>(
     calibration?.pointA ?? null
   );
@@ -66,7 +67,10 @@ export function CalibrationTool({
     };
 
     const onMove = (e: MouseEvent) => updateNorthFromPointer(e.clientX, e.clientY);
-    const onUp = () => setDraggingNorth(false);
+    const onUp = () => {
+      suppressImageClickRef.current = true;
+      setDraggingNorth(false);
+    };
 
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
@@ -78,6 +82,12 @@ export function CalibrationTool({
 
   const handleImageClick = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
+      if (suppressImageClickRef.current) {
+        suppressImageClickRef.current = false;
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
       const p = normalizedImagePointFromClick(e, imageRef.current);
       if (!p) return;
       if (clickTarget === "A") {
@@ -212,41 +222,49 @@ export function CalibrationTool({
 
       <div
         ref={containerRef}
-        className="relative mx-auto max-w-full cursor-crosshair overflow-hidden rounded-lg border border-stone-300 bg-stone-100"
+        className="relative mx-auto max-w-full overflow-hidden rounded-lg border border-stone-300 bg-stone-100"
         style={{ aspectRatio: `${imageWidth} / ${imageHeight}` }}
-        onClick={handleImageClick}
       >
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          ref={imageRef}
-          src={imageUrl}
-          alt="Calibration base"
-          className="block h-full w-full object-contain"
-          draggable={false}
-        />
-        {pointA ? <CalibrationPin label="A" point={pointA} color="#059669" /> : null}
-        {pointB ? <CalibrationPin label="B" point={pointB} color="#2563eb" /> : null}
-        {pointA && pointB ? (
-          <svg
-            className="pointer-events-none absolute inset-0 h-full w-full"
-            viewBox="0 0 1 1"
-            preserveAspectRatio="none"
-          >
-            <line
-              x1={pointA.x}
-              y1={pointA.y}
-              x2={pointB.x}
-              y2={pointB.y}
-              stroke="#f59e0b"
-              strokeWidth={0.004}
-              strokeDasharray="0.01 0.008"
-            />
-          </svg>
-        ) : null}
+        <div
+          className="absolute inset-0 cursor-crosshair"
+          onClick={handleImageClick}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            ref={imageRef}
+            src={imageUrl}
+            alt="Calibration base"
+            className="block h-full w-full object-contain"
+            draggable={false}
+          />
+          {pointA ? <CalibrationPin label="A" point={pointA} color="#059669" /> : null}
+          {pointB ? <CalibrationPin label="B" point={pointB} color="#2563eb" /> : null}
+          {pointA && pointB ? (
+            <svg
+              className="pointer-events-none absolute inset-0 h-full w-full"
+              viewBox="0 0 1 1"
+              preserveAspectRatio="none"
+            >
+              <line
+                x1={pointA.x}
+                y1={pointA.y}
+                x2={pointB.x}
+                y2={pointB.y}
+                stroke="#f59e0b"
+                strokeWidth={0.004}
+                strokeDasharray="0.01 0.008"
+              />
+            </svg>
+          ) : null}
+        </div>
         <NorthArrow
           rotationDeg={northRotationDeg}
           dragging={draggingNorth}
-          onMouseDown={() => setDraggingNorth(true)}
+          onPointerDown={(e) => {
+            suppressImageClickRef.current = true;
+            e.preventDefault();
+            setDraggingNorth(true);
+          }}
         />
       </div>
 
@@ -301,15 +319,15 @@ export function CalibrationTool({
 function NorthArrow({
   rotationDeg,
   dragging,
-  onMouseDown,
+  onPointerDown,
 }: {
   rotationDeg: number;
   dragging: boolean;
-  onMouseDown: () => void;
+  onPointerDown: (e: React.PointerEvent<HTMLButtonElement>) => void;
 }) {
   return (
     <div
-      className="absolute right-4 top-4 select-none"
+      className="pointer-events-none absolute right-4 top-4 z-10 select-none"
       style={{ transform: `rotate(${rotationDeg}deg)` }}
     >
       <div className="flex flex-col items-center">
@@ -317,13 +335,9 @@ function NorthArrow({
         <div className="h-8 w-0.5 bg-stone-800" />
         <button
           type="button"
-          className={`mt-1 h-4 w-4 cursor-grab rounded-full border-2 border-stone-800 bg-white active:cursor-grabbing ${dragging ? "ring-2 ring-emerald-500" : ""}`}
+          className={`pointer-events-auto mt-1 h-4 w-4 cursor-grab touch-none rounded-full border-2 border-stone-800 bg-white active:cursor-grabbing ${dragging ? "ring-2 ring-emerald-500" : ""}`}
           title="Drag to rotate north"
-          onMouseDown={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            onMouseDown();
-          }}
+          onPointerDown={onPointerDown}
           onClick={(e) => e.stopPropagation()}
         />
       </div>
