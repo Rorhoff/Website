@@ -18,6 +18,55 @@ const ImageAssetSchema = z.object({
   height: z.number().int().positive(),
 });
 
+export const AffineTransformSchema = z.object({
+  a: z.number(),
+  b: z.number(),
+  c: z.number(),
+  d: z.number(),
+  e: z.number(),
+  f: z.number(),
+});
+
+export const BoundingBoxSchema = z.object({
+  minX: z.number(),
+  minY: z.number(),
+  maxX: z.number(),
+  maxY: z.number(),
+});
+
+export const GeoreferenceSchema = z.object({
+  crs: z.string(),
+  epsg: z.number().int().optional(),
+  affine: AffineTransformSchema,
+  widthPx: z.number().int().positive(),
+  heightPx: z.number().int().positive(),
+  gsdMeters: z.number().positive(),
+  gsdInches: z.number().positive(),
+  boundsProjected: BoundingBoxSchema,
+  boundsWgs84: BoundingBoxSchema,
+  pixelsPerFoot: z.number().positive(),
+});
+
+export const WebodmFileCheckSchema = z.object({
+  key: z.string(),
+  label: z.string(),
+  relativePath: z.string(),
+  required: z.boolean(),
+  expected: z.boolean().optional(),
+  found: z.boolean(),
+  storedAs: z.string().optional(),
+});
+
+export const WebodmIngestSchema = z.object({
+  sourceFolder: z.string().optional(),
+  ingestedAt: z.string(),
+  checklist: z.array(WebodmFileCheckSchema),
+  georeferencingMode: z.enum(["gcp", "gps"]),
+  gcpCount: z.number().int().optional(),
+  orthophotoStoredAs: z.string(),
+  projStoredAs: z.string().optional(),
+});
+
 const NormalizedPointSchema = z.object({
   x: z.number().min(0).max(1),
   y: z.number().min(0).max(1),
@@ -85,9 +134,12 @@ export const ProjectSchema = z.object({
   images: z.object({
     annotated: ImageAssetSchema.optional(),
     clean: ImageAssetSchema.optional(),
+    preview: ImageAssetSchema.optional(),
   }),
+  georeference: GeoreferenceSchema.optional(),
+  webodm: WebodmIngestSchema.optional(),
   calibration: CalibrationSchema.optional(),
-  northRotationDeg: z.number(),
+  northRotationDeg: z.number().default(0),
   interpretation: StoredInterpretationSchema.optional(),
   features: z.array(InterpretFeatureSchema).optional(),
   editorSettings: EditorSettingsSchema.optional(),
@@ -102,6 +154,9 @@ export const ProjectSchema = z.object({
 export type Project = z.infer<typeof ProjectSchema>;
 export type ProjectMetadata = z.infer<typeof ProjectMetadataSchema>;
 export type Calibration = z.infer<typeof CalibrationSchema>;
+export type Georeference = z.infer<typeof GeoreferenceSchema>;
+export type WebodmIngest = z.infer<typeof WebodmIngestSchema>;
+export type WebodmFileCheck = z.infer<typeof WebodmFileCheckSchema>;
 
 export const ProjectSummarySchema = z.object({
   id: z.string().uuid(),
@@ -109,6 +164,7 @@ export const ProjectSummarySchema = z.object({
   clientName: z.string(),
   updatedAt: z.string(),
   hasAnnotated: z.boolean(),
+  hasWebodm: z.boolean(),
   calibrated: z.boolean(),
 });
 

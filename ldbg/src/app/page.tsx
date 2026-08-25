@@ -13,7 +13,7 @@ export default async function HomePage() {
           <div>
             <h2 className="text-2xl font-semibold text-stone-900">Projects</h2>
             <p className="text-stone-600">
-              Upload annotated drone orthophotos, calibrate scale, then build design boards.
+              WebODM georeferenced orthophotos or legacy JPEG uploads — then build design boards.
             </p>
           </div>
           <Link
@@ -49,12 +49,15 @@ export default async function HomePage() {
                     </p>
                   </div>
                   <div className="flex gap-2 text-xs">
+                    {p.hasWebodm ? (
+                      <span className="rounded bg-sky-100 px-2 py-1 text-sky-900">WebODM</span>
+                    ) : null}
                     {p.hasAnnotated ? (
-                      <span className="rounded bg-stone-100 px-2 py-1">Images</span>
+                      <span className="rounded bg-stone-100 px-2 py-1">Annotated</span>
                     ) : null}
                     {p.calibrated ? (
                       <span className="rounded bg-emerald-100 px-2 py-1 text-emerald-900">
-                        Calibrated
+                        Scaled
                       </span>
                     ) : (
                       <span className="rounded bg-amber-100 px-2 py-1 text-amber-900">

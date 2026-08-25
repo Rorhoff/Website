@@ -2,16 +2,18 @@
 
 Next.js app for turning annotated drone orthophotos into client-ready landscape design boards.
 
-See [`../SPEC.md`](../SPEC.md) for the full build spec and milestone order.
+See [`../SPEC.md`](../SPEC.md) and [`../SPEC-A-webodm.md`](../SPEC-A-webodm.md) for the full build spec. Addendum A wins on conflict.
 
-## Milestone 1 (current)
+## WebODM ingest (Addendum A1)
 
-- Project scaffold + local `storage/` persistence
-- Upload annotated + clean orthophotos
-- Scale calibration (two-point + real-world distance)
-- North arrow rotation
-- Project metadata form
-- Legend config + editor
+- Create a project from a WebODM export folder (browser folder pick or server path)
+- Python sidecar (`scripts/parse_geotiff.py`) extracts CRS, affine, GSD, bounds via rasterio
+- Generates `ortho-preview.jpg` for UI; full GeoTIFF stored under `webodm/`
+- Georeferenced scale replaces manual calibration for WebODM projects
+
+```bash
+pip install -r scripts/requirements-geo.txt
+```
 
 ## Dev
 

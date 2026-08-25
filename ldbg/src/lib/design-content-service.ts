@@ -11,6 +11,7 @@ import {
   type StoredDesignContent,
 } from "@/lib/design-content-schema";
 import { estimateInterpretCostUsd } from "@/lib/interpret-cost";
+import { getDisplayImage, getPixelsPerFoot } from "@/lib/georef";
 import type { Project } from "@/lib/project-schema";
 import {
   buildTakeoff,
@@ -120,15 +121,15 @@ export async function runDesignContentForProject(
   }
 
   const legend = await getLegend();
-  const ann = project.images.annotated;
-  const imageW = ann?.width ?? 1000;
-  const imageH = ann?.height ?? 1000;
+  const display = getDisplayImage(project);
+  const imageW = display?.width ?? 1000;
+  const imageH = display?.height ?? 1000;
   const takeoff = buildTakeoff(
     features,
     legend,
     imageW,
     imageH,
-    project.calibration?.pixelsPerFoot
+    getPixelsPerFoot(project)
   );
 
   const featuresJson = featuresSummaryForPrompt(features, legend);

@@ -11,7 +11,15 @@ import { MetadataForm } from "@/components/MetadataForm";
 import { PlanPanel } from "@/components/PlanPanel";
 import { PolygonEditorLoader } from "@/components/PolygonEditorLoader";
 import { RenderPanel } from "@/components/RenderPanel";
+import { WebodmGeorefPanel } from "@/components/WebodmGeorefPanel";
 import { DEFAULT_LEGEND, type LegendEntry } from "@/config/legend";
+import {
+  getDisplayImage,
+  getNorthRotationDeg,
+  getPixelsPerFoot,
+  isGeoreferenced,
+  isProjectScaled,
+} from "@/lib/georef";
 import { projectImageUrl } from "@/lib/image-utils";
 import { cloneFeatures } from "@/lib/feature-geometry";
 import {
@@ -136,14 +144,20 @@ export default function ProjectPage() {
   }
 
   const ann = project.images.annotated;
-  const clean = project.images.clean;
-  const baseImage = clean ?? ann;
+  const displayImage = getDisplayImage(project);
+  const baseImage = displayImage;
+  const pixelsPerFoot = getPixelsPerFoot(project);
+  const northDeg = getNorthRotationDeg(project);
+  const georef = isGeoreferenced(project);
+  const scaled = isProjectScaled(project);
 
-  if (!ann) {
+  if (!displayImage) {
     return (
       <>
         <AppHeader />
-        <main className="p-8">No annotated image on this project.</main>
+        <main className="mx-auto max-w-4xl p-8 text-stone-600">
+          No display image on this project. Ingest a WebODM export or upload an orthophoto.
+        </main>
       </>
     );
   }
@@ -152,22 +166,32 @@ export default function ProjectPage() {
     <>
       <AppHeader />
       <main className="mx-auto max-w-6xl space-y-6 px-4 py-8">
-        <CalibrationTool
-          imageUrl={projectImageUrl(id, ann.filename)}
-          imageWidth={ann.width}
-          imageHeight={ann.height}
-          calibration={calibration}
-          northRotationDeg={northRotationDeg}
-          onCalibrationChange={setCalibration}
-          onNorthChange={setNorthRotationDeg}
-          onSave={() =>
-            persist({
-              calibration,
-              northRotationDeg,
-            })
-          }
-          saving={saving}
-        />
+        {georef ? (
+          <WebodmGeorefPanel webodm={project.webodm} georeference={project.georeference} />
+        ) : (
+          <CalibrationTool
+            imageUrl={projectImageUrl(id, displayImage.filename)}
+            imageWidth={displayImage.width}
+            imageHeight={displayImage.height}
+            calibration={calibration}
+            northRotationDeg={northRotationDeg}
+            onCalibrationChange={setCalibration}
+            onNorthChange={setNorthRotationDeg}
+            onSave={() =>
+              persist({
+                calibration,
+                northRotationDeg,
+              })
+            }
+            saving={saving}
+          />
+        )}
+        {!ann && georef ? (
+          <section className="rounded-xl border border-dashed border-stone-300 p-6 text-sm text-stone-600">
+            Orthophoto preview is loaded from WebODM. Export an annotation base (Addendum A3)
+            or upload your annotated sketch when that flow is ready.
+          </section>
+        ) : null}
         <MetadataForm
           metadata={metadata}
           onChange={setMetadata}
@@ -183,7 +207,7 @@ export default function ProjectPage() {
               setFeatures(cloneFeatures(next.features));
             }
           }}
-          calibrated={!!calibration?.pixelsPerFoot}
+          calibrated={scaled}
         />
         {canEditPolygons && baseImage ? (
           <PolygonEditorLoader
@@ -192,7 +216,7 @@ export default function ProjectPage() {
             imageHeight={baseImage.height}
             features={features}
             legend={legend}
-            pixelsPerFoot={calibration?.pixelsPerFoot}
+            pixelsPerFoot={pixelsPerFoot}
             editorSettings={editorSettings}
             onAutosave={handleEditorAutosave}
           />
@@ -211,7 +235,7 @@ export default function ProjectPage() {
             legend={legend}
             metadata={metadata}
             calibration={calibration}
-            northRotationDeg={northRotationDeg}
+            northRotationDeg={northDeg}
             editorSettings={editorSettings}
             imageWidth={baseImage.width}
             imageHeight={baseImage.height}
@@ -228,7 +252,7 @@ export default function ProjectPage() {
             designContent={designContent}
             onDesignContentChange={setDesignContent}
             hasFeatures={features.length > 0}
-            calibrated={!!calibration?.pixelsPerFoot}
+            calibrated={scaled}
           />
         ) : null}
         {features.length > 0 ? (

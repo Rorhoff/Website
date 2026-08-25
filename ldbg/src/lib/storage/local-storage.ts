@@ -6,6 +6,7 @@ import {
   type Project,
   type ProjectSummary,
 } from "@/lib/project-schema";
+import { isProjectScaled } from "@/lib/georef";
 import type { StorageProvider } from "./types";
 
 const PROJECT_JSON = "project.json";
@@ -45,7 +46,8 @@ export class LocalStorageProvider implements StorageProvider {
         clientName: p.metadata.clientName,
         updatedAt: p.updatedAt,
         hasAnnotated: !!p.images.annotated,
-        calibrated: !!p.calibration?.pixelsPerFoot,
+        hasWebodm: !!p.webodm,
+        calibrated: isProjectScaled(p),
       });
     }
     summaries.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
