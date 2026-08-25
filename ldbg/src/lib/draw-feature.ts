@@ -5,7 +5,13 @@ import { newFeatureId, normToPx, pxToNorm } from "@/lib/feature-geometry";
 import type { GeorefDisplayContext } from "@/lib/georef-display";
 import type { InterpretFeature } from "@/lib/interpret-schema";
 
-export type DrawShapeKind = "polygon" | "rectangle" | "circle" | "polyline" | "point";
+export type DrawShapeKind = "polygon" | "rectangle" | "circle" | "polyline" | "point" | "square";
+
+export const CIRCLE_SEGMENTS = 32;
+
+export function isCirclePolygonFeature(f: { geometry: { kind: string; points?: { x: number; y: number }[] } }): boolean {
+  return f.geometry.kind === "polygon" && (f.geometry.points?.length ?? 0) === CIRCLE_SEGMENTS;
+}
 
 export function rectangleNormPoints(a: NormPoint, b: NormPoint): NormPoint[] {
   const minX = Math.min(a.x, b.x);
@@ -26,7 +32,7 @@ export function circleNormPoints(
   edge: NormPoint,
   displayW: number,
   displayH: number,
-  segments = 32
+  segments = CIRCLE_SEGMENTS
 ): NormPoint[] {
   const centerPx = normToPx(center, displayW, displayH);
   const edgePx = normToPx(edge, displayW, displayH);
@@ -67,6 +73,21 @@ export function normalizedRadius(
   displayH: number
 ): number {
   return Math.min(1, radiusPx(center, edge, displayW, displayH) / Math.max(displayW, displayH));
+}
+
+export function squareNormPointsFromFeet(
+  center: NormPoint,
+  sideFt: number,
+  displayW: number,
+  displayH: number,
+  pixelsPerFoot: number
+): NormPoint[] {
+  const halfPx = (sideFt * pixelsPerFoot) / 2;
+  const c = normToPx(center, displayW, displayH);
+  return rectangleNormPoints(
+    pxToNorm({ x: c.x - halfPx, y: c.y - halfPx }, displayW, displayH),
+    pxToNorm({ x: c.x + halfPx, y: c.y + halfPx }, displayW, displayH)
+  );
 }
 
 export function createDrawnFeature(options: {

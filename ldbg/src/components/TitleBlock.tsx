@@ -1,7 +1,6 @@
 import { BRAND, brandAssetUrl } from "@/config/brand";
-import { BOARD_DPI } from "@/lib/board-sizes";
-import { computeArchScaleLabel } from "@/lib/plan-layout";
-import type { BoardSettings, ProjectMetadata } from "@/lib/project-schema";
+import { BOARD_RENDER_PPI } from "@/lib/board-sizes";
+import { computeArchScaleLabel } from "@/lib/plan-layout";import type { BoardSettings, ProjectMetadata } from "@/lib/project-schema";
 import styles from "./board.module.css";
 
 type Props = {
@@ -43,12 +42,7 @@ export function TitleBlock({
   return (
     <div
       className={styles.titleBlock}
-      style={
-        {
-          "--brand-accent": BRAND.accentColor,
-          width: `${3.5 * BOARD_DPI}px`,
-        } as React.CSSProperties
-      }
+      style={{ "--brand-accent": BRAND.accentColor } as React.CSSProperties}
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img className={styles.titleBlockLogo} src={logoUrl} alt="" />
@@ -91,5 +85,5 @@ export function computeBoardScaleLabel(
   planPrintWidthIn = 20
 ): string {
   if (!pixelsPerFoot || pixelsPerFoot <= 0) return "Scale N/A";
-  return computeArchScaleLabel(planWidthPx, pixelsPerFoot, planPrintWidthIn * 300, 300);
+  return computeArchScaleLabel(planWidthPx, pixelsPerFoot, planPrintWidthIn * BOARD_RENDER_PPI, BOARD_RENDER_PPI);
 }

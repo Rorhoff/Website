@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { notFound } from "next/navigation";
 import { BoardTemplate } from "@/components/BoardTemplate";
-import { parseBoardPageSize } from "@/lib/board-sizes";
+import { boardDimensions, parseBoardPageSize } from "@/lib/board-sizes";
 import {
   getDisplayImage,
   getNorthRotationDeg,
@@ -71,8 +71,16 @@ export default async function BoardPage({ params, searchParams }: Props) {
       }
     : undefined;
 
+  const dims = boardDimensions(pageSize);
+
   return (
     <>
+      {exportMode ? (
+        <style>{`
+          @page { size: ${dims.widthIn}in ${dims.heightIn}in; margin: 0; }
+          html, body { margin: 0; padding: 0; overflow: hidden; width: 100%; height: 100%; }
+        `}</style>
+      ) : null}
       {!exportMode ? (
         <div
           style={{

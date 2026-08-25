@@ -1,15 +1,14 @@
 import type { LegendEntry } from "@/config/legend";
 import { BRAND } from "@/config/brand";
+import { BoardPlanLegend, BoardPlanSvg, useBoardPlanScale } from "@/components/BoardPlanSvg";
 import { GeneralNotesBlock } from "@/components/GeneralNotesBlock";
 import { GraphicScaleBar } from "@/components/GraphicScaleBar";
-import { PlanDrawing } from "@/components/PlanDrawing";
 import { ScaleVerificationStamp } from "@/components/ScaleVerificationStamp";
-import { TitleBlock, computeBoardScaleLabel } from "@/components/TitleBlock";
+import { TitleBlock } from "@/components/TitleBlock";
 import type { StoredDesignContent } from "@/lib/design-content-schema";
 import type { InterpretFeature } from "@/lib/interpret-schema";
-import { boardDimensions, boardMarginPx, type BoardPageSize } from "@/lib/board-sizes";
+import { boardDimensions, boardGridTracks, type BoardPageSize } from "@/lib/board-sizes";
 import { resolveEnabledNotes } from "@/lib/general-notes";
-import { pickScaleBarFeet } from "@/lib/plan-layout";
 import type {
   BoardSettings,
   PlanSettings,
@@ -48,15 +47,34 @@ type Props = {
   calibrated?: boolean;
 };
 
-function renderImageSlot(url: string | undefined, placeholder: string) {
+function Placeholder({ label }: { label: string }) {
   return (
-    <div className={styles.boardRenderImg}>
-      {url ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={url} alt="" />
-      ) : (
-        <span>{placeholder}</span>
-      )}
+    <div className={styles.placeholder}>
+      <span>{label}</span>
+    </div>
+  );
+}
+
+function RenderPanel({
+  label,
+  url,
+  placeholder,
+}: {
+  label: string;
+  url?: string;
+  placeholder: string;
+}) {
+  return (
+    <div className={`${styles.panel} h-full`}>
+      <div className={styles.panelHead}>{label}</div>
+      <div className={styles.panelBody}>
+        {url ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img className={styles.renderFill} src={url} alt="" />
+        ) : (
+          <Placeholder label={placeholder} />
+        )}
+      </div>
     </div>
   );
 }
@@ -84,218 +102,220 @@ export function BoardTemplate({
   calibrated = false,
 }: Props) {
   const dims = boardDimensions(pageSize);
-  const marginPx = boardMarginPx();
-  const planDisplayWidth = dims.widthPx * 0.48;
+  const grid = boardGridTracks(pageSize);
   const numberedNotes = resolveEnabledNotes(boardSettings?.enabledNoteIds);
-  const scaleLabel = computeBoardScaleLabel(planDisplayWidth, pixelsPerFoot, 20);
-  const scaleBarFeet =
-    pixelsPerFoot != null
-      ? pickScaleBarFeet(planDisplayWidth, pixelsPerFoot, planDisplayWidth * 0.14)
-      : 20;
-  const scaleBarPx =
-    pixelsPerFoot != null ? scaleBarFeet * pixelsPerFoot : planDisplayWidth * 0.1;
+  const hiddenTypes: string[] = [];
+
+  const planPanelWidth = grid.colCenter - grid.centerLegendW - 16;
+  const scale = useBoardPlanScale(
+    features,
+    imageWidth,
+    imageHeight,
+    planPanelWidth,
+    pixelsPerFoot,
+    undefined,
+    hiddenTypes
+  );
 
   const materials = designContent?.materialsAndFinishes ?? [];
   const plants = designContent?.plantPalette ?? [];
   const concept = designContent?.conceptOverview ?? [];
   const renderPrompts = designContent?.renderPrompts ?? [];
 
-  const heroPrompt = renderPrompts.find((r) => r.id === "hero_dusk");
   const entryPrompt = renderPrompts.find((r) => r.id === "entry");
   const firePrompt = renderPrompts.find((r) => r.id === "fire_pit");
+  const heroPrompt = renderPrompts.find((r) => r.id === "hero_dusk");
 
   const supporting = [
-    {
-      id: "entry",
-      url: renderSlots?.entry,
-      caption: entryPrompt?.title ?? "Entry / pathway view",
-    },
-    {
-      id: "fire_pit",
-      url: renderSlots?.fire_pit,
-      caption: firePrompt?.title ?? "Fire pit & pergola",
-    },
-    {
-      id: "hero_dusk",
-      url: renderSlots?.hero_dusk,
-      caption: heroPrompt?.title ?? "Hero perspective at dusk",
-    },
+    { id: "entry", url: renderSlots?.entry, caption: entryPrompt?.title ?? "Entry / pathway view" },
+    { id: "fire_pit", url: renderSlots?.fire_pit, caption: firePrompt?.title ?? "Fire pit & pergola" },
+    { id: "hero_dusk", url: renderSlots?.hero_dusk, caption: heroPrompt?.title ?? "Hero perspective at dusk" },
   ];
 
   return (
     <div
-      className={styles.boardRoot}
+      className={styles.sheet}
       style={
         {
           width: dims.widthPx,
           height: dims.heightPx,
-          padding: marginPx,
-          fontSize: dims.widthPx / 100,
           "--board-accent": BRAND.accentColor,
-          "--board-margin-px": `${marginPx}px`,
+          "--col-rail": `${grid.colRail}px`,
+          "--col-center": `${grid.colCenter}px`,
+          "--col-right": `${grid.colRight}px`,
+          "--row-main": `${grid.rowMain}px`,
+          "--row-bottom": `${grid.rowBottom}px`,
+          "--center-legend-w": `${grid.centerLegendW}px`,
+          "--right-hero-h": `${grid.rightHeroH}px`,
+          "--right-materials-h": `${grid.rightMaterialsH}px`,
+          "--rail-thumb-h": `${grid.railThumbH}px`,
         } as React.CSSProperties
       }
       data-project-id={projectId}
       data-page-size={pageSize}
     >
-      <div className={styles.boardCanvas}>
-        <div className={styles.boardMain}>
-          <aside className={styles.boardRail}>
-            {annotatedUrl ? (
-              <div className={styles.boardThumb}>
-                <div className={styles.boardThumbLabel}>Source drone</div>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img className={styles.boardThumbImg} src={annotatedUrl} alt="" />
-              </div>
-            ) : null}
-            {cleanUrl ? (
-              <div className={styles.boardThumb}>
-                <div className={styles.boardThumbLabel}>Clean orthophoto</div>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img className={styles.boardThumbImg} src={cleanUrl} alt="" />
-              </div>
-            ) : null}
-            {!annotatedUrl && !cleanUrl ? (
-              <div className={styles.boardThumb}>
-                <div className={styles.boardPanelBody}>
-                  <span className={styles.boardEmpty}>No source photos</span>
-                </div>
-              </div>
-            ) : null}
-            <GeneralNotesBlock notes={numberedNotes} />
-          </aside>
-
-          <section className={styles.boardCenter}>
-            <div className={styles.boardCenterTitle}>
-              {metadata.projectTitle || "Landscape plan"}
+      <div className={styles.grid}>
+        <aside className={styles.rail}>
+          <div className={styles.panel}>
+            <div className={styles.panelHead}>Source drone</div>
+            <div className={styles.panelBody}>
+              {annotatedUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img className={styles.thumbImg} src={annotatedUrl} alt="" />
+              ) : (
+                <Placeholder label="Source drone photo — upload annotated orthophoto" />
+              )}
             </div>
-            <div className={styles.boardPlanWrap}>
+          </div>
+          <div className={styles.panel}>
+            <div className={styles.panelHead}>Clean orthophoto</div>
+            <div className={styles.panelBody}>
+              {cleanUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img className={styles.thumbImg} src={cleanUrl} alt="" />
+              ) : (
+                <Placeholder label="Clean orthophoto — upload unmarked base image" />
+              )}
+            </div>
+          </div>
+          <GeneralNotesBlock notes={numberedNotes} alwaysShow />
+        </aside>
+
+        <section className={`${styles.panel} ${styles.center}`}>
+          <div className={styles.centerTitle}>
+            {metadata.projectTitle || "Proposed landscape plan"}
+          </div>
+          <div className={styles.centerPlanRow}>
+            <div className={styles.planCell}>
               {features.length > 0 ? (
-                <PlanDrawing
-                  project={{
-                    features,
-                    northRotationDeg,
-                    metadata,
-                    pixelsPerFoot,
-                    calibration:
-                      pixelsPerFoot != null
-                        ? { pixelsPerFoot }
-                        : undefined,
-                  }}
+                <BoardPlanSvg
+                  features={features}
                   legend={legend}
                   imageWidth={imageWidth}
                   imageHeight={imageHeight}
                   baseImageUrl={baseImageUrl}
                   planSettings={planSettings}
-                  displayWidth={planDisplayWidth}
+                  northRotationDeg={northRotationDeg}
+                  pixelsPerFoot={pixelsPerFoot}
+                  hiddenFeatureTypes={hiddenTypes}
                 />
               ) : (
-                <span className={styles.boardEmpty}>Plan not available</span>
+                <Placeholder label="Proposed landscape plan — draw or interpret features" />
               )}
             </div>
-            <div className={styles.boardPlanFooter}>
-              <ScaleVerificationStamp
-                scaleVerification={scaleVerification}
-                requiresVerification={requiresScaleVerification}
-                calibrated={calibrated}
-              />
-              {pixelsPerFoot != null ? (
-                <GraphicScaleBar barPx={scaleBarPx} feet={scaleBarFeet} />
-              ) : null}
-            </div>
-          </section>
-
-          <aside className={styles.boardRight}>
-            <div className={`${styles.boardPanel} ${styles.boardRenderSlot}`}>
-              <div className={styles.boardPanelHead}>Perspective</div>
-              {renderImageSlot(
-                renderSlots?.hero,
-                "Render slot — Milestone 7 or manual upload"
-              )}
-            </div>
-
-            {materials.length > 0 ? (
-              <div className={styles.boardPanel}>
-                <div className={styles.boardPanelHead}>Materials & finishes</div>
-                <div className={styles.boardPanelBody}>
-                  <div className={styles.boardSwatches}>
-                    {materials.map((m) => {
-                      const entry = legend.find((e) => e.featureType === m.featureType);
-                      const fill = entry?.renderStyle.fill ?? "#ccc";
-                      return (
-                        <div key={m.featureId} className={styles.boardSwatchItem}>
-                          <div
-                            className={styles.boardSwatch}
-                            style={{
-                              background: fill === "none" ? "#e7e5e4" : fill,
-                            }}
-                          />
-                          <div className={styles.boardSwatchLabel}>{m.material}</div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              </div>
-            ) : null}
-
-            {plants.length > 0 ? (
-              <div className={styles.boardPanel}>
-                <div className={styles.boardPanelHead}>Plant palette</div>
-                <div className={styles.boardPanelBody}>
-                  <div className={styles.boardPlants}>
-                    {plants.slice(0, 10).map((p, i) => (
-                      <div key={i} className={styles.boardPlantCard}>
-                        <div className={styles.boardPlantName}>{p.commonName}</div>
-                        <div className={styles.boardPlantSci}>{p.botanicalName}</div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            ) : null}
-
-            {materials.length === 0 && plants.length === 0 ? (
-              <div className={styles.boardPanel}>
-                <div className={styles.boardPanelBody}>
-                  <span className={styles.boardEmpty}>
-                    Generate design content for materials & plants
-                  </span>
-                </div>
-              </div>
-            ) : null}
-          </aside>
-        </div>
-
-        <div className={styles.boardBottom}>
-          <div className={styles.boardBottomLeft}>
-            <div className={styles.boardConcept}>
-              <div className={styles.boardConceptTitle}>Concept overview</div>
-              {concept.length > 0 ? (
-                <ul>
-                  {concept.map((b, i) => (
-                    <li key={i}>{b}</li>
-                  ))}
-                </ul>
+            <div className={styles.legendCell}>
+              {features.length > 0 ? (
+                <BoardPlanLegend
+                  features={features}
+                  legend={legend}
+                  imageWidth={imageWidth}
+                  imageHeight={imageHeight}
+                  pixelsPerFoot={pixelsPerFoot}
+                  hiddenFeatureTypes={hiddenTypes}
+                />
               ) : (
-                <p className={styles.boardEmpty}>Generate design content for concept bullets</p>
+                <Placeholder label="Numbered plan legend" />
               )}
-            </div>
-
-            <div className={styles.boardSupporting}>
-              {supporting.map((s) => (
-                <div key={s.id} className={styles.boardSupportSlot}>
-                  {renderImageSlot(s.url, "Supporting render")}
-                  <div className={styles.boardSupportCaption}>{s.caption}</div>
-                </div>
-              ))}
             </div>
           </div>
+          <div className={styles.centerFooter}>
+            <ScaleVerificationStamp
+              scaleVerification={scaleVerification}
+              requiresVerification={requiresScaleVerification}
+              calibrated={calibrated}
+            />
+            {pixelsPerFoot != null ? (
+              <GraphicScaleBar barPx={scale.scaleBarPx} feet={scale.scaleBarFeet} />
+            ) : (
+              <span className={styles.scaleStampMuted}>Calibrate scale for graphic bar</span>
+            )}
+          </div>
+        </section>
 
+        <aside className={styles.right}>
+          <RenderPanel
+            label="Perspective"
+            url={renderSlots?.hero}
+            placeholder="Perspective render — Milestone 7 or manual upload"
+          />
+          <div className={styles.panel}>
+            <div className={styles.panelHead}>Materials &amp; finishes</div>
+            <div className={styles.panelBody}>
+              {materials.length > 0 ? (
+                <div className={styles.swatches}>
+                  {materials.map((m) => {
+                    const entry = legend.find((e) => e.featureType === m.featureType);
+                    const fill = entry?.renderStyle.fill ?? "#ccc";
+                    return (
+                      <div key={m.featureId} className={styles.swatchItem}>
+                        <div
+                          className={styles.swatch}
+                          style={{ background: fill === "none" ? "#e7e5e4" : fill }}
+                        />
+                        <div className={styles.swatchLabel}>{m.material}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <Placeholder label="Materials &amp; finishes — generate design content" />
+              )}
+            </div>
+          </div>
+          <div className={styles.panel}>
+            <div className={styles.panelHead}>Plant palette</div>
+            <div className={styles.panelBody}>
+              {plants.length > 0 ? (
+                <div className={styles.plantsGrid}>
+                  {plants.slice(0, 12).map((p, i) => (
+                    <div key={i} className={styles.plantCard}>
+                      <div className={styles.plantName}>{p.commonName}</div>
+                      <div className={styles.plantSci}>{p.botanicalName}</div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <Placeholder label="Plant palette grid — generate design content" />
+              )}
+            </div>
+          </div>
+        </aside>
+
+        <div className={styles.bottom}>
+          <div className={styles.conceptPanel}>
+            <div className={styles.conceptTitle}>Concept overview</div>
+            {concept.length > 0 ? (
+              <ul className={styles.conceptList}>
+                {concept.map((b, i) => (
+                  <li key={i}>{b}</li>
+                ))}
+              </ul>
+            ) : (
+              <Placeholder label="Concept overview bullets — generate design content" />
+            )}
+          </div>
+          <div className={styles.supportingRow}>
+            {supporting.map((s) => (
+              <div key={s.id} className={styles.supportSlot}>
+                <div className={styles.panelBody}>
+                  {s.url ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img className={styles.renderFill} src={s.url} alt="" />
+                  ) : (
+                    <Placeholder label={`Supporting render — ${s.caption}`} />
+                  )}
+                </div>
+                <div className={styles.supportCaption}>{s.caption}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className={styles.titleArea}>
           <TitleBlock
             metadata={metadata}
             boardSettings={boardSettings}
-            scaleLabel={scaleLabel}
+            scaleLabel={scale.scaleLabel}
             basePath={basePath}
           />
         </div>

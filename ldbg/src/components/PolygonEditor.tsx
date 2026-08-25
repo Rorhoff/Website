@@ -13,9 +13,11 @@ import type { GeorefDisplayContext } from "@/lib/georef-display";
 import {
   circleNormPoints,
   createDrawnFeature,
+  isCirclePolygonFeature,
   normalizedRadius,
   radiusPx,
   rectangleNormPoints,
+  squareNormPointsFromFeet,
   type DrawShapeKind,
 } from "@/lib/draw-feature";
 import {
@@ -118,7 +120,7 @@ function isDragShapeTool(tool: EditorTool): boolean {
 }
 
 function isClickShapeTool(tool: EditorTool): boolean {
-  return tool === "polygon" || tool === "polyline" || tool === "point";
+  return tool === "polygon" || tool === "polyline" || tool === "point" || tool === "square";
 }
 
 function isDrawTool(tool: EditorTool): boolean {
@@ -158,6 +160,7 @@ export default function PolygonEditor({
   const [drawPoints, setDrawPoints] = useState<{ x: number; y: number }[]>([]);
   const [smoothStroke, setSmoothStroke] = useState<{ x: number; y: number }[]>([]);
   const [drawFeatureType, setDrawFeatureType] = useState(legend[0]?.featureType ?? "lawn");
+  const [squareSideFt, setSquareSideFt] = useState(3);
   const [selectedPlantId, setSelectedPlantId] = useState("");
   const [shapeDrag, setShapeDrag] = useState<{
     start: { x: number; y: number };
@@ -334,6 +337,11 @@ export default function PolygonEditor({
         return;
       }
       if ((e.ctrlKey || e.metaKey) && e.key === "z" && !e.shiftKey) {
+        if (isDrawTool(tool) && isClickShapeTool(tool) && drawPoints.length > 0) {
+          e.preventDefault();
+          setDrawPoints((prev) => prev.slice(0, -1));
+          return;
+        }
         e.preventDefault();
         undo();
       }
@@ -342,6 +350,11 @@ export default function PolygonEditor({
         redo();
       }
       if (e.key === "Delete" || e.key === "Backspace") {
+        if (isDrawTool(tool) && isClickShapeTool(tool) && drawPoints.length > 0) {
+          e.preventDefault();
+          setDrawPoints((prev) => prev.slice(0, -1));
+          return;
+        }
         if (selectedId && tool === "select") {
           e.preventDefault();
           commitFeatures(featuresRef.current.filter((f) => f.id !== selectedId));
@@ -375,7 +388,7 @@ export default function PolygonEditor({
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [undo, redo, selectedId, commitFeatures, tool, georefContext, displayW, displayH]);
+  }, [undo, redo, selectedId, commitFeatures, tool, georefContext, displayW, displayH, drawPoints.length]);
 
   function contentNormFromStage(stage: Konva.Stage) {
     const content = viewport.pointerToContent(stage);
@@ -461,6 +474,13 @@ export default function PolygonEditor({
     if (tool === "point" || (tool === "circle" && drawEntry?.unit === "each")) {
       const r = activePlant ? plantPlacementRadius() : 0.025;
       addFeatureFromDraw("point", [pt], r);
+      return;
+    }
+
+    if (tool === "square") {
+      if (!pixelsPerFoot || pixelsPerFoot <= 0) return;
+      const pts = squareNormPointsFromFeet(pt, squareSideFt, displayW, displayH, pixelsPerFoot);
+      addFeatureFromDraw("polygon", pts);
       return;
     }
 
@@ -668,6 +688,7 @@ export default function PolygonEditor({
         })}
         {toolBtn(tool === "polygon", "Polygon", () => selectDrawTool("polygon"))}
         {toolBtn(tool === "rectangle", "Rectangle", () => selectDrawTool("rectangle"))}
+        {toolBtn(tool === "square", "Square (ft)", () => selectDrawTool("square"), !pixelsPerFoot)}
         {toolBtn(tool === "circle", "Circle", () => selectDrawTool("circle"))}
         {toolBtn(tool === "polyline", "Polyline", () => selectDrawTool("polyline"))}
         {toolBtn(tool === "point", "Point", () => selectDrawTool("point"))}
@@ -767,6 +788,10 @@ export default function PolygonEditor({
             {tool === "polygon" && "Tap each vertex, then Finish shape (min 3)."}
             {tool === "polyline" && "Tap each vertex, then Finish line (min 2)."}
             {tool === "rectangle" && "Press and drag a rectangle."}
+            {tool === "square" &&
+              (pixelsPerFoot
+                ? `Tap to place a ${squareSideFt}'×${squareSideFt}' square (center at tap).`
+                : "Calibrate scale to use square-by-feet.")}
             {tool === "circle" &&
               (drawAsPoint
                 ? activePlant
@@ -780,6 +805,14 @@ export default function PolygonEditor({
           </p>
           {(tool === "polygon" || tool === "polyline") && (
             <div className="flex gap-2">
+              <button
+                type="button"
+                disabled={drawPoints.length === 0}
+                onClick={() => setDrawPoints((prev) => prev.slice(0, -1))}
+                className="min-h-11 rounded border px-4 py-2 text-sm disabled:opacity-50"
+              >
+                Undo point
+              </button>
               <button
                 type="button"
                 disabled={
@@ -802,6 +835,19 @@ export default function PolygonEditor({
               </button>
             </div>
           )}
+          {tool === "square" && pixelsPerFoot ? (
+            <label className="block text-sm text-emerald-950">
+              <span className="font-medium">Square side (ft)</span>
+              <input
+                type="number"
+                min={0.5}
+                step={0.5}
+                className="mt-1 min-h-11 w-24 rounded border px-2 py-2"
+                value={squareSideFt}
+                onChange={(e) => setSquareSideFt(Math.max(0.5, Number(e.target.value) || 3))}
+              />
+            </label>
+          ) : null}
         </div>
       ) : null}
 
@@ -1023,31 +1069,45 @@ export default function PolygonEditor({
                         );
                       }
                       return (
-                        <Line
-                          ref={selectedLineRef}
-                          points={flatFeaturePoints(selected, displayW, displayH, georefContext)}
-                          closed={selected.geometry.kind === "polygon"}
-                          fill={
-                            selected.geometry.kind === "polygon" ? selStyle.fill : undefined
-                          }
-                          stroke="#059669"
-                          strokeWidth={3}
-                          opacity={selStyle.opacity}
-                        />
+                        <>
+                          <Line
+                            points={flatFeaturePoints(selected, displayW, displayH, georefContext)}
+                            closed={selected.geometry.kind === "polygon"}
+                            fill={
+                              selected.geometry.kind === "polygon" ? selStyle.fill : undefined
+                            }
+                            stroke="#ffffff"
+                            strokeWidth={1 / viewport.zoom}
+                            opacity={selStyle.opacity}
+                            listening={false}
+                          />
+                          <Line
+                            ref={selectedLineRef}
+                            points={flatFeaturePoints(selected, displayW, displayH, georefContext)}
+                            closed={selected.geometry.kind === "polygon"}
+                            fill={
+                              selected.geometry.kind === "polygon" ? selStyle.fill : undefined
+                            }
+                            stroke="#059669"
+                            strokeWidth={2 / viewport.zoom}
+                            opacity={selStyle.opacity}
+                          />
+                        </>
                       );
                     })()}
 
-                    {selected.geometry.kind !== "point"
+                    {selected.geometry.kind !== "point" && !isCirclePolygonFeature(selected)
                       ? geometryToPxPoints(selected, displayW, displayH, georefContext).map(
                           (px, vi) => (
                             <Circle
                               key={`v-${vi}`}
                               x={px.x}
                               y={px.y}
-                              radius={VERTEX_HIT_RADIUS / viewport.zoom}
-                              fill="#fff"
-                              stroke="#059669"
-                              strokeWidth={2}
+                              radius={6 / viewport.zoom}
+                              stroke="#ffffff"
+                              strokeWidth={2 / viewport.zoom}
+                              fill="#059669"
+                              hitStrokeWidth={VERTEX_HIT_RADIUS / viewport.zoom}
                               draggable
                               onMouseDown={(ev) => {
                                 ev.cancelBubble = true;

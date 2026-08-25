@@ -5,18 +5,16 @@ export type BoardDimensions = {
   label: string;
   widthIn: number;
   heightIn: number;
+  /** HTML/Puppeteer canvas pixels (100 px per inch). */
   widthPx: number;
   heightPx: number;
 };
 
-export const BOARD_DPI = 300;
+/** Screen/export canvas resolution — 100 CSS px per print inch. */
+export const BOARD_RENDER_PPI = 100;
 
-/** Print-safe margin on all four sides (Addendum B6). */
-export const BOARD_MARGIN_IN = 0.5;
-
-export function boardMarginPx(): number {
-  return BOARD_MARGIN_IN * BOARD_DPI;
-}
+/** Legacy reference for components that convert inches → px on the sheet canvas. */
+export const BOARD_DPI = BOARD_RENDER_PPI;
 
 export const BOARD_SIZES: Record<BoardPageSize, BoardDimensions> = {
   "24x36": {
@@ -24,24 +22,24 @@ export const BOARD_SIZES: Record<BoardPageSize, BoardDimensions> = {
     label: "24×36 landscape",
     widthIn: 36,
     heightIn: 24,
-    widthPx: 36 * BOARD_DPI,
-    heightPx: 24 * BOARD_DPI,
+    widthPx: 36 * BOARD_RENDER_PPI,
+    heightPx: 24 * BOARD_RENDER_PPI,
   },
   "18x24": {
     id: "18x24",
     label: "18×24 landscape",
     widthIn: 24,
     heightIn: 18,
-    widthPx: 24 * BOARD_DPI,
-    heightPx: 18 * BOARD_DPI,
+    widthPx: 24 * BOARD_RENDER_PPI,
+    heightPx: 18 * BOARD_RENDER_PPI,
   },
   "11x17": {
     id: "11x17",
     label: "11×17 landscape",
     widthIn: 17,
     heightIn: 11,
-    widthPx: 17 * BOARD_DPI,
-    heightPx: 11 * BOARD_DPI,
+    widthPx: 17 * BOARD_RENDER_PPI,
+    heightPx: 11 * BOARD_RENDER_PPI,
   },
 };
 
@@ -52,4 +50,24 @@ export function parseBoardPageSize(value: string | null | undefined): BoardPageS
 
 export function boardDimensions(size: BoardPageSize): BoardDimensions {
   return BOARD_SIZES[size];
+}
+
+/** Fixed grid tracks for 24×36 @ 100 PPI (3600×2400). Other sizes scale proportionally. */
+export function boardGridTracks(size: BoardPageSize) {
+  const d = boardDimensions(size);
+  const sx = d.widthPx / 3600;
+  const sy = d.heightPx / 2400;
+  return {
+    sheetW: d.widthPx,
+    sheetH: d.heightPx,
+    colRail: Math.round(792 * sx),
+    colCenter: Math.round(1620 * sx),
+    colRight: d.widthPx - Math.round(792 * sx) - Math.round(1620 * sx),
+    rowMain: Math.round(1800 * sy),
+    rowBottom: d.heightPx - Math.round(1800 * sy),
+    centerLegendW: Math.round(300 * sx),
+    rightHeroH: Math.round(560 * sy),
+    rightMaterialsH: Math.round(360 * sy),
+    railThumbH: Math.round(380 * sy),
+  };
 }
