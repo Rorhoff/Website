@@ -316,6 +316,9 @@ if systemctl list-unit-files 2>/dev/null | grep -q '^ldbg.service'; then
   sleep 2
   if systemctl is-active --quiet ldbg; then
     ok "ldbg is running."
+    if [[ -f /home/ubuntu/Website/.env.dev ]] && ! grep -Eq '^(export[[:space:]]+)?ANTHROPIC_API_KEY=' /home/ubuntu/Website/.env.dev; then
+      warn "ANTHROPIC_API_KEY not in .env.dev — LDBG interpret/design-content will fail (AIRevolution uses the same var)."
+    fi
   else
     warn "ldbg is not active — run: journalctl -u ldbg -n 50"
   fi

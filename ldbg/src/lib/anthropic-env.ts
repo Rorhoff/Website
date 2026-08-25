@@ -14,6 +14,14 @@ function parseEnvValue(raw: string): string {
   return trimmed;
 }
 
+function normalizeEnvKey(rawKey: string): string {
+  let key = rawKey.trim();
+  if (key.startsWith("export ")) {
+    key = key.slice("export ".length).trim();
+  }
+  return key;
+}
+
 function readKeyFromFile(filePath: string): string | undefined {
   try {
     const content = fs.readFileSync(filePath, "utf8");
@@ -22,7 +30,7 @@ function readKeyFromFile(filePath: string): string | undefined {
       if (!trimmed || trimmed.startsWith("#")) continue;
       const eq = trimmed.indexOf("=");
       if (eq <= 0) continue;
-      const key = trimmed.slice(0, eq).trim();
+      const key = normalizeEnvKey(trimmed.slice(0, eq));
       if (key !== "ANTHROPIC_API_KEY") continue;
       const value = parseEnvValue(trimmed.slice(eq + 1));
       if (value) return value;
@@ -33,7 +41,18 @@ function readKeyFromFile(filePath: string): string | undefined {
   return undefined;
 }
 
-/** Resolve Anthropic key from process env or shared site env files (same as other apps). */
+/** Env files shared with webapi-dev / AIRevolution (t1airevolution.com). */
+function sharedSiteEnvCandidates(cwd: string): string[] {
+  return [
+    process.env.ENV_FILE,
+    path.join(cwd, "..", ".env.dev"),
+    path.join(cwd, "..", ".env"),
+    "/home/ubuntu/Website/.env.dev",
+    "/home/ubuntu/Website/.env",
+  ].filter((p): p is string => Boolean(p));
+}
+
+/** Resolve Anthropic key from process env or shared site env files (same as AIRevolution). */
 export function getAnthropicApiKey(): string | undefined {
   if (cachedKey !== null) {
     return cachedKey || undefined;
@@ -46,16 +65,13 @@ export function getAnthropicApiKey(): string | undefined {
   }
 
   const cwd = process.cwd();
+  // Prefer parent site .env.dev (AIRevolution / webapi-dev) before ldbg-local overrides.
   const candidates = [
-    process.env.ENV_FILE,
+    ...sharedSiteEnvCandidates(cwd),
     path.join(cwd, ".env.local"),
     path.join(cwd, ".env"),
-    path.join(cwd, "..", ".env.dev"),
-    path.join(cwd, "..", ".env"),
-    "/home/ubuntu/Website/.env.dev",
-    "/home/ubuntu/Website/.env",
     "/home/ubuntu/Website/ldbg/.env.local",
-  ].filter((p): p is string => Boolean(p));
+  ];
 
   for (const filePath of candidates) {
     const key = readKeyFromFile(filePath);
@@ -66,5 +82,24 @@ export function getAnthropicApiKey(): string | undefined {
   }
 
   cachedKey = "";
+  return undefined;
+}
+
+/** For diagnostics — never log the return value. */
+export function anthropicKeySource(): string | undefined {
+  const fromProcess = process.env.ANTHROPIC_API_KEY?.trim();
+  if (fromProcess) return "process.env.ANTHROPIC_API_KEY";
+
+  const cwd = process.cwd();
+  const candidates = [
+    ...sharedSiteEnvCandidates(cwd),
+    path.join(cwd, ".env.local"),
+    path.join(cwd, ".env"),
+    "/home/ubuntu/Website/ldbg/.env.local",
+  ];
+
+  for (const filePath of candidates) {
+    if (readKeyFromFile(filePath)) return filePath;
+  }
   return undefined;
 }

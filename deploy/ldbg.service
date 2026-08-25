@@ -13,9 +13,10 @@ Type=simple
 User=ubuntu
 Group=ubuntu
 WorkingDirectory=/home/ubuntu/Website/ldbg
-EnvironmentFile=-/home/ubuntu/Website/.env.dev
+EnvironmentFile=/home/ubuntu/Website/.env.dev
 EnvironmentFile=-/home/ubuntu/Website/.env
 EnvironmentFile=-/home/ubuntu/Website/ldbg/.env.local
+Environment=ENV_FILE=/home/ubuntu/Website/.env.dev
 Environment=LDBG_BASE_PATH=/ldbg
 Environment=PORT=3002
 Environment=NODE_ENV=production

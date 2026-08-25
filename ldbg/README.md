@@ -54,7 +54,7 @@ Open [http://localhost:3000](http://localhost:3000) (or port/base path from depl
 
 | Variable | Purpose |
 |----------|---------|
-| `ANTHROPIC_API_KEY` | Interpret + design content |
+| `ANTHROPIC_API_KEY` | Interpret + design content — **same key as AIRevolution** in `/home/ubuntu/Website/.env.dev` (loaded by `ldbg.service` + `anthropic-env.ts`) |
 | `LDBG_PYTHON` | Path to venv Python with rasterio |
 | `LDBG_BLENDER` | Headless Blender for A6 renders |
 | `LDBG_RENDERS_ENABLED` | Enable AI render providers |
