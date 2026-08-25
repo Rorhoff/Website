@@ -1,6 +1,6 @@
 import type { LegendEntry } from "@/config/legend";
 import { BRAND } from "@/config/brand";
-import { BoardPlanLegend, BoardPlanSvg, useBoardPlanScale } from "@/components/BoardPlanSvg";
+import { BoardPlanLegend, BoardPlanSvg, computeBoardPlanScale } from "@/components/BoardPlanSvg";
 import { GeneralNotesBlock } from "@/components/GeneralNotesBlock";
 import { GraphicScaleBar } from "@/components/GraphicScaleBar";
 import { ScaleVerificationStamp } from "@/components/ScaleVerificationStamp";
@@ -107,7 +107,7 @@ export function BoardTemplate({
   const hiddenTypes: string[] = [];
 
   const planPanelWidth = grid.colCenter - grid.centerLegendW - 16;
-  const scale = useBoardPlanScale(
+  const scale = computeBoardPlanScale(
     features,
     imageWidth,
     imageHeight,

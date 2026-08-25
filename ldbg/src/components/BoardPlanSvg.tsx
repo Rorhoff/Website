@@ -1,4 +1,3 @@
-import { useMemo } from "react";
 import type { LegendEntry } from "@/config/legend";
 import type { GeorefDisplayContext } from "@/lib/georef-display";
 import { geometryRadiusPx, geometryToPxPoints } from "@/lib/feature-georef";
@@ -16,7 +15,13 @@ import { patternUrl, PlanPatternDefs } from "@/lib/plan-patterns";
 import type { PlanSettings } from "@/lib/project-schema";
 import styles from "./board.module.css";
 
-type Props = {
+type PlanScale = {
+  scaleLabel: string;
+  scaleBarFeet: number;
+  scaleBarPx: number;
+};
+
+type BoardPlanProps = {
   features: InterpretFeature[];
   legend: LegendEntry[];
   imageWidth: number;
@@ -118,6 +123,28 @@ function NorthArrow({ x, y, size, rotationDeg }: { x: number; y: number; size: n
   );
 }
 
+export function computeBoardPlanScale(
+  features: InterpretFeature[],
+  imageWidth: number,
+  imageHeight: number,
+  planPanelWidthPx: number,
+  pixelsPerFoot?: number,
+  georefCtx?: GeorefDisplayContext,
+  hiddenFeatureTypes: string[] = []
+): PlanScale {
+  const visible = features.filter((f) => !hiddenFeatureTypes.includes(f.featureType));
+  const design = visible.filter((f) => !f.existing);
+  const bounds = computePlanContentBounds(design, imageWidth, imageHeight, georefCtx);
+  if (!pixelsPerFoot || pixelsPerFoot <= 0) {
+    return { scaleLabel: "Scale N/A", scaleBarFeet: 20, scaleBarPx: planPanelWidthPx * 0.12 };
+  }
+  const scaleBarFeet = pickScaleBarFeet(bounds.width, pixelsPerFoot, bounds.width * 0.22);
+  const scaleBarPx = scaleBarFeet * pixelsPerFoot;
+  const scaleLabel = computeArchScaleLabel(bounds.width, pixelsPerFoot, planPanelWidthPx, 100);
+  const displayBarPx = (scaleBarPx / bounds.width) * planPanelWidthPx * 0.85;
+  return { scaleLabel, scaleBarFeet, scaleBarPx: displayBarPx };
+}
+
 export function BoardPlanSvg({
   features,
   legend,
@@ -129,32 +156,29 @@ export function BoardPlanSvg({
   pixelsPerFoot,
   georefCtx,
   hiddenFeatureTypes = [],
-}: Props) {
+}: BoardPlanProps) {
   const baseMode = planSettings?.baseMode ?? "orthophoto";
   const orthoOpacity = planSettings?.orthophotoOpacity ?? 0.4;
 
-  const visibleFeatures = useMemo(
-    () => features.filter((f) => !hiddenFeatureTypes.includes(f.featureType)),
-    [features, hiddenFeatureTypes]
-  );
-  const designFeatures = useMemo(() => visibleFeatures.filter((f) => !f.existing), [visibleFeatures]);
-  const existingFeatures = useMemo(() => visibleFeatures.filter((f) => f.existing), [visibleFeatures]);
+  const visibleFeatures = features.filter((f) => !hiddenFeatureTypes.includes(f.featureType));
+  const designFeatures = visibleFeatures.filter((f) => !f.existing);
+  const existingFeatures = visibleFeatures.filter((f) => f.existing);
 
-  const planFeaturesForBounds = useMemo(() => {
+  const planFeaturesForBounds = (() => {
     const list = [...designFeatures];
     if (baseMode === "orthophoto") list.push(...existingFeatures);
     else if (baseMode === "white") list.push(...existingFeatures.filter(isHouseExisting));
     return list;
-  }, [designFeatures, existingFeatures, baseMode]);
+  })();
 
-  const bounds = useMemo(
-    () => computePlanContentBounds(planFeaturesForBounds, imageWidth, imageHeight, georefCtx),
-    [planFeaturesForBounds, imageWidth, imageHeight, georefCtx]
-  );
-
-  const { callouts } = useMemo(
-    () => buildCalloutsAndLegend(designFeatures, legend, imageWidth, imageHeight, pixelsPerFoot, { georefCtx }),
-    [designFeatures, legend, imageWidth, imageHeight, pixelsPerFoot, georefCtx]
+  const bounds = computePlanContentBounds(planFeaturesForBounds, imageWidth, imageHeight, georefCtx);
+  const { callouts } = buildCalloutsAndLegend(
+    designFeatures,
+    legend,
+    imageWidth,
+    imageHeight,
+    pixelsPerFoot,
+    { georefCtx }
   );
 
   const northSize = Math.min(bounds.width, bounds.height) * 0.08;
@@ -225,15 +249,17 @@ export function BoardPlanLegend({
   pixelsPerFoot,
   georefCtx,
   hiddenFeatureTypes = [],
-}: Omit<Props, "baseImageUrl" | "planSettings" | "northRotationDeg">) {
-  const designFeatures = useMemo(
-    () => features.filter((f) => !f.existing && !hiddenFeatureTypes.includes(f.featureType)),
-    [features, hiddenFeatureTypes]
+}: Omit<BoardPlanProps, "baseImageUrl" | "planSettings" | "northRotationDeg">) {
+  const designFeatures = features.filter(
+    (f) => !f.existing && !hiddenFeatureTypes.includes(f.featureType)
   );
-
-  const { legendRows } = useMemo(
-    () => buildCalloutsAndLegend(designFeatures, legend, imageWidth, imageHeight, pixelsPerFoot, { georefCtx }),
-    [designFeatures, legend, imageWidth, imageHeight, pixelsPerFoot, georefCtx]
+  const { legendRows } = buildCalloutsAndLegend(
+    designFeatures,
+    legend,
+    imageWidth,
+    imageHeight,
+    pixelsPerFoot,
+    { georefCtx }
   );
 
   return (
@@ -261,28 +287,4 @@ export function BoardPlanLegend({
       )}
     </>
   );
-}
-
-export function useBoardPlanScale(
-  features: InterpretFeature[],
-  imageWidth: number,
-  imageHeight: number,
-  planPanelWidthPx: number,
-  pixelsPerFoot?: number,
-  georefCtx?: GeorefDisplayContext,
-  hiddenFeatureTypes: string[] = []
-) {
-  return useMemo(() => {
-    const visible = features.filter((f) => !hiddenFeatureTypes.includes(f.featureType));
-    const design = visible.filter((f) => !f.existing);
-    const bounds = computePlanContentBounds(design, imageWidth, imageHeight, georefCtx);
-    if (!pixelsPerFoot || pixelsPerFoot <= 0) {
-      return { scaleLabel: "Scale N/A", scaleBarFeet: 20, scaleBarPx: planPanelWidthPx * 0.12 };
-    }
-    const scaleBarFeet = pickScaleBarFeet(bounds.width, pixelsPerFoot, bounds.width * 0.22);
-    const scaleBarPx = scaleBarFeet * pixelsPerFoot;
-    const scaleLabel = computeArchScaleLabel(bounds.width, pixelsPerFoot, planPanelWidthPx, 100);
-    const displayBarPx = (scaleBarPx / bounds.width) * planPanelWidthPx * 0.85;
-    return { scaleLabel, scaleBarFeet, scaleBarPx: displayBarPx };
-  }, [features, imageWidth, imageHeight, planPanelWidthPx, pixelsPerFoot, georefCtx, hiddenFeatureTypes]);
 }
