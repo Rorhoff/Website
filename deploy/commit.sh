@@ -170,11 +170,10 @@ sync_ldbg() {
 
   log "Building LDBG with basePath /ldbg…"
   if ! (cd "$src_dir" && LDBG_BASE_PATH=/ldbg npm run build); then
-    warn "LDBG build failed."
-    return 0
+    die "LDBG build failed — fix errors in ldbg/ and re-run commit.sh."
   fi
 
-  ok "LDBG built in ${src_dir}"
+  ok "LDBG built in ${src_dir} ($(git -C "$DEV_DIR" rev-parse --short HEAD))"
 }
 
 install_ldbg_service() {
@@ -247,7 +246,7 @@ git -C "$DEV_DIR" pull --ff-only origin main
 _maybe_refresh_commit_script
 
 sync_referr_all || warn "Referr-All sync skipped — using placeholder from Website git"
-sync_ldbg || warn "LDBG sync skipped — build manually in ldbg/"
+sync_ldbg || die "LDBG sync failed — fix the build and re-run commit.sh."
 install_ldbg_service
 install_nginx_ldbg_upload
 bash "$DEV_DIR/deploy/ensure-ldbg-anthropic-env.sh" || warn "LDBG Anthropic env sync skipped"
@@ -323,6 +322,16 @@ if systemctl list-unit-files 2>/dev/null | grep -q '^ldbg.service'; then
       else
         warn "ANTHROPIC_API_KEY not in .env or .env.dev — LDBG interpret will fail (AIRevolution uses the same var)."
       fi
+    fi
+    ldbg_diag=""
+    ldbg_diag="$(curl -sS --max-time 10 "http://127.0.0.1:3002/ldbg/api/legend?diag=1" 2>/dev/null || true)"
+    if echo "$ldbg_diag" | grep -q '"anthropicConfigured"'; then
+      ok "LDBG diag: $ldbg_diag"
+    else
+      warn "LDBG diag endpoint did not return JSON — stale build or wrong basePath."
+      warn "  Check: ls ~/Website/ldbg/.next/server/app/api/status/route.js"
+      warn "  Check: curl -sS http://127.0.0.1:3002/ldbg/api/status | head -c 120"
+      warn "  Check: journalctl -u ldbg -n 40 --no-pager"
     fi
   else
     warn "ldbg is not active — run: journalctl -u ldbg -n 50"
