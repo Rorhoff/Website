@@ -102,7 +102,7 @@ export function InterpretPanel({
                 ? "Export annotation base and upload your annotated sketch first"
                 : calibrated
                   ? undefined
-                  : "Click Apply scale after setting calibration points"
+                  : "Set points A and B, then enter a real-world distance (feet)"
             }
           >
             {busy ? "Running…" : interpretation ? "Re-run interpret" : "Run interpret"}
@@ -128,8 +128,8 @@ export function InterpretPanel({
 
       {!calibrated && !needsAnnotated ? (
         <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900">
-          Calibrate scale before interpreting — metadata and scale help Claude contextualize the
-          site.
+          Set calibration points A and B plus a real-world distance — when the px/ft badge appears,
+          you can run interpret. Use Apply scale or Save project to keep calibration after reload.
         </p>
       ) : null}
 

@@ -129,6 +129,12 @@ export default function ProjectPage() {
         if (!res.ok) throw new Error("Save failed");
         const updated = await res.json();
         setProject(updated);
+        if ("calibration" in patch) {
+          setCalibration(updated.calibration);
+        }
+        if ("northRotationDeg" in patch) {
+          setNorthRotationDeg(updated.northRotationDeg ?? 0);
+        }
       } catch {
         setError("Save failed");
       } finally {
@@ -143,6 +149,10 @@ export default function ProjectPage() {
     if (!needsReview(interpretation)) return true;
     return !!interpretation.reviewClearedAt;
   }, [interpretation, features.length]);
+
+  const handleScaleDraft = useCallback((cal: Calibration | undefined) => {
+    setCalibration(cal);
+  }, []);
 
   const handleProjectRefresh = useCallback((p: Project) => {
     setProject(p);
@@ -239,6 +249,7 @@ export default function ProjectPage() {
             calibration={calibration}
             northRotationDeg={northRotationDeg}
             onCalibrationChange={setCalibration}
+            onScaleDraft={handleScaleDraft}
             onApply={(cal) => {
               setCalibration(cal);
               void persist({ calibration: cal, northRotationDeg });

@@ -15,7 +15,9 @@ type Props = {
   calibration?: Calibration;
   northRotationDeg: number;
   onCalibrationChange: (cal: Calibration | undefined) => void;
-  /** Called after Apply scale — parent should persist so interpret works without a separate Save. */
+  /** Fired when A/B/distance produce a computable scale (same logic as the px/ft badge). */
+  onScaleDraft?: (cal: Calibration | undefined) => void;
+  /** Called after Apply scale — parent should persist so scale survives reload. */
   onApply: (cal: Calibration) => void;
   onNorthChange: (deg: number) => void;
   onSave: (payload: { calibration?: Calibration; northRotationDeg: number }) => void;
@@ -29,6 +31,7 @@ export function CalibrationTool({
   calibration,
   northRotationDeg,
   onCalibrationChange,
+  onScaleDraft,
   onApply,
   onNorthChange,
   onSave,
@@ -88,9 +91,9 @@ export function CalibrationTool({
   );
 
   function buildCalibration(): Calibration | undefined {
-    if (!pointA || !pointB) return calibration;
+    if (!pointA || !pointB) return undefined;
     const feet = parseFloat(distanceFeet);
-    if (!feet || feet <= 0) return calibration;
+    if (!feet || feet <= 0) return undefined;
     try {
       return {
         pointA,
@@ -105,9 +108,37 @@ export function CalibrationTool({
         ),
       };
     } catch {
-      return calibration;
+      return undefined;
     }
   }
+
+  useEffect(() => {
+    if (!pointA || !pointB) {
+      onScaleDraft?.(undefined);
+      return;
+    }
+    const feet = parseFloat(distanceFeet);
+    if (!feet || feet <= 0) {
+      onScaleDraft?.(undefined);
+      return;
+    }
+    try {
+      onScaleDraft?.({
+        pointA,
+        pointB,
+        distanceFeet: feet,
+        pixelsPerFoot: computePixelsPerFoot(
+          pointA,
+          pointB,
+          imageWidth,
+          imageHeight,
+          feet
+        ),
+      });
+    } catch {
+      onScaleDraft?.(undefined);
+    }
+  }, [pointA, pointB, distanceFeet, imageWidth, imageHeight, onScaleDraft]);
 
   function applyCalibration() {
     if (!pointA || !pointB) return;
@@ -136,13 +167,10 @@ export function CalibrationTool({
     setDistanceFeet("");
     setClickTarget("A");
     onCalibrationChange(undefined);
+    onScaleDraft?.(undefined);
   }
 
-  const pxf =
-    calibration?.pixelsPerFoot ??
-    (pointA && pointB && distanceFeet
-      ? buildCalibration()?.pixelsPerFoot
-      : undefined);
+  const pxf = buildCalibration()?.pixelsPerFoot ?? calibration?.pixelsPerFoot;
 
   return (
     <div className="space-y-4 rounded-xl border border-stone-200 bg-white p-4">
