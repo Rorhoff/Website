@@ -4,19 +4,20 @@ import { useRouter } from "next/navigation";
 import { useCallback, useMemo, useState } from "react";
 import { readImageDimensions } from "@/lib/image-utils";
 import { withBasePath } from "@/lib/paths";
+import {
+  compressOrthophotoForUpload,
+  formatMb,
+} from "@/lib/resize-orthophoto";
 
 /** Keep in sync with nginx `client_max_body_size` for /ldbg (deploy/nginx-rorhoff.conf). */
 const MAX_UPLOAD_BYTES = 200 * 1024 * 1024;
-
-function formatMb(bytes: number): string {
-  return (bytes / (1024 * 1024)).toFixed(1);
-}
 
 export function UploadForm() {
   const router = useRouter();
   const [annotated, setAnnotated] = useState<File | null>(null);
   const [clean, setClean] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState("");
   const [error, setError] = useState("");
 
   const totalBytes = useMemo(
@@ -40,28 +41,49 @@ export function UploadForm() {
       setError("Annotated orthophoto is required.");
       return;
     }
+    if (!clean) {
+      setError("Clean orthophoto is required — upload the same frame without markings.");
+      return;
+    }
     setBusy(true);
     setError("");
+    setStatus("");
     try {
-      if (totalBytes > MAX_UPLOAD_BYTES) {
+      setStatus("Optimizing annotated photo…");
+      const ann = await compressOrthophotoForUpload(annotated);
+      setStatus("Optimizing clean photo…");
+      const cl = await compressOrthophotoForUpload(clean);
+
+      const combined = ann.file.size + cl.file.size;
+      if (combined > MAX_UPLOAD_BYTES) {
         throw new Error(
-          `Combined upload is ${formatMb(totalBytes)} MB — limit is ${formatMb(MAX_UPLOAD_BYTES)} MB. Export smaller JPEGs from your drone app.`
+          `Combined upload is ${formatMb(combined)} MB after compression — limit is ${formatMb(MAX_UPLOAD_BYTES)} MB.`
         );
       }
+
+      setStatus("Creating project…");
       const createRes = await fetch(withBasePath("/api/projects"), { method: "POST" });
       if (!createRes.ok) throw new Error("Could not create project");
       const project = await createRes.json();
-      const annDim = await readImageDimensions(annotated);
+
+      const annDim =
+        ann.wasCompressed
+          ? { width: ann.width, height: ann.height }
+          : await readImageDimensions(ann.file);
+      const cleanDim =
+        cl.wasCompressed
+          ? { width: cl.width, height: cl.height }
+          : await readImageDimensions(cl.file);
+
       const fd = new FormData();
-      fd.set("annotated", annotated);
+      fd.set("annotated", ann.file);
       fd.set("annotatedWidth", String(annDim.width));
       fd.set("annotatedHeight", String(annDim.height));
-      if (clean) {
-        const cleanDim = await readImageDimensions(clean);
-        fd.set("clean", clean);
-        fd.set("cleanWidth", String(cleanDim.width));
-        fd.set("cleanHeight", String(cleanDim.height));
-      }
+      fd.set("clean", cl.file);
+      fd.set("cleanWidth", String(cleanDim.width));
+      fd.set("cleanHeight", String(cleanDim.height));
+
+      setStatus("Uploading…");
       const up = await fetch(withBasePath(`/api/projects/${project.id}/upload`), {
         method: "POST",
         body: fd,
@@ -70,7 +92,7 @@ export function UploadForm() {
         const err = await up.json().catch(() => ({}));
         if (up.status === 413) {
           throw new Error(
-            `Upload too large (${formatMb(totalBytes)} MB combined). Server limit is ${formatMb(MAX_UPLOAD_BYTES)} MB — if this persists after deploy, run: sudo nginx -t && sudo systemctl reload nginx on the server.`
+            `Upload too large (${formatMb(combined)} MB). Ask admin to reload nginx with the /ldbg 200MB limit.`
           );
         }
         throw new Error(err.error ?? "Upload failed");
@@ -80,6 +102,7 @@ export function UploadForm() {
       setError(e instanceof Error ? e.message : "Upload failed");
     } finally {
       setBusy(false);
+      setStatus("");
     }
   }
 
@@ -128,36 +151,43 @@ export function UploadForm() {
 
   return (
     <div className="space-y-4">
+      <p className="text-sm text-stone-600">
+        Both photos are required. Large drone files are automatically resized before upload.
+      </p>
       <div className="grid gap-4 md:grid-cols-2">
         <DropZone
           label="Annotated orthophoto"
-          hint="Drag & drop or click — your color-coded design sketch"
+          hint="Color-coded design sketch on the drone frame"
           file={annotated}
           kind="annotated"
           required
         />
         <DropZone
           label="Clean orthophoto"
-          hint="Same frame, no markings (strongly recommended)"
+          hint="Same frame, no markings"
           file={clean}
           kind="clean"
+          required
         />
       </div>
-      {annotated || clean ? (
+      {annotated && clean ? (
         <p className="text-xs text-stone-500">
-          Combined size: {formatMb(totalBytes)} MB (max {formatMb(MAX_UPLOAD_BYTES)} MB)
+          Original combined: {formatMb(totalBytes)} MB — will compress to ≤6000px long edge (~8 MB each) before upload
         </p>
+      ) : null}
+      {status ? (
+        <p className="text-sm text-stone-600">{status}</p>
       ) : null}
       {error ? (
         <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>
       ) : null}
       <button
         type="button"
-        disabled={busy || !annotated}
+        disabled={busy || !annotated || !clean}
         onClick={submit}
         className="rounded-lg bg-emerald-700 px-5 py-2.5 text-sm font-medium text-white disabled:opacity-50"
       >
-        {busy ? "Uploading…" : "Create project & continue"}
+        {busy ? "Processing…" : "Create project & continue"}
       </button>
     </div>
   );

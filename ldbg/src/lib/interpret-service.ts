@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { getAnthropicApiKey } from "@/lib/anthropic-env";
 import {
   buildInterpretSystemPrompt,
   buildInterpretUserPrompt,
@@ -108,7 +109,7 @@ export async function runInterpretForProject(
     };
   }
 
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const apiKey = getAnthropicApiKey();
   if (!apiKey) {
     return { error: "ANTHROPIC_API_KEY is not configured on the server" };
   }
@@ -245,7 +246,7 @@ export async function runInterpretOnBuffer(
   filename: string,
   metadata: Project["metadata"]
 ): Promise<StoredInterpretation | InterpretFailure> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const apiKey = getAnthropicApiKey();
   if (!apiKey) {
     return { error: "ANTHROPIC_API_KEY is not configured" };
   }

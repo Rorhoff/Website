@@ -64,6 +64,12 @@ export function canExportBoard(project: Project): {
   reason?: string;
 } {
   if (!requiresScaleVerification(project)) {
+    if (!project.calibration?.pixelsPerFoot) {
+      return {
+        allowed: false,
+        reason: "Complete scale calibration before exporting.",
+      };
+    }
     return { allowed: true };
   }
 
@@ -91,4 +97,26 @@ export function formatScaleVerificationSummary(sv: ScaleVerification): string {
   const pct = (sv.ratio - 1) * 100;
   const sign = pct >= 0 ? "+" : "";
   return `${sv.description}: expected ${sv.expectedFeet.toFixed(1)} ft, measured ${sv.measuredFeet.toFixed(1)} ft (${sign}${pct.toFixed(1)}%)`;
+}
+
+/** Architectural feet display e.g. 16'-1" */
+export function formatFeetArch(feet: number): string {
+  const whole = Math.floor(feet);
+  const inches = Math.round((feet - whole) * 12);
+  if (inches <= 0) return `${whole}'-0"`;
+  if (inches >= 12) return `${whole + 1}'-0"`;
+  return `${whole}'-${inches}"`;
+}
+
+/** Addendum B5 — scale verification stamp under the plan. */
+export function formatScaleVerificationStamp(sv: ScaleVerification): string {
+  const date = new Date(sv.verifiedAt).toLocaleDateString("en-US", {
+    month: "numeric",
+    day: "numeric",
+    year: "numeric",
+  });
+  return (
+    `Scale verified ${date} against ${sv.description}. ` +
+    `Expected ${formatFeetArch(sv.expectedFeet)}, measured ${formatFeetArch(sv.measuredFeet)}, ratio ${sv.ratio.toFixed(3)}.`
+  );
 }

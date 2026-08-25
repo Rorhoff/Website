@@ -1,7 +1,9 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
+import { CalibrationPin } from "@/components/CalibrationPin";
 import { computePixelsPerFoot } from "@/lib/calibration";
+import { normalizedImagePointFromClick } from "@/lib/calibration-image-point";
 import type { Calibration } from "@/lib/project-schema";
 
 type Point = { x: number; y: number };
@@ -30,6 +32,7 @@ export function CalibrationTool({
   saving,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const imageRef = useRef<HTMLImageElement>(null);
   const [pointA, setPointA] = useState<Point | null>(
     calibration?.pointA ?? null
   );
@@ -44,13 +47,8 @@ export function CalibrationTool({
 
   const handleImageClick = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
-      const rect = e.currentTarget.getBoundingClientRect();
-      const x = (e.clientX - rect.left) / rect.width;
-      const y = (e.clientY - rect.top) / rect.height;
-      const p = {
-        x: Math.min(1, Math.max(0, x)),
-        y: Math.min(1, Math.max(0, y)),
-      };
+      const p = normalizedImagePointFromClick(e, imageRef.current);
+      if (!p) return;
       if (clickTarget === "A") {
         setPointA(p);
         setClickTarget("B");
@@ -136,17 +134,14 @@ export function CalibrationTool({
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
+          ref={imageRef}
           src={imageUrl}
           alt="Calibration base"
           className="block h-full w-full object-contain"
           draggable={false}
         />
-        {pointA ? (
-          <Marker label="A" point={pointA} color="#059669" />
-        ) : null}
-        {pointB ? (
-          <Marker label="B" point={pointB} color="#2563eb" />
-        ) : null}
+        {pointA ? <CalibrationPin label="A" point={pointA} color="#059669" /> : null}
+        {pointB ? <CalibrationPin label="B" point={pointB} color="#2563eb" /> : null}
         {pointA && pointB ? (
           <svg
             className="pointer-events-none absolute inset-0 h-full w-full"
@@ -226,30 +221,6 @@ export function CalibrationTool({
       <p className="text-xs text-stone-500">
         North arrow: drag the handle on the image to set north ({northRotationDeg}°).
       </p>
-    </div>
-  );
-}
-
-function Marker({
-  label,
-  point,
-  color,
-}: {
-  label: string;
-  point: Point;
-  color: string;
-}) {
-  return (
-    <div
-      className="pointer-events-none absolute -translate-x-1/2 -translate-y-1/2"
-      style={{ left: `${point.x * 100}%`, top: `${point.y * 100}%` }}
-    >
-      <div
-        className="flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold text-white shadow"
-        style={{ backgroundColor: color }}
-      >
-        {label}
-      </div>
     </div>
   );
 }

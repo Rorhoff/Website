@@ -1,6 +1,8 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
+import { CalibrationPin } from "@/components/CalibrationPin";
+import { normalizedImagePointFromClick } from "@/lib/calibration-image-point";
 import {
   evaluateScaleVerification,
   formatScaleVerificationSummary,
@@ -46,16 +48,12 @@ export function ScaleVerificationPanel({
     scaleVerification?.expectedFeet?.toString() ?? ""
   );
   const [clickTarget, setClickTarget] = useState<"A" | "B">("A");
+  const imageRef = useRef<HTMLImageElement>(null);
 
   const handleImageClick = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
-      const rect = e.currentTarget.getBoundingClientRect();
-      const x = (e.clientX - rect.left) / rect.width;
-      const y = (e.clientY - rect.top) / rect.height;
-      const p = {
-        x: Math.min(1, Math.max(0, x)),
-        y: Math.min(1, Math.max(0, y)),
-      };
+      const p = normalizedImagePointFromClick(e, imageRef.current);
+      if (!p) return;
       if (clickTarget === "A") {
         setPointA(p);
         setClickTarget("B");
@@ -160,23 +158,14 @@ export function ScaleVerificationPanel({
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
+          ref={imageRef}
           src={imageUrl}
           alt="Scale verification"
           className="block w-full select-none"
           draggable={false}
         />
-        {pointA ? (
-          <span
-            className="absolute h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-emerald-500"
-            style={{ left: `${pointA.x * 100}%`, top: `${pointA.y * 100}%` }}
-          />
-        ) : null}
-        {pointB ? (
-          <span
-            className="absolute h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-sky-500"
-            style={{ left: `${pointB.x * 100}%`, top: `${pointB.y * 100}%` }}
-          />
-        ) : null}
+        {pointA ? <CalibrationPin label="A" point={pointA} color="#10b981" /> : null}
+        {pointB ? <CalibrationPin label="B" point={pointB} color="#0ea5e9" /> : null}
         {pointA && pointB ? (
           <svg className="pointer-events-none absolute inset-0 h-full w-full">
             <line

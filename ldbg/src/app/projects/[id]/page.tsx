@@ -6,6 +6,7 @@ import { AnnotationBasePanel } from "@/components/AnnotationBasePanel";
 import { AppHeader } from "@/components/AppHeader";
 import { CalibrationTool } from "@/components/CalibrationTool";
 import { BoardExportPanel } from "@/components/BoardExportPanel";
+import { GeneralNotesPanel } from "@/components/GeneralNotesPanel";
 import { GeometryExportPanel } from "@/components/GeometryExportPanel";
 import { DesignContentPanel } from "@/components/DesignContentPanel";
 import { ElevationPanel } from "@/components/ElevationPanel";
@@ -393,6 +394,14 @@ export default function ProjectPage() {
             hasElevationAnalysis={!!elevationAnalysis?.contours?.length}
             exportBlocked={!exportGate.allowed}
             exportBlockReason={exportGate.reason}
+          />
+        ) : null}
+        {features.length > 0 ? (
+          <GeneralNotesPanel
+            boardSettings={boardSettings}
+            onChange={setBoardSettings}
+            onSave={() => persist({ boardSettings })}
+            saving={saving}
           />
         ) : null}
         {features.length > 0 ? (

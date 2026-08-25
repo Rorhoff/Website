@@ -1,14 +1,21 @@
 import type { LegendEntry } from "@/config/legend";
-import { BRANDING, brandingLogoUrl } from "@/config/branding";
+import { BRAND } from "@/config/brand";
+import { GeneralNotesBlock } from "@/components/GeneralNotesBlock";
+import { GraphicScaleBar } from "@/components/GraphicScaleBar";
 import { PlanDrawing } from "@/components/PlanDrawing";
+import { ScaleVerificationStamp } from "@/components/ScaleVerificationStamp";
+import { TitleBlock, computeBoardScaleLabel } from "@/components/TitleBlock";
 import type { StoredDesignContent } from "@/lib/design-content-schema";
 import type { InterpretFeature } from "@/lib/interpret-schema";
-import { boardDimensions, type BoardPageSize } from "@/lib/board-sizes";
-import type { PlanSettings, ProjectMetadata, ScaleVerification } from "@/lib/project-schema";
-import {
-  formatScaleVerificationSummary,
-  PHOTOGRAMMETRY_DISCLAIMER,
-} from "@/lib/scale-verification";
+import { boardDimensions, boardMarginPx, type BoardPageSize } from "@/lib/board-sizes";
+import { resolveEnabledNotes } from "@/lib/general-notes";
+import { pickScaleBarFeet } from "@/lib/plan-layout";
+import type {
+  BoardSettings,
+  PlanSettings,
+  ProjectMetadata,
+  ScaleVerification,
+} from "@/lib/project-schema";
 import styles from "./board.module.css";
 
 export type BoardRenderSlots = {
@@ -26,8 +33,10 @@ type Props = {
   northRotationDeg: number;
   designContent?: StoredDesignContent;
   planSettings?: PlanSettings;
+  boardSettings?: BoardSettings;
   imageWidth: number;
   imageHeight: number;
+  pixelsPerFoot?: number;
   annotatedUrl?: string;
   cleanUrl?: string;
   baseImageUrl?: string;
@@ -35,7 +44,8 @@ type Props = {
   pageSize: BoardPageSize;
   basePath?: string;
   scaleVerification?: ScaleVerification;
-  showPhotogrammetryDisclaimer?: boolean;
+  requiresScaleVerification?: boolean;
+  calibrated?: boolean;
 };
 
 function renderImageSlot(url: string | undefined, placeholder: string) {
@@ -59,8 +69,10 @@ export function BoardTemplate({
   northRotationDeg,
   designContent,
   planSettings,
+  boardSettings,
   imageWidth,
   imageHeight,
+  pixelsPerFoot,
   annotatedUrl,
   cleanUrl,
   baseImageUrl,
@@ -68,10 +80,20 @@ export function BoardTemplate({
   pageSize,
   basePath = "",
   scaleVerification,
-  showPhotogrammetryDisclaimer = false,
+  requiresScaleVerification = false,
+  calibrated = false,
 }: Props) {
   const dims = boardDimensions(pageSize);
-  const logoUrl = brandingLogoUrl(basePath);
+  const marginPx = boardMarginPx();
+  const planDisplayWidth = dims.widthPx * 0.48;
+  const numberedNotes = resolveEnabledNotes(boardSettings?.enabledNoteIds);
+  const scaleLabel = computeBoardScaleLabel(planDisplayWidth, pixelsPerFoot, 20);
+  const scaleBarFeet =
+    pixelsPerFoot != null
+      ? pickScaleBarFeet(planDisplayWidth, pixelsPerFoot, planDisplayWidth * 0.14)
+      : 20;
+  const scaleBarPx =
+    pixelsPerFoot != null ? scaleBarFeet * pixelsPerFoot : planDisplayWidth * 0.1;
 
   const materials = designContent?.materialsAndFinishes ?? [];
   const plants = designContent?.plantPalette ?? [];
@@ -107,8 +129,10 @@ export function BoardTemplate({
         {
           width: dims.widthPx,
           height: dims.heightPx,
+          padding: marginPx,
           fontSize: dims.widthPx / 100,
-          "--board-accent": BRANDING.accentColor,
+          "--board-accent": BRAND.accentColor,
+          "--board-margin-px": `${marginPx}px`,
         } as React.CSSProperties
       }
       data-project-id={projectId}
@@ -138,6 +162,7 @@ export function BoardTemplate({
                 </div>
               </div>
             ) : null}
+            <GeneralNotesBlock notes={numberedNotes} />
           </aside>
 
           <section className={styles.boardCenter}>
@@ -151,17 +176,32 @@ export function BoardTemplate({
                     features,
                     northRotationDeg,
                     metadata,
+                    pixelsPerFoot,
+                    calibration:
+                      pixelsPerFoot != null
+                        ? { pixelsPerFoot }
+                        : undefined,
                   }}
                   legend={legend}
                   imageWidth={imageWidth}
                   imageHeight={imageHeight}
                   baseImageUrl={baseImageUrl}
                   planSettings={planSettings}
-                  displayWidth={dims.widthPx * 0.52}
+                  displayWidth={planDisplayWidth}
                 />
               ) : (
                 <span className={styles.boardEmpty}>Plan not available</span>
               )}
+            </div>
+            <div className={styles.boardPlanFooter}>
+              <ScaleVerificationStamp
+                scaleVerification={scaleVerification}
+                requiresVerification={requiresScaleVerification}
+                calibrated={calibrated}
+              />
+              {pixelsPerFoot != null ? (
+                <GraphicScaleBar barPx={scaleBarPx} feet={scaleBarFeet} />
+              ) : null}
             </div>
           </section>
 
@@ -252,27 +292,12 @@ export function BoardTemplate({
             </div>
           </div>
 
-          <div className={styles.boardBrand}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img className={styles.boardLogo} src={logoUrl} alt="" />
-            <div className={styles.boardBrandName}>{BRANDING.businessName}</div>
-            <div className={styles.boardTagline}>{BRANDING.tagline}</div>
-            <div className={styles.boardMeta}>
-              {metadata.clientName ? `${metadata.clientName} · ` : ""}
-              {metadata.propertyAddress || metadata.projectTitle}
-            </div>
-            <div className={styles.boardMeta}>
-              {metadata.designStyle} · {metadata.climateZone}
-            </div>
-            {showPhotogrammetryDisclaimer ? (
-              <div className={styles.boardDisclaimer}>{PHOTOGRAMMETRY_DISCLAIMER}</div>
-            ) : null}
-            {scaleVerification?.passed ? (
-              <div className={styles.boardScaleVerify}>
-                Scale check: {formatScaleVerificationSummary(scaleVerification)}
-              </div>
-            ) : null}
-          </div>
+          <TitleBlock
+            metadata={metadata}
+            boardSettings={boardSettings}
+            scaleLabel={scaleLabel}
+            basePath={basePath}
+          />
         </div>
       </div>
     </div>

@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { getAnthropicApiKey } from "@/lib/anthropic-env";
 import { z } from "zod";
 import {
   buildDesignContentSystemPrompt,
@@ -122,7 +123,7 @@ export async function runDesignContentForProject(
     };
   }
 
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const apiKey = getAnthropicApiKey();
   if (!apiKey) {
     return { error: "ANTHROPIC_API_KEY is not configured on the server" };
   }

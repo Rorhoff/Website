@@ -65,39 +65,43 @@ export async function POST(req: Request, { params }: Params) {
     height: annH,
   };
 
-  if (clean instanceof File && clean.size > 0) {
-    if (!ALLOWED.has(clean.type)) {
-      return NextResponse.json(
-        { error: "Clean image must be JPEG, PNG, or WebP" },
-        { status: 400 }
-      );
-    }
-    const cleanW = parseInt(String(form.get("cleanWidth") ?? "0"), 10);
-    const cleanH = parseInt(String(form.get("cleanHeight") ?? "0"), 10);
-    if (!cleanW || !cleanH) {
-      return NextResponse.json(
-        { error: "Clean image dimensions missing" },
-        { status: 400 }
-      );
-    }
-    const cleanExt =
-      clean.type === "image/png"
-        ? "png"
-        : clean.type === "image/webp"
-          ? "webp"
-          : "jpg";
-    const cleanName = `clean.${cleanExt}`;
-    await storage.saveProjectFile(
-      id,
-      cleanName,
-      Buffer.from(await clean.arrayBuffer())
+  if (!(clean instanceof File) || clean.size === 0) {
+    return NextResponse.json(
+      { error: "Clean orthophoto is required" },
+      { status: 400 }
     );
-    project.images.clean = {
-      filename: cleanName,
-      width: cleanW,
-      height: cleanH,
-    };
   }
+  if (!ALLOWED.has(clean.type)) {
+    return NextResponse.json(
+      { error: "Clean image must be JPEG, PNG, or WebP" },
+      { status: 400 }
+    );
+  }
+  const cleanW = parseInt(String(form.get("cleanWidth") ?? "0"), 10);
+  const cleanH = parseInt(String(form.get("cleanHeight") ?? "0"), 10);
+  if (!cleanW || !cleanH) {
+    return NextResponse.json(
+      { error: "Clean image dimensions missing" },
+      { status: 400 }
+    );
+  }
+  const cleanExt =
+    clean.type === "image/png"
+      ? "png"
+      : clean.type === "image/webp"
+        ? "webp"
+        : "jpg";
+  const cleanName = `clean.${cleanExt}`;
+  await storage.saveProjectFile(
+    id,
+    cleanName,
+    Buffer.from(await clean.arrayBuffer())
+  );
+  project.images.clean = {
+    filename: cleanName,
+    width: cleanW,
+    height: cleanH,
+  };
 
   project.updatedAt = new Date().toISOString();
   await storage.saveProject(project);

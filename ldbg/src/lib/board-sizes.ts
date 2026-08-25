@@ -11,6 +11,13 @@ export type BoardDimensions = {
 
 export const BOARD_DPI = 300;
 
+/** Print-safe margin on all four sides (Addendum B6). */
+export const BOARD_MARGIN_IN = 0.5;
+
+export function boardMarginPx(): number {
+  return BOARD_MARGIN_IN * BOARD_DPI;
+}
+
 export const BOARD_SIZES: Record<BoardPageSize, BoardDimensions> = {
   "24x36": {
     id: "24x36",

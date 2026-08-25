@@ -159,6 +159,11 @@ export const RenderSettingsSchema = z.object({
 
 export const BoardSettingsSchema = z.object({
   pageSize: z.enum(["24x36", "18x24", "11x17"]).default("24x36"),
+  sheetNumber: z.string().default("C-100"),
+  revision: z.string().default("Rev 1"),
+  designer: z.string().default(""),
+  issueDate: z.string().optional(),
+  enabledNoteIds: z.array(z.string()).optional(),
 });
 
 export const ProjectSchema = z.object({

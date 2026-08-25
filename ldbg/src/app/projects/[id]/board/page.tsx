@@ -6,8 +6,10 @@ import { parseBoardPageSize } from "@/lib/board-sizes";
 import {
   getDisplayImage,
   getNorthRotationDeg,
+  getPixelsPerFoot,
   getPrintBoardImage,
   isGeoreferenced,
+  isProjectScaled,
 } from "@/lib/georef";
 import { getLegend, getStorage } from "@/lib/storage";
 
@@ -95,8 +97,10 @@ export default async function BoardPage({ params, searchParams }: Props) {
           northRotationDeg={getNorthRotationDeg(project)}
           designContent={project.designContent}
           planSettings={project.planSettings}
+          boardSettings={project.boardSettings}
           imageWidth={baseImage?.width ?? 1000}
           imageHeight={baseImage?.height ?? 1000}
+          pixelsPerFoot={getPixelsPerFoot(project)}
           annotatedUrl={
             ann ? fileUrl(id, ann.filename) : undefined
           }
@@ -112,7 +116,8 @@ export default async function BoardPage({ params, searchParams }: Props) {
               ? project.scaleVerification
               : undefined
           }
-          showPhotogrammetryDisclaimer={isGeoreferenced(project)}
+          requiresScaleVerification={isGeoreferenced(project)}
+          calibrated={isProjectScaled(project)}
         />
     </>
   );
