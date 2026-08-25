@@ -34,8 +34,6 @@ _clean_spa_static() {
   local repo="$1"
   git -C "$repo" checkout -- static/referr-all 2>/dev/null || true
   git -C "$repo" clean -fd -- static/referr-all 2>/dev/null || true
-  # git -C "$repo" checkout -- static/in-the-wild 2>/dev/null || true
-  # git -C "$repo" clean -fd -- static/in-the-wild 2>/dev/null || true
   rm -rf "$repo/static/t1-referrall" "$repo/static/t1-referral"
 }
 
@@ -54,17 +52,19 @@ ok()   { echo "${GREEN}OK${RESET}  $*"; }
 warn() { echo "${YELLOW}WARN${RESET} $*"; }
 die()  { echo "${RED}ERR${RESET} $*" >&2; exit 1; }
 
-# Keep ~/commit.sh in sync with deploy/commit.sh so a one-time cp doesn't leave stale paths.
-_REPO_COMMIT="$DEV_DIR/deploy/commit.sh"
-if [[ -f "$_REPO_COMMIT" ]]; then
-  _this="${BASH_SOURCE[0]}"
-  if [[ "$_this" != "$_REPO_COMMIT" ]] && ! cmp -s "$_this" "$_REPO_COMMIT" 2>/dev/null; then
-    echo "${BLUE}==>${RESET} Updating ${HOME}/commit.sh from ${DEV_DIR}/deploy/commit.sh…"
-    cp "$_REPO_COMMIT" "$HOME/commit.sh"
+# Keep ~/commit.sh in sync with deploy/commit.sh (before pull — local edits on disk).
+_maybe_refresh_commit_script() {
+  local repo_script="$DEV_DIR/deploy/commit.sh"
+  [[ -f "$repo_script" ]] || return 0
+  local self="${BASH_SOURCE[0]}"
+  [[ "$self" == "$repo_script" ]] && return 0
+  if ! cmp -s "$self" "$repo_script" 2>/dev/null; then
+    log "Updating ${HOME}/commit.sh from ${repo_script}…"
+    cp "$repo_script" "$HOME/commit.sh"
     chmod +x "$HOME/commit.sh"
     exec "$HOME/commit.sh" "$@"
   fi
-fi
+}
 
 # Build Referr-All (Vite/React) into static/referr-all after each pull.
 # Prefers referr-all-app/ in this repo (Referr-All branding), then ./T1Referrall on EC2,
@@ -148,50 +148,6 @@ sync_referr_all() {
   ok "Referr-All deployed to ${target}"
 }
 
-# Build In the Wild (Vite/React) into static/in-the-wild after each pull.
-# Disabled — no longer deployed from this script.
-# sync_in_the_wild() {
-#   local target="$DEV_DIR/static/in-the-wild"
-#   local vite_base="/in-the-wild/"
-#   local src_dir="$DEV_DIR/in-the-wild-app"
-#
-#   if ! command -v npm >/dev/null 2>&1; then
-#     warn "npm not found — skipping In the Wild build."
-#     return 0
-#   fi
-#
-#   if [[ ! -f "$src_dir/package.json" ]]; then
-#     warn "in-the-wild-app/package.json not found — skipping build."
-#     return 0
-#   fi
-#
-#   log "Building In the Wild from ${src_dir}…"
-#   if ! (cd "$src_dir" && npm ci); then
-#     warn "In the Wild npm ci failed."
-#     return 0
-#   fi
-#
-#   log "Building In the Wild for ${vite_base}…"
-#   if ! (cd "$src_dir" && npm run build -- --base="${vite_base}"); then
-#     warn "In the Wild build failed."
-#     return 0
-#   fi
-#
-#   if [[ ! -d "$src_dir/dist" ]]; then
-#     warn "In the Wild build did not produce dist/."
-#     return 0
-#   fi
-#
-#   mkdir -p "$target"
-#   if command -v rsync >/dev/null 2>&1; then
-#     rsync -a --delete "$src_dir/dist/" "$target/"
-#   else
-#     find "$target" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
-#     cp -a "$src_dir/dist"/. "$target/"
-#   fi
-#   ok "In the Wild deployed to ${target}"
-# }
-
 # Build LDBG (Next.js) in ldbg/ and restart the ldbg systemd unit.
 sync_ldbg() {
   local src_dir="$DEV_DIR/ldbg"
@@ -240,9 +196,9 @@ install_ldbg_service() {
 # static/referr-all is rebuilt every deploy — never treat it as a blocker.
 # ---------------------------------------------------------------------------
 [[ -d "$DEV_DIR/.git" ]] || die "Not a git checkout: $DEV_DIR"
+_maybe_refresh_commit_script
 _clean_spa_static "$DEV_DIR"
 _diff_paths=(':!static/referr-all')
-# _diff_paths=(':!static/referr-all' ':!static/in-the-wild')
 if ! git -C "$DEV_DIR" diff --quiet HEAD -- . "$_diff_paths" \
   || ! git -C "$DEV_DIR" diff --cached --quiet HEAD -- . "$_diff_paths"; then
   git -C "$DEV_DIR" status --short
@@ -264,8 +220,10 @@ git -C "$DEV_DIR" checkout main >/dev/null
 # be sorted out by hand, not by a deploy script.
 git -C "$DEV_DIR" pull --ff-only origin main
 
+# After pull, re-exec if deploy/commit.sh changed on origin (fixes stale ~/commit.sh).
+_maybe_refresh_commit_script
+
 sync_referr_all || warn "Referr-All sync skipped — using placeholder from Website git"
-# sync_in_the_wild || warn "In the Wild sync skipped — using placeholder from Website git"
 sync_ldbg || warn "LDBG sync skipped — build manually in ldbg/"
 install_ldbg_service
 
@@ -314,15 +272,6 @@ bash "$DEV_DIR/deploy/migrate-t1referrall-v10.sh" || die "v10 migration failed �
 bash "$DEV_DIR/deploy/migrate-t1referrall-v11.sh" || die "v11 migration failed — login will 503 until fixed"
 bash "$DEV_DIR/deploy/migrate-t1referrall-v12.sh" || die "v12 migration failed"
 bash "$DEV_DIR/deploy/bootstrap-referrall-admin.sh" || warn "Admin bootstrap skipped (run deploy/bootstrap-referrall-admin.sh manually)"
-
-# log "In the Wild DB migration (v1)…"
-# bash "$DEV_DIR/deploy/migrate-t1inthewild-v1.sh" || die "In the Wild v1 migration failed"
-# bash "$DEV_DIR/deploy/migrate-t1inthewild-v2.sh" || die "In the Wild v2 migration failed"
-# bash "$DEV_DIR/deploy/migrate-t1inthewild-v3.sh" || die "In the Wild v3 migration failed"
-# bash "$DEV_DIR/deploy/migrate-t1inthewild-v4.sh" || die "In the Wild v4 migration failed"
-# bash "$DEV_DIR/deploy/migrate-t1inthewild-v5.sh" || die "In the Wild v5 migration failed"
-# bash "$DEV_DIR/deploy/migrate-t1inthewild-v6.sh" || die "In the Wild v6 migration failed"
-# bash "$DEV_DIR/deploy/bootstrap-itw-admin.sh" || warn "In the Wild admin bootstrap skipped"
 
 log "Ensuring Stripe public base URL on dev…"
 bash "$DEV_DIR/deploy/ensure-stripe-public-base-dev.sh" || warn "Could not update Stripe env — run deploy/set-stripe-dev.sh manually"
