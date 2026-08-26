@@ -155,6 +155,55 @@ def _edge_feather_alpha(h: int, w: int, params: dict[str, Any]) -> np.ndarray:
     return (alpha * 255).astype(np.uint8)
 
 
+def apply_watercolor_texture_only(
+    img: np.ndarray,
+    params: dict[str, Any],
+    paper_texture_path: Path | None = None,
+    progress: ProgressFn | None = None,
+) -> np.ndarray:
+    """Steps 3–7 only (posterize through paper texture), for feature-fill crops."""
+    input_h, input_w = img.shape[:2]
+
+    poster = params.get("posterize", {})
+    _emit_progress(progress, 10, "posterize")
+    posterized = _posterize(img, int(poster.get("levels", 20)))
+
+    hsv_p = params.get("hsv", {})
+    _emit_progress(progress, 30, "hsv-adjust")
+    adjusted = _hsv_adjust(
+        posterized,
+        float(hsv_p.get("saturationMultiplier", 1.15)),
+        float(hsv_p.get("valueFloor", 0.12)),
+    )
+
+    edge_p = params.get("edgeDarkening", {})
+    _emit_progress(progress, 50, "edge-darkening")
+    edged = _edge_darken(adjusted, edge_p)
+
+    gran = params.get("granulation", {})
+    _emit_progress(progress, 70, "granulation")
+    grained = _granulation(
+        edged,
+        float(gran.get("amplitude", 0.035)),
+        int(gran.get("seed", 42)),
+    )
+
+    paper_p = params.get("paperTexture", {})
+    _emit_progress(progress, 90, "paper-texture")
+    paper_opacity = float(paper_p.get("opacity", 0.14))
+    paper_path = paper_texture_path or Path()
+    textured = _apply_paper_texture(grained, paper_path, paper_opacity)
+
+    out_h, out_w = textured.shape[:2]
+    if out_h != input_h or out_w != input_w:
+        raise AssertionError(
+            f"Texture-only output dimensions {out_w}x{out_h} != input {input_w}x{input_h}"
+        )
+
+    _emit_progress(progress, 100, "complete")
+    return textured
+
+
 def apply_watercolor(
     img: np.ndarray,
     params: dict[str, Any],
@@ -253,6 +302,7 @@ def run_filter(
     out_full: Path,
     out_preview: Path | None,
     paper_texture: Path | None,
+    texture_only: bool = False,
 ) -> dict[str, Any]:
     img = _load_rgb(input_path)
     input_h, input_w = img.shape[:2]
@@ -262,6 +312,19 @@ def run_filter(
     def progress(pct: int, step: str) -> None:
         progress_log.append({"progress": pct, "step": step})
         print(json.dumps({"type": "progress", "progress": pct, "step": step}), flush=True)
+
+    if texture_only:
+        rgb = apply_watercolor_texture_only(img, params, paper_texture, progress)
+        assert rgb.shape[0] == input_h and rgb.shape[1] == input_w
+        out_full.parent.mkdir(parents=True, exist_ok=True)
+        Image.fromarray(rgb, mode="RGB").save(out_full, format="PNG", optimize=True)
+        return {
+            "width": input_w,
+            "height": input_h,
+            "inputWidth": input_w,
+            "inputHeight": input_h,
+            "textureOnly": True,
+        }
 
     rgba = apply_watercolor(img, params, paper_texture, progress)
     assert rgba.shape[0] == input_h and rgba.shape[1] == input_w
@@ -292,6 +355,11 @@ def main() -> int:
     parser.add_argument("--out-full", type=Path, required=True)
     parser.add_argument("--out-preview", type=Path)
     parser.add_argument("--paper-texture", type=Path)
+    parser.add_argument(
+        "--texture-only",
+        action="store_true",
+        help="Run steps 3–7 only (posterize through paper texture); RGB output, no preview",
+    )
     args = parser.parse_args()
 
     if not args.input.is_file():
@@ -306,6 +374,7 @@ def main() -> int:
             args.out_full,
             args.out_preview,
             args.paper_texture,
+            texture_only=args.texture_only,
         )
         from datetime import datetime, timezone
 

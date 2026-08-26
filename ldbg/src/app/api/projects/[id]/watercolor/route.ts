@@ -37,6 +37,7 @@ export async function GET(_req: Request, { params }: Params) {
   const preset = (project.planSettings?.basePreset ?? "watercolor-soft") as WatercolorPresetId;
 
   let cacheReady = false;
+  let entry: Awaited<ReturnType<typeof findCachedWatercolor>> | undefined;
   if (presetUsesFilter(preset)) {
     const source = getWatercolorSourceForPlan(project, false);
     if (source) {
@@ -47,15 +48,15 @@ export async function GET(_req: Request, { params }: Params) {
           preset,
           project.planSettings?.watercolorParamOverrides
         );
-        const cached = await findCachedWatercolor(id, preset, hash);
-        cacheReady = !!cached;
+        entry = await findCachedWatercolor(id, preset, hash);
+        cacheReady = !!entry;
       } catch {
         cacheReady = false;
       }
     }
   }
 
-  return NextResponse.json({ job, cacheReady, preset });
+  return NextResponse.json({ job, cacheReady, preset, entry });
 }
 
 export async function POST(req: Request, { params }: Params) {

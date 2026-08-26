@@ -9,6 +9,7 @@ import {
   WatercolorPresetIdSchema,
 } from "@/lib/watercolor-schema";
 import { PlanRenderCacheEntrySchema } from "@/lib/plan-render-schema";
+import { FeatureFillEntrySchema } from "@/lib/feature-fill-schema";
 import { PrintOrthoSchema, TilePyramidSchema } from "@/lib/tile-pyramid-schema";
 
 export const DesignStyleSchema = z.enum([
@@ -130,8 +131,8 @@ export const EditorSettingsSchema = z.object({
 });
 
 export const PlanSettingsSchema = z.object({
-  baseMode: z.enum(["orthophoto", "white", "ai_render"]).default("orthophoto"),
-  basePreset: WatercolorPresetIdSchema.default("off"),
+  baseMode: z.enum(["orthophoto", "white"]).default("orthophoto"),
+  basePreset: WatercolorPresetIdSchema.default("watercolor-soft"),
   orthophotoOpacity: z.number().min(0.05).max(1).default(0.4),
   showFeatureOutlines: z.boolean().default(true),
   watercolorParamOverrides: WatercolorParamsSchema.partial().optional(),
@@ -201,6 +202,8 @@ export const ProjectSchema = z.object({
   printOrtho: PrintOrthoSchema.optional(),
   watercolorCache: z.record(z.string(), z.lazy(() => WatercolorCacheEntrySchema)).optional(),
   planRenderCache: z.record(z.string(), z.lazy(() => PlanRenderCacheEntrySchema)).optional(),
+  featureFills: z.record(z.string(), z.lazy(() => FeatureFillEntrySchema)).optional(),
+  featureFillTotalCostUsd: z.number().nonnegative().optional(),
   elevationAnalysis: StoredElevationAnalysisSchema.optional(),
   blenderRenders: BlenderRendersSchema.optional(),
   blenderSettings: BlenderRenderSettingsSchema.optional(),

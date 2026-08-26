@@ -85,11 +85,11 @@ export const GENERAL_NOTES: readonly GeneralNote[] = [
       "municipal codes, permits, and water use restrictions.",
   },
   {
-    id: "ai-plan-render",
+    id: "ai-feature-fill",
     defaultOn: false,
     category: "accuracy",
     text:
-      "Plan graphics include AI-generated renderings for illustrative purposes. All dimensions, areas, and quantities are derived from measured design geometry, not from rendered imagery.",
+      "Plan graphics include AI-generated material fills clipped to measured feature boundaries for illustrative purposes. All dimensions, areas, and quantities are derived from measured design geometry, not from rendered imagery.",
   },
 ] as const;
 

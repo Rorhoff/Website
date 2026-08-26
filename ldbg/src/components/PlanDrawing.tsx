@@ -22,6 +22,11 @@ import {
 } from "@/lib/plan-layout";
 import { patternUrl, PlanPatternDefs } from "@/lib/plan-patterns";
 import type { PlanSettings } from "@/lib/project-schema";
+import type { FeatureFillEntry } from "@/lib/feature-fill-schema";
+import {
+  buildFeatureFillLayers,
+  ClippedFeatureFills,
+} from "@/lib/plan-feature-fills";
 
 export type PlanDrawingProject = {
   features: InterpretFeature[];
@@ -44,6 +49,8 @@ type Props = {
   planSettings?: PlanSettings;
   displayWidth?: number;
   className?: string;
+  featureFills?: Record<string, FeatureFillEntry>;
+  featureFillImageUrl?: (filename: string) => string;
 };
 
 const PLAN_MARGIN = 120;
@@ -237,6 +244,8 @@ export function PlanDrawing({
   planSettings,
   displayWidth = 900,
   className,
+  featureFills,
+  featureFillImageUrl,
 }: Props) {
   const baseMode = planSettings?.baseMode ?? "orthophoto";
   const orthoOpacity = planSettings?.orthophotoOpacity ?? 0.4;
@@ -378,6 +387,22 @@ export function PlanDrawing({
   const legendX = sheetW - LEGEND_WIDTH - PLAN_MARGIN + 20;
   const legendY = PLAN_MARGIN + 40;
 
+  const filledFeatureIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (!featureFills) return ids;
+    for (const [id, entry] of Object.entries(featureFills)) {
+      if (entry.status === "filled" && entry.imageFilename) ids.add(id);
+    }
+    return ids;
+  }, [featureFills]);
+
+  const fillLayers = useMemo(() => {
+    if (!featureFills || !featureFillImageUrl) return [];
+    return buildFeatureFillLayers(designFeatures, featureFills, featureFillImageUrl);
+  }, [designFeatures, featureFills, featureFillImageUrl]);
+
+  const showOutlines = planSettings?.showFeatureOutlines ?? true;
+
   return (
     <div className={className}>
       <svg
@@ -453,9 +478,19 @@ export function PlanDrawing({
               )
             : null}
 
-          {designFeatures.map((f) =>
-            renderFeature(f, legend, planW, planH, georefCtx, fitScale)
-          )}
+          {designFeatures
+            .filter((f) => !filledFeatureIds.has(f.id))
+            .map((f) => renderFeature(f, legend, planW, planH, georefCtx, fitScale))}
+
+          <ClippedFeatureFills
+            features={designFeatures}
+            layers={fillLayers}
+            imageW={planW}
+            imageH={planH}
+            georefCtx={georefCtx}
+            showOutlines={showOutlines}
+            fitScale={fitScale}
+          />
 
           {contourPolylines.map((c, i) => (
             <polyline

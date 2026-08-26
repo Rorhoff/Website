@@ -1,6 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import { notFound } from "next/navigation";
+import { presetUsesFilter, type WatercolorPresetId } from "@/config/watercolor";
 import { BoardTemplate } from "@/components/BoardTemplate";
 import { boardDimensions, parseBoardPageSize } from "@/lib/board-sizes";
 import {
@@ -11,8 +12,11 @@ import {
   isGeoreferenced,
   isProjectScaled,
 } from "@/lib/georef";
-import { findPlanRenderEntry } from "@/lib/plan-render-service";
 import { resolvePlanBaseLayer } from "@/lib/plan-base-layer";
+import {
+  ensureWatercolorForProject,
+  resolveWatercolorUrls,
+} from "@/lib/watercolor-service";
 import { getLegend, getStorage } from "@/lib/storage";
 
 type Props = {
@@ -56,20 +60,27 @@ export default async function BoardPage({ params, searchParams }: Props) {
   const rawBaseImage = exportMode ? getPrintBoardImage(project) : getDisplayImage(project);
 
   const rawBaseUrl = rawBaseImage ? fileUrl(id, rawBaseImage.filename) : undefined;
-  const renderEntry = findPlanRenderEntry(project, exportMode ? "final" : "draft");
-  const planRenderUrl =
-    project.planSettings?.baseMode === "ai_render" && renderEntry
-      ? fileUrl(
-          id,
-          exportMode
-            ? renderEntry.renderFilename
-            : (renderEntry.previewFilename ?? renderEntry.renderFilename)
-        )
-      : undefined;
-  const planBase = resolvePlanBaseLayer(project.planSettings, {
+
+  const preset = (project.planSettings?.basePreset ?? "watercolor-soft") as WatercolorPresetId;
+  let boardProject = project;
+  if (exportMode && presetUsesFilter(preset)) {
+    try {
+      await ensureWatercolorForProject(id, preset, { forPrint: true });
+      boardProject = (await getStorage().loadProject(id)) ?? project;
+    } catch (e) {
+      console.warn("[board] watercolor ensure failed:", e instanceof Error ? e.message : e);
+    }
+  }
+
+  const wcUrls = await resolveWatercolorUrls(boardProject, id, exportMode);
+  const watercolorPreviewUrl = wcUrls.preview ? fileUrl(id, wcUrls.preview) : undefined;
+  const watercolorFullUrl = wcUrls.full ? fileUrl(id, wcUrls.full) : undefined;
+
+  const planBase = resolvePlanBaseLayer(boardProject.planSettings, {
     rawUrl: rawBaseUrl,
-    planRenderUrl,
-    planRenderEntry: renderEntry,
+    watercolorPreviewUrl,
+    watercolorFullUrl,
+    forPrint: exportMode,
   });
 
   const bp = basePath();
@@ -123,17 +134,22 @@ export default async function BoardPage({ params, searchParams }: Props) {
           legend={legend}
           northRotationDeg={getNorthRotationDeg(project)}
           designContent={project.designContent}
-          planSettings={project.planSettings}
-          boardSettings={project.boardSettings}
+          planSettings={boardProject.planSettings}
+          boardSettings={boardProject.boardSettings}
           imageWidth={rawBaseImage?.width ?? 1000}
           imageHeight={rawBaseImage?.height ?? 1000}
-          pixelsPerFoot={getPixelsPerFoot(project)}
+          pixelsPerFoot={getPixelsPerFoot(boardProject)}
           annotatedUrl={
             ann ? fileUrl(id, ann.filename) : undefined
           }
           cleanUrl={clean ? fileUrl(id, clean.filename) : undefined}
           baseImageUrl={planBase.url}
           baseImageFilter={planBase.svgFilter}
+          featureFills={boardProject.featureFills}
+          featureFillImageUrl={(filename) => fileUrl(id, filename)}
+          hasFilledFeatures={Object.values(boardProject.featureFills ?? {}).some(
+            (e) => e.status === "filled"
+          )}
           renderSlots={renderSlots}
           pageSize={pageSize}
           basePath={bp}

@@ -50,7 +50,7 @@ export function ElevationPanel({
 
   const settings: PlanSettings = planSettings ?? {
     baseMode: "orthophoto",
-    basePreset: "off",
+    basePreset: "watercolor-soft",
     orthophotoOpacity: 0.4,
     showFeatureOutlines: true,
     showContours: false,

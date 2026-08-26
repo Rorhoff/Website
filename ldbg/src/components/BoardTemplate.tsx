@@ -15,6 +15,7 @@ import type {
   ProjectMetadata,
   ScaleVerification,
 } from "@/lib/project-schema";
+import type { FeatureFillEntry } from "@/lib/feature-fill-schema";
 import styles from "./board.module.css";
 
 export type BoardRenderSlots = {
@@ -40,6 +41,9 @@ type Props = {
   cleanUrl?: string;
   baseImageUrl?: string;
   baseImageFilter?: string;
+  featureFills?: Record<string, FeatureFillEntry>;
+  featureFillImageUrl?: (filename: string) => string;
+  hasFilledFeatures?: boolean;
   renderSlots?: BoardRenderSlots;
   pageSize: BoardPageSize;
   basePath?: string;
@@ -96,6 +100,9 @@ export function BoardTemplate({
   cleanUrl,
   baseImageUrl,
   baseImageFilter,
+  featureFills,
+  featureFillImageUrl,
+  hasFilledFeatures = false,
   renderSlots,
   pageSize,
   basePath = "",
@@ -106,7 +113,7 @@ export function BoardTemplate({
   const dims = boardDimensions(pageSize);
   const grid = boardGridTracks(pageSize);
   const numberedNotes = resolveEnabledNotes(boardSettings?.enabledNoteIds, {
-    forceAiPlanNote: planSettings?.baseMode === "ai_render",
+    forceFeatureFillNote: hasFilledFeatures,
   });
   const hiddenTypes: string[] = [];
 
@@ -203,6 +210,8 @@ export function BoardTemplate({
                   northRotationDeg={northRotationDeg}
                   pixelsPerFoot={pixelsPerFoot}
                   hiddenFeatureTypes={hiddenTypes}
+                  featureFills={featureFills}
+                  featureFillImageUrl={featureFillImageUrl}
                 />
               ) : (
                 <Placeholder label="Proposed landscape plan — draw or interpret features" />

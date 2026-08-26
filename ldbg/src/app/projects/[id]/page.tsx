@@ -39,6 +39,7 @@ import { projectHasMesh } from "@/lib/blender-utils";
 import type { StoredElevationAnalysis } from "@/lib/elevation-schema";
 import { withBasePath } from "@/lib/paths";
 import { canExportBoard } from "@/lib/scale-verification";
+import type { FeatureFillEntry } from "@/lib/feature-fill-schema";
 import type {
   BoardSettings,
   Calibration,
@@ -62,6 +63,8 @@ export default function ProjectPage() {
   const [features, setFeatures] = useState<InterpretFeature[]>([]);
   const [editorSettings, setEditorSettings] = useState<EditorSettings | undefined>();
   const [planSettings, setPlanSettings] = useState<PlanSettings | undefined>();
+  const [featureFills, setFeatureFills] = useState<Record<string, FeatureFillEntry> | undefined>();
+  const [featureFillTotalCostUsd, setFeatureFillTotalCostUsd] = useState<number | undefined>();
   const [designContent, setDesignContent] = useState<StoredDesignContent | undefined>();
   const [elevationAnalysis, setElevationAnalysis] = useState<
     StoredElevationAnalysis | undefined
@@ -99,6 +102,8 @@ export default function ProjectPage() {
         setInterpretation(p.interpretation);
         setEditorSettings(p.editorSettings);
         setPlanSettings(p.planSettings);
+        setFeatureFills(p.featureFills);
+        setFeatureFillTotalCostUsd(p.featureFillTotalCostUsd);
         setDesignContent(p.designContent);
         setElevationAnalysis(p.elevationAnalysis);
         setRenderSlots(p.renderSlots);
@@ -373,8 +378,13 @@ export default function ProjectPage() {
                 : undefined
             }
             planSettings={planSettings}
-            planRenderCache={project.planRenderCache}
+            featureFills={featureFills}
+            featureFillTotalCostUsd={featureFillTotalCostUsd}
             onPlanSettingsChange={setPlanSettings}
+            onFeatureFillsChange={(fills, total) => {
+              setFeatureFills(fills);
+              if (total != null) setFeatureFillTotalCostUsd(total);
+            }}
             onSavePlanSettings={() => persist({ planSettings })}
             saving={saving}
           />

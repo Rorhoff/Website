@@ -12,6 +12,11 @@ import {
 } from "@/lib/plan-layout";
 import { patternUrl, PlanPatternDefs } from "@/lib/plan-patterns";
 import type { PlanSettings } from "@/lib/project-schema";
+import type { FeatureFillEntry } from "@/lib/feature-fill-schema";
+import {
+  buildFeatureFillLayers,
+  ClippedFeatureFills,
+} from "@/lib/plan-feature-fills";
 import styles from "./board.module.css";
 
 type PlanScale = {
@@ -32,6 +37,8 @@ type BoardPlanProps = {
   pixelsPerFoot?: number;
   georefCtx?: GeorefDisplayContext;
   hiddenFeatureTypes?: string[];
+  featureFills?: Record<string, FeatureFillEntry>;
+  featureFillImageUrl?: (filename: string) => string;
 };
 
 function isTreeType(featureType: string): boolean {
@@ -157,6 +164,8 @@ export function BoardPlanSvg({
   pixelsPerFoot,
   georefCtx,
   hiddenFeatureTypes = [],
+  featureFills,
+  featureFillImageUrl,
 }: BoardPlanProps) {
   const baseMode = planSettings?.baseMode ?? "orthophoto";
   const orthoOpacity = planSettings?.orthophotoOpacity ?? 0.4;
@@ -186,6 +195,20 @@ export function BoardPlanSvg({
   const northSize = Math.min(bounds.width, bounds.height) * 0.08;
   const northX = bounds.x + bounds.width - northSize * 0.8;
   const northY = bounds.y + northSize * 0.9;
+
+  const filledFeatureIds = new Set<string>();
+  if (featureFills) {
+    for (const [id, entry] of Object.entries(featureFills)) {
+      if (entry.status === "filled" && entry.imageFilename) filledFeatureIds.add(id);
+    }
+  }
+
+  const fillLayers =
+    featureFills && featureFillImageUrl
+      ? buildFeatureFillLayers(designFeatures, featureFills, featureFillImageUrl)
+      : [];
+
+  const showOutlines = planSettings?.showFeatureOutlines ?? true;
 
   return (
     <svg
@@ -218,7 +241,19 @@ export function BoardPlanSvg({
       {baseMode === "orthophoto"
         ? existingFeatures.map((f) => renderFeature(f, legend, imageWidth, imageHeight, georefCtx))
         : null}
-      {designFeatures.map((f) => renderFeature(f, legend, imageWidth, imageHeight, georefCtx))}
+      {designFeatures
+        .filter((f) => !filledFeatureIds.has(f.id))
+        .map((f) => renderFeature(f, legend, imageWidth, imageHeight, georefCtx))}
+
+      <ClippedFeatureFills
+        features={designFeatures}
+        layers={fillLayers}
+        imageW={imageWidth}
+        imageH={imageHeight}
+        georefCtx={georefCtx}
+        showOutlines={showOutlines}
+        fitScale={1}
+      />
 
       {callouts.map((c) => (
         <g key={c.featureId}>

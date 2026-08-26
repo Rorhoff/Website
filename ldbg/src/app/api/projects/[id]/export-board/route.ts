@@ -1,11 +1,13 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { presetUsesFilter, type WatercolorPresetId } from "@/config/watercolor";
 import { exportBoardDocument } from "@/lib/board-export";
 import type { BoardPageSize } from "@/lib/board-sizes";
 import { isGeoreferenced } from "@/lib/georef";
 import { canExportBoard } from "@/lib/scale-verification";
 import { getStorage } from "@/lib/storage";
 import { ensurePrintOrthoForProject } from "@/lib/tile-pyramid-service";
+import { ensureWatercolorForProject } from "@/lib/watercolor-service";
 type Params = { params: Promise<{ id: string }> };
 
 const BodySchema = z.object({
@@ -55,6 +57,18 @@ export async function POST(req: Request, { params }: Params) {
       } catch (e) {
         console.warn(
           `[export-board] print ortho generation failed project=${id}:`,
+          e instanceof Error ? e.message : e
+        );
+      }
+    }
+
+    const preset = (project.planSettings?.basePreset ?? "watercolor-soft") as WatercolorPresetId;
+    if (presetUsesFilter(preset)) {
+      try {
+        await ensureWatercolorForProject(id, preset, { forPrint: true });
+      } catch (e) {
+        console.warn(
+          `[export-board] watercolor ensure failed project=${id}:`,
           e instanceof Error ? e.message : e
         );
       }

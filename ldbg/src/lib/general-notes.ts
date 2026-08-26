@@ -8,12 +8,12 @@ export type NumberedNote = {
 
 export function resolveEnabledNotes(
   enabledIds: string[] | undefined,
-  options?: { forceAiPlanNote?: boolean }
+  options?: { forceFeatureFillNote?: boolean }
 ): NumberedNote[] {
   const baseIds = enabledIds ?? GENERAL_NOTES.filter((n) => n.defaultOn).map((n) => n.id);
   const idSet = new Set(baseIds);
-  if (options?.forceAiPlanNote) {
-    idSet.add("ai-plan-render");
+  if (options?.forceFeatureFillNote) {
+    idSet.add("ai-feature-fill");
   }
   const active: GeneralNote[] = GENERAL_NOTES.filter((n) => idSet.has(n.id));
   return active.map((n, i) => ({
