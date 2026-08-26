@@ -6,7 +6,6 @@ import type { InterpretFeature } from "@/lib/interpret-schema";
 import { computePlanContentBounds } from "@/lib/plan-bounds";
 import {
   buildCalloutsAndLegend,
-  CALLOUT_RADIUS,
   computeArchScaleLabel,
   pickScaleBarFeet,
   pxPointsAttr,
@@ -27,6 +26,7 @@ type BoardPlanProps = {
   imageWidth: number;
   imageHeight: number;
   baseImageUrl?: string;
+  baseImageFilter?: string;
   planSettings?: PlanSettings;
   northRotationDeg: number;
   pixelsPerFoot?: number;
@@ -151,6 +151,7 @@ export function BoardPlanSvg({
   imageWidth,
   imageHeight,
   baseImageUrl,
+  baseImageFilter,
   planSettings,
   northRotationDeg,
   pixelsPerFoot,
@@ -172,13 +173,14 @@ export function BoardPlanSvg({
   })();
 
   const bounds = computePlanContentBounds(planFeaturesForBounds, imageWidth, imageHeight, georefCtx);
+  const planSpan = Math.min(bounds.width, bounds.height);
   const { callouts } = buildCalloutsAndLegend(
     designFeatures,
     legend,
     imageWidth,
     imageHeight,
     pixelsPerFoot,
-    { georefCtx }
+    { georefCtx, planSpanPx: planSpan }
   );
 
   const northSize = Math.min(bounds.width, bounds.height) * 0.08;
@@ -203,7 +205,7 @@ export function BoardPlanSvg({
           width={imageWidth}
           height={imageHeight}
           opacity={orthoOpacity}
-          filter="url(#plan-desaturate)"
+          filter={baseImageFilter}
           preserveAspectRatio="xMidYMid meet"
         />
       ) : (
@@ -220,14 +222,14 @@ export function BoardPlanSvg({
 
       {callouts.map((c) => (
         <g key={c.featureId}>
-          <circle cx={c.x} cy={c.y} r={CALLOUT_RADIUS} fill="#1c1917" stroke="#fff" strokeWidth={2} />
+          <circle cx={c.x} cy={c.y} r={c.radiusPx} fill="#1c1917" stroke="#fff" strokeWidth={1.25} />
           <text
             x={c.x}
             y={c.y}
             textAnchor="middle"
             dominantBaseline="central"
             fill="#fff"
-            fontSize={CALLOUT_RADIUS * 0.9}
+            fontSize={c.radiusPx * 0.88}
             fontWeight="700"
             fontFamily="system-ui,sans-serif"
           >

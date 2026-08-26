@@ -1,13 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Circle, Group, Image as KonvaImage, Layer, Line, Rect, Stage, Transformer } from "react-konva";
+import { Circle, Group, Image as KonvaImage, Layer, Line, Rect, Stage, Text, Transformer } from "react-konva";
 import type Konva from "konva";
 import type { LegendEntry } from "@/config/legend";
 import {
   getUtahPlant,
-  isTreeFeatureType,
-  UTAH_PLANT_PALETTE,
+  isPlantPointFeatureType,
+  UTAH_GROUNDCOVER,
+  UTAH_TREES,
+  type UtahPlant,
 } from "@/config/utah-plants";
 import type { GeorefDisplayContext } from "@/lib/georef-display";
 import {
@@ -61,6 +63,7 @@ import type { TilePyramid } from "@/lib/tile-pyramid-schema";
 
 type EditorTool = "select" | DrawShapeKind | "smoothEdge";
 type BaseLayer = "annotated" | "clean";
+type PlantPickerMode = "none" | "trees" | "plants";
 
 /** Debounce before persisting editor geometry (avoids hammering save + UI flash). */
 const EDITOR_AUTOSAVE_MS = 4000;
@@ -165,6 +168,8 @@ export default function PolygonEditor({
   const [drawFeatureType, setDrawFeatureType] = useState(legend[0]?.featureType ?? "lawn");
   const [squareSideFt, setSquareSideFt] = useState(3);
   const [selectedPlantId, setSelectedPlantId] = useState("");
+  const [plantPickerMode, setPlantPickerMode] = useState<PlantPickerMode>("none");
+  const [placementHoverPx, setPlacementHoverPx] = useState<{ x: number; y: number } | null>(null);
   const [shapeDrag, setShapeDrag] = useState<{
     start: { x: number; y: number };
     current: { x: number; y: number };
@@ -243,10 +248,42 @@ export default function PolygonEditor({
     if (!activePlant) return undefined;
     return canopyRadiusNorm(
       activePlant.canopyDiameterFt,
-      displayW,
-      displayH,
+      imageWidth,
+      imageHeight,
       pixelsPerFoot
     );
+  }
+
+  function plantPreviewRadiusPx(): number {
+    const norm = plantPlacementRadius();
+    if (norm == null) return 0;
+    return norm * Math.max(displayW, displayH);
+  }
+
+  function enterPlantPickerMode(mode: "trees" | "plants") {
+    setPlantPickerMode(mode);
+    setSelectedPlantId("");
+    setTool("point");
+    setDrawPoints([]);
+    setShapeDrag(null);
+    setSmoothStroke([]);
+    smoothStrokePointsRef.current = [];
+    smoothStrokeRef.current = false;
+    setSelectedId(null);
+    dragShapeRef.current = false;
+    setPlacementHoverPx(null);
+  }
+
+  function selectPlantForPlacement(plant: UtahPlant) {
+    setSelectedPlantId(plant.id);
+    setDrawFeatureType(plant.featureType);
+    setTool("point");
+  }
+
+  function exitPlantPickerMode() {
+    setPlantPickerMode("none");
+    setSelectedPlantId("");
+    setPlacementHoverPx(null);
   }
 
   function addFeatureFromDraw(
@@ -288,6 +325,10 @@ export default function PolygonEditor({
     setSelectedId(f.id);
     setDrawPoints([]);
     setShapeDrag(null);
+    if (plantPickerMode !== "none" && activePlant) {
+      setTool("point");
+      return;
+    }
     setTool("select");
   }
 
@@ -426,8 +467,15 @@ export default function PolygonEditor({
   }
 
   function handlePointerMove(e: Konva.KonvaEventObject<MouseEvent | TouchEvent>) {
-    if (!shapeDrag || !isDragShapeTool(tool)) return;
     const stage = e.target.getStage();
+    if (activePlant && plantPickerMode !== "none" && stage) {
+      const content = viewport.pointerToContent(stage);
+      setPlacementHoverPx(content);
+    } else if (placementHoverPx) {
+      setPlacementHoverPx(null);
+    }
+
+    if (!shapeDrag || !isDragShapeTool(tool)) return;
     if (!stage) return;
     const norm = contentNormFromStage(stage);
     if (!norm) return;
@@ -477,6 +525,7 @@ export default function PolygonEditor({
     const pt = applySnapNorm(norm);
 
     if (tool === "point" || (tool === "circle" && drawEntry?.unit === "each")) {
+      if (plantPickerMode !== "none" && !activePlant) return;
       const r = activePlant ? plantPlacementRadius() : 0.025;
       addFeatureFromDraw("point", [pt], r);
       return;
@@ -583,9 +632,16 @@ export default function PolygonEditor({
       : null;
 
   const types = featureTypes(features, legend);
-  const drawing = isDrawTool(tool);
+  const drawing = isDrawTool(tool) && plantPickerMode === "none";
+  const plantPlacementActive = plantPickerMode !== "none";
   const smoothing = tool === "smoothEdge";
-  const overlayActive = drawing || smoothing;
+  const overlayActive = drawing || smoothing || (plantPlacementActive && !!activePlant);
+  const plantPalette = plantPickerMode === "trees" ? UTAH_TREES : plantPickerMode === "plants" ? UTAH_GROUNDCOVER : [];
+  const shapeLegendEntries = useMemo(
+    () => legend.filter((e) => !isPlantPointFeatureType(e.featureType)),
+    [legend]
+  );
+  const plantPreviewR = plantPreviewRadiusPx();
   const canSmooth =
     selected != null &&
     selected.geometry.kind === "polygon" &&
@@ -602,6 +658,7 @@ export default function PolygonEditor({
   }, [shapeDrag, tool, drawAsPoint, drawPoints, displayW, displayH]);
 
   function selectDrawTool(next: DrawShapeKind) {
+    exitPlantPickerMode();
     setTool(next);
     setDrawPoints([]);
     setShapeDrag(null);
@@ -675,8 +732,8 @@ export default function PolygonEditor({
         <div>
           <h2 className="text-lg font-semibold text-stone-900">Feature editor</h2>
           <p className="text-sm text-stone-600">
-            Draw features on the orthophoto — pick a legend type, choose a shape tool, tap or drag
-            on the canvas. Pinch to zoom on touch devices.
+            Draw areas and lines with the shape tools, or use Trees / Plants to place catalog species
+            at real-world canopy size. Pinch to zoom on touch devices.
           </p>
         </div>
         <span className="text-xs text-stone-500">{saveLabel}</span>
@@ -684,6 +741,7 @@ export default function PolygonEditor({
 
       <div className="flex flex-wrap items-center gap-2">
         {toolBtn(tool === "select", "Select", () => {
+          exitPlantPickerMode();
           setTool("select");
           setDrawPoints([]);
           setShapeDrag(null);
@@ -697,6 +755,18 @@ export default function PolygonEditor({
         {toolBtn(tool === "circle", "Circle", () => selectDrawTool("circle"))}
         {toolBtn(tool === "polyline", "Polyline", () => selectDrawTool("polyline"))}
         {toolBtn(tool === "point", "Point", () => selectDrawTool("point"))}
+        {toolBtn(
+          plantPickerMode === "trees",
+          "Trees",
+          () => enterPlantPickerMode("trees"),
+          false
+        )}
+        {toolBtn(
+          plantPickerMode === "plants",
+          "Plants",
+          () => enterPlantPickerMode("plants"),
+          false
+        )}
         {toolBtn(
           tool === "smoothEdge",
           "Smooth edge",
@@ -739,6 +809,67 @@ export default function PolygonEditor({
         ) : null}
       </div>
 
+      {plantPlacementActive ? (
+        <div className="space-y-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm font-medium text-emerald-950">
+              {plantPickerMode === "trees" ? "Place trees" : "Place plants"}
+              {activePlant
+                ? ` — ${activePlant.commonName} (~${activePlant.canopyDiameterFt} ft canopy)`
+                : " — pick a species, then tap the orthophoto"}
+            </p>
+            <button
+              type="button"
+              onClick={exitPlantPickerMode}
+              className="min-h-9 rounded border border-emerald-300 bg-white px-3 py-1 text-sm text-emerald-900"
+            >
+              Done
+            </button>
+          </div>
+          {!pixelsPerFoot ? (
+            <p className="text-xs text-amber-800">
+              Scale not calibrated — canopy size is approximate. Calibrate or ingest WebODM for
+              accurate sizing.
+            </p>
+          ) : null}
+          <div className="flex flex-wrap gap-2">
+            {plantPalette.map((plant) => {
+              const selected = selectedPlantId === plant.id;
+              const style = styleForFeatureType(plant.featureType, legend, false);
+              return (
+                <button
+                  key={plant.id}
+                  type="button"
+                  onClick={() => selectPlantForPlacement(plant)}
+                  className={`min-h-11 rounded-lg border px-3 py-2 text-left text-sm transition-colors ${
+                    selected
+                      ? "border-emerald-700 bg-emerald-700 text-white"
+                      : "border-stone-300 bg-white text-stone-900 hover:border-emerald-400"
+                  }`}
+                >
+                  <span
+                    className="mr-2 inline-block h-3 w-3 rounded-full border border-stone-400"
+                    style={{ background: style.fill }}
+                    aria-hidden
+                  />
+                  <span className="font-medium">{plant.commonName}</span>
+                  <span className={selected ? "text-emerald-100" : "text-stone-500"}>
+                    {" "}
+                    · {plant.canopyDiameterFt} ft
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          {activePlant ? (
+            <p className="text-xs text-emerald-800">
+              Move over the orthophoto to preview canopy size, then tap to place. Each click adds
+              another {activePlant.commonName}.
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+
       {drawing ? (
         <div className="flex flex-wrap items-end gap-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3">
           <label className="block text-sm text-emerald-950">
@@ -746,37 +877,11 @@ export default function PolygonEditor({
             <select
               className="mt-1 min-h-11 w-full min-w-[12rem] rounded border px-2 py-2"
               value={drawFeatureType}
-              onChange={(e) => {
-                setDrawFeatureType(e.target.value);
-                if (!isTreeFeatureType(e.target.value)) setSelectedPlantId("");
-              }}
+              onChange={(e) => setDrawFeatureType(e.target.value)}
             >
-              {legend.map((e) => (
+              {shapeLegendEntries.map((e) => (
                 <option key={e.id} value={e.featureType}>
                   {e.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="block text-sm text-emerald-950">
-            <span className="font-medium">Utah / Salt Lake plant</span>
-            <select
-              className="mt-1 min-h-11 w-full min-w-[12rem] rounded border px-2 py-2"
-              value={selectedPlantId}
-              onChange={(e) => {
-                const id = e.target.value;
-                setSelectedPlantId(id);
-                const plant = getUtahPlant(id);
-                if (plant) {
-                  setDrawFeatureType(plant.featureType);
-                  if (tool !== "point" && tool !== "circle") setTool("point");
-                }
-              }}
-            >
-              <option value="">Custom size (manual)</option>
-              {UTAH_PLANT_PALETTE.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.commonName} (~{p.canopyDiameterFt} ft)
                 </option>
               ))}
             </select>
@@ -797,16 +902,8 @@ export default function PolygonEditor({
               (pixelsPerFoot
                 ? `Tap to place a ${squareSideFt}'×${squareSideFt}' square (center at tap).`
                 : "Calibrate scale to use square-by-feet.")}
-            {tool === "circle" &&
-              (drawAsPoint
-                ? activePlant
-                  ? `Tap to place ${activePlant.commonName} at ~${activePlant.canopyDiameterFt} ft canopy.`
-                  : "Press and drag from center to set canopy radius."
-                : "Press and drag a circle.")}
-            {tool === "point" &&
-              (activePlant
-                ? `Tap to place ${activePlant.commonName} (~${activePlant.canopyDiameterFt} ft canopy).`
-                : "Tap once to place a point feature.")}
+            {tool === "circle" && "Press and drag a circle."}
+            {tool === "point" && "Tap once to place a point feature."}
           </p>
           {(tool === "polygon" || tool === "polyline") && (
             <div className="flex gap-2">
@@ -924,8 +1021,17 @@ export default function PolygonEditor({
               viewport.onTouchEnd();
               handlePointerUp(e);
             }}
+            onMouseLeave={() => setPlacementHoverPx(null)}
             onWheel={viewport.onWheel}
-            style={{ cursor: overlayActive ? "crosshair" : "default", touchAction: "none" }}
+            style={{
+              cursor:
+                plantPlacementActive && activePlant
+                  ? "crosshair"
+                  : overlayActive
+                    ? "crosshair"
+                    : "default",
+              touchAction: "none",
+            }}
           >
             <Layer>
               <Group x={viewport.pan.x} y={viewport.pan.y} scaleX={viewport.zoom} scaleY={viewport.zoom}>
@@ -1051,6 +1157,40 @@ export default function PolygonEditor({
                         />
                       );
                     })}
+                  </>
+                ) : null}
+
+                {activePlant && placementHoverPx && plantPreviewR > 0 ? (
+                  <>
+                    <Circle
+                      x={placementHoverPx.x}
+                      y={placementHoverPx.y}
+                      radius={plantPreviewR}
+                      fill={drawStyle.fill}
+                      stroke={drawStyle.stroke}
+                      strokeWidth={Math.max(1.5, drawStyle.strokeWidth ?? 1.5)}
+                      opacity={0.42}
+                      dash={[8, 6]}
+                      listening={false}
+                    />
+                    <Circle
+                      x={placementHoverPx.x}
+                      y={placementHoverPx.y}
+                      radius={Math.max(2, plantPreviewR * 0.08)}
+                      fill="#4a3520"
+                      opacity={0.85}
+                      listening={false}
+                    />
+                    <Text
+                      x={placementHoverPx.x + plantPreviewR + 8}
+                      y={placementHoverPx.y - 10}
+                      text={`${activePlant.commonName} · ${activePlant.canopyDiameterFt} ft`}
+                      fontSize={12}
+                      fill="#ffffff"
+                      stroke="#1c1917"
+                      strokeWidth={0.4}
+                      listening={false}
+                    />
                   </>
                 ) : null}
 
@@ -1263,6 +1403,43 @@ export default function PolygonEditor({
                   ))}
                 </select>
               </label>
+              {selected.geometry.kind === "polyline" ? (
+                <label className="mt-2 block text-xs text-stone-600">
+                  Width (ft)
+                  <input
+                    type="number"
+                    min={0.5}
+                    step={0.5}
+                    className="mt-1 min-h-11 w-full rounded border px-2 py-2"
+                    value={selected.widthFt ?? legend.find((e) => e.featureType === selected.featureType)?.defaultWidthFt ?? 4}
+                    onChange={(e) =>
+                      updateFeature(selected.id, (f) => ({
+                        ...f,
+                        widthFt: Math.max(0.5, Number(e.target.value) || 4),
+                      }))
+                    }
+                  />
+                </label>
+              ) : null}
+              {selected.featureType === "putting_green" ? (
+                <label className="mt-2 block text-xs text-stone-600">
+                  Fringe width (in)
+                  <input
+                    type="number"
+                    min={0}
+                    max={24}
+                    step={1}
+                    className="mt-1 min-h-11 w-full rounded border px-2 py-2"
+                    value={selected.fringeWidthIn ?? legend.find((e) => e.featureType === "putting_green")?.defaultFringeWidthIn ?? 18}
+                    onChange={(e) =>
+                      updateFeature(selected.id, (f) => ({
+                        ...f,
+                        fringeWidthIn: Math.min(24, Math.max(0, Math.round(Number(e.target.value) || 0))),
+                      }))
+                    }
+                  />
+                </label>
+              ) : null}
               {canMeasure ? (
                 <dl className="mt-3 space-y-1 text-xs text-stone-600">
                   {area != null ? (

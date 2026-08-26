@@ -8,6 +8,7 @@ import {
   normToPx,
 } from "@/lib/feature-geometry";
 import type { InterpretFeature } from "@/lib/interpret-schema";
+import { computeFeaturePxBounds } from "@/lib/plan-bounds";
 
 export type Callout = {
   featureId: string;
@@ -17,6 +18,8 @@ export type Callout = {
   label: string;
   featureType: string;
   areaSqFt: number | null;
+  /** Badge radius in image pixel space (varies per feature size). */
+  radiusPx: number;
 };
 
 export type LegendRow = {
@@ -31,8 +34,54 @@ export type LegendRow = {
 export const SHEET_WIDTH_PX = 7200;
 export const SHEET_HEIGHT_PX = 10800;
 
+/** @deprecated Prefer calloutRadiusForSpan — fixed radius was too large on cropped board plans. */
 const CALLOUT_RADIUS = 28;
-const CALLOUT_MIN_DIST = CALLOUT_RADIUS * 2.4;
+
+/** Scale callout badges to visible plan span (image px). Keeps numbers legible without covering features. */
+export function calloutRadiusForSpan(spanPx: number): number {
+  const span = Math.max(spanPx, 100);
+  return Math.max(3, Math.min(5, span * 0.004));
+}
+
+/** Cap callout badge radius so it fits inside a feature's bounding box (e.g. small patio rectangles). */
+export function calloutRadiusForFeatureBounds(
+  width: number,
+  height: number,
+  globalCapPx: number
+): number {
+  const minDim = Math.min(width, height);
+  if (!Number.isFinite(minDim) || minDim <= 0) return globalCapPx;
+  const fitRadius = minDim * 0.36;
+  return Math.max(2.5, Math.min(globalCapPx, fitRadius));
+}
+
+/** Fixed callout size on the 24×36 sheet (inside the scaled plan group, divide by fitScale). */
+export function calloutRadiusSheetPx(): number {
+  return 8;
+}
+
+export function calloutRadiusInPlanGroup(fitScale: number): number {
+  return calloutRadiusSheetPx() / Math.max(fitScale, 0.001);
+}
+
+/** Whether this feature gets a numbered callout on the plan (not legend-only linework). */
+export function featureEligibleForCallout(
+  f: InterpretFeature,
+  legend: LegendEntry[]
+): boolean {
+  if (f.existing) return false;
+  if (f.featureType === "property_boundary") return false;
+  const entry = legend.find((e) => e.featureType === f.featureType);
+  if (entry?.unit === "lf") return false;
+  if (f.geometry.kind === "polyline") {
+    return entry?.unit === "sqft" || entry?.unit === "each";
+  }
+  return true;
+}
+
+export function calloutMinDistForRadius(radius: number): number {
+  return radius * 2.5;
+}
 
 export function orderFeaturesForLegend(
   features: InterpretFeature[],
@@ -71,12 +120,18 @@ export function buildCalloutsAndLegend(
     includeExisting?: boolean;
     georefCtx?: GeorefDisplayContext;
     obstacles?: CalloutObstacle[];
+    /** Smallest side of the visible plan crop — scales callout badge size. */
+    planSpanPx?: number;
+    /** Explicit callout radius in image px (overrides planSpanPx). */
+    calloutRadiusPx?: number;
   }
 ): { callouts: Callout[]; legendRows: LegendRow[] } {
   const includeExisting = options?.includeExisting ?? false;
   const georefCtx = options?.georefCtx;
   const canMeasure = georefCtx != null || pixelsPerFoot != null;
-  const eligible = features.filter((f) => includeExisting || !f.existing);
+  const eligible = features.filter(
+    (f) => (includeExisting || !f.existing) && featureEligibleForCallout(f, legend)
+  );
   const ordered = orderFeaturesForLegend(
     eligible,
     legend,
@@ -86,10 +141,22 @@ export function buildCalloutsAndLegend(
     georefCtx
   );
 
+  const globalCalloutR =
+    options?.calloutRadiusPx ??
+    (options?.planSpanPx != null
+      ? calloutRadiusForSpan(options.planSpanPx)
+      : CALLOUT_RADIUS);
+
   let callouts: Callout[] = ordered.map((f, i) => {
     const c = centroidNormFromFeature(f, imageW, imageH, georefCtx);
     const px = normToPx(c, imageW, imageH);
     const entry = legend.find((e) => e.featureType === f.featureType);
+    const bounds = computeFeaturePxBounds(f, imageW, imageH, georefCtx);
+    const radiusPx = calloutRadiusForFeatureBounds(
+      bounds.width,
+      bounds.height,
+      globalCalloutR
+    );
     return {
       featureId: f.id,
       number: i + 1,
@@ -101,10 +168,11 @@ export function buildCalloutsAndLegend(
         canMeasure
           ? featureAreaSqFt(f, imageW, imageH, pixelsPerFoot, georefCtx)
           : null,
+      radiusPx,
     };
   });
 
-  callouts = nudgeCallouts(callouts, CALLOUT_MIN_DIST, options?.obstacles ?? []);
+  callouts = nudgeCallouts(callouts, options?.obstacles ?? []);
 
   const legendRows: LegendRow[] = callouts.map((c) => ({
     number: c.number,
@@ -125,7 +193,6 @@ export type CalloutObstacle = {
 
 export function nudgeCallouts(
   callouts: Callout[],
-  minDist: number,
   obstacles: CalloutObstacle[] = []
 ): Callout[] {
   const out = callouts.map((c) => ({ ...c }));
@@ -136,7 +203,7 @@ export function nudgeCallouts(
         const dx = out[i].x - obs.x;
         const dy = out[i].y - obs.y;
         const d = Math.hypot(dx, dy);
-        const need = CALLOUT_RADIUS + obs.radius;
+        const need = out[i].radiusPx + obs.radius;
         if (d < need && d > 0.001) {
           const push = need - d;
           out[i].x += (dx / d) * push;
@@ -151,6 +218,7 @@ export function nudgeCallouts(
         const dx = out[j].x - out[i].x;
         const dy = out[j].y - out[i].y;
         const d = Math.hypot(dx, dy);
+        const minDist = out[i].radiusPx + out[j].radiusPx + 2;
         if (d < minDist && d > 0.001) {
           const push = (minDist - d) / 2;
           out[i].x -= (dx / d) * push;

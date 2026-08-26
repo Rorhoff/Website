@@ -13,8 +13,11 @@
 #   cp deploy/commit.sh ~/commit.sh
 #   chmod +x ~/commit.sh
 #
-# Usage:
+# Usage (from anywhere on EC2):
 #   ~/commit.sh
+#
+# One script does the full dev deploy — no need to run rebuild-ldbg.sh or git pull
+# separately. Skips unchanged builds/migrations; set COMMIT_FORCE=1 to rebuild everything.
 
 set -euo pipefail
 
@@ -66,6 +69,47 @@ _maybe_refresh_commit_script() {
   fi
 }
 
+# COMMIT_FORCE=1  — rebuild Referr-All + LDBG even when git HEAD unchanged
+# COMMIT_FORCE=1  — also rebuild when paths unchanged (e.g. fix a bad .next)
+COMMIT_FORCE="${COMMIT_FORCE:-0}"
+DEPLOY_BEFORE=""
+DEPLOY_AFTER=""
+LDBG_REBUILT=0
+
+# Files changed between DEPLOY_BEFORE and DEPLOY_AFTER (empty if same commit).
+_changed_files() {
+  if [[ -z "$DEPLOY_BEFORE" || -z "$DEPLOY_AFTER" || "$DEPLOY_BEFORE" == "$DEPLOY_AFTER" ]]; then
+    return 0
+  fi
+  git -C "$DEV_DIR" diff --name-only "$DEPLOY_BEFORE" "$DEPLOY_AFTER"
+}
+
+# True when COMMIT_FORCE=1 or any changed path matches the extended-regex.
+_path_changed() {
+  local pattern="$1"
+  if [[ "$COMMIT_FORCE" == "1" ]]; then
+    return 0
+  fi
+  [[ "$DEPLOY_BEFORE" != "$DEPLOY_AFTER" ]] || return 1
+  _changed_files | grep -qE "$pattern"
+}
+
+_ldbg_python_ok() {
+  local py="$DEV_DIR/.venv/bin/python"
+  [[ -x "$py" ]] && "$py" -c "import cv2, numpy, rasterio" 2>/dev/null
+}
+
+_ldbg_lock_unchanged() {
+  [[ "$DEPLOY_BEFORE" == "$DEPLOY_AFTER" ]] && return 0
+  git -C "$DEV_DIR" diff --quiet "$DEPLOY_BEFORE" "$DEPLOY_AFTER" -- ldbg/package-lock.json 2>/dev/null
+}
+
+_referrall_lock_unchanged() {
+  local lock_dir="$1"
+  [[ "$DEPLOY_BEFORE" == "$DEPLOY_AFTER" ]] && return 0
+  git -C "$DEV_DIR" diff --quiet "$DEPLOY_BEFORE" "$DEPLOY_AFTER" -- "$lock_dir/package-lock.json" 2>/dev/null
+}
+
 # Build Referr-All (Vite/React) into static/referr-all after each pull.
 # Prefers referr-all-app/ in this repo (Referr-All branding), then ./T1Referrall on EC2,
 # otherwise shallow-clones from GitHub (legacy T1Referral repo).
@@ -109,7 +153,9 @@ sync_referr_all() {
   fi
 
   log "Installing Referr-All dependencies…"
-  if ! (cd "$src_dir" && npm ci); then
+  if _referrall_lock_unchanged "$src_dir" && [[ -d "$src_dir/node_modules" ]]; then
+    ok "Referr-All package-lock unchanged — skipping npm ci."
+  elif ! (cd "$src_dir" && npm ci); then
     warn "Referr-All npm ci failed."
     [[ "$use_tmp" -eq 1 ]] && rm -rf "$tmp"
     return 0
@@ -163,7 +209,9 @@ sync_ldbg() {
   fi
 
   log "Building LDBG from ${src_dir}…"
-  if ! (cd "$src_dir" && npm ci); then
+  if _ldbg_lock_unchanged && [[ -d "$src_dir/node_modules" ]]; then
+    ok "ldbg package-lock unchanged — skipping npm ci."
+  elif ! (cd "$src_dir" && npm ci); then
     die "LDBG npm ci failed — fix package-lock or network and re-run commit.sh."
   fi
 
@@ -171,6 +219,7 @@ sync_ldbg() {
   LDBG_REPO_ROOT="$DEV_DIR" bash "$DEV_DIR/deploy/ldbg-build.sh" || die "LDBG build failed — see errors above."
 
   ok "LDBG built in ${src_dir} ($(git -C "$DEV_DIR" rev-parse --short HEAD)) basePath=/ldbg"
+  LDBG_REBUILT=1
 
   if grep -q puppeteerDepsOk "$src_dir/src/app/api/diag/route.ts" 2>/dev/null; then
     if ! grep -rq puppeteerDepsOk "$src_dir/.next/server" 2>/dev/null; then
@@ -179,13 +228,23 @@ sync_ldbg() {
   fi
 
   if [[ -f "$DEV_DIR/deploy/ensure-ldbg-puppeteer-deps.sh" ]]; then
-    log "Ensuring Puppeteer / Chrome system libraries for board export…"
-    bash "$DEV_DIR/deploy/ensure-ldbg-puppeteer-deps.sh" || die "Puppeteer Chrome deps missing — PDF export will fail. Run: bash deploy/ensure-ldbg-puppeteer-deps.sh"
+    local diag_ok=0
+    diag_ok="$(curl -sS --max-time 4 "http://127.0.0.1:3002/ldbg/api/diag" 2>/dev/null | grep -c '"puppeteerDepsOk":true' || true)"
+    if [[ "$diag_ok" -ge 1 ]]; then
+      ok "Puppeteer Chrome deps already OK — skipping apt install."
+    else
+      log "Ensuring Puppeteer / Chrome system libraries for board export…"
+      bash "$DEV_DIR/deploy/ensure-ldbg-puppeteer-deps.sh" || die "Puppeteer Chrome deps missing — PDF export will fail."
+    fi
   fi
 
   if [[ -f "$DEV_DIR/deploy/ensure-ldbg-python-deps.sh" ]]; then
-    log "Ensuring LDBG Python geo/CV deps in project venv…"
-    bash "$DEV_DIR/deploy/ensure-ldbg-python-deps.sh" || die "LDBG Python deps missing — run: bash deploy/ensure-ldbg-python-deps.sh"
+    if _path_changed '^ldbg/scripts/requirements-geo\.txt$' || ! _ldbg_python_ok; then
+      log "Ensuring LDBG Python geo/CV deps in project venv…"
+      bash "$DEV_DIR/deploy/ensure-ldbg-python-deps.sh" || die "LDBG Python deps missing."
+    else
+      ok "LDBG Python deps unchanged — skipping pip install."
+    fi
   fi
 }
 
@@ -225,6 +284,48 @@ install_nginx_ldbg_upload() {
   fi
 }
 
+# Restart ldbg; full static verify + rollback only after a fresh build.
+restart_ldbg_service() {
+  log "Restarting ldbg…"
+  sudo systemctl restart ldbg || warn "ldbg failed to restart — check journalctl -u ldbg"
+  sleep 2
+  if [[ "$LDBG_REBUILT" == "1" ]]; then
+    restart_ldbg_with_verify
+  else
+    ok "ldbg restarted (no rebuild — skipped static asset verify)."
+  fi
+}
+
+# Restart ldbg and verify static assets; roll back .next if verify fails.
+restart_ldbg_with_verify() {
+  local ldbg_dir="$DEV_DIR/ldbg"
+
+  sleep 1
+
+  if [[ ! -f "$DEV_DIR/deploy/verify-ldbg-static.sh" ]]; then
+    return 0
+  fi
+
+  if bash "$DEV_DIR/deploy/verify-ldbg-static.sh"; then
+    ok "LDBG static assets verified."
+    return 0
+  fi
+
+  warn "LDBG static verify failed after restart — rolling back .next and retrying…"
+  if [[ -d "$ldbg_dir/.next.prev" ]]; then
+    rm -rf "$ldbg_dir/.next"
+    mv "$ldbg_dir/.next.prev" "$ldbg_dir/.next"
+    sudo systemctl restart ldbg
+    sleep 3
+    if bash "$DEV_DIR/deploy/verify-ldbg-static.sh"; then
+      ok "LDBG rolled back to previous .next and verify passed."
+      return 0
+    fi
+  fi
+
+  die "LDBG static verify failed even after rollback — check journalctl -u ldbg and rebuild logs."
+}
+
 # ---------------------------------------------------------------------------
 # Sanity checks: refuse to run if the checkout has uncommitted edits, since
 # `git pull` would silently lose or conflict with them.
@@ -241,35 +342,47 @@ if ! git -C "$DEV_DIR" diff --quiet HEAD -- . "$_diff_paths" \
 fi
 
 before=$(git -C "$DEV_DIR" rev-parse --short HEAD)
+DEPLOY_BEFORE="$before"
 log "DEV: ${DEV_DIR} currently at ${before}"
 
 log "Fetching origin/main…"
-# --force on the tag fetch so a tag that was moved on origin (e.g. you
-# re-tagged prod-v1.X while testing) overwrites the local copy instead of
-# aborting the whole script with "would clobber existing tag". We don't
-# rely on those tags here — we just want them in sync so prod operations
-# from this same checkout don't surprise anyone.
 git -C "$DEV_DIR" fetch origin main --tags --prune --force
 git -C "$DEV_DIR" checkout main >/dev/null
-# Fast-forward only — refuse to merge unrelated history. Anything funky should
-# be sorted out by hand, not by a deploy script.
 git -C "$DEV_DIR" pull --ff-only origin main
 
-# After pull, re-exec if deploy/commit.sh changed on origin (fixes stale ~/commit.sh).
 _maybe_refresh_commit_script
 
-sync_referr_all || warn "Referr-All sync skipped — using placeholder from Website git"
-sync_ldbg || die "LDBG sync failed — fix the build and re-run commit.sh."
-install_ldbg_service
-install_nginx_ldbg_upload
-bash "$DEV_DIR/deploy/ensure-ldbg-anthropic-env.sh" || warn "LDBG Anthropic env sync skipped"
-
 after=$(git -C "$DEV_DIR" rev-parse --short HEAD)
+DEPLOY_AFTER="$after"
 log "Deploying commit ${after} from origin/main"
 if [[ "$before" == "$after" ]]; then
-  log "No code change — restarting anyway in case env/config moved."
+  log "No new commits on main."
 else
   log "Updated ${before} → ${after}"
+fi
+
+# --- Conditional builds (biggest time savers) ---
+if _path_changed '^(referr-all-app/|deploy/referrall-vite-env\.sh)'; then
+  sync_referr_all || warn "Referr-All sync skipped — using placeholder from Website git"
+else
+  log "No Referr-All app changes — skipping Vite build."
+fi
+
+if _path_changed '^(ldbg/|deploy/ldbg|deploy/ensure-ldbg|deploy/verify-ldbg)' \
+  || [[ ! -d "$DEV_DIR/ldbg/.next" ]]; then
+  sync_ldbg || die "LDBG sync failed — fix the build and re-run commit.sh."
+else
+  log "No ldbg/ changes — skipping LDBG build (COMMIT_FORCE=1 to rebuild anyway)."
+fi
+
+install_ldbg_service
+install_nginx_ldbg_upload
+
+if _path_changed '^(ldbg/|deploy/ensure-ldbg-anthropic)' \
+  || [[ ! -f "$DEV_DIR/ldbg/.env.local" ]]; then
+  bash "$DEV_DIR/deploy/ensure-ldbg-anthropic-env.sh" || warn "LDBG Anthropic env sync skipped"
+else
+  log "Skipping LDBG Anthropic env sync (unchanged)."
 fi
 
 # Install deps when requirements.txt changed, or when key packages are missing
@@ -290,29 +403,40 @@ fi
 if [[ "$needs_pip" -eq 1 ]]; then
   log "Installing Python dependencies in dev venv…"
   "$DEV_VENV_PIP" install -r "$DEV_DIR/requirements.txt"
+else
+  log "requirements.txt unchanged — skipping pip install."
 fi
 
-log "Referr-All DB migrations (auth schema v8–v12)…"
-# shellcheck disable=SC1091
-source "$DEV_DIR/deploy/referrall-migrate-env.sh"
-_dev_env_candidates=()
-[[ -f /home/ubuntu/Website/.env.dev ]] && _dev_env_candidates+=("/home/ubuntu/Website/.env.dev")
-[[ -f /home/ubuntu/Website/.env ]] && _dev_env_candidates+=("/home/ubuntu/Website/.env")
-[[ -f "$DEV_DIR/.env.dev" ]] && _dev_env_candidates+=("$DEV_DIR/.env.dev")
-[[ -f "$DEV_DIR/.env" ]] && _dev_env_candidates+=("$DEV_DIR/.env")
-export ENV_FILE="$(referrall_resolve_env_file "${_dev_env_candidates[@]}")" || die "No env file with DATABASE_URL found — cannot run Referr-All migrations."
-export ROOT="$DEV_DIR"
-referrall_resolve_python
-log "Migration target env: ${ENV_FILE} (python: ${PYTHON})"
-bash "$DEV_DIR/deploy/migrate-t1referrall-v8.sh" || die "v8 migration failed"
-bash "$DEV_DIR/deploy/migrate-t1referrall-v9.sh" || die "v9 migration failed"
-bash "$DEV_DIR/deploy/migrate-t1referrall-v10.sh" || die "v10 migration failed — login will 503 until fixed"
-bash "$DEV_DIR/deploy/migrate-t1referrall-v11.sh" || die "v11 migration failed — login will 503 until fixed"
-bash "$DEV_DIR/deploy/migrate-t1referrall-v12.sh" || die "v12 migration failed"
-bash "$DEV_DIR/deploy/bootstrap-referrall-admin.sh" || warn "Admin bootstrap skipped (run deploy/bootstrap-referrall-admin.sh manually)"
+if _path_changed '^deploy/migrate-t1referrall' \
+  || _path_changed '^(models/|database\.py|db\.py|schemas/)'; then
+  log "Referr-All DB migrations (auth schema v8–v12)…"
+  # shellcheck disable=SC1091
+  source "$DEV_DIR/deploy/referrall-migrate-env.sh"
+  _dev_env_candidates=()
+  [[ -f /home/ubuntu/Website/.env.dev ]] && _dev_env_candidates+=("/home/ubuntu/Website/.env.dev")
+  [[ -f /home/ubuntu/Website/.env ]] && _dev_env_candidates+=("/home/ubuntu/Website/.env")
+  [[ -f "$DEV_DIR/.env.dev" ]] && _dev_env_candidates+=("$DEV_DIR/.env.dev")
+  [[ -f "$DEV_DIR/.env" ]] && _dev_env_candidates+=("$DEV_DIR/.env")
+  export ENV_FILE="$(referrall_resolve_env_file "${_dev_env_candidates[@]}")" || die "No env file with DATABASE_URL found — cannot run Referr-All migrations."
+  export ROOT="$DEV_DIR"
+  referrall_resolve_python
+  log "Migration target env: ${ENV_FILE} (python: ${PYTHON})"
+  bash "$DEV_DIR/deploy/migrate-t1referrall-v8.sh" || die "v8 migration failed"
+  bash "$DEV_DIR/deploy/migrate-t1referrall-v9.sh" || die "v9 migration failed"
+  bash "$DEV_DIR/deploy/migrate-t1referrall-v10.sh" || die "v10 migration failed — login will 503 until fixed"
+  bash "$DEV_DIR/deploy/migrate-t1referrall-v11.sh" || die "v11 migration failed — login will 503 until fixed"
+  bash "$DEV_DIR/deploy/migrate-t1referrall-v12.sh" || die "v12 migration failed"
+  bash "$DEV_DIR/deploy/bootstrap-referrall-admin.sh" || warn "Admin bootstrap skipped"
+else
+  log "No migration script changes — skipping Referr-All DB migrations."
+fi
 
-log "Ensuring Stripe public base URL on dev…"
-bash "$DEV_DIR/deploy/ensure-stripe-public-base-dev.sh" || warn "Could not update Stripe env — run deploy/set-stripe-dev.sh manually"
+if _path_changed '^deploy/(ensure-stripe|set-stripe)'; then
+  log "Ensuring Stripe public base URL on dev…"
+  bash "$DEV_DIR/deploy/ensure-stripe-public-base-dev.sh" || warn "Could not update Stripe env"
+else
+  log "Skipping Stripe env check (unchanged)."
+fi
 
 log "Restarting ${DEV_SERVICE}…"
 sudo systemctl restart "$DEV_SERVICE"
@@ -325,41 +449,29 @@ fi
 ok "${DEV_SERVICE} is running."
 
 if systemctl list-unit-files 2>/dev/null | grep -q '^ldbg.service'; then
-  log "Restarting ldbg…"
-  sudo systemctl restart ldbg || warn "ldbg failed to restart — check journalctl -u ldbg"
-  sleep 2
+  restart_ldbg_service
   if systemctl is-active --quiet ldbg; then
     ok "ldbg is running."
-    if [[ -f /home/ubuntu/Website/.env ]] && ! grep -Eq '^(export[[:space:]]+)?ANTHROPIC_API_KEY=' /home/ubuntu/Website/.env; then
-      if [[ -f /home/ubuntu/Website/.env.dev ]] && grep -Eq '^(export[[:space:]]+)?ANTHROPIC_API_KEY=' /home/ubuntu/Website/.env.dev; then
-        : # key in .env.dev only
+    if [[ "$LDBG_REBUILT" == "1" ]]; then
+      if [[ -f /home/ubuntu/Website/.env ]] && ! grep -Eq '^(export[[:space:]]+)?ANTHROPIC_API_KEY=' /home/ubuntu/Website/.env; then
+        if [[ -f /home/ubuntu/Website/.env.dev ]] && grep -Eq '^(export[[:space:]]+)?ANTHROPIC_API_KEY=' /home/ubuntu/Website/.env.dev; then
+          : # key in .env.dev only
+        else
+          warn "ANTHROPIC_API_KEY not in .env or .env.dev — LDBG interpret will fail."
+        fi
+      fi
+      ldbg_diag=""
+      ldbg_diag="$(curl -sS --max-time 10 "http://127.0.0.1:3002/ldbg/api/diag" 2>/dev/null || true)"
+      if echo "$ldbg_diag" | grep -q '"anthropicConfigured"'; then
+        ok "LDBG diag: $ldbg_diag"
+        if ! echo "$ldbg_diag" | grep -q '"puppeteerDepsOk"'; then
+          warn "LDBG diag missing puppeteerDepsOk — re-run ~/commit.sh after pulling latest main."
+        elif echo "$ldbg_diag" | grep -q '"puppeteerDepsOk":false'; then
+          warn "Puppeteer Chrome libraries missing — PDF/PNG export will fail."
+        fi
       else
-        warn "ANTHROPIC_API_KEY not in .env or .env.dev — LDBG interpret will fail (AIRevolution uses the same var)."
+        warn "LDBG /api/diag did not return JSON — re-run ~/commit.sh after git push."
       fi
-    fi
-    ldbg_diag=""
-    ldbg_diag="$(curl -sS --max-time 10 "http://127.0.0.1:3002/ldbg/api/diag" 2>/dev/null || true)"
-    if echo "$ldbg_diag" | grep -q '"anthropicConfigured"'; then
-      ok "LDBG diag: $ldbg_diag"
-      if [[ -f "$DEV_DIR/deploy/verify-ldbg-static.sh" ]]; then
-        bash "$DEV_DIR/deploy/verify-ldbg-static.sh" || warn "LDBG static asset check failed — UI may load unstyled until rebuild."
-      fi
-      if ! echo "$ldbg_diag" | grep -q '"puppeteerDepsOk"'; then
-        warn "LDBG diag missing puppeteerDepsOk — running stale build (expected after 26ab94e)."
-        warn "  Fix: cd $DEV_DIR && git pull --ff-only origin main"
-        warn "  Then: cd ldbg && LDBG_BASE_PATH=/ldbg npm ci && LDBG_BASE_PATH=/ldbg npm run build"
-        warn "  Then: sudo systemctl restart ldbg"
-      elif echo "$ldbg_diag" | grep -q '"puppeteerDepsOk":false'; then
-        warn "Puppeteer Chrome libraries missing — PDF/PNG export will fail."
-        warn "  Run: bash $DEV_DIR/deploy/ensure-ldbg-puppeteer-deps.sh && sudo systemctl restart ldbg"
-      fi
-    else
-      warn "LDBG /api/diag did not return JSON — build is stale or basePath wrong."
-      warn "  Fix: cd $DEV_DIR/ldbg && LDBG_BASE_PATH=/ldbg npm ci && LDBG_BASE_PATH=/ldbg npm run build"
-      warn "  Then: sudo systemctl restart ldbg"
-      warn "  Check: ls $DEV_DIR/ldbg/.next/server/app/api/diag/route.js"
-      warn "  Check: curl -sS http://127.0.0.1:3002/ldbg/api/diag | head -c 200"
-      warn "  Check: journalctl -u ldbg -n 40 --no-pager"
     fi
   else
     warn "ldbg is not active — run: journalctl -u ldbg -n 50"

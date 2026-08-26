@@ -3,6 +3,12 @@ import { StoredInterpretationSchema, InterpretFeatureSchema } from "@/lib/interp
 import { StoredDesignContentSchema } from "@/lib/design-content-schema";
 import { BlenderRenderSettingsSchema, BlenderRendersSchema } from "@/lib/blender-schema";
 import { DtmCacheSchema, StoredElevationAnalysisSchema } from "@/lib/elevation-schema";
+import {
+  WatercolorCacheEntrySchema,
+  WatercolorParamsSchema,
+  WatercolorPresetIdSchema,
+} from "@/lib/watercolor-schema";
+import { PlanRenderCacheEntrySchema } from "@/lib/plan-render-schema";
 import { PrintOrthoSchema, TilePyramidSchema } from "@/lib/tile-pyramid-schema";
 
 export const DesignStyleSchema = z.enum([
@@ -124,8 +130,11 @@ export const EditorSettingsSchema = z.object({
 });
 
 export const PlanSettingsSchema = z.object({
-  baseMode: z.enum(["orthophoto", "white"]).default("orthophoto"),
+  baseMode: z.enum(["orthophoto", "white", "ai_render"]).default("orthophoto"),
+  basePreset: WatercolorPresetIdSchema.default("off"),
   orthophotoOpacity: z.number().min(0.05).max(1).default(0.4),
+  showFeatureOutlines: z.boolean().default(true),
+  watercolorParamOverrides: WatercolorParamsSchema.partial().optional(),
   showContours: z.boolean().default(false),
   showDrainageArrows: z.boolean().default(false),
   contourMinorFt: z.number().positive().default(1),
@@ -190,6 +199,8 @@ export const ProjectSchema = z.object({
   dtmCache: DtmCacheSchema.optional(),
   tilePyramid: TilePyramidSchema.optional(),
   printOrtho: PrintOrthoSchema.optional(),
+  watercolorCache: z.record(z.string(), z.lazy(() => WatercolorCacheEntrySchema)).optional(),
+  planRenderCache: z.record(z.string(), z.lazy(() => PlanRenderCacheEntrySchema)).optional(),
   elevationAnalysis: StoredElevationAnalysisSchema.optional(),
   blenderRenders: BlenderRendersSchema.optional(),
   blenderSettings: BlenderRenderSettingsSchema.optional(),

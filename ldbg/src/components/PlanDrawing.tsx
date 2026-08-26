@@ -12,7 +12,7 @@ import type { InterpretFeature } from "@/lib/interpret-schema";
 import { computePlanContentBounds, sheetPxFromInches } from "@/lib/plan-bounds";
 import {
   buildCalloutsAndLegend,
-  CALLOUT_RADIUS,
+  calloutRadiusInPlanGroup,
   computeArchScaleLabel,
   pickScaleBarFeet,
   pxPointsAttr,
@@ -40,6 +40,7 @@ type Props = {
   imageWidth: number;
   imageHeight: number;
   baseImageUrl?: string;
+  baseImageFilter?: string;
   planSettings?: PlanSettings;
   displayWidth?: number;
   className?: string;
@@ -232,6 +233,7 @@ export function PlanDrawing({
   imageWidth,
   imageHeight,
   baseImageUrl,
+  baseImageFilter,
   planSettings,
   displayWidth = 900,
   className,
@@ -338,6 +340,8 @@ export function PlanDrawing({
     [northArrowPlanX, northArrowPlanY, northArrowObstacleRadius]
   );
 
+  const calloutRImage = calloutRadiusInPlanGroup(fitScale);
+
   const { callouts, legendRows } = useMemo(
     () =>
       buildCalloutsAndLegend(
@@ -346,9 +350,13 @@ export function PlanDrawing({
         planW,
         planH,
         pixelsPerFoot,
-        { georefCtx, obstacles: calloutObstacles }
+        {
+          georefCtx,
+          obstacles: calloutObstacles,
+          calloutRadiusPx: calloutRImage,
+        }
       ),
-    [designFeatures, legend, planW, planH, pixelsPerFoot, georefCtx, calloutObstacles]
+    [designFeatures, legend, planW, planH, pixelsPerFoot, georefCtx, calloutObstacles, calloutRImage]
   );
 
   const scaleBarFeet =
@@ -418,7 +426,7 @@ export function PlanDrawing({
               width={planW}
               height={planH}
               opacity={orthoOpacity}
-              filter="url(#plan-desaturate)"
+              filter={baseImageFilter}
               preserveAspectRatio="xMidYMid meet"
             />
           ) : (
@@ -475,31 +483,6 @@ export function PlanDrawing({
             />
           ))}
 
-          {callouts.map((c) => (
-            <g key={c.featureId}>
-              <circle
-                cx={c.x}
-                cy={c.y}
-                r={CALLOUT_RADIUS}
-                fill="#1c1917"
-                stroke="#fff"
-                strokeWidth={3}
-              />
-              <text
-                x={c.x}
-                y={c.y}
-                textAnchor="middle"
-                dominantBaseline="central"
-                fill="#fff"
-                fontSize={CALLOUT_RADIUS * 0.95}
-                fontWeight="700"
-                fontFamily="system-ui, sans-serif"
-              >
-                {c.number}
-              </text>
-            </g>
-          ))}
-
           {pixelsPerFoot != null ? (
             <ScaleBar
               x={contentBounds.x + 24}
@@ -510,6 +493,36 @@ export function PlanDrawing({
             />
           ) : null}
         </g>
+
+        {callouts.map((c) => {
+          const sx = planOffsetX + (c.x - contentBounds.x) * fitScale;
+          const sy = planOffsetY + (c.y - contentBounds.y) * fitScale;
+          const rSheet = c.radiusPx * fitScale;
+          return (
+            <g key={c.featureId}>
+              <circle
+                cx={sx}
+                cy={sy}
+                r={rSheet}
+                fill="#1c1917"
+                stroke="#fff"
+                strokeWidth={1.25}
+              />
+              <text
+                x={sx}
+                y={sy}
+                textAnchor="middle"
+                dominantBaseline="central"
+                fill="#fff"
+                fontSize={rSheet * 0.82}
+                fontWeight="700"
+                fontFamily="system-ui, sans-serif"
+              >
+                {c.number}
+              </text>
+            </g>
+          );
+        })}
 
         <NorthArrow
           x={northArrowSheetX}

@@ -62,6 +62,50 @@ export function computePlanContentBounds(
   return { x, y, width: Math.max(1, width), height: Math.max(1, height) };
 }
 
+/** Axis-aligned bounds of one feature in image pixel space. */
+export function computeFeaturePxBounds(
+  f: InterpretFeature,
+  imageW: number,
+  imageH: number,
+  georefCtx?: GeorefDisplayContext
+): PlanContentBounds {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+
+  const pts = geometryToPxPoints(f, imageW, imageH, georefCtx);
+  for (const p of pts) {
+    minX = Math.min(minX, p.x);
+    minY = Math.min(minY, p.y);
+    maxX = Math.max(maxX, p.x);
+    maxY = Math.max(maxY, p.y);
+  }
+  if (f.geometry.kind === "point" || f.geometry.radius != null) {
+    const c = pts[0];
+    if (c) {
+      const r =
+        geometryRadiusPx(f, imageW, imageH, georefCtx) ??
+        0.025 * Math.max(imageW, imageH);
+      minX = Math.min(minX, c.x - r);
+      maxX = Math.max(maxX, c.x + r);
+      minY = Math.min(minY, c.y - r);
+      maxY = Math.max(maxY, c.y + r);
+    }
+  }
+
+  if (!Number.isFinite(minX)) {
+    return { x: 0, y: 0, width: imageW, height: imageH };
+  }
+
+  return {
+    x: minX,
+    y: minY,
+    width: Math.max(1, maxX - minX),
+    height: Math.max(1, maxY - minY),
+  };
+}
+
 /** Sheet pixels at 300 DPI for a given inch measurement. */
 export function sheetPxFromInches(inches: number, dpi = 300): number {
   return inches * dpi;

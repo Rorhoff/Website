@@ -232,3 +232,11 @@ export function isTreeFeatureType(featureType: string): boolean {
 export function isPlantPointFeatureType(featureType: string): boolean {
   return UTAH_PLANT_PALETTE.some((p) => p.featureType === featureType);
 }
+
+export function isUtahTree(plant: UtahPlant): boolean {
+  return isTreeFeatureType(plant.featureType);
+}
+
+export const UTAH_TREES = UTAH_PLANT_PALETTE.filter(isUtahTree);
+
+export const UTAH_GROUNDCOVER = UTAH_PLANT_PALETTE.filter((p) => !isUtahTree(p));

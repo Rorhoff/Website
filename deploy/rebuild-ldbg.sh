@@ -1,48 +1,29 @@
 #!/usr/bin/env bash
-# rebuild-ldbg.sh — pull latest main, rebuild LDBG, restart service (EC2).
-# Usage: bash ~/Website/deploy/rebuild-ldbg.sh
+# rebuild-ldbg.sh — deprecated wrapper; full dev deploy is ~/commit.sh
+#
+# commit.sh already pulls main, builds LDBG (webpack + manifest verify), installs
+# Python/Puppeteer deps, restarts ldbg, and rolls back .next on static verify failure.
+#
+# Usage (preferred):
+#   ~/commit.sh
+#
+# This file remains so old docs/commands still work:
+#   bash ~/Website/deploy/rebuild-ldbg.sh
 
 set -euo pipefail
 
-ROOT="${LDBG_REPO_ROOT:-/home/ubuntu/Website}"
-LDBG="$ROOT/ldbg"
+COMMIT="${HOME}/commit.sh"
+REPO_COMMIT="/home/ubuntu/Website/deploy/commit.sh"
 
-cd "$ROOT"
-git fetch origin main
-git checkout main
-git pull --ff-only origin main
-echo "At commit: $(git rev-parse --short HEAD)"
-
-cd "$LDBG"
-npm ci
-
-bash "$ROOT/deploy/ldbg-build.sh"
-
-bash "$ROOT/deploy/ensure-ldbg-python-deps.sh"
-bash "$ROOT/deploy/ensure-ldbg-puppeteer-deps.sh"
-
-# Install updated unit (LDBG_PYTHON) when present.
-if [[ -f "$ROOT/deploy/ldbg.service" ]] \
-  && ! cmp -s "$ROOT/deploy/ldbg.service" /etc/systemd/system/ldbg.service 2>/dev/null; then
-  echo "==> Updating ldbg.service…"
-  sudo cp "$ROOT/deploy/ldbg.service" /etc/systemd/system/ldbg.service
-  sudo systemctl daemon-reload
+if [[ -x "$COMMIT" ]]; then
+  echo "==> rebuild-ldbg.sh: running ${COMMIT} (full dev deploy)…"
+  exec "$COMMIT" "$@"
 fi
 
-sudo systemctl restart ldbg
-sleep 3
-
-if ! bash "$ROOT/deploy/verify-ldbg-static.sh"; then
-  echo "ERR  Static verify failed after restart — rolling back .next and restarting" >&2
-  if [[ -d "$LDBG/.next.prev" ]]; then
-    rm -rf "$LDBG/.next"
-    mv "$LDBG/.next.prev" "$LDBG/.next"
-    sudo systemctl restart ldbg
-  fi
-  exit 1
+if [[ -f "$REPO_COMMIT" ]]; then
+  echo "==> rebuild-ldbg.sh: running ${REPO_COMMIT}…"
+  exec bash "$REPO_COMMIT" "$@"
 fi
 
-echo "--- diag ---"
-curl -g -sS "http://127.0.0.1:3002/ldbg/api/diag"
-echo
-echo "OK   LDBG rebuild complete"
+echo "ERR  Install commit.sh first: cp /home/ubuntu/Website/deploy/commit.sh ~/commit.sh && chmod +x ~/commit.sh" >&2
+exit 1

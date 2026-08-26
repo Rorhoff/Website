@@ -44,6 +44,12 @@ export const InterpretFeatureSchema = z.object({
   targetSlopePct: z.number().optional(),
   /** CV palette match distance (Lab space); advisory when high. */
   paletteMatchDistance: z.number().optional(),
+  /** Width in feet for polyline linear features (paths, walls, edging strips). */
+  widthFt: z.number().positive().optional(),
+  /** 0–1 corner smoothing applied at mask/plan render time. */
+  smoothing: z.number().min(0).max(1).optional(),
+  /** Putting green fringe/collar width in inches (0–24). */
+  fringeWidthIn: z.number().int().min(0).max(24).optional(),
 });
 
 /** Claude vision output — always normalized image coordinates. */

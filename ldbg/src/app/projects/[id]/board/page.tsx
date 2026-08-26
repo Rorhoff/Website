@@ -11,6 +11,8 @@ import {
   isGeoreferenced,
   isProjectScaled,
 } from "@/lib/georef";
+import { findPlanRenderEntry } from "@/lib/plan-render-service";
+import { resolvePlanBaseLayer } from "@/lib/plan-base-layer";
 import { getLegend, getStorage } from "@/lib/storage";
 
 type Props = {
@@ -51,7 +53,24 @@ export default async function BoardPage({ params, searchParams }: Props) {
 
   const ann = project.images.annotated;
   const clean = project.images.clean;
-  const baseImage = exportMode ? getPrintBoardImage(project) : getDisplayImage(project);
+  const rawBaseImage = exportMode ? getPrintBoardImage(project) : getDisplayImage(project);
+
+  const rawBaseUrl = rawBaseImage ? fileUrl(id, rawBaseImage.filename) : undefined;
+  const renderEntry = findPlanRenderEntry(project, exportMode ? "final" : "draft");
+  const planRenderUrl =
+    project.planSettings?.baseMode === "ai_render" && renderEntry
+      ? fileUrl(
+          id,
+          exportMode
+            ? renderEntry.renderFilename
+            : (renderEntry.previewFilename ?? renderEntry.renderFilename)
+        )
+      : undefined;
+  const planBase = resolvePlanBaseLayer(project.planSettings, {
+    rawUrl: rawBaseUrl,
+    planRenderUrl,
+    planRenderEntry: renderEntry,
+  });
 
   const bp = basePath();
   const renderSlots = project.renderSlots
@@ -106,16 +125,15 @@ export default async function BoardPage({ params, searchParams }: Props) {
           designContent={project.designContent}
           planSettings={project.planSettings}
           boardSettings={project.boardSettings}
-          imageWidth={baseImage?.width ?? 1000}
-          imageHeight={baseImage?.height ?? 1000}
+          imageWidth={rawBaseImage?.width ?? 1000}
+          imageHeight={rawBaseImage?.height ?? 1000}
           pixelsPerFoot={getPixelsPerFoot(project)}
           annotatedUrl={
             ann ? fileUrl(id, ann.filename) : undefined
           }
           cleanUrl={clean ? fileUrl(id, clean.filename) : undefined}
-          baseImageUrl={
-            baseImage ? fileUrl(id, baseImage.filename) : undefined
-          }
+          baseImageUrl={planBase.url}
+          baseImageFilter={planBase.svgFilter}
           renderSlots={renderSlots}
           pageSize={pageSize}
           basePath={bp}

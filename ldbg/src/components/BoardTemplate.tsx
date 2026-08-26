@@ -39,6 +39,7 @@ type Props = {
   annotatedUrl?: string;
   cleanUrl?: string;
   baseImageUrl?: string;
+  baseImageFilter?: string;
   renderSlots?: BoardRenderSlots;
   pageSize: BoardPageSize;
   basePath?: string;
@@ -94,6 +95,7 @@ export function BoardTemplate({
   annotatedUrl,
   cleanUrl,
   baseImageUrl,
+  baseImageFilter,
   renderSlots,
   pageSize,
   basePath = "",
@@ -103,7 +105,9 @@ export function BoardTemplate({
 }: Props) {
   const dims = boardDimensions(pageSize);
   const grid = boardGridTracks(pageSize);
-  const numberedNotes = resolveEnabledNotes(boardSettings?.enabledNoteIds);
+  const numberedNotes = resolveEnabledNotes(boardSettings?.enabledNoteIds, {
+    forceAiPlanNote: planSettings?.baseMode === "ai_render",
+  });
   const hiddenTypes: string[] = [];
 
   const planPanelWidth = grid.colCenter - grid.centerLegendW - 16;
@@ -194,6 +198,7 @@ export function BoardTemplate({
                   imageWidth={imageWidth}
                   imageHeight={imageHeight}
                   baseImageUrl={baseImageUrl}
+                  baseImageFilter={baseImageFilter}
                   planSettings={planSettings}
                   northRotationDeg={northRotationDeg}
                   pixelsPerFoot={pixelsPerFoot}

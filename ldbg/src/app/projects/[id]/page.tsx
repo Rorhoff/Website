@@ -354,6 +354,7 @@ export default function ProjectPage() {
         />
         {features.length > 0 && baseImage ? (
           <PlanPanel
+            projectId={id}
             features={features}
             legend={legend}
             metadata={metadata}
@@ -365,8 +366,14 @@ export default function ProjectPage() {
             editorSettings={editorSettings}
             imageWidth={baseImage.width}
             imageHeight={baseImage.height}
-            baseImageUrl={projectImageUrl(id, baseImage.filename)}
+            rawBaseImageUrl={projectImageUrl(id, baseImage.filename)}
+            cleanImageUrl={
+              project.images.clean
+                ? projectImageUrl(id, project.images.clean.filename)
+                : undefined
+            }
             planSettings={planSettings}
+            planRenderCache={project.planRenderCache}
             onPlanSettingsChange={setPlanSettings}
             onSavePlanSettings={() => persist({ planSettings })}
             saving={saving}

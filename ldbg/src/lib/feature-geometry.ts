@@ -6,6 +6,7 @@ import {
   geometryToPxPoints,
   isNormalizedGeometry,
 } from "@/lib/feature-georef";
+import { bufferPolylinePx, polylineHalfWidthPx } from "@/lib/polyline-buffer";
 
 export type NormPoint = { x: number; y: number };
 export type PxPoint = { x: number; y: number };
@@ -79,7 +80,7 @@ export function featureAreaSqFt(
   imageW: number,
   imageH: number,
   pixelsPerFoot?: number,
-  _ctx?: GeorefDisplayContext
+  ctx?: GeorefDisplayContext
 ): number | null {
   const georef = featureAreaSqFtGeoref(feature);
   if (georef != null) return georef;
@@ -91,6 +92,12 @@ export function featureAreaSqFt(
 
   if (feature.geometry.kind === "polygon") {
     return polygonAreaPx(pts) / pxf;
+  }
+  if (feature.geometry.kind === "polyline" && feature.widthFt != null && feature.widthFt > 0) {
+    const half = polylineHalfWidthPx(feature, feature.widthFt, imageW, imageH, pixelsPerFoot, ctx);
+    const buf = bufferPolylinePx(pts, half);
+    if (buf.length >= 3) return polygonAreaPx(buf) / pxf;
+    return (polylineLengthPx(pts) * (feature.widthFt * pixelsPerFoot)) / pxf;
   }
   if (feature.geometry.kind === "point" && feature.geometry.radius) {
     const rPx = feature.geometry.radius * Math.max(imageW, imageH);

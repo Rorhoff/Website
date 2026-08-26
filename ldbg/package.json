@@ -9,7 +9,8 @@
     "start": "next start -p 3002",
     "lint": "eslint",
     "test:interpret": "tsx scripts/test-interpret.ts",
-    "test:cv-import": "python scripts/test_cv_import_fixtures.py"
+    "test:cv-import": "python scripts/test_cv_import_fixtures.py",
+    "test:watercolor": "python scripts/test_watercolor_acceptance.py"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",

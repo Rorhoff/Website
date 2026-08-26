@@ -60,6 +60,21 @@ Open [http://localhost:3000](http://localhost:3000) (or port/base path from depl
 | `LDBG_RENDERS_ENABLED` | Enable AI render providers |
 | `LDBG_RENDER_IMG2IMG` | Gemini img2img from Blender base |
 
+## Plan base layer
+
+Per SPEC revision (AI plan render supersedes watercolor):
+
+- **Clean / desaturated orthophoto** — backdrop until `POST /api/plan-render` is wired
+- **Watercolor filter** — `scripts/watercolor.py` kept but removed from plan panel UI
+- Vector callouts, legend, and scale remain authoritative for quantities
+
+## Watercolor (deprecated in UI)
+
+Legacy pipeline still in repo for reference:
+
+- `scripts/watercolor.py`, `src/config/watercolor.ts`, `POST /api/projects/[id]/watercolor`
+- Not exposed in the plan panel; use AI plan render instead (build step 4)
+
 ## Storage
 
 Projects live in `./storage/{uuid}/`:
@@ -69,6 +84,7 @@ Projects live in `./storage/{uuid}/`:
 - `webodm/` — ingested WebODM files including full GeoTIFF
 - `tiles/orthophoto/` — XYZ tile pyramid
 - `print-ortho.jpg` — high-res ortho for board export (generated)
+- `derived/base-{preset}-{hash}.png` — watercolor plan base (full + preview)
 - `dtm-cache.json` — cached elevation grid
 
 Legacy upload projects use `annotated.jpg` / `clean.jpg` at project root.

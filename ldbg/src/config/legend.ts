@@ -34,6 +34,12 @@ export type LegendEntry = {
   existingRenderStyle?: RenderStyle;
   unit: FeatureUnit;
   notes?: string;
+  /** Default strip width (ft) for polyline + width feature types. */
+  defaultWidthFt?: number;
+  /** Default fringe width (in) for putting_green. */
+  defaultFringeWidthIn?: number;
+  /** Default corner smoothing 0–1 for organic types. */
+  defaultSmoothing?: number;
 };
 
 export const DEFAULT_LEGEND: LegendEntry[] = [
@@ -46,6 +52,8 @@ export const DEFAULT_LEGEND: LegendEntry[] = [
     defaultMaterial: "Synthetic turf putting surface",
     renderStyle: { fill: "#6BCB6B", stroke: "#3D8B3D", patternId: "turf-stipple" },
     unit: "sqft",
+    defaultFringeWidthIn: 18,
+    defaultSmoothing: 0.6,
     notes: "Synthetic turf putting green",
   },
   {
@@ -160,6 +168,99 @@ export const DEFAULT_LEGEND: LegendEntry[] = [
     defaultMaterial: "Big sagebrush or similar xeric shrub",
     renderStyle: { fill: "#A8B89A", stroke: "#6B7B5C", patternId: "mulch", opacity: 0.85 },
     unit: "sqft",
+  },
+  {
+    id: "paver_path",
+    label: "Paver path",
+    featureType: "paver_path",
+    colorHint: { hex: "#A0A0A0", description: "grey path centerline" },
+    shapeHint: "grey path strip — centerline with width",
+    defaultMaterial: "Concrete paver path, running bond",
+    renderStyle: { fill: "#B8B8B8", stroke: "#666666", patternId: "paver-running-bond", opacity: 0.9 },
+    unit: "sqft",
+    defaultWidthFt: 4,
+    defaultSmoothing: 0,
+  },
+  {
+    id: "flagstone_paving",
+    label: "Flagstone paving",
+    featureType: "flagstone_paving",
+    colorHint: { hex: "#C0C0C0", description: "light grey irregular paving" },
+    shapeHint: "flagstone patio or walkway area",
+    defaultMaterial: "Natural flagstone paving",
+    renderStyle: { fill: "#C8C8C8", stroke: "#888888", patternId: "paver-running-bond" },
+    unit: "sqft",
+    defaultSmoothing: 0.3,
+  },
+  {
+    id: "planting_bed",
+    label: "Planting bed",
+    featureType: "planting_bed",
+    colorHint: { hex: "#556B2F", description: "olive planting bed fill" },
+    shapeHint: "planted bed polygon",
+    defaultMaterial: "Mixed planting bed — species TBD",
+    renderStyle: { fill: "#8FBC8F", stroke: "#556B2F", patternId: "mulch", opacity: 0.85 },
+    unit: "sqft",
+    defaultSmoothing: 0.6,
+  },
+  {
+    id: "fire_pit_terrace",
+    label: "Fire pit terrace",
+    featureType: "fire_pit_terrace",
+    colorHint: { hex: "#CD853F", description: "tan hardscape terrace" },
+    shapeHint: "paved terrace around fire feature",
+    defaultMaterial: "Paver terrace — finish TBD",
+    renderStyle: { fill: "#D2B48C", stroke: "#8B7355", patternId: "paver-running-bond" },
+    unit: "sqft",
+    defaultSmoothing: 0,
+  },
+  {
+    id: "steps",
+    label: "Steps",
+    featureType: "steps",
+    colorHint: { hex: "#696969", description: "grey step run" },
+    shapeHint: "step run centerline with width",
+    defaultMaterial: "Stone or concrete steps",
+    renderStyle: { fill: "#909090", stroke: "#505050" },
+    unit: "each",
+    defaultWidthFt: 5,
+    defaultSmoothing: 0,
+  },
+  {
+    id: "bridge",
+    label: "Bridge",
+    featureType: "bridge",
+    colorHint: { hex: "#8B4513", description: "brown bridge deck" },
+    shapeHint: "bridge deck centerline with width",
+    defaultMaterial: "Timber or steel bridge — TBD",
+    renderStyle: { fill: "#A0522D", stroke: "#5C3317" },
+    unit: "each",
+    defaultWidthFt: 4,
+    defaultSmoothing: 0,
+  },
+  {
+    id: "rock_retaining_wall",
+    label: "Rock retaining wall",
+    featureType: "rock_retaining_wall",
+    colorHint: { hex: "#78716C", description: "stone wall strip" },
+    shapeHint: "retaining wall centerline with width",
+    defaultMaterial: "Natural rock retaining wall",
+    renderStyle: { fill: "#A8A29E", stroke: "#57534E" },
+    unit: "lf",
+    defaultWidthFt: 2,
+    defaultSmoothing: 0,
+  },
+  {
+    id: "boulder_edge",
+    label: "Boulder edge",
+    featureType: "boulder_edge",
+    colorHint: { hex: "#8B4513", description: "boulder edging strip" },
+    shapeHint: "boulder edge centerline with width",
+    defaultMaterial: "Natural boulder edging",
+    renderStyle: { fill: "none", stroke: "#8B4513", strokeWidth: 2.5 },
+    unit: "lf",
+    defaultWidthFt: 1.5,
+    defaultSmoothing: 0,
   },
   {
     id: "steel_edging",

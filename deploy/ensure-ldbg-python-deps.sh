@@ -23,5 +23,5 @@ import cv2
 import numpy
 import rasterio
 from skimage.morphology import skeletonize
-print("OK   LDBG Python: cv2, numpy, rasterio, skimage")
+print("OK   LDBG Python: cv2 (contrib), numpy, rasterio, skimage")
 PY

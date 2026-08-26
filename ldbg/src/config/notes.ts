@@ -84,6 +84,13 @@ export const GENERAL_NOTES: readonly GeneralNote[] = [
       "Owner is responsible for compliance with all applicable HOA covenants, " +
       "municipal codes, permits, and water use restrictions.",
   },
+  {
+    id: "ai-plan-render",
+    defaultOn: false,
+    category: "accuracy",
+    text:
+      "Plan graphics include AI-generated renderings for illustrative purposes. All dimensions, areas, and quantities are derived from measured design geometry, not from rendered imagery.",
+  },
 ] as const;
 
 export function defaultEnabledNoteIds(): string[] {

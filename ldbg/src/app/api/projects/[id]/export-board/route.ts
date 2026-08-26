@@ -6,7 +6,6 @@ import { isGeoreferenced } from "@/lib/georef";
 import { canExportBoard } from "@/lib/scale-verification";
 import { getStorage } from "@/lib/storage";
 import { ensurePrintOrthoForProject } from "@/lib/tile-pyramid-service";
-
 type Params = { params: Promise<{ id: string }> };
 
 const BodySchema = z.object({

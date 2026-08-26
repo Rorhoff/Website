@@ -140,5 +140,14 @@ export function createDrawnFeature(options: {
     existing: false,
     confidence: 1,
     notes: notesOverride ?? "",
+    widthFt:
+      geometryKind === "polyline" && entry?.defaultWidthFt != null
+        ? entry.defaultWidthFt
+        : undefined,
+    fringeWidthIn:
+      featureType === "putting_green" && entry?.defaultFringeWidthIn != null
+        ? entry.defaultFringeWidthIn
+        : undefined,
+    smoothing: entry?.defaultSmoothing,
   };
 }
