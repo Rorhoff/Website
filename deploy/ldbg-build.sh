@@ -26,6 +26,7 @@ restore_prev() {
 trap 'if [[ $? -ne 0 ]]; then restore_prev; fi' EXIT
 
 echo "==> Building LDBG (webpack, basePath /ldbg)…"
+export NODE_OPTIONS="${NODE_OPTIONS:---max-old-space-size=4096}"
 LDBG_BASE_PATH=/ldbg npm run build
 
 if find .next/static/chunks -name '*.js' -empty -print -quit 2>/dev/null | grep -q .; then

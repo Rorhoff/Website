@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# verify-ldbg-build-manifest.sh — every referenced _next/static chunk must exist on disk (non-empty).
+# verify-ldbg-build-manifest.sh — every chunk in app-build-manifest.json must exist on disk.
 set -euo pipefail
 
 ROOT="${LDBG_REPO_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
@@ -11,32 +11,45 @@ if [[ ! -f "$MANIFEST" ]]; then
   exit 1
 fi
 
-collect_refs() {
-  grep -oE 'static/chunks/[^"'\'' ]+\.(js|css)' "$MANIFEST" 2>/dev/null || true
-  grep -roE 'static/chunks/[a-f0-9-]+\.(js|css)' "$LDBG/.next/server" 2>/dev/null || true
-  grep -roE '/ldbg/_next/static/chunks/[a-f0-9-]+\.(js|css)' "$LDBG/.next/server" 2>/dev/null \
-    | sed 's|.*/ldbg/_next/||' || true
+export LDBG_DIR="$LDBG"
+node <<'NODE'
+const fs = require("fs");
+const path = require("path");
+
+const ldbg = process.env.LDBG_DIR;
+const manifestPath = path.join(ldbg, ".next/app-build-manifest.json");
+const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+const refs = new Set();
+
+for (const files of Object.values(manifest.pages || {})) {
+  if (!Array.isArray(files)) continue;
+  for (const rel of files) refs.add(rel);
 }
 
-mapfile -t REFS < <(collect_refs | sort -u)
-if [[ ${#REFS[@]} -eq 0 ]]; then
-  echo "ERR  No chunk paths found in LDBG build output" >&2
-  exit 1
-fi
+if (refs.size === 0) {
+  console.error("ERR  No chunk paths in app-build-manifest.json");
+  process.exit(1);
+}
 
-FAIL=0
-for rel in "${REFS[@]}"; do
-  [[ -z "$rel" ]] && continue
-  path="$LDBG/.next/$rel"
-  if [[ ! -s "$path" ]]; then
-    echo "ERR  Missing or empty chunk: $rel" >&2
-    FAIL=1
-  fi
-done
+let fail = 0;
+for (const rel of refs) {
+  const filePath = path.join(ldbg, ".next", rel);
+  try {
+    const st = fs.statSync(filePath);
+    if (st.size === 0) {
+      console.error(`ERR  Empty chunk: ${rel}`);
+      fail = 1;
+    }
+  } catch {
+    console.error(`ERR  Missing chunk: ${rel}`);
+    fail = 1;
+  }
+}
 
-if [[ "$FAIL" -ne 0 ]]; then
-  echo "ERR  LDBG build incomplete — Turbopack can omit lazy chunks; use: LDBG_BASE_PATH=/ldbg npm run build" >&2
-  exit 1
-fi
+if (fail) {
+  console.error("ERR  LDBG build incomplete — re-run: bash deploy/ldbg-build.sh");
+  process.exit(1);
+}
 
-echo "OK   LDBG build manifest (${#REFS[@]} chunks on disk)"
+console.log(`OK   LDBG build manifest (${refs.size} chunks on disk)`);
+NODE
