@@ -291,6 +291,12 @@ restart_ldbg_service() {
   sleep 2
   if [[ "$LDBG_REBUILT" == "1" ]]; then
     restart_ldbg_with_verify
+  elif [[ -f "$DEV_DIR/deploy/verify-ldbg-static.sh" ]]; then
+    if bash "$DEV_DIR/deploy/verify-ldbg-static.sh"; then
+      ok "ldbg static assets OK (no rebuild)."
+    else
+      warn "LDBG static assets broken — run: COMMIT_FORCE=1 ~/commit.sh"
+    fi
   else
     ok "ldbg restarted (no rebuild — skipped static asset verify)."
   fi

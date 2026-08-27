@@ -15,9 +15,14 @@ manifest_assets() {
   [[ -f "$MANIFEST" ]] || return 0
   # Webpack emits app-route chunks with literal [id] in paths — only hash chunks for HTTP probe;
   # app-route chunks are verified on disk in verify-ldbg-build-manifest.sh.
-  grep -oE 'static/chunks/[a-f0-9][a-f0-9-]*\.(js|css)' "$MANIFEST" \
+  grep -oE 'static/(chunks|css)/[^"'\'' ]+\.(js|css)' "$MANIFEST" \
     | sed 's|^|/ldbg/_next/|' \
     | sort -u
+  if [[ -f "$ROOT/ldbg/.next/BUILD_ID" ]]; then
+    bid="$(tr -d '\n\r' <"$ROOT/ldbg/.next/BUILD_ID")"
+    echo "/ldbg/_next/static/${bid}/_buildManifest.js"
+    echo "/ldbg/_next/static/${bid}/_ssgManifest.js"
+  fi
 }
 
 collect_assets() {
