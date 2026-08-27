@@ -11,10 +11,20 @@ PATHS=(
   "/ldbg/projects/00000000-0000-0000-0000-000000000000"
 )
 
+wait_for_ldbg() {
+  local i
+  for i in $(seq 1 30); do
+    if curl -g -sf --max-time 3 "${ORIGIN}/ldbg/api/diag" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 1
+  done
+  echo "ERR  LDBG not responding at ${ORIGIN}/ldbg/api/diag" >&2
+  return 1
+}
+
 manifest_assets() {
   [[ -f "$MANIFEST" ]] || return 0
-  # Webpack emits app-route chunks with literal [id] in paths — only hash chunks for HTTP probe;
-  # app-route chunks are verified on disk in verify-ldbg-build-manifest.sh.
   grep -oE 'static/(chunks|css)/[^"'\'' ]+\.(js|css)' "$MANIFEST" \
     | sed 's|^|/ldbg/_next/|' \
     | sort -u
@@ -36,6 +46,8 @@ collect_assets() {
   printf '%s' "$html" | grep -oE '/ldbg/_next/static/[^"'\'' )]+\.(css|js)' | sort -u
 }
 
+wait_for_ldbg
+
 ALL_ASSETS=()
 while IFS= read -r asset; do
   [[ -z "$asset" ]] && continue
@@ -56,15 +68,17 @@ fi
 
 FAIL=0
 for rel in "${UNIQUE_ASSETS[@]}"; do
-  code="$(curl -g -sS -o /dev/null -w '%{http_code}' --max-time 20 "${ORIGIN}${rel}" || echo 000)"
-  if [[ "$code" != "200" ]]; then
-    echo "ERR  ${rel} -> HTTP ${code}" >&2
+  size="$(curl -g -sS -o /dev/null -w '%{http_code}:%{size_download}' --max-time 20 "${ORIGIN}${rel}" || echo "000:0")"
+  code="${size%%:*}"
+  bytes="${size#*:}"
+  if [[ "$code" != "200" ]] || [[ "${bytes:-0}" -lt 32 ]]; then
+    echo "ERR  ${rel} -> HTTP ${code} (${bytes} bytes)" >&2
     FAIL=1
   fi
 done
 
 if [[ "$FAIL" -ne 0 ]]; then
-  echo "ERR  LDBG static assets broken — run: bash deploy/rebuild-ldbg.sh" >&2
+  echo "ERR  LDBG static assets broken — run: bash deploy/nuke-ldbg-build.sh" >&2
   exit 1
 fi
 

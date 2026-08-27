@@ -36,6 +36,18 @@ fi
 
 bash "$ROOT/deploy/verify-ldbg-build-manifest.sh"
 
+# Spot-check layout CSS + webpack exist (common failure mode when .next is corrupt).
+layout_css="$(grep -oE 'static/css/[a-f0-9]+\.css' "$LDBG/.next/app-build-manifest.json" | head -1 || true)"
+webpack_js="$(grep -oE 'static/chunks/webpack-[a-f0-9]+\.js' "$LDBG/.next/app-build-manifest.json" | head -1 || true)"
+for rel in "$layout_css" "$webpack_js"; do
+  [[ -z "$rel" ]] && continue
+  fp="$LDBG/.next/$rel"
+  if [[ ! -s "$fp" ]]; then
+    echo "ERR  Missing or empty build artifact: $rel" >&2
+    exit 1
+  fi
+done
+
 if grep -rq '"/_next/static' .next/server 2>/dev/null \
   && ! grep -rq '"/ldbg/_next/static' .next/server 2>/dev/null; then
   echo "ERR  Build missing basePath /ldbg in server manifests" >&2

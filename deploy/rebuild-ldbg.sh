@@ -9,6 +9,7 @@
 #
 # This file remains so old docs/commands still work:
 #   bash ~/Website/deploy/rebuild-ldbg.sh
+#   bash ~/Website/deploy/nuke-ldbg-build.sh   (when _next/static returns 400)
 
 set -euo pipefail
 

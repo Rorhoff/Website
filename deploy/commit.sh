@@ -209,6 +209,12 @@ sync_ldbg() {
   fi
 
   log "Building LDBG from ${src_dir}…"
+
+  if [[ "$COMMIT_FORCE" == "1" ]]; then
+    log "COMMIT_FORCE=1 — removing stale .next and .next.prev before clean rebuild…"
+    rm -rf "$src_dir/.next" "$src_dir/.next.prev"
+  fi
+
   if _ldbg_lock_unchanged && [[ -d "$src_dir/node_modules" ]]; then
     ok "ldbg package-lock unchanged — skipping npm ci."
   elif ! (cd "$src_dir" && npm ci); then
@@ -302,34 +308,25 @@ restart_ldbg_service() {
   fi
 }
 
-# Restart ldbg and verify static assets; roll back .next if verify fails.
+# Restart ldbg and verify static assets. Do not roll back to .next.prev — it is often
+# the same corrupt tree that caused the failure (HTML references missing CSS/webpack).
 restart_ldbg_with_verify() {
-  local ldbg_dir="$DEV_DIR/ldbg"
-
-  sleep 1
-
   if [[ ! -f "$DEV_DIR/deploy/verify-ldbg-static.sh" ]]; then
     return 0
   fi
 
-  if bash "$DEV_DIR/deploy/verify-ldbg-static.sh"; then
-    ok "LDBG static assets verified."
-    return 0
-  fi
-
-  warn "LDBG static verify failed after restart — rolling back .next and retrying…"
-  if [[ -d "$ldbg_dir/.next.prev" ]]; then
-    rm -rf "$ldbg_dir/.next"
-    mv "$ldbg_dir/.next.prev" "$ldbg_dir/.next"
-    sudo systemctl restart ldbg
-    sleep 3
+  local attempt
+  for attempt in 1 2 3 4 5 6; do
+    sleep 2
     if bash "$DEV_DIR/deploy/verify-ldbg-static.sh"; then
-      ok "LDBG rolled back to previous .next and verify passed."
+      ok "LDBG static assets verified (attempt ${attempt})."
+      rm -rf "$DEV_DIR/ldbg/.next.prev"
       return 0
     fi
-  fi
+    warn "LDBG static verify attempt ${attempt}/6 failed — waiting for next start…"
+  done
 
-  die "LDBG static verify failed even after rollback — check journalctl -u ldbg and rebuild logs."
+  die "LDBG static verify failed after restart. On EC2 run: bash ${DEV_DIR}/deploy/nuke-ldbg-build.sh"
 }
 
 # ---------------------------------------------------------------------------
