@@ -1,3 +1,4 @@
+import { revalidatePath } from "next/cache";
 import { NextResponse } from "next/server";
 import { ZodError } from "zod";
 import { ProjectSchema } from "@/lib/project-schema";
@@ -45,6 +46,11 @@ export async function PATCH(req: Request, { params }: Params) {
 
 export async function DELETE(_req: Request, { params }: Params) {
   const { id } = await params;
+  const existing = await getStorage().loadProject(id);
+  if (!existing) {
+    return NextResponse.json({ error: "Project not found" }, { status: 404 });
+  }
   await getStorage().deleteProject(id);
+  revalidatePath("/");
   return NextResponse.json({ ok: true });
 }

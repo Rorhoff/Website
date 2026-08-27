@@ -191,7 +191,7 @@ export function CalibrationTool({
           <h2 className="text-lg font-semibold text-stone-900">Scale calibration</h2>
           <p className="text-sm text-stone-600">
             Click two points with a known distance (driveway width, GCP, etc.). Use +/− or scroll
-            wheel to zoom; drag with middle mouse (or Shift+drag) to pan. Image: {imageWidth}×
+            wheel to zoom; right-drag, Shift+drag, or middle-drag to pan. Image: {imageWidth}×
             {imageHeight}px
           </p>
         </div>
@@ -258,8 +258,9 @@ export function CalibrationTool({
       <div
         ref={containerRef}
         className={`relative mx-auto max-w-full overflow-hidden rounded-lg border border-stone-300 bg-stone-100 ${viewport.isPanning ? "cursor-grabbing" : ""}`}
-        style={{ aspectRatio: `${imageWidth} / ${imageHeight}` }}
+        style={{ aspectRatio: `${imageWidth} / ${imageHeight}`, touchAction: "none" }}
         onMouseDown={viewport.onMouseDown}
+        onContextMenu={(e) => e.preventDefault()}
       >
         <div className="absolute inset-0" style={viewport.transformStyle}>
           <div

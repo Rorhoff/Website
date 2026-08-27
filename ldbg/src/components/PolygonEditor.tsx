@@ -939,7 +939,7 @@ export default function PolygonEditor({
           <h2 className="text-lg font-semibold text-stone-900">Feature editor</h2>
           <p className="text-sm text-stone-600">
             Draw features on the watercolor base from the step above (or switch base layers to
-            compare). Scroll wheel zooms; hold middle mouse and drag to pan.
+            compare). Scroll to zoom; Space+drag, right-drag, or middle-drag to pan.
           </p>
         </div>
         <span className="text-xs text-stone-500">{saveLabel}</span>
@@ -1279,7 +1279,11 @@ export default function PolygonEditor({
             height={displayH}
             onClick={handleStageClick}
             onMouseDown={(e) => {
-              if (e.evt.button === 1) {
+              if (
+                e.evt.button === 1 ||
+                e.evt.button === 2 ||
+                (e.evt.button === 0 && viewport.spacePan)
+              ) {
                 viewport.onMouseDown(e);
                 return;
               }
@@ -1325,7 +1329,9 @@ export default function PolygonEditor({
             style={{
               cursor: viewport.isPanning
                 ? "grabbing"
-                : plantPlacementActive && activePlant
+                : viewport.spacePan
+                  ? "grab"
+                  : plantPlacementActive && activePlant
                   ? "crosshair"
                   : objectPlacementActive && activeObject
                     ? "crosshair"

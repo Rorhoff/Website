@@ -7,6 +7,7 @@ export function useStageViewport() {
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState<Pan>({ x: 0, y: 0 });
   const [isPanning, setIsPanning] = useState(false);
+  const [spacePan, setSpacePan] = useState(false);
   const pinchRef = useRef<{ dist: number; zoom: number } | null>(null);
   const panRef = useRef<{ x: number; y: number; panX: number; panY: number } | null>(
     null
@@ -14,6 +15,28 @@ export function useStageViewport() {
   const mousePanRef = useRef<{ x: number; y: number; panX: number; panY: number } | null>(
     null
   );
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.code === "Space" && !e.repeat) {
+        e.preventDefault();
+        setSpacePan(true);
+      }
+    };
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.code === "Space") {
+        setSpacePan(false);
+        mousePanRef.current = null;
+        setIsPanning(false);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+    };
+  }, []);
 
   const resetViewport = useCallback(() => {
     setZoom(1);
@@ -71,7 +94,6 @@ export function useStageViewport() {
     panRef.current = null;
   }, []);
 
-  /** Scroll wheel: zoom toward cursor (scroll up = in, scroll down = out). */
   const onWheel = useCallback((e: Konva.KonvaEventObject<WheelEvent>) => {
     e.evt.preventDefault();
     const scaleBy = 1.08;
@@ -93,20 +115,34 @@ export function useStageViewport() {
     });
   }, [zoom, pan.x, pan.y]);
 
-  /** Middle mouse button drag: pan the canvas. */
-  const onMouseDown = useCallback(
-    (e: Konva.KonvaEventObject<MouseEvent>) => {
-      if (e.evt.button !== 1) return;
-      e.evt.preventDefault();
+  const startMousePan = useCallback(
+    (clientX: number, clientY: number) => {
       mousePanRef.current = {
-        x: e.evt.clientX,
-        y: e.evt.clientY,
+        x: clientX,
+        y: clientY,
         panX: pan.x,
         panY: pan.y,
       };
       setIsPanning(true);
     },
     [pan.x, pan.y]
+  );
+
+  /** Pan with middle mouse, right mouse, or Space + left mouse. */
+  const onMouseDown = useCallback(
+    (e: Konva.KonvaEventObject<MouseEvent>) => {
+      const btn = e.evt.button;
+      const panGesture = btn === 1 || btn === 2 || (btn === 0 && spacePan);
+      if (!panGesture) return;
+      if (btn === 0 && spacePan) {
+        e.evt.preventDefault();
+      }
+      if (btn === 1 || btn === 2) {
+        e.evt.preventDefault();
+      }
+      startMousePan(e.evt.clientX, e.evt.clientY);
+    },
+    [spacePan, startMousePan]
   );
 
   const onMouseMove = useCallback((e: Konva.KonvaEventObject<MouseEvent>) => {
@@ -129,15 +165,13 @@ export function useStageViewport() {
     if (!isPanning) return;
     const onWindowMove = (e: MouseEvent) => {
       if (!mousePanRef.current) return;
-      const dx = e.clientX - mousePanRef.current.x;
-      const dy = e.clientY - mousePanRef.current.y;
       setPan({
-        x: mousePanRef.current.panX + dx,
-        y: mousePanRef.current.panY + dy,
+        x: mousePanRef.current.panX + (e.clientX - mousePanRef.current.x),
+        y: mousePanRef.current.panY + (e.clientY - mousePanRef.current.y),
       });
     };
     const onWindowUp = (e: MouseEvent) => {
-      if (e.button === 1) endMousePan();
+      if (e.button === 0 || e.button === 1 || e.button === 2) endMousePan();
     };
     window.addEventListener("mousemove", onWindowMove);
     window.addEventListener("mouseup", onWindowUp);
@@ -149,12 +183,13 @@ export function useStageViewport() {
 
   const onMouseUp = useCallback(
     (e: Konva.KonvaEventObject<MouseEvent>) => {
-      if (e.evt.button === 1) endMousePan();
+      if (e.evt.button === 0 || e.evt.button === 1 || e.evt.button === 2) {
+        endMousePan();
+      }
     },
     [endMousePan]
   );
 
-  /** Map stage pointer position to content coordinates (pre-zoom group space). */
   function pointerToContent(stage: Konva.Stage): { x: number; y: number } | null {
     const pos = stage.getPointerPosition();
     if (!pos) return null;
@@ -168,6 +203,7 @@ export function useStageViewport() {
     zoom,
     pan,
     isPanning,
+    spacePan,
     resetViewport,
     onTouchStart,
     onTouchMove,

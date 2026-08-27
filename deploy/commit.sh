@@ -97,8 +97,7 @@ _path_changed() {
 _ldbg_python_ok() {
   local py=""
   if [[ -f /home/ubuntu/Website/.env ]]; then
-    # shellcheck disable=SC1091
-    py="$(grep -E '^(export[[:space:]]+)?LDBG_PYTHON=' /home/ubuntu/Website/.env 2>/dev/null | tail -1 | sed -E 's/^(export[[:space:]]+)?LDBG_PYTHON=//; s/^["'\''']//; s/["'\''']$//' || true)"
+    py="$(grep -E '^LDBG_PYTHON=' /home/ubuntu/Website/.env 2>/dev/null | tail -1 | cut -d= -f2- | tr -d ' "'\''')"
   fi
   if [[ -z "$py" || ! -x "$py" ]]; then
     py="/home/ubuntu/app/venv/bin/python"

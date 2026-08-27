@@ -282,6 +282,12 @@ export function PlanPanel({
 
   async function fillAllEmpty() {
     setFillError("");
+    if (!cleanImageUrl) {
+      setFillError(
+        "Fill all empty needs a clean orthophoto on this project. Upload or register a clean base image first."
+      );
+      return;
+    }
     setFillBusy("all");
     try {
       const res = await fetch(withBasePath("/api/feature-fill"), {
@@ -445,12 +451,19 @@ export function PlanPanel({
         </div>
       ) : null}
 
-      {fillError && !planBase.styleMissing ? (
-        <p className="text-xs text-red-700">{fillError}</p>
+      {fillError ? (
+        <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800 whitespace-pre-wrap">
+          {fillError}
+        </p>
       ) : null}
 
       {designFeatures.length > 0 ? (
         <div className="space-y-2 rounded-lg border border-stone-200 p-3">
+          <p className="text-xs text-stone-600">
+            Feature fills add AI material textures for the <strong>Plan drawing</strong> export.
+            Requires a clean orthophoto and GEMINI_API_KEY — not needed for the watercolor base
+            in the feature editor.
+          </p>
           <div className="flex flex-wrap items-center justify-between gap-2">
             <span className="text-xs font-medium uppercase tracking-wide text-stone-500">
               Feature fills ({filledCount}/{designFeatures.length} filled)

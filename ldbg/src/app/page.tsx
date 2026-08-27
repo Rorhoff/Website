@@ -3,6 +3,8 @@ import { AppHeader } from "@/components/AppHeader";
 import { ProjectList } from "@/components/ProjectList";
 import { getStorage } from "@/lib/storage";
 
+export const dynamic = "force-dynamic";
+
 export default async function HomePage() {
   const projects = await getStorage().listProjects();
 

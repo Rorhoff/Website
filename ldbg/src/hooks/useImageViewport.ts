@@ -73,9 +73,10 @@ export function useImageViewport(containerRef: RefObject<HTMLElement | null>) {
 
   const onMouseDown = useCallback(
     (e: React.MouseEvent) => {
-      const canPan = e.button === 1 || (e.button === 0 && e.shiftKey);
+      const btn = e.button;
+      const canPan = btn === 1 || btn === 2 || (btn === 0 && e.shiftKey);
       if (!canPan) return;
-      if (e.button === 1 || e.shiftKey) e.preventDefault();
+      e.preventDefault();
       mousePanRef.current = {
         x: e.clientX,
         y: e.clientY,
