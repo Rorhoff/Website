@@ -81,11 +81,26 @@ def _posterize(img: np.ndarray, levels: int) -> np.ndarray:
 
 
 def _hsv_adjust(img: np.ndarray, sat_mul: float, value_floor: float) -> np.ndarray:
+    """Lift value channel: remap V from [0,1] to [floor,1] — never darkens vs input V."""
     hsv = cv2.cvtColor(img, cv2.COLOR_RGB2HSV).astype(np.float32)
     hsv[:, :, 1] = np.clip(hsv[:, :, 1] * sat_mul, 0, 255)
-    floor = np.clip(value_floor, 0, 1) * 255
-    hsv[:, :, 2] = np.maximum(hsv[:, :, 2], floor)
+    floor = float(np.clip(value_floor, 0.0, 0.99))
+    v_norm = hsv[:, :, 2] / 255.0
+    v_lifted = floor + v_norm * (1.0 - floor)
+    hsv[:, :, 2] = np.clip(v_lifted * 255.0, 0, 255)
     return cv2.cvtColor(hsv.astype(np.uint8), cv2.COLOR_HSV2RGB)
+
+
+def _bilateral_rgb(img: np.ndarray, d: int, sigma_color: float, sigma_space: float) -> np.ndarray:
+    bgr = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+    filtered = cv2.bilateralFilter(bgr, d=d, sigmaColor=sigma_color, sigmaSpace=sigma_space)
+    return cv2.cvtColor(filtered, cv2.COLOR_BGR2RGB)
+
+
+def _stylization_rgb(img: np.ndarray, sigma_s: float, sigma_r: float) -> np.ndarray:
+    bgr = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+    styled = cv2.stylization(bgr, sigma_s=sigma_s, sigma_r=sigma_r)
+    return cv2.cvtColor(styled, cv2.COLOR_BGR2RGB)
 
 
 def _edge_darken(img: np.ndarray, params: dict[str, Any]) -> np.ndarray:
@@ -127,12 +142,27 @@ def _load_tile_texture(path: Path, h: int, w: int) -> np.ndarray:
 
 
 def _apply_paper_texture(img: np.ndarray, texture_path: Path, opacity: float) -> np.ndarray:
+    """High-key paper grain — texture varies around white without dropping luminance."""
     if opacity <= 0 or not texture_path.is_file():
         return img
     tex = _load_tile_texture(texture_path, img.shape[0], img.shape[1]).astype(np.float32)
-    base = img.astype(np.float32)
-    blended = base * (1 - opacity) + (base * tex / 255.0) * opacity
-    return np.clip(blended, 0, 255).astype(np.uint8)
+    tex_norm = np.clip(tex / 255.0, 0.0, 1.0)
+    # Paper file is ~210–255; remap to [0.94, 1.0] so multiply never mud-darkens.
+    tex_high = 0.94 + 0.06 * tex_norm
+    base = img.astype(np.float32) / 255.0
+    grain = 1.0 - opacity + tex_high * opacity
+    out = base * grain
+    return np.clip(out * 255.0, 0, 255).astype(np.uint8)
+
+
+def _composite_over_white(rgb: np.ndarray, alpha: np.ndarray) -> np.ndarray:
+    """Feathered edges fade to white paper, not black transparency."""
+    a = alpha.astype(np.float32) / 255.0
+    if a.ndim == 2:
+        a = a[..., np.newaxis]
+    base = rgb.astype(np.float32)
+    out = base * a + 255.0 * (1.0 - a)
+    return np.clip(out, 0, 255).astype(np.uint8)
 
 
 def _edge_feather_alpha(h: int, w: int, params: dict[str, Any]) -> np.ndarray:
@@ -214,11 +244,11 @@ def apply_watercolor(
 
     bilateral = params.get("bilateral", {})
     _emit_progress(progress, 5, "pre-clean")
-    cleaned = cv2.bilateralFilter(
+    cleaned = _bilateral_rgb(
         img,
         d=int(bilateral.get("d", 9)),
-        sigmaColor=float(bilateral.get("sigmaColor", 75)),
-        sigmaSpace=float(bilateral.get("sigmaSpace", 75)),
+        sigma_color=float(bilateral.get("sigmaColor", 75)),
+        sigma_space=float(bilateral.get("sigmaSpace", 75)),
     )
 
     styl = params.get("stylization", {})
@@ -227,7 +257,7 @@ def apply_watercolor(
     if method == "kuwahara":
         simplified = _kuwahara(cleaned, int(styl.get("kuwaharaRadius", 5)))
     else:
-        simplified = cv2.stylization(
+        simplified = _stylization_rgb(
             cleaned,
             sigma_s=float(styl.get("sigmaS", 60)),
             sigma_r=float(styl.get("sigmaR", 0.45)),
@@ -266,34 +296,35 @@ def apply_watercolor(
     feather_p = params.get("edgeFeather", {})
     _emit_progress(progress, 92, "edge-feather")
     alpha = _edge_feather_alpha(input_h, input_w, feather_p)
-    rgba = np.dstack([textured, alpha])
+    composited = _composite_over_white(textured, alpha)
 
     _emit_progress(progress, 98, "dimension-check")
-    out_h, out_w = rgba.shape[:2]
+    out_h, out_w = composited.shape[:2]
     if out_h != input_h or out_w != input_w:
         raise AssertionError(
             f"Watercolor output dimensions {out_w}x{out_h} != input {input_w}x{input_h}"
         )
 
-    if np.any(textured == 0):
-        pass  # value floor handles near-black; verify no pure black RGB
-    if np.any(np.all(textured == 0, axis=2)):
+    if np.any(np.all(composited == 0, axis=2)):
         raise AssertionError("Watercolor output contains pure black pixels (RGB 0,0,0)")
 
     _emit_progress(progress, 100, "complete")
-    return rgba
+    return composited
 
 
-def downscale_preview(rgba: np.ndarray, long_edge: int) -> tuple[np.ndarray, bool]:
-    h, w = rgba.shape[:2]
+def downscale_preview(img: np.ndarray, long_edge: int) -> tuple[np.ndarray, bool]:
+    h, w = img.shape[:2]
     scale = long_edge / max(w, h) if max(w, h) > long_edge else 1.0
     if scale >= 1.0:
-        return rgba, False
+        return img, False
     out_w = max(1, int(round(w * scale)))
     out_h = max(1, int(round(h * scale)))
-    rgb = cv2.resize(rgba[:, :, :3], (out_w, out_h), interpolation=cv2.INTER_AREA)
-    alpha = cv2.resize(rgba[:, :, 3], (out_w, out_h), interpolation=cv2.INTER_AREA)
-    return np.dstack([rgb, alpha]), True
+    if img.shape[2] == 4:
+        rgb = cv2.resize(img[:, :, :3], (out_w, out_h), interpolation=cv2.INTER_AREA)
+        alpha = cv2.resize(img[:, :, 3], (out_w, out_h), interpolation=cv2.INTER_AREA)
+        return np.dstack([rgb, alpha]), True
+    rgb = cv2.resize(img, (out_w, out_h), interpolation=cv2.INTER_AREA)
+    return rgb, True
 
 
 def run_filter(
@@ -349,17 +380,18 @@ def run_filter(
             ],
         }
 
-    rgba = apply_watercolor(img, params, paper_texture, progress)
-    assert rgba.shape[0] == input_h and rgba.shape[1] == input_w
+    rgb = apply_watercolor(img, params, paper_texture, progress)
+    assert rgb.shape[0] == input_h and rgb.shape[1] == input_w
 
     out_full.parent.mkdir(parents=True, exist_ok=True)
-    Image.fromarray(rgba, mode="RGBA").save(out_full, format="PNG", optimize=True)
+    Image.fromarray(rgb, mode="RGB").save(out_full, format="PNG", optimize=True)
 
     preview_long = int(params.get("previewLongEdge", 2000))
-    preview, preview_downscaled = downscale_preview(rgba, preview_long)
+    preview, preview_downscaled = downscale_preview(rgb, preview_long)
     if out_preview:
         out_preview.parent.mkdir(parents=True, exist_ok=True)
-        Image.fromarray(preview, mode="RGBA").save(out_preview, format="PNG", optimize=True)
+        mode = "RGBA" if preview.shape[2] == 4 else "RGB"
+        Image.fromarray(preview, mode=mode).save(out_preview, format="PNG", optimize=True)
 
     paper_p = params.get("paperTexture", {})
     paper_opacity = float(paper_p.get("opacity", 0.14))

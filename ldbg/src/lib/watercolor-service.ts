@@ -81,9 +81,11 @@ async function sha256File(filePath: string): Promise<string> {
 }
 
 function hashParams(preset: WatercolorPresetId, params: WatercolorParams): string {
+  /** Bump when Python pipeline logic changes (invalidates cached PNGs). */
+  const pipelineVersion = 2;
   return crypto
     .createHash("sha256")
-    .update(JSON.stringify({ preset, params }))
+    .update(JSON.stringify({ preset, params, pipelineVersion }))
     .digest("hex")
     .slice(0, 12);
 }

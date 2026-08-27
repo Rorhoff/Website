@@ -153,7 +153,6 @@ export function WatercolorBasePanel({
     );
   }
 
-  const displayUrl = previewUrl ?? sourceImageUrl;
   const statusLabel = formatWatercolorJobStatus(job, !!previewUrl);
 
   return (
@@ -161,9 +160,8 @@ export function WatercolorBasePanel({
       <div>
         <h2 className="text-lg font-semibold text-violet-950">Watercolor base</h2>
         <p className="mt-1 text-sm text-violet-900">
-          Your annotated photo is converted to a watercolor base before feature editing. No fills or
-          plan settings are required — pick a style below and wait for generation to finish, then
-          continue to the feature editor.
+          Deterministic fallback base on white paper — not the final styled plan. Compare source vs
+          filtered below; use the feature editor once generation finishes.
         </p>
       </div>
 
@@ -207,17 +205,53 @@ export function WatercolorBasePanel({
         </p>
       ) : null}
 
-      <div
-        className="overflow-hidden rounded-lg border border-violet-200 bg-stone-900"
-        style={{ aspectRatio: `${imageWidth} / ${imageHeight}` }}
-      >
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={displayUrl}
-          alt={previewUrl ? "Watercolor base preview" : "Annotated photo (watercolor pending)"}
-          className="block h-full w-full object-contain"
-        />
-      </div>
+      {previewUrl ? (
+        <div className="grid gap-3 md:grid-cols-2">
+          <div>
+            <p className="mb-1 text-xs font-medium text-violet-800">Source (annotated)</p>
+            <div
+              className="overflow-hidden rounded-lg border border-violet-200 bg-white"
+              style={{ aspectRatio: `${imageWidth} / ${imageHeight}` }}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={sourceImageUrl}
+                alt="Annotated source"
+                className="block h-full w-full object-contain"
+              />
+            </div>
+          </div>
+          <div>
+            <p className="mb-1 text-xs font-medium text-violet-800">Watercolor fallback</p>
+            <div
+              className="overflow-hidden rounded-lg border border-violet-200 bg-white"
+              style={{ aspectRatio: `${imageWidth} / ${imageHeight}` }}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={previewUrl}
+                alt="Watercolor fallback output"
+                className="block h-full w-full object-contain"
+              />
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div>
+          <p className="mb-1 text-xs font-medium text-violet-800">Source (annotated)</p>
+          <div
+            className="overflow-hidden rounded-lg border border-violet-200 bg-white"
+            style={{ aspectRatio: `${imageWidth} / ${imageHeight}` }}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={sourceImageUrl}
+              alt="Annotated photo (watercolor pending)"
+              className="block h-full w-full object-contain"
+            />
+          </div>
+        </div>
+      )}
     </section>
   );
 }
