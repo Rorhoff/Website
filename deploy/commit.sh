@@ -97,7 +97,9 @@ _path_changed() {
 _ldbg_python_ok() {
   local py=""
   if [[ -f /home/ubuntu/Website/.env ]]; then
-    py="$(grep -E '^LDBG_PYTHON=' /home/ubuntu/Website/.env 2>/dev/null | tail -1 | cut -d= -f2- | tr -d ' "'\''')"
+    py="$(grep '^LDBG_PYTHON=' /home/ubuntu/Website/.env 2>/dev/null | tail -1 | cut -d= -f2- || true)"
+    py="${py//\"/}"
+    py="${py//\'/}"
   fi
   if [[ -z "$py" || ! -x "$py" ]]; then
     py="/home/ubuntu/app/venv/bin/python"
