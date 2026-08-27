@@ -284,16 +284,16 @@ def apply_watercolor(
     return rgba
 
 
-def downscale_preview(rgba: np.ndarray, long_edge: int) -> np.ndarray:
+def downscale_preview(rgba: np.ndarray, long_edge: int) -> tuple[np.ndarray, bool]:
     h, w = rgba.shape[:2]
     scale = long_edge / max(w, h) if max(w, h) > long_edge else 1.0
     if scale >= 1.0:
-        return rgba
+        return rgba, False
     out_w = max(1, int(round(w * scale)))
     out_h = max(1, int(round(h * scale)))
     rgb = cv2.resize(rgba[:, :, :3], (out_w, out_h), interpolation=cv2.INTER_AREA)
     alpha = cv2.resize(rgba[:, :, 3], (out_w, out_h), interpolation=cv2.INTER_AREA)
-    return np.dstack([rgb, alpha])
+    return np.dstack([rgb, alpha]), True
 
 
 def run_filter(
@@ -356,7 +356,7 @@ def run_filter(
     Image.fromarray(rgba, mode="RGBA").save(out_full, format="PNG", optimize=True)
 
     preview_long = int(params.get("previewLongEdge", 2000))
-    preview = downscale_preview(rgba, preview_long)
+    preview, preview_downscaled = downscale_preview(rgba, preview_long)
     if out_preview:
         out_preview.parent.mkdir(parents=True, exist_ok=True)
         Image.fromarray(preview, mode="RGBA").save(out_preview, format="PNG", optimize=True)
@@ -371,6 +371,8 @@ def run_filter(
         "height": input_h,
         "previewWidth": preview.shape[1],
         "previewHeight": preview.shape[0],
+        "previewLongEdge": preview_long,
+        "previewDownscaled": preview_downscaled,
         "inputWidth": input_w,
         "inputHeight": input_h,
         "paramsUsed": params,

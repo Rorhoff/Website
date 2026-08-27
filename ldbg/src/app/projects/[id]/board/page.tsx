@@ -19,6 +19,7 @@ import {
   runStylePassForProject,
 } from "@/lib/style-pass-service";
 import { getLegend, getStorage } from "@/lib/storage";
+import { projectFilePathSegments } from "@/lib/image-utils";
 
 type Props = {
   params: Promise<{ id: string }>;
@@ -38,7 +39,7 @@ function basePath(): string {
 }
 
 function fileUrl(projectId: string, filename: string): string {
-  return `${exportAssetBase()}${basePath()}/api/projects/${projectId}/files/${encodeURIComponent(filename)}`;
+  return `${exportAssetBase()}${basePath()}/api/projects/${encodeURIComponent(projectId)}/files/${projectFilePathSegments(filename)}`;
 }
 
 export default async function BoardPage({ params, searchParams }: Props) {

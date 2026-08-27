@@ -6,9 +6,13 @@ import {
   WATERCOLOR_PRESET_LABELS,
 } from "@/config/watercolor";
 import type { EditorSettings } from "@/lib/project-schema";
-import { projectImageUrl } from "@/lib/image-utils";
 import { withBasePath } from "@/lib/paths";
 import type { WatercolorJob } from "@/lib/watercolor-schema";
+import {
+  formatWatercolorJobStatus,
+  resolveWatercolorPreviewUrl,
+  type WatercolorPollResult,
+} from "@/lib/watercolor-client";
 
 type EditorWatercolorPreset = "watercolor-soft" | "watercolor-heavy" | "ink-wash";
 
@@ -51,6 +55,40 @@ export function WatercolorBasePanel({
     [editorSettings, onEditorSettingsChange]
   );
 
+  const applyPollResult = useCallback(
+    async (data: WatercolorPollResult) => {
+      setJob(data.job);
+      const url = await resolveWatercolorPreviewUrl(projectId, data.entry, data.cacheReady);
+      if (url) setPreviewUrl(url);
+    },
+    [projectId]
+  );
+
+  const fetchStatus = useCallback(async (): Promise<WatercolorPollResult | null> => {
+    const res = await fetch(
+      withBasePath(
+        `/api/projects/${encodeURIComponent(projectId)}/watercolor?source=annotated&preset=${encodeURIComponent(preset)}`
+      ),
+      { cache: "no-store" }
+    );
+    if (!res.ok) {
+      console.warn(
+        `[ldbg watercolor] status poll HTTP ${res.status} preset=${preset} project=${projectId}`
+      );
+      return null;
+    }
+    return (await res.json()) as WatercolorPollResult;
+  }, [projectId, preset]);
+
+  const pollJob = useCallback(async () => {
+    try {
+      const data = await fetchStatus();
+      if (data) await applyPollResult(data);
+    } catch {
+      /* best-effort */
+    }
+  }, [fetchStatus, applyPollResult]);
+
   const startWatercolor = useCallback(async () => {
     setBusy(true);
     try {
@@ -62,12 +100,9 @@ export function WatercolorBasePanel({
           body: JSON.stringify({ preset, source: "annotated" }),
         }
       );
-      const data = await res.json();
+      const data = (await res.json()) as WatercolorPollResult & { error?: string };
       if (!res.ok) throw new Error(data.error ?? "Watercolor failed to start");
-      setJob(data.job ?? { status: "running", progress: 0 });
-      if (data.cacheReady && data.entry?.previewFilename) {
-        setPreviewUrl(projectImageUrl(projectId, data.entry.previewFilename));
-      }
+      await applyPollResult(data);
     } catch (e) {
       setJob({
         status: "failed",
@@ -77,52 +112,20 @@ export function WatercolorBasePanel({
     } finally {
       setBusy(false);
     }
-  }, [projectId, preset]);
-
-  const pollJob = useCallback(async () => {
-    try {
-      const res = await fetch(
-        withBasePath(
-          `/api/projects/${encodeURIComponent(projectId)}/watercolor?source=annotated&preset=${encodeURIComponent(preset)}`
-        )
-      );
-      if (!res.ok) return;
-      const data = (await res.json()) as {
-        job: WatercolorJob;
-        cacheReady: boolean;
-        entry?: { previewFilename: string };
-      };
-      setJob(data.job);
-      if (data.cacheReady && data.entry?.previewFilename) {
-        setPreviewUrl(projectImageUrl(projectId, data.entry.previewFilename));
-      }
-    } catch {
-      /* best-effort */
-    }
-  }, [projectId, preset]);
+  }, [projectId, preset, applyPollResult]);
 
   useEffect(() => {
     if (!ready) return;
     let cancelled = false;
     void (async () => {
       try {
-        const res = await fetch(
-          withBasePath(
-            `/api/projects/${encodeURIComponent(projectId)}/watercolor?source=annotated&preset=${encodeURIComponent(preset)}`
-          )
-        );
-        if (!res.ok || cancelled) return;
-        const data = (await res.json()) as {
-          job: WatercolorJob;
-          cacheReady: boolean;
-          entry?: { previewFilename: string };
-        };
-        setJob(data.job);
-        if (data.cacheReady && data.entry?.previewFilename) {
-          setPreviewUrl(projectImageUrl(projectId, data.entry.previewFilename));
-          return;
+        const data = await fetchStatus();
+        if (!data || cancelled) return;
+        await applyPollResult(data);
+        if (cancelled) return;
+        if (!data.cacheReady && data.job?.status !== "running") {
+          await startWatercolor();
         }
-        if (!cancelled) await startWatercolor();
       } catch {
         if (!cancelled) await startWatercolor();
       }
@@ -130,14 +133,16 @@ export function WatercolorBasePanel({
     return () => {
       cancelled = true;
     };
-  }, [ready, projectId, preset, startWatercolor]);
+  }, [ready, fetchStatus, applyPollResult, startWatercolor]);
 
   useEffect(() => {
-    if (job?.status === "running") {
-      const t = setInterval(() => void pollJob(), 1500);
-      return () => clearInterval(t);
-    }
-  }, [job?.status, pollJob]);
+    const needsPoll =
+      job?.status === "running" || (job?.status === "complete" && !previewUrl);
+    if (!needsPoll) return;
+    void pollJob();
+    const t = setInterval(() => void pollJob(), 1500);
+    return () => clearInterval(t);
+  }, [job?.status, previewUrl, pollJob]);
 
   if (!ready) {
     return (
@@ -149,7 +154,7 @@ export function WatercolorBasePanel({
   }
 
   const displayUrl = previewUrl ?? sourceImageUrl;
-  const showingSource = !previewUrl && job?.status !== "running";
+  const statusLabel = formatWatercolorJobStatus(job, !!previewUrl);
 
   return (
     <section className="space-y-3 rounded-xl border border-violet-200 bg-violet-50/60 p-4">
@@ -171,6 +176,7 @@ export function WatercolorBasePanel({
             onChange={(e) => {
               const next = e.target.value as EditorWatercolorPreset;
               setPreviewUrl(undefined);
+              setJob(null);
               persistPreset(next);
             }}
           >
@@ -189,14 +195,8 @@ export function WatercolorBasePanel({
         >
           {busy || job?.status === "running" ? "Generating…" : "Regenerate watercolor"}
         </button>
-        {job?.status === "running" ? (
-          <span className="text-xs text-violet-800">
-            {job.progress ?? 0}%{job.step ? ` — ${job.step}` : ""}
-          </span>
-        ) : previewUrl ? (
-          <span className="text-xs font-medium text-violet-700">Watercolor ready</span>
-        ) : showingSource ? (
-          <span className="text-xs text-violet-700">Showing annotated photo until ready</span>
+        {statusLabel ? (
+          <span className="text-xs text-violet-800">{statusLabel}</span>
         ) : null}
       </div>
 

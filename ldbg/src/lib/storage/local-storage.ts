@@ -25,6 +25,25 @@ export class LocalStorageProvider implements StorageProvider {
     return path.join(this.projectDir(id), PROJECT_JSON);
   }
 
+  /** Resolve a project-relative path (e.g. derived/base-….png) with traversal checks. */
+  private resolveProjectFilePath(projectId: string, filename: string): string {
+    const normalized = filename.replace(/\\/g, "/").replace(/^\/+/, "");
+    if (!normalized || normalized.includes("\0")) {
+      throw new Error("Invalid project file path");
+    }
+    const segments = normalized.split("/").filter(Boolean);
+    if (segments.some((s) => s === ".." || s === ".")) {
+      throw new Error("Invalid project file path");
+    }
+    const abs = path.join(this.projectDir(projectId), ...segments);
+    const root = this.projectDir(projectId);
+    const rel = path.relative(root, abs);
+    if (rel.startsWith("..") || path.isAbsolute(rel)) {
+      throw new Error("Invalid project file path");
+    }
+    return abs;
+  }
+
   async ensureRoot() {
     await fs.mkdir(this.rootDir, { recursive: true });
   }
@@ -85,9 +104,9 @@ export class LocalStorageProvider implements StorageProvider {
     filename: string,
     data: Buffer
   ): Promise<void> {
-    const safe = path.basename(filename);
-    await fs.mkdir(this.projectDir(projectId), { recursive: true });
-    await fs.writeFile(path.join(this.projectDir(projectId), safe), data);
+    const filePath = this.resolveProjectFilePath(projectId, filename);
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
+    await fs.writeFile(filePath, data);
   }
 
   async readProjectFile(
@@ -95,9 +114,7 @@ export class LocalStorageProvider implements StorageProvider {
     filename: string
   ): Promise<Buffer | null> {
     try {
-      return await fs.readFile(
-        path.join(this.projectDir(projectId), path.basename(filename))
-      );
+      return await fs.readFile(this.resolveProjectFilePath(projectId, filename));
     } catch {
       return null;
     }
@@ -105,7 +122,7 @@ export class LocalStorageProvider implements StorageProvider {
 
   async projectFileExists(projectId: string, filename: string): Promise<boolean> {
     try {
-      await fs.access(path.join(this.projectDir(projectId), path.basename(filename)));
+      await fs.access(this.resolveProjectFilePath(projectId, filename));
       return true;
     } catch {
       return false;

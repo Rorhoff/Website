@@ -81,7 +81,7 @@ def main() -> int:
         print("FAIL edge not feathered (corner alpha should be lower than center)")
         return 1
 
-    preview = downscale_preview(rgba, 2000)
+    preview, _downscaled = downscale_preview(rgba, 2000)
     if preview.shape[0] > h or preview.shape[1] > w:
         print("FAIL preview larger than source")
         return 1

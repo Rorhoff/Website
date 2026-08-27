@@ -168,13 +168,38 @@ export async function findCachedWatercolor(
   const project = await storage.loadProject(projectId);
   if (!project) return undefined;
 
-  const entry = getWatercolorCacheEntry(project, preset, hash);
-  if (!entry) return undefined;
+  const previewRel = watercolorCacheFilename(preset, hash, true);
+  const fullRel = watercolorCacheFilename(preset, hash, false);
+  const previewExists = await storage.projectFileExists(projectId, previewRel);
+  const fullExists = await storage.projectFileExists(projectId, fullRel);
+  if (!previewExists || !fullExists) return undefined;
 
-  const fullExists = await storage.projectFileExists(projectId, entry.fullFilename);
-  const previewExists = await storage.projectFileExists(projectId, entry.previewFilename);
-  if (fullExists && previewExists) return entry;
-  return undefined;
+  const cached = getWatercolorCacheEntry(project, preset, hash);
+  if (cached) return cached;
+
+  const source = getWatercolorSource(project, "annotated") ?? getDisplayImage(project);
+  const entry = WatercolorCacheEntrySchema.parse({
+    preset,
+    hash,
+    fullFilename: fullRel.replace(/\\/g, "/"),
+    previewFilename: previewRel.replace(/\\/g, "/"),
+    width: source?.width ?? 1,
+    height: source?.height ?? 1,
+    sourceFilename: source?.filename ?? "",
+    filteredAt: new Date().toISOString(),
+  });
+
+  const cacheKey = `${preset}:${hash}`;
+  const updated: Project = {
+    ...project,
+    watercolorCache: {
+      ...(project.watercolorCache ?? {}),
+      [cacheKey]: entry,
+    },
+    updatedAt: new Date().toISOString(),
+  };
+  await storage.saveProject(updated);
+  return entry;
 }
 
 type WatercolorFilterContext = {

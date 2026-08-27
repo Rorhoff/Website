@@ -80,6 +80,7 @@ export async function GET(req: Request, { params }: Params) {
   let cacheReady = false;
   let entry: Awaited<ReturnType<typeof findCachedWatercolor>> | undefined;
   let resolvedParams: ReturnType<typeof resolveWatercolorParams> = null;
+  let cacheHash: string | undefined;
   if (presetUsesFilter(preset)) {
     resolvedParams = resolveWatercolorParams(
       preset,
@@ -89,12 +90,12 @@ export async function GET(req: Request, { params }: Params) {
     if (source) {
       const sourceAbs = path.join(storageRoot(), id, source.filename);
       try {
-        const hash = await computeWatercolorCacheKey(
+        cacheHash = await computeWatercolorCacheKey(
           sourceAbs,
           preset,
           project.planSettings?.watercolorParamOverrides
         );
-        entry = await findCachedWatercolor(id, preset, hash);
+        entry = await findCachedWatercolor(id, preset, cacheHash);
         cacheReady = !!entry;
       } catch {
         cacheReady = false;
@@ -102,10 +103,22 @@ export async function GET(req: Request, { params }: Params) {
     }
   }
 
+  if (
+    !cacheReady &&
+    job.status === "complete" &&
+    job.cacheHash &&
+    job.preset === preset
+  ) {
+    entry = await findCachedWatercolor(id, preset, job.cacheHash);
+    cacheReady = !!entry;
+    cacheHash = job.cacheHash;
+  }
+
   return NextResponse.json({
     job,
     cacheReady,
     preset,
+    cacheHash,
     entry,
     resolvedParams,
     sourceKind,

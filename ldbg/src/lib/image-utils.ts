@@ -1,5 +1,16 @@
 import { withBasePath } from "@/lib/paths";
 
+/** Encode a project-relative path as URL segments (supports derived/… nested paths). */
+export function projectFilePathSegments(filename: string): string {
+  return filename
+    .replace(/\\/g, "/")
+    .replace(/^\/+/, "")
+    .split("/")
+    .filter(Boolean)
+    .map(encodeURIComponent)
+    .join("/");
+}
+
 export function readImageDimensions(
   file: File
 ): Promise<{ width: number; height: number }> {
@@ -20,6 +31,6 @@ export function readImageDimensions(
 
 export function projectImageUrl(projectId: string, filename: string) {
   return withBasePath(
-    `/api/projects/${projectId}/files/${encodeURIComponent(filename)}`
+    `/api/projects/${encodeURIComponent(projectId)}/files/${projectFilePathSegments(filename)}`
   );
 }

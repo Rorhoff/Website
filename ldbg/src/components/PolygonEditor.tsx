@@ -21,7 +21,10 @@ import {
 } from "@/config/utah-plants";
 import type { GeorefDisplayContext } from "@/lib/georef-display";
 import type { EditorSettings } from "@/lib/project-schema";
-import { projectImageUrl } from "@/lib/image-utils";
+import {
+  resolveWatercolorPreviewUrl,
+  type WatercolorPollResult,
+} from "@/lib/watercolor-client";
 import { withBasePath } from "@/lib/paths";
 import type { WatercolorJob } from "@/lib/watercolor-schema";
 import {
@@ -234,31 +237,37 @@ export default function PolygonEditor({
     [hiddenTypes, watercolorPreset, baseLayer]
   );
 
+  const applyWatercolorPoll = useCallback(
+    async (data: WatercolorPollResult) => {
+      if (!projectId) return;
+      setWatercolorJob(data.job);
+      const url = await resolveWatercolorPreviewUrl(projectId, data.entry, data.cacheReady);
+      if (url) {
+        setWatercolorPreviewUrl(url);
+        if (baseLayer === "watercolor" || editorSettings?.editorBaseLayer === "watercolor") {
+          setBaseLayer("watercolor");
+        }
+      }
+    },
+    [projectId, baseLayer, editorSettings?.editorBaseLayer]
+  );
+
   const pollWatercolor = useCallback(async () => {
     if (!projectId) return;
     try {
       const res = await fetch(
         withBasePath(
-          `/api/projects/${encodeURIComponent(projectId)}/watercolor?source=annotated`
-        )
+          `/api/projects/${encodeURIComponent(projectId)}/watercolor?source=annotated&preset=${encodeURIComponent(watercolorPreset)}`
+        ),
+        { cache: "no-store" }
       );
       if (!res.ok) return;
-      const data = (await res.json()) as {
-        job: WatercolorJob;
-        cacheReady: boolean;
-        entry?: { previewFilename: string; fullFilename: string };
-      };
-      setWatercolorJob(data.job);
-      if (data.cacheReady && data.entry?.previewFilename) {
-        setWatercolorPreviewUrl(projectImageUrl(projectId, data.entry.previewFilename));
-        if (baseLayer === "watercolor" || editorSettings?.editorBaseLayer === "watercolor") {
-          setBaseLayer("watercolor");
-        }
-      }
+      const data = (await res.json()) as WatercolorPollResult;
+      await applyWatercolorPoll(data);
     } catch {
       /* best-effort */
     }
-  }, [projectId, baseLayer, editorSettings?.editorBaseLayer]);
+  }, [projectId, watercolorPreset, applyWatercolorPoll]);
 
   useEffect(() => {
     if (editorSettings?.watercolorPreset) {
@@ -280,12 +289,9 @@ export default function PolygonEditor({
           }),
         }
       );
-      const data = await res.json();
+      const data = (await res.json()) as WatercolorPollResult & { error?: string };
       if (!res.ok) throw new Error(data.error ?? "Watercolor failed to start");
-      setWatercolorJob(data.job ?? { status: "running", progress: 0 });
-      if (data.cacheReady && data.entry?.previewFilename) {
-        setWatercolorPreviewUrl(projectImageUrl(projectId, data.entry.previewFilename));
-      }
+      await applyWatercolorPoll(data);
     } catch (e) {
       setWatercolorJob({
         status: "failed",
@@ -293,7 +299,7 @@ export default function PolygonEditor({
         error: e instanceof Error ? e.message : "Watercolor failed",
       });
     }
-  }, [projectId, watercolorPreset]);
+  }, [projectId, watercolorPreset, applyWatercolorPoll]);
 
   useEffect(() => {
     if (!projectId) return;
@@ -306,14 +312,11 @@ export default function PolygonEditor({
           )
         );
         if (!res.ok || cancelled) return;
-        const data = (await res.json()) as {
-          job: WatercolorJob;
-          cacheReady: boolean;
-          entry?: { previewFilename: string };
-        };
+        const data = (await res.json()) as WatercolorPollResult;
         setWatercolorJob(data.job);
-        if (data.cacheReady && data.entry?.previewFilename) {
-          setWatercolorPreviewUrl(projectImageUrl(projectId, data.entry.previewFilename));
+        const url = await resolveWatercolorPreviewUrl(projectId, data.entry, data.cacheReady);
+        if (url) {
+          setWatercolorPreviewUrl(url);
           return;
         }
         if (!cancelled) await startWatercolor();
@@ -327,11 +330,14 @@ export default function PolygonEditor({
   }, [projectId, watercolorPreset, startWatercolor]);
 
   useEffect(() => {
-    if (watercolorJob?.status === "running") {
-      const t = setInterval(() => void pollWatercolor(), 1500);
-      return () => clearInterval(t);
-    }
-  }, [watercolorJob?.status, pollWatercolor]);
+    const needsPoll =
+      watercolorJob?.status === "running" ||
+      (watercolorJob?.status === "complete" && !watercolorPreviewUrl);
+    if (!needsPoll) return;
+    void pollWatercolor();
+    const t = setInterval(() => void pollWatercolor(), 1500);
+    return () => clearInterval(t);
+  }, [watercolorJob?.status, watercolorPreviewUrl, pollWatercolor]);
 
   useEffect(() => {
     const incoming = JSON.stringify(initialFeatures);
