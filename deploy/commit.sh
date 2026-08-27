@@ -15,6 +15,9 @@
 #
 # Usage (from anywhere on EC2):
 #   ~/commit.sh
+#   — or if ~/commit.sh is stale/broken after a bad pull:
+#   bash ~/Website/deploy/commit.sh
+#   bash ~/Website/deploy/run-commit.sh
 #
 # One script does the full dev deploy — no need to run rebuild-ldbg.sh or git pull
 # separately. Skips unchanged builds/migrations; set COMMIT_FORCE=1 to rebuild everything.
@@ -95,15 +98,11 @@ _path_changed() {
 }
 
 _ldbg_python_ok() {
-  local py=""
-  if [[ -f /home/ubuntu/Website/.env ]]; then
-    py="$(grep '^LDBG_PYTHON=' /home/ubuntu/Website/.env 2>/dev/null | tail -1 | cut -d= -f2- || true)"
-    py="${py//\"/}"
-    py="${py//\'/}"
+  local py="/home/ubuntu/app/venv/bin/python"
+  if [[ -x "$py" ]] && "$py" -c "import cv2, numpy, rasterio" 2>/dev/null; then
+    return 0
   fi
-  if [[ -z "$py" || ! -x "$py" ]]; then
-    py="/home/ubuntu/app/venv/bin/python"
-  fi
+  py="$DEV_DIR/.venv/bin/python"
   [[ -x "$py" ]] && "$py" -c "import cv2, numpy, rasterio" 2>/dev/null
 }
 
