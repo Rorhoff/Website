@@ -68,6 +68,25 @@ export const StoredDesignContentSchema = DesignContentResultSchema.merge(
 
 export type StoredDesignContent = z.infer<typeof StoredDesignContentSchema>;
 
+/** Keep only materials matching design features actually in the project. */
+export function filterMaterialsToFeatures(
+  materials: MaterialFinish[],
+  features: { id: string; featureType: string; existing?: boolean }[]
+): MaterialFinish[] {
+  const design = features.filter(
+    (f) => !f.existing && f.featureType !== "property_boundary"
+  );
+  if (design.length === 0) return [];
+  const ids = new Set(design.map((f) => f.id));
+  const types = new Set(design.map((f) => f.featureType));
+  return materials.filter(
+    (m) =>
+      ids.has(m.featureId) ||
+      types.has(m.featureType) ||
+      types.has(m.featureId)
+  );
+}
+
 export const DESIGN_CONTENT_JSON_HINT = `{
   "conceptOverview": ["bullet 1", "..."],
   "plantPalette": [{

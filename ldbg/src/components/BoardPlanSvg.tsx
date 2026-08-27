@@ -17,6 +17,7 @@ import {
   buildFeatureFillLayers,
   ClippedFeatureFills,
 } from "@/lib/plan-feature-fills";
+import { PlanInkLinework } from "@/lib/plan-ink-linework";
 import styles from "./board.module.css";
 
 type PlanScale = {
@@ -209,6 +210,9 @@ export function BoardPlanSvg({
       : [];
 
   const showOutlines = planSettings?.showFeatureOutlines ?? true;
+  const showInk = planSettings?.showInkLinework ?? true;
+  const baseOpacity =
+    baseImageFilter || planSettings?.basePreset !== "off" ? 1 : orthoOpacity;
 
   return (
     <svg
@@ -227,7 +231,7 @@ export function BoardPlanSvg({
           y={0}
           width={imageWidth}
           height={imageHeight}
-          opacity={orthoOpacity}
+          opacity={baseOpacity}
           filter={baseImageFilter}
           preserveAspectRatio="xMidYMid meet"
         />
@@ -254,6 +258,16 @@ export function BoardPlanSvg({
         showOutlines={showOutlines}
         fitScale={1}
       />
+
+      {showInk ? (
+        <PlanInkLinework
+          features={visibleFeatures}
+          imageW={imageWidth}
+          imageH={imageHeight}
+          georefCtx={georefCtx}
+          spanPx={bounds.width}
+        />
+      ) : null}
 
       {callouts.map((c) => (
         <g key={c.featureId}>

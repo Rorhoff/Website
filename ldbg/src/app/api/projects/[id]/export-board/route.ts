@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { presetUsesFilter, type WatercolorPresetId } from "@/config/watercolor";
+import { presetUsesStylePass } from "@/config/styles";
 import { exportBoardDocument } from "@/lib/board-export";
 import type { BoardPageSize } from "@/lib/board-sizes";
 import { isGeoreferenced } from "@/lib/georef";
 import { canExportBoard } from "@/lib/scale-verification";
 import { getStorage } from "@/lib/storage";
 import { ensurePrintOrthoForProject } from "@/lib/tile-pyramid-service";
-import { ensureWatercolorForProject } from "@/lib/watercolor-service";
+import { resolveStylePreset, runStylePassForProject } from "@/lib/style-pass-service";
 type Params = { params: Promise<{ id: string }> };
 
 const BodySchema = z.object({
@@ -62,13 +62,13 @@ export async function POST(req: Request, { params }: Params) {
       }
     }
 
-    const preset = (project.planSettings?.basePreset ?? "watercolor-soft") as WatercolorPresetId;
-    if (presetUsesFilter(preset)) {
+    const stylePreset = resolveStylePreset(project);
+    if (presetUsesStylePass(stylePreset)) {
       try {
-        await ensureWatercolorForProject(id, preset, { forPrint: true });
+        await runStylePassForProject(id, stylePreset, { quality: "final" });
       } catch (e) {
         console.warn(
-          `[export-board] watercolor ensure failed project=${id}:`,
+          `[export-board] style pass ensure failed project=${id}:`,
           e instanceof Error ? e.message : e
         );
       }

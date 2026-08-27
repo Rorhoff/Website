@@ -51,18 +51,43 @@ export const WatercolorCacheEntrySchema = z.object({
   height: z.number().int().positive(),
   sourceFilename: z.string(),
   filteredAt: z.string(),
+  pipelineSteps: z
+    .array(
+      z.object({
+        step: z.string(),
+        progress: z.number().optional(),
+        executed: z.boolean(),
+      })
+    )
+    .optional(),
+  paramsUsed: WatercolorParamsSchema.partial().optional(),
+  paperTextureApplied: z.boolean().optional(),
 });
 
 export const WatercolorJobSchema = z.object({
-  status: z.enum(["idle", "running", "complete", "error"]),
+  status: z.enum(["idle", "running", "complete", "failed", "error"]),
   preset: z.string().optional(),
   progress: z.number().min(0).max(100).default(0),
   step: z.string().optional(),
   error: z.string().optional(),
+  pythonInterpreter: z.string().optional(),
+  commandLine: z.string().optional(),
+  stderr: z.string().optional(),
+  stdout: z.string().optional(),
   startedAt: z.string().optional(),
   completedAt: z.string().optional(),
   cacheHash: z.string().optional(),
+  sourceKind: z.enum(["annotated", "display", "print"]).optional(),
 });
+
+/** Normalize legacy job files (`error` status → `failed`). */
+export function normalizeWatercolorJob(raw: unknown): WatercolorJob {
+  const parsed = WatercolorJobSchema.parse(raw);
+  if (parsed.status === "error") {
+    return { ...parsed, status: "failed" };
+  }
+  return parsed;
+}
 
 export type WatercolorCacheEntry = z.infer<typeof WatercolorCacheEntrySchema>;
 export type WatercolorJob = z.infer<typeof WatercolorJobSchema>;

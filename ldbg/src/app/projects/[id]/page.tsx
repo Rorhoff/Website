@@ -17,6 +17,7 @@ import { PlanPanel } from "@/components/PlanPanel";
 import { PolygonEditorLoader } from "@/components/PolygonEditorLoader";
 import { RenderPanel } from "@/components/RenderPanel";
 import { ScaleVerificationPanel } from "@/components/ScaleVerificationPanel";
+import { WatercolorBasePanel } from "@/components/WatercolorBasePanel";
 import { WebodmGeorefPanel } from "@/components/WebodmGeorefPanel";
 import { DEFAULT_LEGEND, type LegendEntry } from "@/config/legend";
 import {
@@ -189,6 +190,14 @@ export default function ProjectPage() {
     [persist]
   );
 
+  const handleEditorSettingsChange = useCallback(
+    (settings: EditorSettings) => {
+      setEditorSettings(settings);
+      void persist({ editorSettings: settings }, { silent: true });
+    },
+    [persist]
+  );
+
   if (loadError) {
     return (
       <>
@@ -308,6 +317,17 @@ export default function ProjectPage() {
             saving={saving}
           />
         ) : null}
+        {baseImage ? (
+          <WatercolorBasePanel
+            projectId={id}
+            sourceImageUrl={projectImageUrl(id, ann?.filename ?? baseImage.filename)}
+            imageWidth={baseImage.width}
+            imageHeight={baseImage.height}
+            editorSettings={editorSettings}
+            onEditorSettingsChange={handleEditorSettingsChange}
+            ready={scaled}
+          />
+        ) : null}
         {georef ? (
           <AnnotationBasePanel
             projectId={id}
@@ -407,6 +427,7 @@ export default function ProjectPage() {
         {features.length > 0 ? (
           <DesignContentPanel
             projectId={id}
+            features={features}
             designContent={designContent}
             onDesignContentChange={setDesignContent}
             hasFeatures={features.length > 0}

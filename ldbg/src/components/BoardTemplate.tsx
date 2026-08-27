@@ -1,11 +1,15 @@
 import type { LegendEntry } from "@/config/legend";
 import { BRAND } from "@/config/brand";
+import { presetUsesStylePass, type StylePresetId } from "@/config/styles";
 import { BoardPlanLegend, BoardPlanSvg, computeBoardPlanScale } from "@/components/BoardPlanSvg";
 import { GeneralNotesBlock } from "@/components/GeneralNotesBlock";
 import { GraphicScaleBar } from "@/components/GraphicScaleBar";
 import { ScaleVerificationStamp } from "@/components/ScaleVerificationStamp";
 import { TitleBlock } from "@/components/TitleBlock";
-import type { StoredDesignContent } from "@/lib/design-content-schema";
+import {
+  filterMaterialsToFeatures,
+  type StoredDesignContent,
+} from "@/lib/design-content-schema";
 import type { InterpretFeature } from "@/lib/interpret-schema";
 import { boardDimensions, boardGridTracks, type BoardPageSize } from "@/lib/board-sizes";
 import { resolveEnabledNotes } from "@/lib/general-notes";
@@ -114,6 +118,9 @@ export function BoardTemplate({
   const grid = boardGridTracks(pageSize);
   const numberedNotes = resolveEnabledNotes(boardSettings?.enabledNoteIds, {
     forceFeatureFillNote: hasFilledFeatures,
+    forceStylePassNote: presetUsesStylePass(
+      (planSettings?.stylePreset ?? "off") as StylePresetId
+    ),
   });
   const hiddenTypes: string[] = [];
 
@@ -128,7 +135,10 @@ export function BoardTemplate({
     hiddenTypes
   );
 
-  const materials = designContent?.materialsAndFinishes ?? [];
+  const materials = filterMaterialsToFeatures(
+    designContent?.materialsAndFinishes ?? [],
+    features
+  );
   const plants = designContent?.plantPalette ?? [];
   const concept = designContent?.conceptOverview ?? [];
   const renderPrompts = designContent?.renderPrompts ?? [];

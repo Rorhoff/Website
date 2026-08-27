@@ -10,6 +10,7 @@ import {
 } from "@/lib/watercolor-schema";
 import { PlanRenderCacheEntrySchema } from "@/lib/plan-render-schema";
 import { FeatureFillEntrySchema } from "@/lib/feature-fill-schema";
+import { StylePassCacheEntrySchema, StylePresetIdSchema } from "@/lib/style-pass-schema";
 import { PrintOrthoSchema, TilePyramidSchema } from "@/lib/tile-pyramid-schema";
 
 export const DesignStyleSchema = z.enum([
@@ -128,13 +129,23 @@ export const ProjectMetadataSchema = z.object({
 
 export const EditorSettingsSchema = z.object({
   hiddenFeatureTypes: z.array(z.string()).default([]),
+  /** Watercolor filter preset for the feature editor canvas. */
+  watercolorPreset: z
+    .enum(["watercolor-soft", "watercolor-heavy", "ink-wash"])
+    .default("watercolor-soft"),
+  /** Preferred base layer in the polygon editor. */
+  editorBaseLayer: z.enum(["watercolor", "annotated", "clean"]).default("watercolor"),
 });
 
 export const PlanSettingsSchema = z.object({
   baseMode: z.enum(["orthophoto", "white"]).default("orthophoto"),
-  basePreset: WatercolorPresetIdSchema.default("watercolor-soft"),
+  /** @deprecated Legacy — use stylePreset. Kept for migration. */
+  basePreset: WatercolorPresetIdSchema.default("off"),
+  stylePreset: StylePresetIdSchema.default("watercolor-plan"),
   orthophotoOpacity: z.number().min(0.05).max(1).default(0.4),
   showFeatureOutlines: z.boolean().default(true),
+  showInkLinework: z.boolean().default(false),
+  watercolorCompareRaw: z.boolean().default(false),
   watercolorParamOverrides: WatercolorParamsSchema.partial().optional(),
   showContours: z.boolean().default(false),
   showDrainageArrows: z.boolean().default(false),
@@ -204,6 +215,7 @@ export const ProjectSchema = z.object({
   planRenderCache: z.record(z.string(), z.lazy(() => PlanRenderCacheEntrySchema)).optional(),
   featureFills: z.record(z.string(), z.lazy(() => FeatureFillEntrySchema)).optional(),
   featureFillTotalCostUsd: z.number().nonnegative().optional(),
+  stylePassCache: z.record(z.string(), z.lazy(() => StylePassCacheEntrySchema)).optional(),
   elevationAnalysis: StoredElevationAnalysisSchema.optional(),
   blenderRenders: BlenderRendersSchema.optional(),
   blenderSettings: BlenderRenderSettingsSchema.optional(),

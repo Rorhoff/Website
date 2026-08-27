@@ -1,12 +1,18 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { presetUsesFilter, type WatercolorPresetId } from "@/config/watercolor";
+import {
+  presetUsesFilter,
+  resolveWatercolorParams,
+  type WatercolorPresetId,
+} from "@/config/watercolor";
 import { getStorage } from "@/lib/storage";
+import type { Project } from "@/lib/project-schema";
 import {
   ensureWatercolorForProject,
   findCachedWatercolor,
   computeWatercolorCacheKey,
-  getWatercolorSourceForPlan,
+  getWatercolorSource,
+  type WatercolorSourceKind,
   readWatercolorJob,
   startWatercolorJob,
 } from "@/lib/watercolor-service";
@@ -15,31 +21,71 @@ import path from "path";
 
 type Params = { params: Promise<{ id: string }> };
 
+const SourceKindSchema = z.enum(["annotated", "display", "print"]);
+
 const PostBodySchema = z.object({
   preset: WatercolorPresetIdSchema,
   forPrint: z.boolean().optional(),
+  source: SourceKindSchema.optional(),
 });
 
 function storageRoot(): string {
   return process.env.LDBG_STORAGE_DIR ?? path.join(process.cwd(), "storage");
 }
 
+function resolveSourceKind(
+  project: Project,
+  explicit?: WatercolorSourceKind,
+  forPrint?: boolean
+): WatercolorSourceKind {
+  if (explicit) return explicit;
+  if (forPrint) return "print";
+  return "display";
+}
+
+function defaultPreset(project: Project): WatercolorPresetId {
+  const fromEditor = project.editorSettings?.watercolorPreset;
+  if (fromEditor && presetUsesFilter(fromEditor)) return fromEditor;
+  const fromPlan = project.planSettings?.basePreset ?? "watercolor-soft";
+  if (presetUsesFilter(fromPlan)) return fromPlan;
+  return "watercolor-soft";
+}
+
 export const maxDuration = 300;
 
-export async function GET(_req: Request, { params }: Params) {
+export async function GET(req: Request, { params }: Params) {
   const { id } = await params;
   const project = await getStorage().loadProject(id);
   if (!project) {
     return NextResponse.json({ error: "Project not found" }, { status: 404 });
   }
 
+  const url = new URL(req.url);
+  const sourceParam = url.searchParams.get("source");
+  const presetParam = url.searchParams.get("preset");
+  const sourceKind = SourceKindSchema.safeParse(sourceParam).success
+    ? (sourceParam as WatercolorSourceKind)
+    : resolveSourceKind(project, undefined, false);
+
   const job = await readWatercolorJob(id);
-  const preset = (project.planSettings?.basePreset ?? "watercolor-soft") as WatercolorPresetId;
+  let preset = defaultPreset(project);
+  if (
+    presetParam &&
+    WatercolorPresetIdSchema.safeParse(presetParam).success &&
+    presetUsesFilter(presetParam as WatercolorPresetId)
+  ) {
+    preset = presetParam as WatercolorPresetId;
+  }
 
   let cacheReady = false;
   let entry: Awaited<ReturnType<typeof findCachedWatercolor>> | undefined;
+  let resolvedParams: ReturnType<typeof resolveWatercolorParams> = null;
   if (presetUsesFilter(preset)) {
-    const source = getWatercolorSourceForPlan(project, false);
+    resolvedParams = resolveWatercolorParams(
+      preset,
+      project.planSettings?.watercolorParamOverrides
+    );
+    const source = getWatercolorSource(project, sourceKind);
     if (source) {
       const sourceAbs = path.join(storageRoot(), id, source.filename);
       try {
@@ -56,7 +102,14 @@ export async function GET(_req: Request, { params }: Params) {
     }
   }
 
-  return NextResponse.json({ job, cacheReady, preset, entry });
+  return NextResponse.json({
+    job,
+    cacheReady,
+    preset,
+    entry,
+    resolvedParams,
+    sourceKind,
+  });
 }
 
 export async function POST(req: Request, { params }: Params) {
@@ -77,7 +130,8 @@ export async function POST(req: Request, { params }: Params) {
     return NextResponse.json({ error: "Preset does not use filter pipeline" }, { status: 400 });
   }
 
-  const source = getWatercolorSourceForPlan(project, body.forPrint ?? false);
+  const sourceKind = resolveSourceKind(project, body.source, body.forPrint ?? false);
+  const source = getWatercolorSource(project, sourceKind);
   if (!source) {
     return NextResponse.json({ error: "No source orthophoto" }, { status: 400 });
   }
@@ -93,13 +147,24 @@ export async function POST(req: Request, { params }: Params) {
   if (cached) {
     const job = await readWatercolorJob(id);
     return NextResponse.json({
-      job: { ...job, status: "complete", progress: 100, step: "cached", cacheHash: hash },
+      job: {
+        ...job,
+        status: "complete",
+        progress: 100,
+        step: "cached",
+        cacheHash: hash,
+        sourceKind,
+      },
       cacheReady: true,
       entry: cached,
+      sourceKind,
     });
   }
 
-  startWatercolorJob(id, body.preset, { forPrintSource: body.forPrint ?? false });
+  startWatercolorJob(id, body.preset, {
+    forPrintSource: body.forPrint ?? false,
+    sourceKind,
+  });
 
   return NextResponse.json({
     job: {
@@ -108,9 +173,11 @@ export async function POST(req: Request, { params }: Params) {
       progress: 0,
       step: "queued",
       cacheHash: hash,
+      sourceKind,
       startedAt: new Date().toISOString(),
     },
     cacheReady: false,
+    sourceKind,
   });
 }
 

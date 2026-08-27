@@ -12,6 +12,7 @@ import {
 } from "@/lib/elevation-service";
 import {
   DesignContentResultSchema,
+  filterMaterialsToFeatures,
   RenderPromptSchema,
   type StoredDesignContent,
 } from "@/lib/design-content-schema";
@@ -217,6 +218,10 @@ export async function runDesignContentForProject(
 
     const designContent: StoredDesignContent = {
       ...partial,
+      materialsAndFinishes: filterMaterialsToFeatures(
+        partial.materialsAndFinishes,
+        features
+      ),
       takeoff,
       generatedAt: new Date().toISOString(),
       model: DESIGN_CONTENT_MODEL,

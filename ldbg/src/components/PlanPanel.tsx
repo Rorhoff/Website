@@ -3,10 +3,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { PlanDrawing } from "@/components/PlanDrawing";
 import {
-  FILTERED_WATERCOLOR_PRESETS,
-  WATERCOLOR_PRESET_LABELS,
-  type WatercolorPresetId,
-} from "@/config/watercolor";
+  presetUsesStylePass,
+  STYLE_PRESETS,
+  STYLE_PRESET_IDS,
+  type StylePresetId,
+} from "@/config/styles";
 import type { LegendEntry } from "@/config/legend";
 import type { StoredElevationAnalysis } from "@/lib/elevation-schema";
 import type { FeatureFillEntry } from "@/lib/feature-fill-schema";
@@ -17,6 +18,7 @@ import type { InterpretFeature } from "@/lib/interpret-schema";
 import { resolvePlanBaseLayer } from "@/lib/plan-base-layer";
 import { withBasePath } from "@/lib/paths";
 import type { Calibration, EditorSettings, PlanSettings, ProjectMetadata } from "@/lib/project-schema";
+import type { StylePassCacheEntry, StylePassJob } from "@/lib/style-pass-schema";
 import type { WatercolorJob } from "@/lib/watercolor-schema";
 
 type Props = {
@@ -43,19 +45,19 @@ type Props = {
   saving?: boolean;
 };
 
-type BaseLayerChoice = WatercolorPresetId | "white";
+type LayerChoice = StylePresetId | "white";
 
-const BASE_LAYER_OPTIONS: { value: BaseLayerChoice; label: string }[] = [
-  ...Object.entries(WATERCOLOR_PRESET_LABELS).map(([value, label]) => ({
-    value: value as WatercolorPresetId,
-    label,
+const LAYER_OPTIONS: { value: LayerChoice; label: string }[] = [
+  ...STYLE_PRESET_IDS.map((id) => ({
+    value: id as LayerChoice,
+    label: STYLE_PRESETS[id].label,
   })),
   { value: "white", label: "White + house footprint" },
 ];
 
-function choiceFromSettings(settings: PlanSettings): BaseLayerChoice {
+function choiceFromSettings(settings: PlanSettings): LayerChoice {
   if (settings.baseMode === "white") return "white";
-  return settings.basePreset ?? "watercolor-soft";
+  return settings.stylePreset ?? "watercolor-plan";
 }
 
 export function PlanPanel({
@@ -83,17 +85,22 @@ export function PlanPanel({
 }: Props) {
   const settings: PlanSettings = planSettings ?? {
     baseMode: "orthophoto",
-    basePreset: "watercolor-soft",
+    basePreset: "off",
+    stylePreset: "watercolor-plan",
     orthophotoOpacity: 0.4,
     showFeatureOutlines: true,
+    showInkLinework: false,
+    watercolorCompareRaw: false,
     showContours: false,
     showDrainageArrows: false,
     contourMinorFt: 1,
     contourMajorFt: 5,
   };
 
-  const [wcJob, setWcJob] = useState<WatercolorJob | null>(null);
-  const [watercolorPreviewUrl, setWatercolorPreviewUrl] = useState<string | undefined>();
+  const [styleJob, setStyleJob] = useState<StylePassJob | null>(null);
+  const [watercolorJob, setWatercolorJob] = useState<WatercolorJob | null>(null);
+  const [stylePreviewUrl, setStylePreviewUrl] = useState<string | undefined>();
+  const [styleEntry, setStyleEntry] = useState<StylePassCacheEntry | null>(null);
   const [fillBusy, setFillBusy] = useState<string | null>(null);
   const [fillError, setFillError] = useState("");
   const [cropPreviews, setCropPreviews] = useState<Record<string, string>>({});
@@ -101,57 +108,101 @@ export function PlanPanel({
   const designFeatures = useMemo(
     () =>
       features.filter(
-        (f) =>
-          !f.existing &&
-          f.featureType !== "property_boundary"
+        (f) => !f.existing && f.featureType !== "property_boundary"
       ),
     [features]
   );
+
+  const pollStylePass = useCallback(async () => {
+    try {
+      const res = await fetch(
+        withBasePath(`/api/projects/${encodeURIComponent(projectId)}/style-pass`)
+      );
+      const data = (await res.json()) as {
+        job: StylePassJob;
+        cacheReady: boolean;
+        entry?: StylePassCacheEntry;
+      };
+      setStyleJob(data.job);
+      if (data.cacheReady && data.entry?.previewFilename) {
+        setStylePreviewUrl(projectImageUrl(projectId, data.entry.previewFilename));
+        setStyleEntry(data.entry);
+      } else {
+        setStyleEntry(null);
+        setStylePreviewUrl(undefined);
+      }
+      if (data.job.status === "error" && data.job.error) {
+        setFillError(data.job.error);
+      }
+    } catch (e) {
+      setFillError(e instanceof Error ? e.message : "Style pass status check failed");
+    }
+  }, [projectId]);
 
   const pollWatercolor = useCallback(async () => {
     try {
       const res = await fetch(
         withBasePath(`/api/projects/${encodeURIComponent(projectId)}/watercolor`)
       );
-      const data = (await res.json()) as {
-        job: WatercolorJob;
-        cacheReady: boolean;
-        entry?: { previewFilename: string; fullFilename: string };
-      };
-      setWcJob(data.job);
-      if (data.cacheReady && data.entry?.previewFilename) {
-        setWatercolorPreviewUrl(projectImageUrl(projectId, data.entry.previewFilename));
-      }
+      if (!res.ok) return;
+      const data = (await res.json()) as { job: WatercolorJob };
+      setWatercolorJob(data.job ?? null);
     } catch {
-      /* ignore */
+      /* status poll is best-effort */
     }
   }, [projectId]);
 
   useEffect(() => {
+    void pollStylePass();
     void pollWatercolor();
-  }, [pollWatercolor, settings.basePreset]);
+  }, [pollStylePass, pollWatercolor, settings.stylePreset, featureFills]);
 
   useEffect(() => {
-    if (wcJob?.status === "running") {
-      const t = setInterval(() => void pollWatercolor(), 2000);
+    if (styleJob?.status === "running") {
+      const t = setInterval(() => void pollStylePass(), 2000);
       return () => clearInterval(t);
     }
-  }, [wcJob?.status, pollWatercolor]);
+  }, [styleJob?.status, pollStylePass]);
+
+  useEffect(() => {
+    if (watercolorJob?.status === "running") {
+      const t = setInterval(() => void pollWatercolor(), 1500);
+      return () => clearInterval(t);
+    }
+  }, [watercolorJob?.status, pollWatercolor]);
+
+  const watercolorActive =
+    watercolorJob?.status === "running" || watercolorJob?.status === "failed";
 
   const planBase = useMemo(
     () =>
       resolvePlanBaseLayer(settings, {
         rawUrl: rawBaseImageUrl,
-        watercolorPreviewUrl,
+        cleanUrl: cleanImageUrl,
+        stylePreviewUrl,
+        styleJobError: styleJob?.status === "error" ? styleJob.error : undefined,
+        styleJobRunning: styleJob?.status === "running",
+        styleJobPythonInterpreter:
+          styleJob?.status === "error" ? styleJob.pythonInterpreter : undefined,
+        registration: styleEntry?.registration,
       }),
-    [settings, rawBaseImageUrl, watercolorPreviewUrl]
+    [
+      settings,
+      rawBaseImageUrl,
+      cleanImageUrl,
+      stylePreviewUrl,
+      styleJob?.status,
+      styleJob?.error,
+      styleJob?.pythonInterpreter,
+      styleEntry?.registration,
+    ]
   );
 
-  async function ensureWatercolor(preset: WatercolorPresetId) {
-    if (!FILTERED_WATERCOLOR_PRESETS.includes(preset)) return;
+  async function ensureStylePass(preset: StylePresetId) {
+    if (!presetUsesStylePass(preset)) return;
     try {
       const res = await fetch(
-        withBasePath(`/api/projects/${encodeURIComponent(projectId)}/watercolor`),
+        withBasePath(`/api/projects/${encodeURIComponent(projectId)}/style-pass`),
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -159,22 +210,27 @@ export function PlanPanel({
         }
       );
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Watercolor job failed");
-      setWcJob(data.job ?? { status: "running", progress: 0 });
+      if (!res.ok) throw new Error(data.error ?? "Style pass job failed");
+      setStyleJob(data.job ?? { status: "running", progress: 0 });
     } catch (e) {
-      setFillError(e instanceof Error ? e.message : "Watercolor failed");
+      setFillError(e instanceof Error ? e.message : "Style pass failed");
     }
   }
 
-  const handleBaseLayerChange = (value: BaseLayerChoice) => {
+  const handleLayerChange = (value: LayerChoice) => {
     if (value === "white") {
       onPlanSettingsChange({ ...settings, baseMode: "white" });
       return;
     }
-    const next = { ...settings, baseMode: "orthophoto" as const, basePreset: value };
+    const next = {
+      ...settings,
+      baseMode: "orthophoto" as const,
+      stylePreset: value,
+      basePreset: "off" as const,
+    };
     onPlanSettingsChange(next);
-    if (FILTERED_WATERCOLOR_PRESETS.includes(value)) {
-      void ensureWatercolor(value);
+    if (presetUsesStylePass(value)) {
+      void ensureStylePass(value);
     }
   };
 
@@ -247,36 +303,37 @@ export function PlanPanel({
   const filledCount = designFeatures.filter(
     (f) => featureFills?.[f.id]?.status === "filled"
   ).length;
+  const stylePreset = settings.stylePreset ?? "watercolor-plan";
 
   return (
-    <section className="space-y-4 rounded-xl border border-stone-200 bg-white p-5">
+    <section className="space-y-3 rounded-xl border border-stone-200 bg-white p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold text-stone-900">Plan drawing</h2>
           <p className="text-sm text-stone-600">
-            Watercolor-filtered base with per-feature material fills clipped to measured geometry.
-            Quantities always come from vector features, not rendered imagery.
+            Per-feature material fills composited, then an optional AI style pass for export
+            sheets. This is separate from the watercolor base step above the feature editor —
+            fills and style pass are not required to see the editor watercolor.
           </p>
         </div>
       </div>
 
       <div className="flex flex-wrap items-end gap-4 rounded-lg bg-stone-50 p-3 text-sm">
         <label className="block">
-          <span className="text-xs font-medium text-stone-600">Base layer</span>
+          <span className="text-xs font-medium text-stone-600">Plan style</span>
           <select
             className="mt-1 block rounded border border-stone-300 px-2 py-1"
             value={selectValue}
-            onChange={(e) => handleBaseLayerChange(e.target.value as BaseLayerChoice)}
+            onChange={(e) => handleLayerChange(e.target.value as LayerChoice)}
           >
-            {BASE_LAYER_OPTIONS.map((opt) => (
+            {LAYER_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value}>
                 {opt.label}
               </option>
             ))}
           </select>
         </label>
-        {settings.baseMode === "orthophoto" &&
-        (settings.basePreset === "off" || settings.basePreset === "desaturated") ? (
+        {settings.baseMode === "orthophoto" && stylePreset === "off" ? (
           <label className="block min-w-48">
             <span className="text-xs font-medium text-stone-600">
               Orthophoto opacity ({Math.round(settings.orthophotoOpacity * 100)}%)
@@ -297,13 +354,17 @@ export function PlanPanel({
             />
           </label>
         ) : null}
-        {FILTERED_WATERCOLOR_PRESETS.includes(settings.basePreset) ? (
+        {presetUsesStylePass(stylePreset) ? (
           <span className="text-xs text-stone-500">
-            {wcJob?.status === "running"
-              ? `Generating watercolor (${wcJob.progress ?? 0}%)…`
-              : watercolorPreviewUrl
-                ? "Watercolor cache ready"
-                : "Watercolor will generate in background"}
+            {styleJob?.status === "running"
+              ? `Style pass (${styleJob.progress ?? 0}%${styleJob.step ? ` — ${styleJob.step}` : ""})…`
+              : styleJob?.status === "error"
+                ? "Style pass failed"
+                : planBase.styleMissing
+                  ? "Style pass not ready"
+                  : stylePreviewUrl
+                    ? "Style pass ready"
+                    : "Run style pass after fills"}
           </span>
         ) : null}
         <label className="flex min-h-11 items-center gap-2">
@@ -326,8 +387,70 @@ export function PlanPanel({
         </button>
       </div>
 
+      {presetUsesStylePass(stylePreset) && styleEntry?.registration ? (
+        <details className="rounded-lg border border-stone-200 bg-stone-50 p-3 text-xs text-stone-700">
+          <summary className="cursor-pointer font-medium text-stone-800">
+            Registration diagnostic
+          </summary>
+          <dl className="mt-2 grid gap-1 sm:grid-cols-3">
+            <div>
+              <dt className="text-stone-500">Inliers</dt>
+              <dd>{styleEntry.registration.inlierCount}</dd>
+            </div>
+            <div>
+              <dt className="text-stone-500">Residual</dt>
+              <dd>{styleEntry.registration.residualPct.toFixed(3)}% width</dd>
+            </div>
+            <div>
+              <dt className="text-stone-500">Label mode</dt>
+              <dd>{styleEntry.registration.labelMode}</dd>
+            </div>
+          </dl>
+          {planBase.styleMissing ? (
+            <p className="mt-2 text-red-700">{planBase.styleError}</p>
+          ) : null}
+        </details>
+      ) : planBase.styleMissing && presetUsesStylePass(stylePreset) ? (
+        <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-800">
+          <p className="font-medium">Style pass failed</p>
+          <p className="mt-1 whitespace-pre-wrap">{planBase.styleError}</p>
+        </div>
+      ) : null}
+
+      {watercolorActive ? (
+        <div
+          className={`rounded-lg border p-3 text-xs ${
+            watercolorJob?.status === "failed"
+              ? "border-red-200 bg-red-50 text-red-800"
+              : "border-violet-200 bg-violet-50 text-violet-900"
+          }`}
+        >
+          {watercolorJob?.status === "running" ? (
+            <p>
+              Watercolor filter{" "}
+              <span className="font-medium">
+                {watercolorJob.progress ?? 0}%
+                {watercolorJob.step ? ` — ${watercolorJob.step}` : ""}
+              </span>
+            </p>
+          ) : (
+            <>
+              <p className="font-medium">Watercolor filter failed</p>
+              <p className="mt-1 whitespace-pre-wrap">{watercolorJob?.error}</p>
+              {watercolorJob?.commandLine ? (
+                <p className="mt-2 font-mono text-[10px] opacity-80">{watercolorJob.commandLine}</p>
+              ) : null}
+            </>
+          )}
+        </div>
+      ) : null}
+
+      {fillError && !planBase.styleMissing ? (
+        <p className="text-xs text-red-700">{fillError}</p>
+      ) : null}
+
       {designFeatures.length > 0 ? (
-        <div className="space-y-3 rounded-lg border border-stone-200 p-3">
+        <div className="space-y-2 rounded-lg border border-stone-200 p-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <span className="text-xs font-medium uppercase tracking-wide text-stone-500">
               Feature fills ({filledCount}/{designFeatures.length} filled)
@@ -348,7 +471,6 @@ export function PlanPanel({
               </button>
             </div>
           </div>
-          {fillError ? <p className="text-xs text-red-700">{fillError}</p> : null}
           <ul className="divide-y divide-stone-100 text-sm">
             {designFeatures.map((f) => {
               const entry = featureFills?.[f.id];
@@ -428,10 +550,14 @@ export function PlanPanel({
           legend={legend}
           imageWidth={imageWidth}
           imageHeight={imageHeight}
-          baseImageUrl={planBase.url}
-          baseImageFilter={planBase.svgFilter}
+          baseImageUrl={planBase.url ?? (stylePreset === "off" ? cleanImageUrl : undefined)}
+          compareRawUrl={cleanImageUrl}
+          baseUsesStylePass={planBase.usesStylePass}
+          styleMissing={planBase.styleMissing}
+          styleError={planBase.styleError}
           planSettings={settings}
-          displayWidth={900}
+          fitToContent
+          hideFillsWhenStyled={planBase.usesStylePass && !planBase.styleMissing}
           featureFills={featureFills}
           featureFillImageUrl={(filename) => projectImageUrl(projectId, filename)}
         />

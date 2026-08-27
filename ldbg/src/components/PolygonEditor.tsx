@@ -5,6 +5,14 @@ import { Circle, Group, Image as KonvaImage, Layer, Line, Rect, Stage, Text, Tra
 import type Konva from "konva";
 import type { LegendEntry } from "@/config/legend";
 import {
+  DECORATIVE_OBJECTS,
+  getDecorativeObject,
+  isDecorativeObjectFeatureType,
+  objectNotes,
+  objectRadiusNorm,
+  type DecorativeObject,
+} from "@/config/decorative-objects";
+import {
   getUtahPlant,
   isPlantPointFeatureType,
   UTAH_GROUNDCOVER,
@@ -12,6 +20,10 @@ import {
   type UtahPlant,
 } from "@/config/utah-plants";
 import type { GeorefDisplayContext } from "@/lib/georef-display";
+import type { EditorSettings } from "@/lib/project-schema";
+import { projectImageUrl } from "@/lib/image-utils";
+import { withBasePath } from "@/lib/paths";
+import type { WatercolorJob } from "@/lib/watercolor-schema";
 import {
   circleNormPoints,
   createDrawnFeature,
@@ -51,6 +63,7 @@ import {
   updateVertex,
 } from "@/lib/feature-geometry";
 import { labelForFeatureType, styleForFeatureType } from "@/lib/feature-styles";
+import { DecorativeObjectKonva } from "@/lib/decorative-object-render";
 import { canopyRadiusNorm, plantNotes } from "@/lib/plant-scale";
 import { useBoundedHistory } from "@/hooks/useBoundedHistory";
 import { useStageViewport } from "@/hooks/useStageViewport";
@@ -62,7 +75,9 @@ import {
 import type { TilePyramid } from "@/lib/tile-pyramid-schema";
 
 type EditorTool = "select" | DrawShapeKind | "smoothEdge";
-type BaseLayer = "annotated" | "clean";
+type BaseLayer = "annotated" | "clean" | "watercolor";
+
+type EditorWatercolorPreset = "watercolor-soft" | "watercolor-heavy" | "ink-wash";
 type PlantPickerMode = "none" | "trees" | "plants";
 
 /** Debounce before persisting editor geometry (avoids hammering save + UI flash). */
@@ -71,10 +86,6 @@ const EDITOR_AUTOSAVE_MS = 4000;
 const VERTEX_HIT_RADIUS = 22;
 const NUDGE_STEP_PX = 2;
 const NUDGE_STEP_LARGE_PX = 10;
-
-export type EditorSettings = {
-  hiddenFeatureTypes: string[];
-};
 
 type Props = {
   annotatedImageUrl: string;
@@ -87,7 +98,6 @@ type Props = {
   georefContext?: GeorefDisplayContext;
   editorSettings?: EditorSettings;
   projectId?: string;
-  /** CV import annotation mask overlay (PNG). */
   maskImageUrl?: string;
   tilePyramid?: TilePyramid;
   fullOrthoWidth?: number;
@@ -143,6 +153,7 @@ export default function PolygonEditor({
   georefContext,
   editorSettings,
   maskImageUrl,
+  projectId,
   onAutosave,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -169,6 +180,8 @@ export default function PolygonEditor({
   const [squareSideFt, setSquareSideFt] = useState(3);
   const [selectedPlantId, setSelectedPlantId] = useState("");
   const [plantPickerMode, setPlantPickerMode] = useState<PlantPickerMode>("none");
+  const [objectPickerMode, setObjectPickerMode] = useState(false);
+  const [selectedObjectId, setSelectedObjectId] = useState("");
   const [placementHoverPx, setPlacementHoverPx] = useState<{ x: number; y: number } | null>(null);
   const [shapeDrag, setShapeDrag] = useState<{
     start: { x: number; y: number };
@@ -179,13 +192,24 @@ export default function PolygonEditor({
     () => new Set(editorSettings?.hiddenFeatureTypes ?? [])
   );
   const [saveLabel, setSaveLabel] = useState("");
-  const [baseLayer, setBaseLayer] = useState<BaseLayer>("annotated");
+  const [baseLayer, setBaseLayer] = useState<BaseLayer>(
+    editorSettings?.editorBaseLayer ?? "watercolor"
+  );
+  const [watercolorPreset, setWatercolorPreset] = useState<EditorWatercolorPreset>(
+    editorSettings?.watercolorPreset ?? "watercolor-soft"
+  );
+  const [watercolorJob, setWatercolorJob] = useState<WatercolorJob | null>(null);
+  const [watercolorPreviewUrl, setWatercolorPreviewUrl] = useState<string | undefined>();
   const [showMaskOverlay, setShowMaskOverlay] = useState(false);
 
   const viewport = useStageViewport();
 
   const activeImageUrl =
-    baseLayer === "clean" && cleanImageUrl ? cleanImageUrl : annotatedImageUrl;
+    baseLayer === "clean" && cleanImageUrl
+      ? cleanImageUrl
+      : baseLayer === "watercolor" && watercolorPreviewUrl
+        ? watercolorPreviewUrl
+        : annotatedImageUrl;
   const image = useHtmlImage(activeImageUrl);
   const maskImage = useHtmlImage(showMaskOverlay && maskImageUrl ? maskImageUrl : "");
 
@@ -200,6 +224,114 @@ export default function PolygonEditor({
   }, [index, current]);
 
   featuresRef.current = features;
+
+  const buildEditorSettings = useCallback(
+    (): EditorSettings => ({
+      hiddenFeatureTypes: [...hiddenTypes],
+      watercolorPreset,
+      editorBaseLayer: baseLayer,
+    }),
+    [hiddenTypes, watercolorPreset, baseLayer]
+  );
+
+  const pollWatercolor = useCallback(async () => {
+    if (!projectId) return;
+    try {
+      const res = await fetch(
+        withBasePath(
+          `/api/projects/${encodeURIComponent(projectId)}/watercolor?source=annotated`
+        )
+      );
+      if (!res.ok) return;
+      const data = (await res.json()) as {
+        job: WatercolorJob;
+        cacheReady: boolean;
+        entry?: { previewFilename: string; fullFilename: string };
+      };
+      setWatercolorJob(data.job);
+      if (data.cacheReady && data.entry?.previewFilename) {
+        setWatercolorPreviewUrl(projectImageUrl(projectId, data.entry.previewFilename));
+        if (baseLayer === "watercolor" || editorSettings?.editorBaseLayer === "watercolor") {
+          setBaseLayer("watercolor");
+        }
+      }
+    } catch {
+      /* best-effort */
+    }
+  }, [projectId, baseLayer, editorSettings?.editorBaseLayer]);
+
+  useEffect(() => {
+    if (editorSettings?.watercolorPreset) {
+      setWatercolorPreset(editorSettings.watercolorPreset);
+    }
+  }, [editorSettings?.watercolorPreset]);
+
+  const startWatercolor = useCallback(async () => {
+    if (!projectId) return;
+    try {
+      const res = await fetch(
+        withBasePath(`/api/projects/${encodeURIComponent(projectId)}/watercolor`),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            preset: watercolorPreset,
+            source: "annotated",
+          }),
+        }
+      );
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Watercolor failed to start");
+      setWatercolorJob(data.job ?? { status: "running", progress: 0 });
+      if (data.cacheReady && data.entry?.previewFilename) {
+        setWatercolorPreviewUrl(projectImageUrl(projectId, data.entry.previewFilename));
+      }
+    } catch (e) {
+      setWatercolorJob({
+        status: "failed",
+        progress: 0,
+        error: e instanceof Error ? e.message : "Watercolor failed",
+      });
+    }
+  }, [projectId, watercolorPreset]);
+
+  useEffect(() => {
+    if (!projectId) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(
+          withBasePath(
+            `/api/projects/${encodeURIComponent(projectId)}/watercolor?source=annotated&preset=${encodeURIComponent(watercolorPreset)}`
+          )
+        );
+        if (!res.ok || cancelled) return;
+        const data = (await res.json()) as {
+          job: WatercolorJob;
+          cacheReady: boolean;
+          entry?: { previewFilename: string };
+        };
+        setWatercolorJob(data.job);
+        if (data.cacheReady && data.entry?.previewFilename) {
+          setWatercolorPreviewUrl(projectImageUrl(projectId, data.entry.previewFilename));
+          return;
+        }
+        if (!cancelled) await startWatercolor();
+      } catch {
+        if (!cancelled) await startWatercolor();
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId, watercolorPreset, startWatercolor]);
+
+  useEffect(() => {
+    if (watercolorJob?.status === "running") {
+      const t = setInterval(() => void pollWatercolor(), 1500);
+      return () => clearInterval(t);
+    }
+  }, [watercolorJob?.status, pollWatercolor]);
 
   useEffect(() => {
     const incoming = JSON.stringify(initialFeatures);
@@ -236,6 +368,7 @@ export default function PolygonEditor({
   const drawAsPoint =
     tool === "point" || (tool === "circle" && drawEntry?.unit === "each");
   const activePlant = selectedPlantId ? getUtahPlant(selectedPlantId) : undefined;
+  const activeObject = selectedObjectId ? getDecorativeObject(selectedObjectId) : undefined;
 
   const commitFeatures = useCallback(
     (next: InterpretFeature[]) => {
@@ -260,7 +393,25 @@ export default function PolygonEditor({
     return norm * Math.max(displayW, displayH);
   }
 
+  function objectPlacementRadius(): number | undefined {
+    if (!activeObject) return undefined;
+    return objectRadiusNorm(
+      activeObject.sizeFt,
+      imageWidth,
+      imageHeight,
+      pixelsPerFoot
+    );
+  }
+
+  function objectPreviewRadiusPx(): number {
+    const norm = objectPlacementRadius();
+    if (norm == null) return 0;
+    return norm * Math.max(displayW, displayH);
+  }
+
   function enterPlantPickerMode(mode: "trees" | "plants") {
+    setObjectPickerMode(false);
+    setSelectedObjectId("");
     setPlantPickerMode(mode);
     setSelectedPlantId("");
     setTool("point");
@@ -286,6 +437,33 @@ export default function PolygonEditor({
     setPlacementHoverPx(null);
   }
 
+  function enterObjectPickerMode() {
+    exitPlantPickerMode();
+    setObjectPickerMode(true);
+    setSelectedObjectId("");
+    setTool("point");
+    setDrawPoints([]);
+    setShapeDrag(null);
+    setSmoothStroke([]);
+    smoothStrokePointsRef.current = [];
+    smoothStrokeRef.current = false;
+    setSelectedId(null);
+    dragShapeRef.current = false;
+    setPlacementHoverPx(null);
+  }
+
+  function selectObjectForPlacement(obj: DecorativeObject) {
+    setSelectedObjectId(obj.id);
+    setDrawFeatureType(obj.featureType);
+    setTool("point");
+  }
+
+  function exitObjectPickerMode() {
+    setObjectPickerMode(false);
+    setSelectedObjectId("");
+    setPlacementHoverPx(null);
+  }
+
   function addFeatureFromDraw(
     geometryKind: "polygon" | "polyline" | "point",
     points: { x: number; y: number }[],
@@ -301,12 +479,15 @@ export default function PolygonEditor({
     if (geometryKind === "polygon" && points.length < 3) return;
 
     const plant = activePlant;
-    const featureType = overrides?.featureType ?? plant?.featureType ?? drawFeatureType;
+    const deco = activeObject;
+    const featureType = overrides?.featureType ?? plant?.featureType ?? deco?.featureType ?? drawFeatureType;
     const pointRadius =
       radius ??
       (geometryKind === "point" && plant
         ? plantPlacementRadius()
-        : undefined);
+        : geometryKind === "point" && deco
+          ? objectPlacementRadius()
+          : undefined);
 
     const f = createDrawnFeature({
       featureType,
@@ -318,14 +499,18 @@ export default function PolygonEditor({
       georefContext,
       displayW,
       displayH,
-      label: overrides?.label ?? plant?.commonName,
-      notes: overrides?.notes ?? (plant ? plantNotes(plant) : ""),
+      label: overrides?.label ?? plant?.commonName ?? deco?.label,
+      notes: overrides?.notes ?? (plant ? plantNotes(plant) : deco ? objectNotes(deco) : ""),
     });
     commitFeatures([...features, f]);
     setSelectedId(f.id);
     setDrawPoints([]);
     setShapeDrag(null);
     if (plantPickerMode !== "none" && activePlant) {
+      setTool("point");
+      return;
+    }
+    if (objectPickerMode && activeObject) {
       setTool("point");
       return;
     }
@@ -348,7 +533,7 @@ export default function PolygonEditor({
     const t = setTimeout(() => {
       const payload = {
         features,
-        editorSettings: { hiddenFeatureTypes: [...hiddenTypes] },
+        editorSettings: buildEditorSettings(),
       };
       lastSavedJsonRef.current = JSON.stringify(features);
       onAutosaveRef.current(payload);
@@ -357,7 +542,7 @@ export default function PolygonEditor({
       return () => clearTimeout(clear);
     }, EDITOR_AUTOSAVE_MS);
     return () => clearTimeout(t);
-  }, [features, hiddenTypes, index]);
+  }, [features, hiddenTypes, watercolorPreset, baseLayer, index, buildEditorSettings]);
 
   useEffect(() => {
     const tr = transformerRef.current;
@@ -455,6 +640,7 @@ export default function PolygonEditor({
   }
 
   function handlePointerDown(e: Konva.KonvaEventObject<MouseEvent | TouchEvent>) {
+    if ("button" in e.evt && e.evt.button === 1) return;
     if (tool === "select") return;
     if (isDragShapeTool(tool)) {
       const stage = e.target.getStage();
@@ -469,6 +655,9 @@ export default function PolygonEditor({
   function handlePointerMove(e: Konva.KonvaEventObject<MouseEvent | TouchEvent>) {
     const stage = e.target.getStage();
     if (activePlant && plantPickerMode !== "none" && stage) {
+      const content = viewport.pointerToContent(stage);
+      setPlacementHoverPx(content);
+    } else if (activeObject && objectPickerMode && stage) {
       const content = viewport.pointerToContent(stage);
       setPlacementHoverPx(content);
     } else if (placementHoverPx) {
@@ -526,7 +715,12 @@ export default function PolygonEditor({
 
     if (tool === "point" || (tool === "circle" && drawEntry?.unit === "each")) {
       if (plantPickerMode !== "none" && !activePlant) return;
-      const r = activePlant ? plantPlacementRadius() : 0.025;
+      if (objectPickerMode && !activeObject) return;
+      const r = activePlant
+        ? plantPlacementRadius()
+        : activeObject
+          ? objectPlacementRadius()
+          : 0.025;
       addFeatureFromDraw("point", [pt], r);
       return;
     }
@@ -632,16 +826,27 @@ export default function PolygonEditor({
       : null;
 
   const types = featureTypes(features, legend);
-  const drawing = isDrawTool(tool) && plantPickerMode === "none";
+  const drawing = isDrawTool(tool) && plantPickerMode === "none" && !objectPickerMode;
   const plantPlacementActive = plantPickerMode !== "none";
+  const objectPlacementActive = objectPickerMode;
   const smoothing = tool === "smoothEdge";
-  const overlayActive = drawing || smoothing || (plantPlacementActive && !!activePlant);
+  const overlayActive =
+    drawing ||
+    smoothing ||
+    (plantPlacementActive && !!activePlant) ||
+    (objectPlacementActive && !!activeObject);
   const plantPalette = plantPickerMode === "trees" ? UTAH_TREES : plantPickerMode === "plants" ? UTAH_GROUNDCOVER : [];
   const shapeLegendEntries = useMemo(
-    () => legend.filter((e) => !isPlantPointFeatureType(e.featureType)),
+    () =>
+      legend.filter(
+        (e) =>
+          !isPlantPointFeatureType(e.featureType) &&
+          !isDecorativeObjectFeatureType(e.featureType)
+      ),
     [legend]
   );
   const plantPreviewR = plantPreviewRadiusPx();
+  const objectPreviewR = objectPreviewRadiusPx();
   const canSmooth =
     selected != null &&
     selected.geometry.kind === "polygon" &&
@@ -659,6 +864,7 @@ export default function PolygonEditor({
 
   function selectDrawTool(next: DrawShapeKind) {
     exitPlantPickerMode();
+    exitObjectPickerMode();
     setTool(next);
     setDrawPoints([]);
     setShapeDrag(null);
@@ -732,16 +938,68 @@ export default function PolygonEditor({
         <div>
           <h2 className="text-lg font-semibold text-stone-900">Feature editor</h2>
           <p className="text-sm text-stone-600">
-            Draw areas and lines with the shape tools, or use Trees / Plants to place catalog species
-            at real-world canopy size. Pinch to zoom on touch devices.
+            Draw features on the watercolor base from the step above (or switch base layers to
+            compare). Scroll wheel zooms; hold middle mouse and drag to pan.
           </p>
         </div>
         <span className="text-xs text-stone-500">{saveLabel}</span>
       </div>
 
+      {watercolorJob?.status === "failed" ? (
+        <p className="whitespace-pre-wrap rounded-md border border-red-200 bg-red-50 p-2 text-xs text-red-800">
+          Watercolor base failed: {watercolorJob.error}
+        </p>
+      ) : null}
+
+      <div className="flex flex-wrap gap-2">
+        <label className="flex min-h-11 items-center gap-2 rounded-md bg-stone-100 px-3 py-2 text-sm">
+          <input
+            type="checkbox"
+            checked={snapEnabled}
+            onChange={(e) => setSnapEnabled(e.target.checked)}
+          />
+          Snap to edges
+        </label>
+        <button
+          type="button"
+          onClick={() => setBaseLayer("watercolor")}
+          disabled={!watercolorPreviewUrl && watercolorJob?.status !== "running"}
+          className={`min-h-11 rounded-md px-3 py-2 text-sm disabled:opacity-40 ${
+            baseLayer === "watercolor" ? "bg-violet-700 text-white" : "bg-stone-100"
+          }`}
+        >
+          Watercolor base
+        </button>
+        <button
+          type="button"
+          onClick={() => setBaseLayer("annotated")}
+          className={`min-h-11 rounded-md px-3 py-2 text-sm ${baseLayer === "annotated" ? "bg-emerald-700 text-white" : "bg-stone-100"}`}
+        >
+          Annotated base
+        </button>
+        <button
+          type="button"
+          disabled={!cleanImageUrl}
+          onClick={() => setBaseLayer("clean")}
+          className={`min-h-11 rounded-md px-3 py-2 text-sm disabled:opacity-40 ${baseLayer === "clean" ? "bg-emerald-700 text-white" : "bg-stone-100"}`}
+        >
+          Clean orthophoto
+        </button>
+        {maskImageUrl ? (
+          <button
+            type="button"
+            onClick={() => setShowMaskOverlay((v) => !v)}
+            className={`min-h-11 rounded-md px-3 py-2 text-sm ${showMaskOverlay ? "bg-violet-700 text-white" : "bg-stone-100"}`}
+          >
+            {showMaskOverlay ? "Hide CV mask" : "Show CV mask"}
+          </button>
+        ) : null}
+      </div>
+
       <div className="flex flex-wrap items-center gap-2">
         {toolBtn(tool === "select", "Select", () => {
           exitPlantPickerMode();
+          exitObjectPickerMode();
           setTool("select");
           setDrawPoints([]);
           setShapeDrag(null);
@@ -767,6 +1025,7 @@ export default function PolygonEditor({
           () => enterPlantPickerMode("plants"),
           false
         )}
+        {toolBtn(objectPickerMode, "Objects", () => enterObjectPickerMode(), false)}
         {toolBtn(
           tool === "smoothEdge",
           "Smooth edge",
@@ -870,6 +1129,66 @@ export default function PolygonEditor({
         </div>
       ) : null}
 
+      {objectPlacementActive ? (
+        <div className="space-y-3 rounded-lg border border-amber-200 bg-amber-50 p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm font-medium text-amber-950">
+              Place objects
+              {activeObject
+                ? ` — ${activeObject.label} (~${activeObject.sizeFt} ft)`
+                : " — pick an object, then click the orthophoto"}
+            </p>
+            <button
+              type="button"
+              onClick={exitObjectPickerMode}
+              className="min-h-9 rounded border border-amber-300 bg-white px-3 py-1 text-sm text-amber-900"
+            >
+              Done
+            </button>
+          </div>
+          {!pixelsPerFoot ? (
+            <p className="text-xs text-amber-800">
+              Scale not calibrated — object size is approximate. Calibrate for accurate sizing.
+            </p>
+          ) : null}
+          <div className="flex flex-wrap gap-2">
+            {DECORATIVE_OBJECTS.map((obj) => {
+              const selected = selectedObjectId === obj.id;
+              const style = styleForFeatureType(obj.featureType, legend, false);
+              return (
+                <button
+                  key={obj.id}
+                  type="button"
+                  onClick={() => selectObjectForPlacement(obj)}
+                  className={`min-h-11 rounded-lg border px-3 py-2 text-left text-sm transition-colors ${
+                    selected
+                      ? "border-amber-700 bg-amber-700 text-white"
+                      : "border-stone-300 bg-white text-stone-900 hover:border-amber-400"
+                  }`}
+                >
+                  <span
+                    className="mr-2 inline-block h-3 w-3 rounded-sm border border-stone-400"
+                    style={{ background: style.fill }}
+                    aria-hidden
+                  />
+                  <span className="font-medium">{obj.label}</span>
+                  <span className={selected ? "text-amber-100" : "text-stone-500"}>
+                    {" "}
+                    · {obj.sizeFt} ft
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          {activeObject ? (
+            <p className="text-xs text-amber-800">
+              Move over the orthophoto to preview size, then click to place. Each click adds another{" "}
+              {activeObject.label}.
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+
       {drawing ? (
         <div className="flex flex-wrap items-end gap-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3">
           <label className="block text-sm text-emerald-950">
@@ -953,50 +1272,30 @@ export default function PolygonEditor({
         </div>
       ) : null}
 
-      <div className="flex flex-wrap gap-2">
-        <label className="flex min-h-11 items-center gap-2 rounded-md bg-stone-100 px-3 py-2 text-sm">
-          <input
-            type="checkbox"
-            checked={snapEnabled}
-            onChange={(e) => setSnapEnabled(e.target.checked)}
-          />
-          Snap to edges
-        </label>
-        <button
-          type="button"
-          onClick={() => setBaseLayer("annotated")}
-          className={`min-h-11 rounded-md px-3 py-2 text-sm ${baseLayer === "annotated" ? "bg-emerald-700 text-white" : "bg-stone-100"}`}
-        >
-          Annotated base
-        </button>
-        <button
-          type="button"
-          disabled={!cleanImageUrl}
-          onClick={() => setBaseLayer("clean")}
-          className={`min-h-11 rounded-md px-3 py-2 text-sm disabled:opacity-40 ${baseLayer === "clean" ? "bg-emerald-700 text-white" : "bg-stone-100"}`}
-        >
-          Clean orthophoto
-        </button>
-        {maskImageUrl ? (
-          <button
-            type="button"
-            onClick={() => setShowMaskOverlay((v) => !v)}
-            className={`min-h-11 rounded-md px-3 py-2 text-sm ${showMaskOverlay ? "bg-violet-700 text-white" : "bg-stone-100"}`}
-          >
-            {showMaskOverlay ? "Hide CV mask" : "Show CV mask"}
-          </button>
-        ) : null}
-      </div>
-
       <div className="grid gap-4 lg:grid-cols-[1fr_240px]">
         <div ref={containerRef} className="overflow-hidden rounded-lg border border-stone-200 bg-stone-900">
           <Stage
             width={displayW}
             height={displayH}
             onClick={handleStageClick}
-            onMouseDown={handlePointerDown}
-            onMouseMove={handlePointerMove}
-            onMouseUp={handlePointerUp}
+            onMouseDown={(e) => {
+              if (e.evt.button === 1) {
+                viewport.onMouseDown(e);
+                return;
+              }
+              if (tool === "smoothEdge") handleSmoothPointerDown(e);
+              else handlePointerDown(e);
+            }}
+            onMouseMove={(e) => {
+              viewport.onMouseMove(e);
+              if (tool === "smoothEdge") handleSmoothPointerMove(e);
+              else handlePointerMove(e);
+            }}
+            onMouseUp={(e) => {
+              viewport.onMouseUp(e);
+              if (tool === "smoothEdge") handleSmoothPointerUp();
+              else handlePointerUp(e);
+            }}
             onTouchStart={(e) => {
               if (e.evt.touches.length === 2) {
                 viewport.onTouchStart(e);
@@ -1024,12 +1323,15 @@ export default function PolygonEditor({
             onMouseLeave={() => setPlacementHoverPx(null)}
             onWheel={viewport.onWheel}
             style={{
-              cursor:
-                plantPlacementActive && activePlant
+              cursor: viewport.isPanning
+                ? "grabbing"
+                : plantPlacementActive && activePlant
                   ? "crosshair"
-                  : overlayActive
+                  : objectPlacementActive && activeObject
                     ? "crosshair"
-                    : "default",
+                    : overlayActive
+                      ? "crosshair"
+                      : "default",
               touchAction: "none",
             }}
           >
@@ -1062,6 +1364,28 @@ export default function PolygonEditor({
                     const r =
                       geometryRadiusPx(f, displayW, displayH, georefContext) ??
                       0.02 * Math.max(displayW, displayH);
+                    if (isDecorativeObjectFeatureType(f.featureType)) {
+                      return (
+                        <Group
+                          key={f.id}
+                          onClick={(ev) => {
+                            ev.cancelBubble = true;
+                            if (tool === "select") setSelectedId(f.id);
+                          }}
+                          listening={!overlayActive}
+                        >
+                          <DecorativeObjectKonva
+                            featureType={f.featureType}
+                            x={c.x}
+                            y={c.y}
+                            radius={r}
+                            style={style}
+                            strokeOverride={isSel ? "#059669" : undefined}
+                            strokeWidth={isSel ? 3 : style.strokeWidth}
+                          />
+                        </Group>
+                      );
+                    }
                     return (
                       <Circle
                         key={f.id}
@@ -1194,6 +1518,29 @@ export default function PolygonEditor({
                   </>
                 ) : null}
 
+                {activeObject && placementHoverPx && objectPreviewR > 0 ? (
+                  <>
+                    <DecorativeObjectKonva
+                      featureType={activeObject.featureType}
+                      x={placementHoverPx.x}
+                      y={placementHoverPx.y}
+                      radius={objectPreviewR}
+                      style={drawStyle}
+                      strokeWidth={2}
+                    />
+                    <Text
+                      x={placementHoverPx.x + objectPreviewR + 8}
+                      y={placementHoverPx.y - 10}
+                      text={`${activeObject.label} · ${activeObject.sizeFt} ft`}
+                      fontSize={12}
+                      fill="#ffffff"
+                      stroke="#1c1917"
+                      strokeWidth={0.4}
+                      listening={false}
+                    />
+                  </>
+                ) : null}
+
                 {selected && tool === "select" && !hiddenTypes.has(selected.featureType) ? (
                   <Group
                     ref={selectedGroupRef}
@@ -1219,6 +1566,19 @@ export default function PolygonEditor({
                         const r =
                           geometryRadiusPx(selected, displayW, displayH, georefContext) ??
                           0.02 * Math.max(displayW, displayH);
+                        if (isDecorativeObjectFeatureType(selected.featureType)) {
+                          return (
+                            <DecorativeObjectKonva
+                              featureType={selected.featureType}
+                              x={c.x}
+                              y={c.y}
+                              radius={r}
+                              style={selStyle}
+                              strokeOverride="#059669"
+                              strokeWidth={3}
+                            />
+                          );
+                        }
                         return (
                           <Circle
                             x={c.x}

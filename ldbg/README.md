@@ -60,20 +60,22 @@ Open [http://localhost:3000](http://localhost:3000) (or port/base path from depl
 | `LDBG_RENDERS_ENABLED` | Enable AI render providers |
 | `LDBG_RENDER_IMG2IMG` | Gemini img2img from Blender base |
 
-## Plan base layer
+## Plan rendering pipeline
 
-Per SPEC revision (AI plan render supersedes watercolor):
+See `spec-revision-current-direction.md` at repo root.
 
-- **Clean / desaturated orthophoto** — backdrop until `POST /api/plan-render` is wired
-- **Watercolor filter** — `scripts/watercolor.py` kept but removed from plan panel UI
-- Vector callouts, legend, and scale remain authoritative for quantities
+1. Clean orthophoto
+2. Per-feature material fills (`POST /api/feature-fill`) clipped in SVG
+3. Raster composite (`plan-composite-service.ts`)
+4. Style pass (`POST /api/style-pass`, presets in `src/config/styles.ts`)
+5. Registration correction (`scripts/register_style.py`)
+6. Vector overlay (callouts, scale, north arrow)
 
-## Watercolor (deprecated in UI)
+**Style presets:** `watercolor-plan` (default), `ink-only`, `marker`, `photoreal`, `off`
 
-Legacy pipeline still in repo for reference:
+**Deprecated:** deterministic watercolor filter (`scripts/watercolor.py`, `/api/watercolor`) — kept in repo, removed from plan panel UI.
 
-- `scripts/watercolor.py`, `src/config/watercolor.ts`, `POST /api/projects/[id]/watercolor`
-- Not exposed in the plan panel; use AI plan render instead (build step 4)
+Board export forces the AI disclosure general note when style preset ≠ `off`.
 
 ## Storage
 
@@ -84,7 +86,8 @@ Projects live in `./storage/{uuid}/`:
 - `webodm/` — ingested WebODM files including full GeoTIFF
 - `tiles/orthophoto/` — XYZ tile pyramid
 - `print-ortho.jpg` — high-res ortho for board export (generated)
-- `derived/base-{preset}-{hash}.png` — watercolor plan base (full + preview)
+- `derived/style-{hash}-registered.png` — style pass output after registration
+- `derived/composite-{hash}.png` — raster composite before style pass
 - `dtm-cache.json` — cached elevation grid
 
 Legacy upload projects use `annotated.jpg` / `clean.jpg` at project root.

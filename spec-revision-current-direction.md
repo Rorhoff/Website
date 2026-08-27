@@ -1,59 +1,78 @@
-# SPEC Revision — Current Direction
+# SPEC Revision — Plan Rendering Pipeline
 
-Living document for LDBG plan sheet architecture. §3 was replaced per the per-feature fill design (Aug 2026).
+Replaces §3 in prior revisions and supersedes clipped-fills-only watercolor base design in full. §2 division of authority, §4 feature types, §5 board export stand unless amended below.
 
-## §1 Cut list
+---
 
-- Whole-image AI plan render with color mask (replaced by §3 below)
-- Phase-correlation registration check (not needed with clipped fills)
+## §1 What testing established
 
-**Amendment:** The deterministic watercolor pipeline is **not** cut. It is the plan panel base layer (§2).
+Three approaches were tested against a real annotated orthophoto.
+
+**Whole-image AI fill from a color mask.** Materials rendered well, but the model bled outside marked regions. In one run it read an existing boulder retaining wall as a continuation of a small water feature and rendered a stream the full length of the property. Asking a model to respect a boundary does not work.
+
+**Deterministic watercolor filter.** Preserves geometry exactly, but cannot produce the hand-drawn look. Ink linework around roof planes, boulders, tree canopies, and hardscape edges does not exist in the source photograph, and no pixel filter invents them. Output reads as a desaturated photo.
+
+**Whole-image style transfer applied after material fill.** Produced the target look on the first attempt: pen outlines, watercolor wash, drawn tree symbols, outlined stone. This is the mechanism that works.
+
+The style pass also shifts the frame — zoomed out with white paper margin. Global affine shift, correctable.
 
 ## §2 Division of authority
 
-Measured geometry is authoritative for quantities, callouts, and export. Pixel layers (watercolor filter, clipped fills) are illustrative and cannot move vector geometry.
+Measured geometry is authoritative for quantities, callouts, labels, and export. Pixel layers (composite, style pass) are illustrative and cannot move vector geometry.
 
-## §3 Base layer — deterministic watercolor filter
+## §3 Pipeline
 
-Python sidecar `scripts/watercolor.py` (OpenCV + Pillow) on the clean orthophoto.
+Ordered stages. Each output is cached; regenerate only when inputs change.
 
-**Hard constraint:** output dimensions equal input dimensions. Assert and fail loudly.
+```
+1. Clean orthophoto
+2. Per-feature material fills, clipped to vector polygons
+3. Composite
+4. Style pass over the composite          <- shifts the frame
+5. Registration correction                 <- undoes the shift
+6. Vector overlay: callouts, labels, scale bar, north arrow
+```
 
-Pipeline (parameters in `config/watercolor.ts`):
+Stages 2–3 control content. Stage 4 controls appearance. Stage 5 restores geometric truth. Stage 6 is exact by construction (vector at known coordinates).
 
-1. Bilateral filter
-2. `cv2.stylization`
-3. Posterize (16–24 levels)
-4. HSV saturation lift + value floor
-5. Edge darkening
-6. Granulation
-7. Paper texture from `/public/textures/paper-cold-press.jpg`
-8. Edge feathering with irregular alpha
+Style must run over the composite, not under it — one pass unifies new features with existing site and puts consistent linework across both.
 
-Presets: `off`, `desaturated`, `watercolor-soft` (default), `watercolor-heavy`, `ink-wash`.
+### Stage 2 — per-feature material fills
 
-Plan panel only — never on drone thumbnail or clean orthophoto thumbnail.
+`POST /api/feature-fill`, one feature at a time.
 
-Cache on source + preset + parameters. Full-res PNG for print, ~2000px preview for browser. Background job with progress.
+1. Crop clean orthophoto to feature bounding box + 10%.
+2. Upscale long edge ≥ 1024px.
+3. Single-material prompt with real dimensions.
+4. Composite through SVG `clipPath` from smoothed polygon.
 
-## §3 (replacement) Feature fills — per-feature crops with hard clipping
+Clip is enforcement — do not prompt the model to stay inside a boundary.
 
-Route: `POST /api/feature-fill`
+Per-feature state: `none | generating | filled | failed`. Fill all empty + per-feature regenerate.
 
-Per feature:
+### Stage 4 — style pass
 
-1. Bounding box + 10% margin
-2. Crop **clean** orthophoto (not filtered)
-3. Upscale long edge to ≥1024px
-4. Single-material prompt from `config/legend.ts`
-5. Model returns image
-6. Composite through SVG `clipPath` from smoothed polygon
+`POST /api/style-pass` on the composited image. Presets in `config/styles.ts`: `watercolor-plan` (default), `ink-only`, `marker`, `photoreal`, `off`.
 
-Registration is not required — clip enforces boundary.
+Every prompt appends the constraint block (no new elements, no text/annotations).
 
-Returned crop runs watercolor steps 3–7 before compositing. Clip feather 2–4px. Optional thin vector outline.
+Reference images: 1–3 per preset in `/public/styles/` where supported.
 
-Per-feature state: `none | generating | filled | failed`. Regenerate one feature or fill all empty. Cache on geometry + material + prompt version.
+### Stage 5 — registration correction
+
+Patch match on edge maps → similarity transform (RANSAC) → inverse warp → crop to original frame.
+
+Quality gate (residual as % of image width):
+
+- &lt; 0.2%: inline labels OK
+- 0.2–1%: numbered callouts only
+- &gt; 1% or &lt; 5 inliers: failed — fall back to `off`, surface error
+
+Never silently proceed with failed correction.
+
+### Stage 6 — vector overlay
+
+SVG at project coordinates over corrected image: optional thin outlines, callouts, labels, north arrow (≤ 0.75in sheet), scale bar.
 
 ## §4 Feature types
 
@@ -61,28 +80,30 @@ Per-feature state: `none | generating | filled | failed`. Regenerate one feature
 
 ## §5 Board export
 
-Fixed 3600×2400 canvas. Watercolor base ensured at print resolution on export.
+Fixed canvas export. Style-pass image at print resolution when preset ≠ `off`. Force AI disclosure note (§7).
 
-## §6 Compositing stack (bottom to top)
+## §6 Sheet disclosure
 
-1. Watercolor-filtered orthophoto
-2. Flat-fill demolition masks (optional)
-3. Per-feature clipped material fills
-4. Optional vector outlines
-5. Numbered callouts
-6. Feature labels + areas
-7. North arrow + scale bar
+When style preset ≠ `off`, force this general note (not togglable):
 
-## §7 Build order
+> Plan graphics include AI-generated renderings for illustrative purposes. All dimensions, areas, and quantities are derived from measured design geometry, not from rendered imagery.
+
+## §7 Cut list (amended)
+
+- **Watercolor filter pipeline** — cut from plan panel; `scripts/watercolor.py` may remain but is not offered in UI. Style transfer supersedes it.
+- **Procedural symbology** — cut; style pass produces linework.
+- Whole-image AI plan render with color mask — cut.
+- Flat translucent fills — **editor canvas only**.
+
+## §8 Build order
 
 1. Fixed-canvas board export
 2. Linear feature types + polyline tool
-3. Watercolor filter pipeline + preset selector
-4. Per-feature crop preview UI
-5. `/api/feature-fill` + caching + cost tracking
-6. Clipped compositing + shared watercolor treatment on fills
-7. Callouts, labels, scale bar over composite
+3. Per-feature crop preview UI
+4. `/api/feature-fill` + caching
+5. Clipped compositing
+6. `/api/style-pass` + presets
+7. Registration correction + quality gate
+8. Vector overlay
 
-## §8 What this does not solve
-
-Bare soil cannot become mature planting via filter alone. Draw planting beds as features or use demolition flat-fill masks.
+Steps 1–5 produce a usable sheet without style pass. Complete 1–5 before starting 6.

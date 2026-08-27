@@ -1,8 +1,5 @@
 import { createHash } from "node:crypto";
-import fs from "fs/promises";
-import path from "path";
 import sharp from "sharp";
-import { DEFAULT_WATERCOLOR_PRESET, resolveWatercolorParams } from "@/config/watercolor";
 import type { LegendEntry } from "@/config/legend";
 import {
   computeFeatureCropBox,
@@ -20,18 +17,9 @@ import {
 import { getPixelsPerFoot } from "@/lib/georef";
 import { getGeorefDisplayContext } from "@/lib/georef-display";
 import type { InterpretFeature } from "@/lib/interpret-schema";
-import { runPythonScript } from "@/lib/run-python";
 import { GeminiRenderProvider } from "@/lib/render/gemini";
 import { getLegend, getStorage } from "@/lib/storage";
 import type { Project } from "@/lib/project-schema";
-
-function storageRoot(): string {
-  return process.env.LDBG_STORAGE_DIR ?? path.join(process.cwd(), "storage");
-}
-
-function projectDir(projectId: string): string {
-  return path.join(storageRoot(), projectId);
-}
 
 function featuresForProject(project: Project): InterpretFeature[] {
   return project.features?.length
@@ -69,30 +57,6 @@ async function assertFillImageValid(buf: Buffer): Promise<void> {
   const stats = await sharp(buf).stats();
   const avg = stats.channels.reduce((s, c) => s + c.mean, 0) / stats.channels.length;
   if (avg < 2) throw new Error("Model returned a nearly blank image");
-}
-
-async function applyTextureSteps(cropPath: string, outPath: string): Promise<void> {
-  const params = resolveWatercolorParams(DEFAULT_WATERCOLOR_PRESET);
-  if (!params) return;
-  const paramsPath = path.join(path.dirname(outPath), `_tex-params-${path.basename(outPath)}.json`);
-  await fs.writeFile(paramsPath, JSON.stringify(params, null, 2), "utf8");
-  const paper = path.join(process.cwd(), "public", "textures", "paper-cold-press.jpg");
-  const args = [
-    cropPath,
-    "--params-json",
-    paramsPath,
-    "--out-full",
-    outPath,
-    "--texture-only",
-  ];
-  if (await fs.stat(paper).then(() => true).catch(() => false)) {
-    args.push("--paper-texture", paper);
-  }
-  const script = path.join(process.cwd(), "scripts", "watercolor.py");
-  const { code, stderr, stdout } = await runPythonScript(script, args, { timeoutMs: 120_000 });
-  if (code !== 0) {
-    throw new Error(`Texture pass failed: ${stderr || stdout}`.slice(0, 400));
-  }
 }
 
 export async function previewFeatureCrop(
@@ -221,20 +185,8 @@ export async function fillFeature(
     throw new Error("Model returned unexpected aspect ratio");
   }
 
-  const tmpIn = path.join(projectDir(projectId), `_fill-raw-${featureId}.png`);
-  const tmpOut = path.join(projectDir(projectId), `_fill-tex-${featureId}.png`);
-  await fs.writeFile(tmpIn, resized);
-  try {
-    await applyTextureSteps(tmpIn, tmpOut);
-  } catch {
-    await fs.copyFile(tmpIn, tmpOut);
-  }
-  const finalBuf = await fs.readFile(tmpOut);
-  await fs.unlink(tmpIn).catch(() => {});
-  await fs.unlink(tmpOut).catch(() => {});
-
   const imageFilename = featureFillImageFilename(featureId, hash);
-  await storage.saveProjectFile(projectId, imageFilename, finalBuf);
+  await storage.saveProjectFile(projectId, imageFilename, resized);
 
   const entry: FeatureFillEntry = {
     featureId,

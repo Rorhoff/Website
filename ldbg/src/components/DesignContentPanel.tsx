@@ -1,9 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import type { InterpretFeature } from "@/lib/interpret-schema";
 import { formatUsd } from "@/lib/interpret-cost";
-import type {
-  MaterialFinish,
+import {
+  filterMaterialsToFeatures,
+  type MaterialFinish,
   PlantEntry,
   RenderPrompt,
   StoredDesignContent,
@@ -13,6 +15,7 @@ import { withBasePath } from "@/lib/paths";
 
 type Props = {
   projectId: string;
+  features: InterpretFeature[];
   designContent?: StoredDesignContent;
   onDesignContentChange: (content: StoredDesignContent) => void;
   hasFeatures: boolean;
@@ -21,6 +24,7 @@ type Props = {
 
 export function DesignContentPanel({
   projectId,
+  features,
   designContent,
   onDesignContentChange,
   hasFeatures,
@@ -36,6 +40,14 @@ export function DesignContentPanel({
   }, [designContent]);
 
   const content = draft ?? designContent;
+
+  const visibleMaterials = useMemo(
+    () =>
+      content
+        ? filterMaterialsToFeatures(content.materialsAndFinishes, features)
+        : [],
+    [content, features]
+  );
 
   const syncDraft = useCallback((next: StoredDesignContent) => {
     setDraft(next);
@@ -104,10 +116,10 @@ export function DesignContentPanel({
     syncDraft({ ...content, plantPalette: plants });
   }
 
-  function updateMaterial(i: number, patch: Partial<MaterialFinish>) {
+  function updateMaterial(featureId: string, patch: Partial<MaterialFinish>) {
     if (!content) return;
-    const mats = content.materialsAndFinishes.map((m, idx) =>
-      idx === i ? { ...m, ...patch } : m
+    const mats = content.materialsAndFinishes.map((m) =>
+      m.featureId === featureId ? { ...m, ...patch } : m
     );
     syncDraft({ ...content, materialsAndFinishes: mats });
   }
@@ -270,11 +282,15 @@ export function DesignContentPanel({
 
           <div>
             <h3 className="font-medium text-stone-900">Materials & finishes</h3>
-            {content.materialsAndFinishes.length === 0 ? (
-              <p className="mt-1 text-sm text-stone-500">None generated.</p>
+            {visibleMaterials.length === 0 ? (
+              <p className="mt-1 text-sm text-stone-500">
+                {content.materialsAndFinishes.length > 0
+                  ? "No materials for current design features."
+                  : "None generated."}
+              </p>
             ) : (
               <ul className="mt-2 space-y-3">
-                {content.materialsAndFinishes.map((m, i) => (
+                {visibleMaterials.map((m) => (
                   <li
                     key={m.featureId}
                     className="rounded-lg border border-stone-200 p-3 text-sm"
@@ -287,13 +303,15 @@ export function DesignContentPanel({
                       className="mt-2 w-full rounded border px-2 py-1"
                       value={m.material}
                       placeholder="Material"
-                      onChange={(e) => updateMaterial(i, { material: e.target.value })}
+                      onChange={(e) => updateMaterial(m.featureId, { material: e.target.value })}
                     />
                     <textarea
                       className="mt-1 w-full rounded border px-2 py-1"
                       rows={2}
                       value={m.description}
-                      onChange={(e) => updateMaterial(i, { description: e.target.value })}
+                      onChange={(e) =>
+                        updateMaterial(m.featureId, { description: e.target.value })
+                      }
                     />
                   </li>
                 ))}

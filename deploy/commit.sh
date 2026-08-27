@@ -95,7 +95,14 @@ _path_changed() {
 }
 
 _ldbg_python_ok() {
-  local py="$DEV_DIR/.venv/bin/python"
+  local py=""
+  if [[ -f /home/ubuntu/Website/.env ]]; then
+    # shellcheck disable=SC1091
+    py="$(grep -E '^(export[[:space:]]+)?LDBG_PYTHON=' /home/ubuntu/Website/.env 2>/dev/null | tail -1 | sed -E 's/^(export[[:space:]]+)?LDBG_PYTHON=//; s/^["'\''']//; s/["'\''']$//' || true)"
+  fi
+  if [[ -z "$py" || ! -x "$py" ]]; then
+    py="/home/ubuntu/app/venv/bin/python"
+  fi
   [[ -x "$py" ]] && "$py" -c "import cv2, numpy, rasterio" 2>/dev/null
 }
 
@@ -392,6 +399,10 @@ if _path_changed '^(ldbg/|deploy/ensure-ldbg-anthropic)' \
   bash "$DEV_DIR/deploy/ensure-ldbg-anthropic-env.sh" || warn "LDBG Anthropic env sync skipped"
 else
   log "Skipping LDBG Anthropic env sync (unchanged)."
+fi
+
+if [[ -f "$DEV_DIR/deploy/ensure-ldbg-python-env.sh" ]]; then
+  bash "$DEV_DIR/deploy/ensure-ldbg-python-env.sh" || warn "LDBG Python env sync skipped"
 fi
 
 # Install deps when requirements.txt changed, or when key packages are missing

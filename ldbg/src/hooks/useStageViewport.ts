@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type Konva from "konva";
 
 type Pan = { x: number; y: number };
@@ -6,8 +6,12 @@ type Pan = { x: number; y: number };
 export function useStageViewport() {
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState<Pan>({ x: 0, y: 0 });
+  const [isPanning, setIsPanning] = useState(false);
   const pinchRef = useRef<{ dist: number; zoom: number } | null>(null);
   const panRef = useRef<{ x: number; y: number; panX: number; panY: number } | null>(
+    null
+  );
+  const mousePanRef = useRef<{ x: number; y: number; panX: number; panY: number } | null>(
     null
   );
 
@@ -16,6 +20,8 @@ export function useStageViewport() {
     setPan({ x: 0, y: 0 });
     pinchRef.current = null;
     panRef.current = null;
+    mousePanRef.current = null;
+    setIsPanning(false);
   }, []);
 
   function touchDistance(touches: TouchList): number {
@@ -65,6 +71,7 @@ export function useStageViewport() {
     panRef.current = null;
   }, []);
 
+  /** Scroll wheel: zoom toward cursor (scroll up = in, scroll down = out). */
   const onWheel = useCallback((e: Konva.KonvaEventObject<WheelEvent>) => {
     e.evt.preventDefault();
     const scaleBy = 1.08;
@@ -86,6 +93,67 @@ export function useStageViewport() {
     });
   }, [zoom, pan.x, pan.y]);
 
+  /** Middle mouse button drag: pan the canvas. */
+  const onMouseDown = useCallback(
+    (e: Konva.KonvaEventObject<MouseEvent>) => {
+      if (e.evt.button !== 1) return;
+      e.evt.preventDefault();
+      mousePanRef.current = {
+        x: e.evt.clientX,
+        y: e.evt.clientY,
+        panX: pan.x,
+        panY: pan.y,
+      };
+      setIsPanning(true);
+    },
+    [pan.x, pan.y]
+  );
+
+  const onMouseMove = useCallback((e: Konva.KonvaEventObject<MouseEvent>) => {
+    if (!mousePanRef.current) return;
+    e.evt.preventDefault();
+    const dx = e.evt.clientX - mousePanRef.current.x;
+    const dy = e.evt.clientY - mousePanRef.current.y;
+    setPan({
+      x: mousePanRef.current.panX + dx,
+      y: mousePanRef.current.panY + dy,
+    });
+  }, []);
+
+  const endMousePan = useCallback(() => {
+    mousePanRef.current = null;
+    setIsPanning(false);
+  }, []);
+
+  useEffect(() => {
+    if (!isPanning) return;
+    const onWindowMove = (e: MouseEvent) => {
+      if (!mousePanRef.current) return;
+      const dx = e.clientX - mousePanRef.current.x;
+      const dy = e.clientY - mousePanRef.current.y;
+      setPan({
+        x: mousePanRef.current.panX + dx,
+        y: mousePanRef.current.panY + dy,
+      });
+    };
+    const onWindowUp = (e: MouseEvent) => {
+      if (e.button === 1) endMousePan();
+    };
+    window.addEventListener("mousemove", onWindowMove);
+    window.addEventListener("mouseup", onWindowUp);
+    return () => {
+      window.removeEventListener("mousemove", onWindowMove);
+      window.removeEventListener("mouseup", onWindowUp);
+    };
+  }, [isPanning, endMousePan]);
+
+  const onMouseUp = useCallback(
+    (e: Konva.KonvaEventObject<MouseEvent>) => {
+      if (e.evt.button === 1) endMousePan();
+    },
+    [endMousePan]
+  );
+
   /** Map stage pointer position to content coordinates (pre-zoom group space). */
   function pointerToContent(stage: Konva.Stage): { x: number; y: number } | null {
     const pos = stage.getPointerPosition();
@@ -99,11 +167,16 @@ export function useStageViewport() {
   return {
     zoom,
     pan,
+    isPanning,
     resetViewport,
     onTouchStart,
     onTouchMove,
     onTouchEnd,
     onWheel,
+    onMouseDown,
+    onMouseMove,
+    onMouseUp,
+    endMousePan,
     pointerToContent,
   };
 }

@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import { notFound } from "next/navigation";
-import { presetUsesFilter, type WatercolorPresetId } from "@/config/watercolor";
+import { presetUsesStylePass } from "@/config/styles";
 import { BoardTemplate } from "@/components/BoardTemplate";
 import { boardDimensions, parseBoardPageSize } from "@/lib/board-sizes";
 import {
@@ -14,9 +14,10 @@ import {
 } from "@/lib/georef";
 import { resolvePlanBaseLayer } from "@/lib/plan-base-layer";
 import {
-  ensureWatercolorForProject,
-  resolveWatercolorUrls,
-} from "@/lib/watercolor-service";
+  resolveStylePreset,
+  resolveStylePassUrls,
+  runStylePassForProject,
+} from "@/lib/style-pass-service";
 import { getLegend, getStorage } from "@/lib/storage";
 
 type Props = {
@@ -61,27 +62,31 @@ export default async function BoardPage({ params, searchParams }: Props) {
 
   const rawBaseUrl = rawBaseImage ? fileUrl(id, rawBaseImage.filename) : undefined;
 
-  const preset = (project.planSettings?.basePreset ?? "watercolor-soft") as WatercolorPresetId;
+  const cleanUrl = clean ? fileUrl(id, clean.filename) : undefined;
+  const stylePreset = resolveStylePreset(project);
   let boardProject = project;
-  if (exportMode && presetUsesFilter(preset)) {
+  if (exportMode && presetUsesStylePass(stylePreset)) {
     try {
-      await ensureWatercolorForProject(id, preset, { forPrint: true });
+      await runStylePassForProject(id, stylePreset, { quality: "final" });
       boardProject = (await getStorage().loadProject(id)) ?? project;
     } catch (e) {
-      console.warn("[board] watercolor ensure failed:", e instanceof Error ? e.message : e);
+      console.warn("[board] style pass ensure failed:", e instanceof Error ? e.message : e);
     }
   }
 
-  const wcUrls = await resolveWatercolorUrls(boardProject, id, exportMode);
-  const watercolorPreviewUrl = wcUrls.preview ? fileUrl(id, wcUrls.preview) : undefined;
-  const watercolorFullUrl = wcUrls.full ? fileUrl(id, wcUrls.full) : undefined;
+  const spUrls = await resolveStylePassUrls(boardProject, id, stylePreset, exportMode);
+  const stylePreviewUrl = spUrls.preview ? fileUrl(id, spUrls.preview) : undefined;
+  const styleRegisteredUrl = spUrls.registered ? fileUrl(id, spUrls.registered) : undefined;
 
   const planBase = resolvePlanBaseLayer(boardProject.planSettings, {
     rawUrl: rawBaseUrl,
-    watercolorPreviewUrl,
-    watercolorFullUrl,
+    cleanUrl,
+    stylePreviewUrl,
+    styleRegisteredUrl,
     forPrint: exportMode,
+    registration: spUrls.registration,
   });
+  const planBaseImageUrl = planBase.url ?? cleanUrl ?? rawBaseUrl;
 
   const bp = basePath();
   const renderSlots = project.renderSlots
@@ -143,7 +148,7 @@ export default async function BoardPage({ params, searchParams }: Props) {
             ann ? fileUrl(id, ann.filename) : undefined
           }
           cleanUrl={clean ? fileUrl(id, clean.filename) : undefined}
-          baseImageUrl={planBase.url}
+          baseImageUrl={planBaseImageUrl}
           baseImageFilter={planBase.svgFilter}
           featureFills={boardProject.featureFills}
           featureFillImageUrl={(filename) => fileUrl(id, filename)}

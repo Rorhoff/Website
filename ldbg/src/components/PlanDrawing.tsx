@@ -8,6 +8,8 @@ import {
   geometryToPxPoints,
 } from "@/lib/feature-georef";
 import { labelForFeatureType, styleForFeatureType } from "@/lib/feature-styles";
+import { isDecorativeObjectFeatureType } from "@/config/decorative-objects";
+import { DecorativeObjectSvg } from "@/lib/decorative-object-render";
 import type { InterpretFeature } from "@/lib/interpret-schema";
 import { computePlanContentBounds, sheetPxFromInches } from "@/lib/plan-bounds";
 import {
@@ -27,6 +29,7 @@ import {
   buildFeatureFillLayers,
   ClippedFeatureFills,
 } from "@/lib/plan-feature-fills";
+import { PlanInkLinework } from "@/lib/plan-ink-linework";
 
 export type PlanDrawingProject = {
   features: InterpretFeature[];
@@ -46,8 +49,14 @@ type Props = {
   imageHeight: number;
   baseImageUrl?: string;
   baseImageFilter?: string;
+  compareRawUrl?: string;
+  baseUsesStylePass?: boolean;
+  styleMissing?: boolean;
+  styleError?: string;
+  hideFillsWhenStyled?: boolean;
   planSettings?: PlanSettings;
   displayWidth?: number;
+  fitToContent?: boolean;
   className?: string;
   featureFills?: Record<string, FeatureFillEntry>;
   featureFillImageUrl?: (filename: string) => string;
@@ -58,6 +67,9 @@ const LEGEND_WIDTH = 520;
 const FOOTER_H = 200;
 const SHEET_DPI = 300;
 const NORTH_ARROW_MAX_IN = 0.75;
+const SCALE_BAR_WIDTH_IN = 1.5;
+const SCALE_LABEL_DISPLAY_PX = 11;
+const SCALE_BAR_HEIGHT_SHEET_PX = 100;
 
 function isTreeType(featureType: string): boolean {
   return featureType === "tree" || featureType === "tree_specimen";
@@ -92,6 +104,23 @@ function renderFeature(
   const strokeProps = f.existing
     ? { vectorEffect: "non-scaling-stroke" as const }
     : {};
+
+  if (!f.existing && f.geometry.kind === "point" && isDecorativeObjectFeatureType(f.featureType)) {
+    const c = pxPts[0] ?? { x: w / 2, y: h / 2 };
+    const r =
+      geometryRadiusPx(f, w, h, georefCtx) ??
+      0.015 * Math.max(w, h);
+    return (
+      <g key={f.id} opacity={opacity}>
+        <DecorativeObjectSvg
+          featureType={f.featureType}
+          center={c}
+          radius={r}
+          style={style}
+        />
+      </g>
+    );
+  }
 
   if (!f.existing && (f.geometry.kind === "point" || isTreeType(f.featureType))) {
     const c = pxPts[0] ?? { x: w / 2, y: h / 2 };
@@ -192,39 +221,41 @@ function NorthArrow({
   );
 }
 
-function ScaleBar({
+function ScaleBarSheet({
   x,
   y,
-  barPx,
+  barWidthPx,
   feet,
   scaleLabel,
+  labelSheetPx,
 }: {
   x: number;
   y: number;
-  barPx: number;
+  barWidthPx: number;
   feet: number;
   scaleLabel: string;
+  labelSheetPx: number;
 }) {
-  const h = 14;
+  const h = SCALE_BAR_HEIGHT_SHEET_PX * 0.14;
   return (
     <g transform={`translate(${x}, ${y})`}>
-      <rect x={0} y={0} width={barPx} height={h} fill="white" stroke="#334155" strokeWidth={2} />
-      <rect x={0} y={0} width={barPx / 2} height={h} fill="#334155" />
+      <rect x={0} y={0} width={barWidthPx} height={h} fill="white" stroke="#334155" strokeWidth={1.5} />
+      <rect x={0} y={0} width={barWidthPx / 2} height={h} fill="#334155" />
       <text
-        x={barPx / 2}
-        y={h + 22}
+        x={barWidthPx / 2}
+        y={h + labelSheetPx * 1.1}
         textAnchor="middle"
-        fontSize={22}
+        fontSize={labelSheetPx}
         fill="#334155"
         fontFamily="system-ui, sans-serif"
       >
         {feet} ft
       </text>
       <text
-        x={barPx / 2}
-        y={h + 48}
+        x={barWidthPx / 2}
+        y={h + labelSheetPx * 2.2}
         textAnchor="middle"
-        fontSize={20}
+        fontSize={labelSheetPx * 0.9}
         fill="#64748b"
         fontFamily="system-ui, sans-serif"
       >
@@ -241,14 +272,25 @@ export function PlanDrawing({
   imageHeight,
   baseImageUrl,
   baseImageFilter,
+  compareRawUrl,
+  baseUsesStylePass,
+  styleMissing,
+  styleError,
+  hideFillsWhenStyled,
   planSettings,
   displayWidth = 900,
+  fitToContent = false,
   className,
   featureFills,
   featureFillImageUrl,
 }: Props) {
   const baseMode = planSettings?.baseMode ?? "orthophoto";
   const orthoOpacity = planSettings?.orthophotoOpacity ?? 0.4;
+  const showInk = planSettings?.showInkLinework ?? true;
+  const compareRaw = planSettings?.watercolorCompareRaw ?? false;
+  const baseOpacity = baseUsesStylePass || baseImageFilter ? 1 : orthoOpacity;
+  const effectiveBaseUrl =
+    compareRaw && compareRawUrl ? compareRawUrl : baseImageUrl;
 
   const planW = imageWidth;
   const planH = imageHeight;
@@ -306,13 +348,14 @@ export function PlanDrawing({
   }, [showDrainage, georefCtx, elevationAnalysis?.drainageArrows]);
 
   const planFeaturesForBounds = useMemo(() => {
+    if (fitToContent) return designFeatures;
     const list = [...designFeatures];
     if (baseMode === "orthophoto") list.push(...existingFeatures);
     else if (baseMode === "white") {
       list.push(...existingFeatures.filter(isHouseExisting));
     }
     return list;
-  }, [designFeatures, existingFeatures, baseMode]);
+  }, [designFeatures, existingFeatures, baseMode, fitToContent]);
 
   const contentBounds = useMemo(
     () => computePlanContentBounds(planFeaturesForBounds, planW, planH, georefCtx),
@@ -370,10 +413,16 @@ export function PlanDrawing({
 
   const scaleBarFeet =
     pixelsPerFoot != null
-      ? pickScaleBarFeet(contentBounds.width, pixelsPerFoot, contentBounds.width * 0.22)
+      ? pickScaleBarFeet(
+          contentBounds.width,
+          pixelsPerFoot,
+          sheetPxFromInches(SCALE_BAR_WIDTH_IN, SHEET_DPI) / Math.max(fitScale, 0.001)
+        )
       : 20;
-  const scaleBarPx =
-    pixelsPerFoot != null ? scaleBarFeet * pixelsPerFoot : contentBounds.width * 0.12;
+  const scaleBarSheetWidth =
+    pixelsPerFoot != null
+      ? scaleBarFeet * pixelsPerFoot * fitScale
+      : sheetPxFromInches(SCALE_BAR_WIDTH_IN, SHEET_DPI);
   const scaleLabel =
     pixelsPerFoot != null
       ? computeArchScaleLabel(
@@ -383,6 +432,10 @@ export function PlanDrawing({
           SHEET_DPI
         )
       : "Calibrate for scale";
+
+  const labelSheetPx = SCALE_LABEL_DISPLAY_PX * (sheetW / displayWidth);
+  const scaleBarSheetX = planAreaX + 40;
+  const scaleBarSheetY = planAreaY + planAreaH - labelSheetPx * 3.5 - SCALE_BAR_HEIGHT_SHEET_PX * 0.14;
 
   const legendX = sheetW - LEGEND_WIDTH - PLAN_MARGIN + 20;
   const legendY = PLAN_MARGIN + 40;
@@ -402,6 +455,192 @@ export function PlanDrawing({
   }, [designFeatures, featureFills, featureFillImageUrl]);
 
   const showOutlines = planSettings?.showFeatureOutlines ?? true;
+  const renderFitScale = fitToContent ? 1 : fitScale;
+
+  const planContent = (
+    <>
+      {baseMode === "orthophoto" && effectiveBaseUrl && !styleMissing ? (
+        <image
+          href={effectiveBaseUrl}
+          x={0}
+          y={0}
+          width={planW}
+          height={planH}
+          opacity={compareRaw ? orthoOpacity : baseOpacity}
+          filter={compareRaw ? undefined : baseImageFilter}
+          preserveAspectRatio="xMidYMid meet"
+        />
+      ) : baseMode === "orthophoto" && styleMissing ? (
+        <>
+          <rect
+            x={contentBounds.x}
+            y={contentBounds.y}
+            width={contentBounds.width}
+            height={contentBounds.height}
+            fill="#fef2f2"
+            stroke="#fca5a5"
+            strokeWidth={2}
+          />
+          {styleError ? (
+            <foreignObject
+              x={contentBounds.x + contentBounds.width * 0.05}
+              y={contentBounds.y + contentBounds.height * 0.35}
+              width={contentBounds.width * 0.9}
+              height={contentBounds.height * 0.3}
+            >
+              <div className="rounded bg-white/90 p-3 text-xs leading-snug text-red-800 shadow-sm">
+                <p className="font-semibold">Plan style pass failed</p>
+                <p className="mt-1 whitespace-pre-wrap">{styleError}</p>
+              </div>
+            </foreignObject>
+          ) : null}
+        </>
+      ) : (
+        <rect
+          x={contentBounds.x}
+          y={contentBounds.y}
+          width={contentBounds.width}
+          height={contentBounds.height}
+          fill="#ffffff"
+          stroke="#e7e5e4"
+          strokeWidth={2}
+        />
+      )}
+
+      {baseMode === "white"
+        ? existingFeatures.filter(isHouseExisting).map((f) =>
+            renderFeature(f, legend, planW, planH, georefCtx, renderFitScale)
+          )
+        : null}
+
+      {baseMode === "orthophoto"
+        ? existingFeatures.map((f) =>
+            renderFeature(f, legend, planW, planH, georefCtx, renderFitScale)
+          )
+        : null}
+
+      {designFeatures
+        .filter((f) => !filledFeatureIds.has(f.id))
+        .map((f) => renderFeature(f, legend, planW, planH, georefCtx, renderFitScale))}
+
+      {!hideFillsWhenStyled ? (
+        <ClippedFeatureFills
+          features={designFeatures}
+          layers={fillLayers}
+          imageW={planW}
+          imageH={planH}
+          georefCtx={georefCtx}
+          showOutlines={showOutlines}
+          fitScale={renderFitScale}
+        />
+      ) : null}
+
+      {showInk ? (
+        <PlanInkLinework
+          features={visibleFeatures}
+          imageW={planW}
+          imageH={planH}
+          georefCtx={georefCtx}
+          spanPx={contentBounds.width}
+        />
+      ) : null}
+
+      {contourPolylines.map((c, i) => (
+        <polyline
+          key={`contour-${i}-${c.elevationFeet}`}
+          points={pxPointsAttr(c.px)}
+          fill="none"
+          stroke={c.major ? "#78716c" : "#a8a29e"}
+          strokeWidth={c.major ? 2 : 1}
+          opacity={0.85}
+          vectorEffect="non-scaling-stroke"
+        />
+      ))}
+
+      {drainagePx.map((a, i) => (
+        <line
+          key={`drain-${i}`}
+          x1={a.x1}
+          y1={a.y1}
+          x2={a.x2}
+          y2={a.y2}
+          stroke="#2563eb"
+          strokeWidth={2}
+          markerEnd="url(#drain-arrow)"
+          opacity={0.75}
+        />
+      ))}
+    </>
+  );
+
+  if (fitToContent) {
+    const contentScaleBarFeet =
+      pixelsPerFoot != null
+        ? pickScaleBarFeet(
+            contentBounds.width,
+            pixelsPerFoot,
+            contentBounds.width * 0.07
+          )
+        : 20;
+    const contentBarPx =
+      pixelsPerFoot != null
+        ? contentScaleBarFeet * pixelsPerFoot
+        : contentBounds.width * 0.07;
+    const contentLabelPx = Math.max(5, contentBounds.width * 0.006);
+    const contentNorthSize = contentBounds.width * 0.04;
+    const northX = contentBounds.x + contentBounds.width - contentNorthSize * 1.1;
+    const northY = contentBounds.y + contentNorthSize * 0.55;
+
+    return (
+      <div className={`${className ?? ""} -mt-1 block leading-none`}>
+        <svg
+          viewBox={`${contentBounds.x} ${contentBounds.y} ${contentBounds.width} ${contentBounds.height}`}
+          width="100%"
+          height="auto"
+          preserveAspectRatio="xMidYMid meet"
+          className="block max-w-full rounded-lg border border-stone-300 bg-white shadow-sm"
+          role="img"
+          aria-label={`Plan drawing: ${project.metadata.projectTitle || "landscape plan"}`}
+        >
+          <PlanPatternDefs />
+          <defs>
+            <marker
+              id="drain-arrow-fit"
+              markerWidth="8"
+              markerHeight="8"
+              refX="6"
+              refY="3"
+              orient="auto"
+            >
+              <path d="M0,0 L6,3 L0,6 Z" fill="#2563eb" />
+            </marker>
+          </defs>
+          {planContent}
+          <NorthArrow
+            x={northX}
+            y={northY}
+            size={contentNorthSize}
+            rotationDeg={project.northRotationDeg}
+          />
+          {pixelsPerFoot != null ? (
+            <ScaleBarSheet
+              x={northX - contentBarPx / 2}
+              y={northY + contentNorthSize * 0.95}
+              barWidthPx={contentBarPx}
+              feet={contentScaleBarFeet}
+              scaleLabel={computeArchScaleLabel(
+                contentBounds.width,
+                pixelsPerFoot,
+                contentBounds.width,
+                100
+              )}
+              labelSheetPx={contentLabelPx}
+            />
+          ) : null}
+        </svg>
+      </div>
+    );
+  }
 
   return (
     <div className={className}>
@@ -443,90 +682,7 @@ export function PlanDrawing({
         <g
           transform={`translate(${planOffsetX}, ${planOffsetY}) scale(${fitScale}) translate(${-contentBounds.x}, ${-contentBounds.y})`}
         >
-          {baseMode === "orthophoto" && baseImageUrl ? (
-            <image
-              href={baseImageUrl}
-              x={0}
-              y={0}
-              width={planW}
-              height={planH}
-              opacity={orthoOpacity}
-              filter={baseImageFilter}
-              preserveAspectRatio="xMidYMid meet"
-            />
-          ) : (
-            <rect
-              x={contentBounds.x}
-              y={contentBounds.y}
-              width={contentBounds.width}
-              height={contentBounds.height}
-              fill="#ffffff"
-              stroke="#e7e5e4"
-              strokeWidth={2}
-            />
-          )}
-
-          {baseMode === "white"
-            ? existingFeatures.filter(isHouseExisting).map((f) =>
-                renderFeature(f, legend, planW, planH, georefCtx, fitScale)
-              )
-            : null}
-
-          {baseMode === "orthophoto"
-            ? existingFeatures.map((f) =>
-                renderFeature(f, legend, planW, planH, georefCtx, fitScale)
-              )
-            : null}
-
-          {designFeatures
-            .filter((f) => !filledFeatureIds.has(f.id))
-            .map((f) => renderFeature(f, legend, planW, planH, georefCtx, fitScale))}
-
-          <ClippedFeatureFills
-            features={designFeatures}
-            layers={fillLayers}
-            imageW={planW}
-            imageH={planH}
-            georefCtx={georefCtx}
-            showOutlines={showOutlines}
-            fitScale={fitScale}
-          />
-
-          {contourPolylines.map((c, i) => (
-            <polyline
-              key={`contour-${i}-${c.elevationFeet}`}
-              points={pxPointsAttr(c.px)}
-              fill="none"
-              stroke={c.major ? "#78716c" : "#a8a29e"}
-              strokeWidth={c.major ? 2 : 1}
-              opacity={0.85}
-              vectorEffect="non-scaling-stroke"
-            />
-          ))}
-
-          {drainagePx.map((a, i) => (
-            <line
-              key={`drain-${i}`}
-              x1={a.x1}
-              y1={a.y1}
-              x2={a.x2}
-              y2={a.y2}
-              stroke="#2563eb"
-              strokeWidth={2}
-              markerEnd="url(#drain-arrow)"
-              opacity={0.75}
-            />
-          ))}
-
-          {pixelsPerFoot != null ? (
-            <ScaleBar
-              x={contentBounds.x + 24}
-              y={contentBounds.y + contentBounds.height - 90}
-              barPx={scaleBarPx}
-              feet={scaleBarFeet}
-              scaleLabel={scaleLabel}
-            />
-          ) : null}
+          {planContent}
         </g>
 
         {callouts.map((c) => {
@@ -565,6 +721,17 @@ export function PlanDrawing({
           size={northArrowSheetPx}
           rotationDeg={project.northRotationDeg}
         />
+
+        {pixelsPerFoot != null ? (
+          <ScaleBarSheet
+            x={scaleBarSheetX}
+            y={scaleBarSheetY}
+            barWidthPx={scaleBarSheetWidth}
+            feet={scaleBarFeet}
+            scaleLabel={scaleLabel}
+            labelSheetPx={labelSheetPx}
+          />
+        ) : null}
 
         <g transform={`translate(${legendX}, ${legendY})`}>
           <text

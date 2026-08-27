@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import { CalibrationPin } from "@/components/CalibrationPin";
 import { computePixelsPerFoot } from "@/lib/calibration";
 import { normalizedImagePointFromClick } from "@/lib/calibration-image-point";
+import { useImageViewport } from "@/hooks/useImageViewport";
 import type { Calibration } from "@/lib/project-schema";
 
 type Point = { x: number; y: number };
@@ -40,6 +41,7 @@ export function CalibrationTool({
   const containerRef = useRef<HTMLDivElement>(null);
   const imageRef = useRef<HTMLImageElement>(null);
   const suppressImageClickRef = useRef(false);
+  const viewport = useImageViewport(containerRef);
   const [pointA, setPointA] = useState<Point | null>(
     calibration?.pointA ?? null
   );
@@ -188,19 +190,52 @@ export function CalibrationTool({
         <div>
           <h2 className="text-lg font-semibold text-stone-900">Scale calibration</h2>
           <p className="text-sm text-stone-600">
-            Click two points with a known distance (driveway width, GCP, etc.).
-            Image: {imageWidth}×{imageHeight}px
+            Click two points with a known distance (driveway width, GCP, etc.). Use +/− or scroll
+            wheel to zoom; drag with middle mouse (or Shift+drag) to pan. Image: {imageWidth}×
+            {imageHeight}px
           </p>
         </div>
-        {pxf ? (
-          <span className="rounded-full bg-emerald-100 px-3 py-1 text-sm font-medium text-emerald-900">
-            {pxf.toFixed(2)} px/ft
+        <div className="flex flex-wrap items-center gap-2">
+          {pxf ? (
+            <span className="rounded-full bg-emerald-100 px-3 py-1 text-sm font-medium text-emerald-900">
+              {pxf.toFixed(2)} px/ft
+            </span>
+          ) : (
+            <span className="rounded-full bg-amber-100 px-3 py-1 text-sm text-amber-900">
+              Not calibrated
+            </span>
+          )}
+          <span className="rounded-md bg-stone-100 px-2 py-1 text-xs text-stone-700">
+            {Math.round(viewport.zoom * 100)}%
           </span>
-        ) : (
-          <span className="rounded-full bg-amber-100 px-3 py-1 text-sm text-amber-900">
-            Not calibrated
-          </span>
-        )}
+          <button
+            type="button"
+            onClick={viewport.zoomOut}
+            disabled={viewport.zoom <= 1}
+            className="min-h-8 min-w-8 rounded-md bg-stone-100 px-2 text-sm disabled:opacity-40"
+            title="Zoom out"
+          >
+            −
+          </button>
+          <button
+            type="button"
+            onClick={viewport.zoomIn}
+            disabled={viewport.zoom >= 8}
+            className="min-h-8 min-w-8 rounded-md bg-stone-100 px-2 text-sm disabled:opacity-40"
+            title="Zoom in"
+          >
+            +
+          </button>
+          {viewport.zoom > 1 ? (
+            <button
+              type="button"
+              onClick={viewport.resetViewport}
+              className="rounded-md bg-stone-100 px-3 py-1 text-sm text-stone-800"
+            >
+              Reset zoom
+            </button>
+          ) : null}
+        </div>
       </div>
 
       <div className="flex flex-wrap gap-2 text-sm">
@@ -222,50 +257,62 @@ export function CalibrationTool({
 
       <div
         ref={containerRef}
-        className="relative mx-auto max-w-full overflow-hidden rounded-lg border border-stone-300 bg-stone-100"
+        className={`relative mx-auto max-w-full overflow-hidden rounded-lg border border-stone-300 bg-stone-100 ${viewport.isPanning ? "cursor-grabbing" : ""}`}
         style={{ aspectRatio: `${imageWidth} / ${imageHeight}` }}
+        onMouseDown={viewport.onMouseDown}
       >
-        <div
-          className="absolute inset-0 cursor-crosshair"
-          onClick={handleImageClick}
-        >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            ref={imageRef}
-            src={imageUrl}
-            alt="Calibration base"
-            className="block h-full w-full object-contain"
-            draggable={false}
+        <div className="absolute inset-0" style={viewport.transformStyle}>
+          <div
+            className="absolute inset-0 cursor-crosshair"
+            onClick={handleImageClick}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              ref={imageRef}
+              src={imageUrl}
+              alt="Calibration base"
+              className="block h-full w-full object-contain"
+              draggable={false}
+            />
+            {pointA ? <CalibrationPin label="A" point={pointA} color="#059669" /> : null}
+            {pointB ? <CalibrationPin label="B" point={pointB} color="#2563eb" /> : null}
+            {pointA && pointB ? (
+              <svg
+                className="pointer-events-none absolute inset-0 h-full w-full"
+                viewBox="0 0 1 1"
+                preserveAspectRatio="none"
+              >
+                <line
+                  x1={pointA.x}
+                  y1={pointA.y}
+                  x2={pointB.x}
+                  y2={pointB.y}
+                  stroke="#f59e0b"
+                  strokeWidth={0.004}
+                  strokeDasharray="0.01 0.008"
+                />
+              </svg>
+            ) : null}
+          </div>
+          <NorthArrow
+            rotationDeg={northRotationDeg}
+            dragging={draggingNorth}
+            onPointerDown={(e) => {
+              suppressImageClickRef.current = true;
+              e.preventDefault();
+              setDraggingNorth(true);
+            }}
           />
-          {pointA ? <CalibrationPin label="A" point={pointA} color="#059669" /> : null}
-          {pointB ? <CalibrationPin label="B" point={pointB} color="#2563eb" /> : null}
-          {pointA && pointB ? (
-            <svg
-              className="pointer-events-none absolute inset-0 h-full w-full"
-              viewBox="0 0 1 1"
-              preserveAspectRatio="none"
-            >
-              <line
-                x1={pointA.x}
-                y1={pointA.y}
-                x2={pointB.x}
-                y2={pointB.y}
-                stroke="#f59e0b"
-                strokeWidth={0.004}
-                strokeDasharray="0.01 0.008"
-              />
-            </svg>
+          {pointA && pointB && distanceFeet ? (
+            <CalibrationScaleBadge
+              pointA={pointA}
+              pointB={pointB}
+              distanceFeet={parseFloat(distanceFeet) || 0}
+              imageRef={imageRef}
+              zoom={viewport.zoom}
+            />
           ) : null}
         </div>
-        <NorthArrow
-          rotationDeg={northRotationDeg}
-          dragging={draggingNorth}
-          onPointerDown={(e) => {
-            suppressImageClickRef.current = true;
-            e.preventDefault();
-            setDraggingNorth(true);
-          }}
-        />
       </div>
 
       <div className="flex flex-wrap items-end gap-3">
@@ -312,6 +359,60 @@ export function CalibrationTool({
       <p className="text-xs text-stone-500">
         North arrow: drag the handle on the image to set north ({northRotationDeg}°).
       </p>
+    </div>
+  );
+}
+
+function CalibrationScaleBadge({
+  pointA,
+  pointB,
+  distanceFeet,
+  imageRef,
+  zoom,
+}: {
+  pointA: Point;
+  pointB: Point;
+  distanceFeet: number;
+  imageRef: RefObject<HTMLImageElement | null>;
+  zoom: number;
+}) {
+  const [barPx, setBarPx] = useState(0);
+
+  useEffect(() => {
+    const img = imageRef.current;
+    if (!img || distanceFeet <= 0) return;
+    const update = () => {
+      const w = img.clientWidth;
+      const h = img.clientHeight;
+      if (w <= 0 || h <= 0) return;
+      const dx = (pointB.x - pointA.x) * w;
+      const dy = (pointB.y - pointA.y) * h;
+      setBarPx(Math.max(12, Math.min(w * 0.35, Math.hypot(dx, dy))));
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(img);
+    return () => ro.disconnect();
+  }, [pointA, pointB, distanceFeet, imageRef, zoom]);
+
+  if (barPx <= 0) return null;
+
+  return (
+    <div
+      className="pointer-events-none absolute right-3 top-[4.75rem] z-10 select-none text-stone-800"
+      aria-hidden
+    >
+      <div className="flex flex-col items-center">
+        <div
+          className="h-1 rounded-sm border border-stone-700 bg-white"
+          style={{ width: barPx }}
+        >
+          <div className="h-full w-1/2 bg-stone-800" />
+        </div>
+        <span className="mt-0.5 text-[10px] font-semibold leading-none">
+          {distanceFeet} ft
+        </span>
+      </div>
     </div>
   );
 }

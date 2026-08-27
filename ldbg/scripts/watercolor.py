@@ -318,12 +318,35 @@ def run_filter(
         assert rgb.shape[0] == input_h and rgb.shape[1] == input_w
         out_full.parent.mkdir(parents=True, exist_ok=True)
         Image.fromarray(rgb, mode="RGB").save(out_full, format="PNG", optimize=True)
+        paper_p = params.get("paperTexture", {})
+        paper_opacity = float(paper_p.get("opacity", 0.14))
+        paper_applied = bool(
+            paper_texture and paper_texture.is_file() and paper_opacity > 0
+        )
+        edge_p = params.get("edgeDarkening", {})
         return {
             "width": input_w,
             "height": input_h,
             "inputWidth": input_w,
             "inputHeight": input_h,
             "textureOnly": True,
+            "paramsUsed": params,
+            "paperTextureApplied": paper_applied,
+            "pipelineSteps": [
+                {"step": "posterize", "executed": True, "progress": 10},
+                {"step": "hsv-adjust", "executed": True, "progress": 30},
+                {
+                    "step": "edge-darkening",
+                    "executed": bool(edge_p.get("enabled", True)),
+                    "progress": 50,
+                },
+                {"step": "granulation", "executed": True, "progress": 70},
+                {
+                    "step": "paper-texture",
+                    "executed": paper_applied,
+                    "progress": 90,
+                },
+            ],
         }
 
     rgba = apply_watercolor(img, params, paper_texture, progress)
@@ -338,6 +361,11 @@ def run_filter(
         out_preview.parent.mkdir(parents=True, exist_ok=True)
         Image.fromarray(preview, mode="RGBA").save(out_preview, format="PNG", optimize=True)
 
+    paper_p = params.get("paperTexture", {})
+    paper_opacity = float(paper_p.get("opacity", 0.14))
+    paper_applied = bool(paper_texture and paper_texture.is_file() and paper_opacity > 0)
+    edge_p = params.get("edgeDarkening", {})
+
     return {
         "width": input_w,
         "height": input_h,
@@ -345,6 +373,22 @@ def run_filter(
         "previewHeight": preview.shape[0],
         "inputWidth": input_w,
         "inputHeight": input_h,
+        "paramsUsed": params,
+        "paperTextureApplied": paper_applied,
+        "pipelineSteps": [
+            {"step": "pre-clean", "executed": True, "progress": 5},
+            {"step": "color-simplification", "executed": True, "progress": 20},
+            {"step": "posterize", "executed": True, "progress": 35},
+            {"step": "hsv-adjust", "executed": True, "progress": 50},
+            {
+                "step": "edge-darkening",
+                "executed": bool(edge_p.get("enabled", True)),
+                "progress": 65,
+            },
+            {"step": "granulation", "executed": True, "progress": 75},
+            {"step": "paper-texture", "executed": paper_applied, "progress": 85},
+            {"step": "edge-feather", "executed": True, "progress": 92},
+        ],
     }
 
 
@@ -379,7 +423,7 @@ def main() -> int:
         from datetime import datetime, timezone
 
         result["filteredAt"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-        print(json.dumps(result))
+        print(json.dumps(result), flush=True)
         return 0
     except AssertionError as exc:
         print(json.dumps({"error": f"DIMENSION_ASSERT: {exc}"}))

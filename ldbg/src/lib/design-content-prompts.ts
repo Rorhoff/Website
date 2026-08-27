@@ -16,7 +16,7 @@ Rules:
 - Return ONLY valid JSON matching the schema. No markdown fences, no preamble.
 - conceptOverview: 4–5 bullets referencing actual features by name/id from the feature list.
 - plantPalette: 8–10 plants suited to the climate zone and design style. Bias hard toward water-wise and Utah-hardy species (USDA 6b/7a, Salt Lake Valley). For every tree and tree_specimen feature, include the exact species you recommend in plantPalette with placement set to that feature id.
-- materialsAndFinishes: one entry per hardscape feature (paver patio, water feature, pergola, fire pit, etc.) with a specific material and short description.
+- materialsAndFinishes: one entry per hardscape feature that appears in the feature list (skip types not present in the project).
 - Do NOT include takeoff in your response — quantities are supplied separately.
 ${elevationRule}
 - renderPrompts: exactly three prompts with ids "entry", "fire_pit", "hero_dusk". Each must describe actual materials, plants, and layout from this project, plus camera angle, time of day, and lighting. Hero prompt is a whole-yard dusk perspective.
