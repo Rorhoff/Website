@@ -217,6 +217,12 @@ def _paper_wash(img: np.ndarray, wash: float = _PAPER_WASH) -> np.ndarray:
     return np.clip(base * (1.0 - wash) + 255.0 * wash, 0, 255).astype(np.uint8)
 
 
+def _enforce_rgb_value_floor(rgb: np.ndarray, value_floor: float) -> np.ndarray:
+    """Per-channel floor — HSV V lift alone can leave saturated shadows below floor in RGB."""
+    min_byte = max(0, int(round(float(np.clip(value_floor, 0.0, 0.99)) * 255.0)) - 2)
+    return np.clip(rgb, min_byte, 255).astype(np.uint8)
+
+
 def _composite_over_white(rgb: np.ndarray, alpha: np.ndarray) -> np.ndarray:
     a = alpha.astype(np.float32) / 255.0
     if a.ndim == 2:
@@ -267,6 +273,7 @@ def _finish_on_white_paper(
     else:
         composited = lifted
 
+    composited = _enforce_rgb_value_floor(composited, value_floor)
     _assert_lightening_contract(source, composited, value_floor)
     return composited
 
