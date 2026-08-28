@@ -52,9 +52,11 @@ import {
   updateFeatureVertexGeoref,
 } from "@/lib/feature-georef";
 import {
+  bboxFromPxPoints,
   cloneFeatures,
-  collectSnapSegments,
+  collectSnapTargets,
   deleteVertexAt,
+  duplicateFeature,
   featureAreaSqFt,
   featurePerimeterLf,
   flatFeaturePoints,
@@ -64,7 +66,8 @@ import {
   moveFeature,
   normToPx,
   pxToNorm,
-  snapPxPoint,
+  snapBBoxTranslation,
+  snapPxPointAxis,
   transformFeaturePoints,
   updateVertex,
 } from "@/lib/feature-geometry";
@@ -92,6 +95,8 @@ const EDITOR_AUTOSAVE_MS = 4000;
 const VERTEX_HIT_RADIUS = 22;
 const NUDGE_STEP_PX = 2;
 const NUDGE_STEP_LARGE_PX = 10;
+const SNAP_THRESHOLD_PX = 12;
+const DUPLICATE_OFFSET_PX = 16;
 
 type Props = {
   annotatedImageUrl: string;
@@ -175,6 +180,7 @@ export default function PolygonEditor({
   const lastSavedJsonRef = useRef("");
   const selectedLineRef = useRef<Konva.Line>(null);
   const draggingVertexRef = useRef(false);
+  const draggingGroupRef = useRef(false);
 
   const [containerW, setContainerW] = useState(800);
   const [tool, setTool] = useState<EditorTool>("select");
@@ -375,9 +381,16 @@ export default function PolygonEditor({
   const displayW = Math.round(imageWidth * fitScale);
   const displayH = Math.round(imageHeight * fitScale);
 
-  const snapSegments = useMemo(
-    () => collectSnapSegments(features, displayW, displayH, georefContext),
-    [features, displayW, displayH, georefContext]
+  const snapTargets = useMemo(
+    () =>
+      collectSnapTargets(
+        features,
+        displayW,
+        displayH,
+        georefContext,
+        selectedId ?? undefined
+      ),
+    [features, displayW, displayH, georefContext, selectedId]
   );
 
   const selected = features.find((f) => f.id === selectedId) ?? null;
@@ -576,7 +589,7 @@ export default function PolygonEditor({
 
   useEffect(() => {
     const g = selectedGroupRef.current;
-    if (!g || draggingVertex) return;
+    if (!g || draggingVertex || draggingGroupRef.current) return;
     g.position({ x: 0, y: 0 });
   }, [features, selectedId, draggingVertex]);
 
@@ -597,6 +610,10 @@ export default function PolygonEditor({
       if ((e.ctrlKey || e.metaKey) && (e.key === "y" || (e.key === "z" && e.shiftKey))) {
         e.preventDefault();
         redo();
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === "d" && selectedId && tool === "select") {
+        e.preventDefault();
+        duplicateSelected();
       }
       if (e.key === "Delete" || e.key === "Backspace") {
         if (isDrawTool(tool) && isClickShapeTool(tool) && drawPoints.length > 0) {
@@ -645,11 +662,42 @@ export default function PolygonEditor({
     return pxToNorm(content, displayW, displayH);
   }
 
+  function duplicateSelected(offsetPx = { dx: DUPLICATE_OFFSET_PX, dy: DUPLICATE_OFFSET_PX }) {
+    const source = selectedId
+      ? featuresRef.current.find((f) => f.id === selectedId)
+      : undefined;
+    if (!source) return;
+    const copy = duplicateFeature(
+      source,
+      featuresRef.current,
+      displayW,
+      displayH,
+      georefContext,
+      offsetPx
+    );
+    commitFeatures([...featuresRef.current, copy]);
+    setSelectedId(copy.id);
+  }
+
   function applySnapNorm(p: { x: number; y: number }) {
-    if (!snapEnabled || snapSegments.length === 0) return p;
+    if (!snapEnabled || snapTargets.xs.length === 0) return p;
     const px = normToPx(p, displayW, displayH);
-    const snapped = snapPxPoint(px, snapSegments, 12);
+    const snapped = snapPxPointAxis(px, snapTargets, SNAP_THRESHOLD_PX);
     return pxToNorm(snapped, displayW, displayH);
+  }
+
+  function snapGroupDragPx(dxPx: number, dyPx: number, featureId: string) {
+    if (!snapEnabled || snapTargets.xs.length === 0) {
+      return { dxPx, dyPx };
+    }
+    const feature = featuresRef.current.find((f) => f.id === featureId);
+    if (!feature) return { dxPx, dyPx };
+    const pts = geometryToPxPoints(feature, displayW, displayH, georefContext);
+    const shifted = pts.map((p) => ({ x: p.x + dxPx, y: p.y + dyPx }));
+    const bbox = bboxFromPxPoints(shifted);
+    if (!bbox) return { dxPx, dyPx };
+    const { dx, dy } = snapBBoxTranslation(bbox, snapTargets, SNAP_THRESHOLD_PX);
+    return { dxPx: dxPx + dx, dyPx: dyPx + dy };
   }
 
   function finishPolygonOrPolyline() {
@@ -813,24 +861,50 @@ export default function PolygonEditor({
   function onGroupDragStart(e: Konva.KonvaEventObject<DragEvent>) {
     if (draggingVertexRef.current) {
       e.target.stopDrag();
+      return;
     }
+    draggingGroupRef.current = true;
+  }
+
+  function onGroupDragMove(e: Konva.KonvaEventObject<DragEvent>) {
+    if (!selectedId || !snapEnabled || snapTargets.xs.length === 0) return;
+    const node = e.target;
+    const dxPx = node.x() / viewport.zoom;
+    const dyPx = node.y() / viewport.zoom;
+    const snapped = snapGroupDragPx(dxPx, dyPx, selectedId);
+    node.position({
+      x: snapped.dxPx * viewport.zoom,
+      y: snapped.dyPx * viewport.zoom,
+    });
   }
 
   function onGroupDragEnd(e: Konva.KonvaEventObject<DragEvent>) {
+    draggingGroupRef.current = false;
     const node = e.target;
-    if (!selectedId) return;
-    const dxPx = node.x() / viewport.zoom;
-    const dyPx = node.y() / viewport.zoom;
-    node.position({ x: 0, y: 0 });
-    if (Math.abs(dxPx) < 0.5 && Math.abs(dyPx) < 0.5) return;
+    const activeId = selectedId;
+    if (!activeId) {
+      node.position({ x: 0, y: 0 });
+      return;
+    }
+    let dxPx = node.x() / viewport.zoom;
+    let dyPx = node.y() / viewport.zoom;
+    const snapped = snapGroupDragPx(dxPx, dyPx, activeId);
+    dxPx = snapped.dxPx;
+    dyPx = snapped.dyPx;
+    if (Math.abs(dxPx) < 0.5 && Math.abs(dyPx) < 0.5) {
+      node.position({ x: 0, y: 0 });
+      return;
+    }
 
     const next = featuresRef.current.map((f) => {
-      if (f.id !== selectedId) return f;
+      if (f.id !== activeId) return f;
       return georefContext
         ? moveFeatureGeoref(f, dxPx, dyPx, georefContext)
         : moveFeature(f, dxPx / displayW, dyPx / displayH);
     });
+    featuresRef.current = next;
     commitFeatures(next);
+    // Keep Konva offset until React features re-render; useEffect clears group position.
   }
 
   const canMeasure = georefContext != null || pixelsPerFoot != null;
@@ -1571,9 +1645,11 @@ export default function PolygonEditor({
 
                 {selected && tool === "select" && !hiddenTypes.has(selected.featureType) ? (
                   <Group
+                    key={selected.id}
                     ref={selectedGroupRef}
                     draggable={!draggingVertex}
                     onDragStart={onGroupDragStart}
+                    onDragMove={onGroupDragMove}
                     onDragEnd={onGroupDragEnd}
                     onTransformEnd={onTransformEnd}
                   >
@@ -1687,13 +1763,13 @@ export default function PolygonEditor({
                               onDragMove={(ev) => {
                                 ev.cancelBubble = true;
                                 let nextPx = { x: ev.target.x(), y: ev.target.y() };
-                                if (snapEnabled && snapSegments.length > 0) {
-                                  nextPx = snapPxPoint(nextPx, snapSegments, 12);
+                                if (snapEnabled && snapTargets.xs.length > 0) {
+                                  nextPx = snapPxPointAxis(nextPx, snapTargets, SNAP_THRESHOLD_PX);
                                 }
                                 ev.target.position(nextPx);
                                 resetSelectedGroupPosition();
                                 const currentFeature = featuresRef.current.find(
-                                  (f) => f.id === selected.id
+                                  (f) => f.id === selectedId
                                 );
                                 if (currentFeature) {
                                   syncSelectedLinePoints(currentFeature, vi, nextPx);
@@ -1704,13 +1780,14 @@ export default function PolygonEditor({
                                 draggingVertexRef.current = false;
                                 setDraggingVertex(false);
                                 let nextPx = { x: ev.target.x(), y: ev.target.y() };
-                                if (snapEnabled && snapSegments.length > 0) {
-                                  nextPx = snapPxPoint(nextPx, snapSegments, 12);
+                                if (snapEnabled && snapTargets.xs.length > 0) {
+                                  nextPx = snapPxPointAxis(nextPx, snapTargets, SNAP_THRESHOLD_PX);
                                 }
                                 resetSelectedGroupPosition();
                                 const next = featuresRef.current.map((f) =>
-                                  f.id === selected.id ? applyVertexPx(f, vi, nextPx) : f
+                                  f.id === selectedId ? applyVertexPx(f, vi, nextPx) : f
                                 );
+                                featuresRef.current = next;
                                 commitFeatures(next);
                               }}
                             />
@@ -1847,8 +1924,15 @@ export default function PolygonEditor({
                 <p className="mt-2 text-xs text-amber-700">Save calibration for measurements.</p>
               )}
               <p className="mt-2 text-xs text-stone-500">
-                Arrow keys nudge 2px · Shift+arrow 10px
+                Arrow keys nudge 2px · Shift+arrow 10px · Ctrl+D duplicate
               </p>
+              <button
+                type="button"
+                onClick={() => duplicateSelected()}
+                className="mt-3 min-h-11 w-full rounded bg-stone-100 px-3 py-2 text-xs font-medium text-stone-800"
+              >
+                Duplicate feature
+              </button>
               <button
                 type="button"
                 onClick={() => {

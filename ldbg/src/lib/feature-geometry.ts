@@ -5,6 +5,7 @@ import {
   featurePerimeterLfGeoref,
   geometryToPxPoints,
   isNormalizedGeometry,
+  moveFeatureGeoref,
 } from "@/lib/feature-georef";
 import { bufferPolylinePx, polylineHalfWidthPx } from "@/lib/polyline-buffer";
 
@@ -238,15 +239,63 @@ export function updateVertex(
   return { ...feature, geometry: { ...feature.geometry, points: next } };
 }
 
+export type PxBBox = { minX: number; minY: number; maxX: number; maxY: number };
+export type SnapTargets = { xs: number[]; ys: number[] };
+
+export function bboxFromPxPoints(points: PxPoint[]): PxBBox | null {
+  if (points.length === 0) return null;
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const p of points) {
+    minX = Math.min(minX, p.x);
+    minY = Math.min(minY, p.y);
+    maxX = Math.max(maxX, p.x);
+    maxY = Math.max(maxY, p.y);
+  }
+  return { minX, minY, maxX, maxY };
+}
+
+export function collectSnapTargets(
+  features: InterpretFeature[],
+  imageW: number,
+  imageH: number,
+  ctx?: GeorefDisplayContext,
+  excludeFeatureId?: string
+): SnapTargets {
+  const xs = new Set<number>();
+  const ys = new Set<number>();
+  for (const f of features) {
+    if (excludeFeatureId && f.id === excludeFeatureId) continue;
+    if (f.geometry.kind !== "polygon" && f.geometry.kind !== "polyline") continue;
+    const pts = geometryToPxPoints(f, imageW, imageH, ctx);
+    for (const p of pts) {
+      xs.add(p.x);
+      ys.add(p.y);
+    }
+    const bbox = bboxFromPxPoints(pts);
+    if (bbox) {
+      xs.add(bbox.minX);
+      xs.add(bbox.maxX);
+      ys.add(bbox.minY);
+      ys.add(bbox.maxY);
+    }
+  }
+  return { xs: [...xs], ys: [...ys] };
+}
+
+/** @deprecated Use collectSnapTargets — kept for callers that still pass segments. */
 export function collectSnapSegments(
   features: InterpretFeature[],
   imageW: number,
   imageH: number,
-  ctx?: GeorefDisplayContext
+  ctx?: GeorefDisplayContext,
+  excludeFeatureId?: string
 ): Segment[] {
   const segs: Segment[] = [];
   for (const f of features) {
-    if (!f.existing) continue;
+    if (excludeFeatureId && f.id === excludeFeatureId) continue;
     const pts = geometryToPxPoints(f, imageW, imageH, ctx);
     if (f.geometry.kind === "polygon") {
       for (let i = 0; i < pts.length; i++) {
@@ -261,32 +310,82 @@ export function collectSnapSegments(
   return segs;
 }
 
+/** Snap a point to the nearest horizontal/vertical guide independently (CAD-style). */
+export function snapPxPointAxis(
+  point: PxPoint,
+  targets: SnapTargets,
+  thresholdPx: number
+): PxPoint {
+  let x = point.x;
+  let y = point.y;
+  let bestDx = thresholdPx;
+  let bestDy = thresholdPx;
+  for (const tx of targets.xs) {
+    const d = Math.abs(point.x - tx);
+    if (d < bestDx) {
+      bestDx = d;
+      x = tx;
+    }
+  }
+  for (const ty of targets.ys) {
+    const d = Math.abs(point.y - ty);
+    if (d < bestDy) {
+      bestDy = d;
+      y = ty;
+    }
+  }
+  return { x, y };
+}
+
+/** Snap a whole shape translation so bbox edges align with other features' edges. */
+export function snapBBoxTranslation(
+  bbox: PxBBox,
+  targets: SnapTargets,
+  thresholdPx: number
+): { dx: number; dy: number } {
+  let dx = 0;
+  let dy = 0;
+  let bestX = thresholdPx;
+  let bestY = thresholdPx;
+  const moveX = [bbox.minX, bbox.maxX];
+  const moveY = [bbox.minY, bbox.maxY];
+  for (const mx of moveX) {
+    for (const tx of targets.xs) {
+      const delta = tx - mx;
+      const ad = Math.abs(delta);
+      if (ad <= thresholdPx && ad < bestX) {
+        bestX = ad;
+        dx = delta;
+      }
+    }
+  }
+  for (const my of moveY) {
+    for (const ty of targets.ys) {
+      const delta = ty - my;
+      const ad = Math.abs(delta);
+      if (ad <= thresholdPx && ad < bestY) {
+        bestY = ad;
+        dy = delta;
+      }
+    }
+  }
+  return { dx, dy };
+}
+
 export function snapPxPoint(
   point: PxPoint,
   segments: Segment[],
   thresholdPx: number
 ): PxPoint {
-  let best = point;
-  let bestDist = thresholdPx;
+  const xs = new Set<number>();
+  const ys = new Set<number>();
   for (const seg of segments) {
-    const proj = projectPointOnSegment(point, seg.a, seg.b);
-    const d = dist(point, proj);
-    if (d < bestDist) {
-      bestDist = d;
-      best = proj;
-    }
+    xs.add(seg.a.x);
+    xs.add(seg.b.x);
+    ys.add(seg.a.y);
+    ys.add(seg.b.y);
   }
-  return best;
-}
-
-function projectPointOnSegment(p: PxPoint, a: PxPoint, b: PxPoint): PxPoint {
-  const dx = b.x - a.x;
-  const dy = b.y - a.y;
-  const lenSq = dx * dx + dy * dy;
-  if (lenSq === 0) return { ...a };
-  let t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / lenSq;
-  t = Math.max(0, Math.min(1, t));
-  return { x: a.x + t * dx, y: a.y + t * dy };
+  return snapPxPointAxis(point, { xs: [...xs], ys: [...ys] }, thresholdPx);
 }
 
 export function newFeatureId(prefix: string, features: InterpretFeature[]): string {
@@ -295,6 +394,22 @@ export function newFeatureId(prefix: string, features: InterpretFeature[]): stri
     n++;
   }
   return `${prefix}-${String(n).padStart(2, "0")}`;
+}
+
+export function duplicateFeature(
+  feature: InterpretFeature,
+  allFeatures: InterpretFeature[],
+  imageW: number,
+  imageH: number,
+  ctx?: GeorefDisplayContext,
+  offsetPx: { dx: number; dy: number } = { dx: 16, dy: 16 }
+): InterpretFeature {
+  const copy = JSON.parse(JSON.stringify(feature)) as InterpretFeature;
+  const prefix = feature.featureType.replace(/_/g, "-");
+  copy.id = newFeatureId(prefix, allFeatures);
+  return ctx
+    ? moveFeatureGeoref(copy, offsetPx.dx, offsetPx.dy, ctx)
+    : moveFeature(copy, offsetPx.dx / imageW, offsetPx.dy / imageH);
 }
 
 export function cloneFeatures(features: InterpretFeature[]): InterpretFeature[] {
