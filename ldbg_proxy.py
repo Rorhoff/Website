@@ -8,6 +8,7 @@ with a short HTML hint instead of a bare connection error.
 from __future__ import annotations
 
 import os
+from urllib.parse import quote
 
 import httpx
 from fastapi import APIRouter, Request, Response
@@ -52,10 +53,18 @@ def _filter_headers(headers: httpx.Headers) -> dict[str, str]:
     return out
 
 
+def _ldbg_upstream_path(subpath: str) -> str:
+    """Build the upstream path, re-encoding segments Starlette decoded (e.g. [id] → %5Bid%5D)."""
+    if not subpath:
+        return "/ldbg"
+    encoded = "/".join(quote(part, safe="") for part in subpath.split("/"))
+    return f"/ldbg/{encoded}"
+
+
 async def _proxy(request: Request, subpath: str) -> Response:
     # Pass paths through unchanged — Next.js App Router does not use trailing
     # slashes; adding them causes 308 loops (including RSC ?_rsc= fetches).
-    path = f"/ldbg/{subpath}" if subpath else "/ldbg"
+    path = _ldbg_upstream_path(subpath)
     url = f"{LDBG_INTERNAL}{path}"
     if request.url.query:
         url = f"{url}?{request.url.query}"

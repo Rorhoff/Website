@@ -67,6 +67,7 @@ if [[ ${#UNIQUE_ASSETS[@]} -eq 0 ]]; then
 fi
 
 FAIL=0
+CRITICAL=0
 for rel in "${UNIQUE_ASSETS[@]}"; do
   size="$(curl -g -sS -o /dev/null -w '%{http_code}:%{size_download}' --max-time 20 "${ORIGIN}${rel}" || echo "000:0")"
   code="${size%%:*}"
@@ -74,10 +75,16 @@ for rel in "${UNIQUE_ASSETS[@]}"; do
   if [[ "$code" != "200" ]] || [[ "${bytes:-0}" -lt 32 ]]; then
     echo "ERR  ${rel} -> HTTP ${code} (${bytes} bytes)" >&2
     FAIL=1
+    if [[ "$rel" == *"/webpack-"* ]] || [[ "$rel" == *"/static/css/"* ]] || [[ "$rel" == *"/projects/%5Bid%5D/"* ]]; then
+      CRITICAL=1
+    fi
   fi
 done
 
 if [[ "$FAIL" -ne 0 ]]; then
+  if [[ "$CRITICAL" -eq 1 ]]; then
+    echo "ERR  Critical LDBG chunks missing (webpack/css/projects page) — corrupt .next build" >&2
+  fi
   echo "ERR  LDBG static assets broken — run: bash deploy/nuke-ldbg-build.sh" >&2
   exit 1
 fi

@@ -303,7 +303,7 @@ restart_ldbg_service() {
   sudo systemctl restart ldbg || warn "ldbg failed to restart — check journalctl -u ldbg"
   sleep 2
   if [[ "$LDBG_REBUILT" == "1" ]]; then
-    restart_ldbg_with_verify || warn "LDBG static verify did not pass — see warnings above."
+    restart_ldbg_with_verify
   elif [[ -f "$DEV_DIR/deploy/verify-ldbg-static.sh" ]]; then
     if bash "$DEV_DIR/deploy/verify-ldbg-static.sh"; then
       ok "ldbg static assets OK (no rebuild)."
@@ -338,8 +338,7 @@ restart_ldbg_with_verify() {
     sudo journalctl -u ldbg -n 40 --no-pager || true
     die "ldbg is not running after rebuild — see journal above."
   fi
-  warn "ldbg is up but static assets still fail — run: bash ${DEV_DIR}/deploy/nuke-ldbg-build.sh"
-  return 1
+  die "LDBG static assets broken after rebuild — run: bash ${DEV_DIR}/deploy/nuke-ldbg-build.sh"
 }
 
 # ---------------------------------------------------------------------------
