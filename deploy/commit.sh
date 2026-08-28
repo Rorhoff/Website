@@ -308,7 +308,7 @@ restart_ldbg_service() {
     if bash "$DEV_DIR/deploy/verify-ldbg-static.sh"; then
       ok "ldbg static assets OK (no rebuild)."
     else
-      warn "LDBG static assets broken — run: COMMIT_FORCE=1 ~/commit.sh"
+      die "LDBG static assets broken — run: bash ${DEV_DIR}/deploy/nuke-ldbg-build.sh"
     fi
   else
     ok "ldbg restarted (no rebuild — skipped static asset verify)."

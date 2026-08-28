@@ -15,15 +15,17 @@ if [[ -d .next ]]; then
   echo "==> Backed up previous .next to .next.prev"
 fi
 
-restore_prev() {
-  if [[ -d "$PREV" ]]; then
+# On failure: do not restore .next.prev — it is often the same corrupt tree that
+# caused missing webpack/css (HTML from new build + 400 on static files).
+on_build_fail() {
+  if [[ $? -ne 0 ]]; then
+    echo "ERR  LDBG build failed — leaving .next removed (not rolling back to .next.prev)" >&2
     rm -rf .next
-    mv "$PREV" .next
-    echo "==> Restored previous .next (rollback)"
+    rm -rf "$PREV"
   fi
 }
 
-trap 'if [[ $? -ne 0 ]]; then restore_prev; fi' EXIT
+trap on_build_fail EXIT
 
 echo "==> Building LDBG (webpack, basePath /ldbg)…"
 export NODE_OPTIONS="${NODE_OPTIONS:---max-old-space-size=4096}"
@@ -39,7 +41,8 @@ bash "$ROOT/deploy/verify-ldbg-build-manifest.sh"
 # Spot-check layout CSS + webpack exist (common failure mode when .next is corrupt).
 layout_css="$(grep -oE 'static/css/[a-f0-9]+\.css' "$LDBG/.next/app-build-manifest.json" | head -1 || true)"
 webpack_js="$(grep -oE 'static/chunks/webpack-[a-f0-9]+\.js' "$LDBG/.next/app-build-manifest.json" | head -1 || true)"
-for rel in "$layout_css" "$webpack_js"; do
+projects_page_js="$(grep -oE 'static/chunks/app/projects/\%5Bid\%5D/page-[a-f0-9]+\.js' "$LDBG/.next/app-build-manifest.json" | head -1 || true)"
+for rel in "$layout_css" "$webpack_js" "$projects_page_js"; do
   [[ -z "$rel" ]] && continue
   fp="$LDBG/.next/$rel"
   if [[ ! -s "$fp" ]]; then
@@ -47,6 +50,17 @@ for rel in "$layout_css" "$webpack_js"; do
     exit 1
   fi
 done
+
+if [[ -f "$LDBG/.next/BUILD_ID" ]]; then
+  bid="$(tr -d '\n\r' <"$LDBG/.next/BUILD_ID")"
+  for rel in "static/${bid}/_buildManifest.js" "static/${bid}/_ssgManifest.js"; do
+    fp="$LDBG/.next/$rel"
+    if [[ ! -s "$fp" ]]; then
+      echo "ERR  Missing or empty build artifact: $rel" >&2
+      exit 1
+    fi
+  done
+fi
 
 if grep -rq '"/_next/static' .next/server 2>/dev/null \
   && ! grep -rq '"/ldbg/_next/static' .next/server 2>/dev/null; then
