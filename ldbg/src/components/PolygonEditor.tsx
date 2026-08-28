@@ -26,7 +26,10 @@ import {
   type WatercolorPollResult,
 } from "@/lib/watercolor-client";
 import { withBasePath } from "@/lib/paths";
-import type { WatercolorJob } from "@/lib/watercolor-schema";
+import {
+  editorUsesWatercolorFilter,
+  type EditorBasePresetId,
+} from "@/config/watercolor";
 import {
   circleNormPoints,
   createDrawnFeature,
@@ -71,6 +74,7 @@ import { canopyRadiusNorm, plantNotes } from "@/lib/plant-scale";
 import { useBoundedHistory } from "@/hooks/useBoundedHistory";
 import { useStageViewport } from "@/hooks/useStageViewport";
 import type { InterpretFeature } from "@/lib/interpret-schema";
+import type { WatercolorJob } from "@/lib/watercolor-schema";
 import {
   appendStrokePoint,
   smoothPolygonEdgeWithStroke,
@@ -80,7 +84,6 @@ import type { TilePyramid } from "@/lib/tile-pyramid-schema";
 type EditorTool = "select" | DrawShapeKind | "smoothEdge";
 type BaseLayer = "annotated" | "clean" | "watercolor";
 
-type EditorWatercolorPreset = "watercolor-soft" | "watercolor-heavy" | "ink-wash";
 type PlantPickerMode = "none" | "trees" | "plants";
 
 /** Debounce before persisting editor geometry (avoids hammering save + UI flash). */
@@ -195,12 +198,15 @@ export default function PolygonEditor({
     () => new Set(editorSettings?.hiddenFeatureTypes ?? [])
   );
   const [saveLabel, setSaveLabel] = useState("");
-  const [baseLayer, setBaseLayer] = useState<BaseLayer>(
-    editorSettings?.editorBaseLayer ?? "watercolor"
-  );
-  const [watercolorPreset, setWatercolorPreset] = useState<EditorWatercolorPreset>(
+  const [baseLayer, setBaseLayer] = useState<BaseLayer>(() => {
+    const preset = editorSettings?.watercolorPreset ?? "watercolor-soft";
+    if (preset === "none") return "annotated";
+    return editorSettings?.editorBaseLayer ?? "watercolor";
+  });
+  const [watercolorPreset, setWatercolorPreset] = useState<EditorBasePresetId>(
     editorSettings?.watercolorPreset ?? "watercolor-soft"
   );
+  const watercolorFilterEnabled = editorUsesWatercolorFilter(watercolorPreset);
   const [watercolorJob, setWatercolorJob] = useState<WatercolorJob | null>(null);
   const [watercolorPreviewUrl, setWatercolorPreviewUrl] = useState<string | undefined>();
   const [showMaskOverlay, setShowMaskOverlay] = useState(false);
@@ -253,7 +259,7 @@ export default function PolygonEditor({
   );
 
   const pollWatercolor = useCallback(async () => {
-    if (!projectId) return;
+    if (!projectId || !editorUsesWatercolorFilter(watercolorPreset)) return;
     try {
       const res = await fetch(
         withBasePath(
@@ -272,11 +278,16 @@ export default function PolygonEditor({
   useEffect(() => {
     if (editorSettings?.watercolorPreset) {
       setWatercolorPreset(editorSettings.watercolorPreset);
+      if (editorSettings.watercolorPreset === "none") {
+        setBaseLayer((layer) => (layer === "watercolor" ? "annotated" : layer));
+        setWatercolorPreviewUrl(undefined);
+        setWatercolorJob(null);
+      }
     }
   }, [editorSettings?.watercolorPreset]);
 
   const startWatercolor = useCallback(async () => {
-    if (!projectId) return;
+    if (!projectId || !editorUsesWatercolorFilter(watercolorPreset)) return;
     try {
       const res = await fetch(
         withBasePath(`/api/projects/${encodeURIComponent(projectId)}/watercolor`),
@@ -302,7 +313,7 @@ export default function PolygonEditor({
   }, [projectId, watercolorPreset, applyWatercolorPoll]);
 
   useEffect(() => {
-    if (!projectId) return;
+    if (!projectId || !editorUsesWatercolorFilter(watercolorPreset)) return;
     let cancelled = false;
     void (async () => {
       try {
@@ -330,6 +341,7 @@ export default function PolygonEditor({
   }, [projectId, watercolorPreset, startWatercolor]);
 
   useEffect(() => {
+    if (!watercolorFilterEnabled) return;
     const needsPoll =
       watercolorJob?.status === "running" ||
       (watercolorJob?.status === "complete" && !watercolorPreviewUrl);
@@ -337,7 +349,7 @@ export default function PolygonEditor({
     void pollWatercolor();
     const t = setInterval(() => void pollWatercolor(), 1500);
     return () => clearInterval(t);
-  }, [watercolorJob?.status, watercolorPreviewUrl, pollWatercolor]);
+  }, [watercolorFilterEnabled, watercolorJob?.status, watercolorPreviewUrl, pollWatercolor]);
 
   useEffect(() => {
     const incoming = JSON.stringify(initialFeatures);
@@ -944,14 +956,16 @@ export default function PolygonEditor({
         <div>
           <h2 className="text-lg font-semibold text-stone-900">Feature editor</h2>
           <p className="text-sm text-stone-600">
-            Draw features on the watercolor base from the step above (or switch base layers to
-            compare). Scroll to zoom; Space+drag, right-drag, or middle-drag to pan.
+            {watercolorFilterEnabled
+              ? "Draw features on the watercolor base from the step above (or switch base layers to compare)."
+              : "Draw features directly on your annotated photo."}{" "}
+            Scroll to zoom; Space+drag, right-drag, or middle-drag to pan.
           </p>
         </div>
         <span className="text-xs text-stone-500">{saveLabel}</span>
       </div>
 
-      {watercolorJob?.status === "failed" ? (
+      {watercolorFilterEnabled && watercolorJob?.status === "failed" ? (
         <p className="whitespace-pre-wrap rounded-md border border-red-200 bg-red-50 p-2 text-xs text-red-800">
           Watercolor base failed: {watercolorJob.error}
         </p>
@@ -966,16 +980,18 @@ export default function PolygonEditor({
           />
           Snap to edges
         </label>
-        <button
-          type="button"
-          onClick={() => setBaseLayer("watercolor")}
-          disabled={!watercolorPreviewUrl && watercolorJob?.status !== "running"}
-          className={`min-h-11 rounded-md px-3 py-2 text-sm disabled:opacity-40 ${
-            baseLayer === "watercolor" ? "bg-violet-700 text-white" : "bg-stone-100"
-          }`}
-        >
-          Watercolor base
-        </button>
+        {watercolorFilterEnabled ? (
+          <button
+            type="button"
+            onClick={() => setBaseLayer("watercolor")}
+            disabled={!watercolorPreviewUrl && watercolorJob?.status !== "running"}
+            className={`min-h-11 rounded-md px-3 py-2 text-sm disabled:opacity-40 ${
+              baseLayer === "watercolor" ? "bg-violet-700 text-white" : "bg-stone-100"
+            }`}
+          >
+            Watercolor base
+          </button>
+        ) : null}
         <button
           type="button"
           onClick={() => setBaseLayer("annotated")}

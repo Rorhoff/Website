@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import {
+  editorUsesWatercolorFilter,
   presetUsesFilter,
   resolveWatercolorParams,
   type WatercolorPresetId,
@@ -45,7 +46,7 @@ function resolveSourceKind(
 
 function defaultPreset(project: Project): WatercolorPresetId {
   const fromEditor = project.editorSettings?.watercolorPreset;
-  if (fromEditor && presetUsesFilter(fromEditor)) return fromEditor;
+  if (fromEditor && editorUsesWatercolorFilter(fromEditor)) return fromEditor;
   const fromPlan = project.planSettings?.basePreset ?? "watercolor-soft";
   if (presetUsesFilter(fromPlan)) return fromPlan;
   return "watercolor-soft";

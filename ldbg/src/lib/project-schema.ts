@@ -129,9 +129,9 @@ export const ProjectMetadataSchema = z.object({
 
 export const EditorSettingsSchema = z.object({
   hiddenFeatureTypes: z.array(z.string()).default([]),
-  /** Watercolor filter preset for the feature editor canvas. */
+  /** Watercolor filter for the feature editor, or none to use the annotated photo directly. */
   watercolorPreset: z
-    .enum(["watercolor-soft", "watercolor-heavy", "ink-wash"])
+    .enum(["none", "watercolor-soft", "watercolor-heavy", "ink-wash"])
     .default("watercolor-soft"),
   /** Preferred base layer in the polygon editor. */
   editorBaseLayer: z.enum(["watercolor", "annotated", "clean"]).default("watercolor"),

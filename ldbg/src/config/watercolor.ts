@@ -87,14 +87,16 @@ export const INK_WASH: WatercolorParams = {
 };
 
 /** Presets that run the Python filter pipeline. */
-export const FILTERED_WATERCOLOR_PRESETS: WatercolorPresetId[] = [
+export const FILTERED_WATERCOLOR_PRESETS = [
   "watercolor-soft",
   "watercolor-heavy",
   "ink-wash",
-];
+] as const;
 
-export function presetUsesFilter(preset: WatercolorPresetId): boolean {
-  return FILTERED_WATERCOLOR_PRESETS.includes(preset);
+export type FilteredWatercolorPresetId = (typeof FILTERED_WATERCOLOR_PRESETS)[number];
+
+export function presetUsesFilter(preset: WatercolorPresetId): preset is FilteredWatercolorPresetId {
+  return FILTERED_WATERCOLOR_PRESETS.includes(preset as FilteredWatercolorPresetId);
 }
 
 export function resolveWatercolorParams(
@@ -136,3 +138,24 @@ export const WATERCOLOR_PRESET_LABELS: Record<WatercolorPresetId, string> = {
   "watercolor-heavy": "Watercolor heavy",
   "ink-wash": "Ink wash",
 };
+
+/** Editor step — optional filter before feature editing (includes skip). */
+export const EDITOR_BASE_PRESET_OPTIONS = [
+  "none",
+  ...FILTERED_WATERCOLOR_PRESETS,
+] as const;
+
+export type EditorBasePresetId = (typeof EDITOR_BASE_PRESET_OPTIONS)[number];
+
+export const EDITOR_BASE_PRESET_LABELS: Record<EditorBasePresetId, string> = {
+  none: "None — annotated photo only",
+  "watercolor-soft": WATERCOLOR_PRESET_LABELS["watercolor-soft"],
+  "watercolor-heavy": WATERCOLOR_PRESET_LABELS["watercolor-heavy"],
+  "ink-wash": WATERCOLOR_PRESET_LABELS["ink-wash"],
+};
+
+export function editorUsesWatercolorFilter(
+  preset: EditorBasePresetId | string
+): preset is FilteredWatercolorPresetId {
+  return preset !== "none" && FILTERED_WATERCOLOR_PRESETS.includes(preset as FilteredWatercolorPresetId);
+}
