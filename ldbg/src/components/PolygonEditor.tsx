@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { Circle, Group, Image as KonvaImage, Layer, Line, Rect, Stage, Text, Transformer } from "react-konva";
 import type Konva from "konva";
 import type { LegendEntry } from "@/config/legend";
@@ -360,6 +361,7 @@ export default function PolygonEditor({
   useEffect(() => {
     const incoming = JSON.stringify(initialFeatures);
     if (incoming === lastSavedJsonRef.current) return;
+    if (draggingGroupRef.current || draggingVertexRef.current) return;
     lastSavedJsonRef.current = incoming;
     const snap = cloneFeatures(initialFeatures);
     replace(snap);
@@ -403,7 +405,10 @@ export default function PolygonEditor({
 
   const commitFeatures = useCallback(
     (next: InterpretFeature[]) => {
-      push(cloneFeatures(next));
+      const cloned = cloneFeatures(next);
+      featuresRef.current = cloned;
+      push(cloned);
+      setFeatures(cloned);
     },
     [push]
   );
@@ -585,13 +590,13 @@ export default function PolygonEditor({
     } else {
       tr.nodes([]);
     }
-  }, [selectedId, tool, features, displayW, displayH]);
+  }, [selectedId, tool, displayW, displayH]);
 
   useEffect(() => {
     const g = selectedGroupRef.current;
     if (!g || draggingVertex || draggingGroupRef.current) return;
     g.position({ x: 0, y: 0 });
-  }, [features, selectedId, draggingVertex]);
+  }, [selectedId, draggingVertex]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -879,10 +884,10 @@ export default function PolygonEditor({
   }
 
   function onGroupDragEnd(e: Konva.KonvaEventObject<DragEvent>) {
-    draggingGroupRef.current = false;
     const node = e.target;
     const activeId = selectedId;
     if (!activeId) {
+      draggingGroupRef.current = false;
       node.position({ x: 0, y: 0 });
       return;
     }
@@ -891,7 +896,9 @@ export default function PolygonEditor({
     const snapped = snapGroupDragPx(dxPx, dyPx, activeId);
     dxPx = snapped.dxPx;
     dyPx = snapped.dyPx;
+
     if (Math.abs(dxPx) < 0.5 && Math.abs(dyPx) < 0.5) {
+      draggingGroupRef.current = false;
       node.position({ x: 0, y: 0 });
       return;
     }
@@ -902,9 +909,12 @@ export default function PolygonEditor({
         ? moveFeatureGeoref(f, dxPx, dyPx, georefContext)
         : moveFeature(f, dxPx / displayW, dyPx / displayH);
     });
-    featuresRef.current = next;
-    commitFeatures(next);
-    // Keep Konva offset until React features re-render; useEffect clears group position.
+
+    flushSync(() => {
+      commitFeatures(next);
+    });
+    node.position({ x: 0, y: 0 });
+    draggingGroupRef.current = false;
   }
 
   const canMeasure = georefContext != null || pixelsPerFoot != null;
@@ -1783,12 +1793,14 @@ export default function PolygonEditor({
                                 if (snapEnabled && snapTargets.xs.length > 0) {
                                   nextPx = snapPxPointAxis(nextPx, snapTargets, SNAP_THRESHOLD_PX);
                                 }
+                                ev.target.position(nextPx);
                                 resetSelectedGroupPosition();
                                 const next = featuresRef.current.map((f) =>
                                   f.id === selectedId ? applyVertexPx(f, vi, nextPx) : f
                                 );
-                                featuresRef.current = next;
-                                commitFeatures(next);
+                                flushSync(() => {
+                                  commitFeatures(next);
+                                });
                               }}
                             />
                             );
