@@ -62,6 +62,8 @@ export const WatercolorCacheEntrySchema = z.object({
     .optional(),
   paramsUsed: WatercolorParamsSchema.partial().optional(),
   paperTextureApplied: z.boolean().optional(),
+  /** Bump when Python lightening contract changes — stale entries are ignored. */
+  pipelineVersion: z.number().int().positive().optional(),
 });
 
 export const WatercolorJobSchema = z.object({

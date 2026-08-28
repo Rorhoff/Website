@@ -22,6 +22,9 @@ const DERIVED_DIR = "derived";
 const JOB_FILENAME = "derived/watercolor-job.json";
 const IO_TAIL_CHARS = 4000;
 
+/** Must match pipelineVersion in hashParams — bump when Python filter contract changes. */
+export const WATERCOLOR_PIPELINE_VERSION = 3;
+
 const runningJobs = new Map<string, Promise<void>>();
 
 function ldbgRoot(): string {
@@ -81,13 +84,20 @@ async function sha256File(filePath: string): Promise<string> {
 }
 
 function hashParams(preset: WatercolorPresetId, params: WatercolorParams): string {
-  /** Bump when Python pipeline logic changes (invalidates cached PNGs). */
-  const pipelineVersion = 3;
   return crypto
     .createHash("sha256")
-    .update(JSON.stringify({ preset, params, pipelineVersion }))
+    .update(
+      JSON.stringify({ preset, params, pipelineVersion: WATERCOLOR_PIPELINE_VERSION })
+    )
     .digest("hex")
     .slice(0, 12);
+}
+
+function isCacheEntryCurrent(entry: WatercolorCacheEntry | undefined): boolean {
+  return (
+    !!entry &&
+    (entry.pipelineVersion ?? 0) === WATERCOLOR_PIPELINE_VERSION
+  );
 }
 
 export async function computeWatercolorCacheKey(
@@ -177,31 +187,10 @@ export async function findCachedWatercolor(
   if (!previewExists || !fullExists) return undefined;
 
   const cached = getWatercolorCacheEntry(project, preset, hash);
-  if (cached) return cached;
+  if (isCacheEntryCurrent(cached)) return cached;
 
-  const source = getWatercolorSource(project, "annotated") ?? getDisplayImage(project);
-  const entry = WatercolorCacheEntrySchema.parse({
-    preset,
-    hash,
-    fullFilename: fullRel.replace(/\\/g, "/"),
-    previewFilename: previewRel.replace(/\\/g, "/"),
-    width: source?.width ?? 1,
-    height: source?.height ?? 1,
-    sourceFilename: source?.filename ?? "",
-    filteredAt: new Date().toISOString(),
-  });
-
-  const cacheKey = `${preset}:${hash}`;
-  const updated: Project = {
-    ...project,
-    watercolorCache: {
-      ...(project.watercolorCache ?? {}),
-      [cacheKey]: entry,
-    },
-    updatedAt: new Date().toISOString(),
-  };
-  await storage.saveProject(updated);
-  return entry;
+  // On-disk PNGs without current pipelineVersion metadata are stale (pre-lightening).
+  return undefined;
 }
 
 type WatercolorFilterContext = {
@@ -406,6 +395,7 @@ async function runWatercolorFilter(
     height: parsed.height,
     sourceFilename: sourceRel,
     filteredAt: parsed.filteredAt ?? new Date().toISOString(),
+    pipelineVersion: WATERCOLOR_PIPELINE_VERSION,
     pipelineSteps: parsed.pipelineSteps,
     paramsUsed: parsed.paramsUsed,
     paperTextureApplied: parsed.paperTextureApplied,

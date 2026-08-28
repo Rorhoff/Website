@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Acceptance checks for Addendum C watercolor filter (C7)."""
+"""Acceptance checks for Addendum C watercolor filter (C7).
+
+All filtered presets share apply_watercolor() — assertions run per preset.
+Params mirror ldbg/src/config/watercolor.ts (WATERCOLOR_SOFT / HEAVY / INK_WASH).
+"""
 
 from __future__ import annotations
 
@@ -18,9 +22,47 @@ from watercolor import (  # noqa: E402
     _composite_over_white,
     _edge_feather_alpha,
     _hsv_value_floor_rgb,
+    _mean_luminance,
     apply_watercolor,
     downscale_preview,
 )
+
+# Keep in sync with ldbg/src/config/watercolor.ts
+PRESET_PARAMS: dict[str, dict] = {
+    "watercolor-soft": {
+        "bilateral": {"d": 9, "sigmaColor": 75, "sigmaSpace": 75},
+        "stylization": {"method": "stylization", "sigmaS": 60, "sigmaR": 0.45, "kuwaharaRadius": 5},
+        "posterize": {"levels": 20},
+        "hsv": {"saturationMultiplier": 1.15, "valueFloor": 0.12},
+        "edgeDarkening": {"enabled": True, "opacity": 0.18, "cannyLow": 50, "cannyHigh": 150, "blurRadius": 3},
+        "granulation": {"amplitude": 0.035, "seed": 42},
+        "paperTexture": {"opacity": 0.14},
+        "edgeFeather": {"marginFraction": 0.08, "noiseScale": 0.015, "seed": 7},
+        "previewLongEdge": 2000,
+    },
+    "watercolor-heavy": {
+        "bilateral": {"d": 9, "sigmaColor": 80, "sigmaSpace": 80},
+        "stylization": {"method": "stylization", "sigmaS": 90, "sigmaR": 0.55, "kuwaharaRadius": 7},
+        "posterize": {"levels": 16},
+        "hsv": {"saturationMultiplier": 1.2, "valueFloor": 0.14},
+        "edgeDarkening": {"enabled": True, "opacity": 0.22, "cannyLow": 40, "cannyHigh": 120, "blurRadius": 4},
+        "granulation": {"amplitude": 0.045, "seed": 42},
+        "paperTexture": {"opacity": 0.2},
+        "edgeFeather": {"marginFraction": 0.1, "noiseScale": 0.018, "seed": 7},
+        "previewLongEdge": 2000,
+    },
+    "ink-wash": {
+        "bilateral": {"d": 9, "sigmaColor": 75, "sigmaSpace": 75},
+        "stylization": {"method": "stylization", "sigmaS": 70, "sigmaR": 0.5, "kuwaharaRadius": 6},
+        "posterize": {"levels": 18},
+        "hsv": {"saturationMultiplier": 0.4, "valueFloor": 0.12},
+        "edgeDarkening": {"enabled": True, "opacity": 0.28, "cannyLow": 35, "cannyHigh": 110, "blurRadius": 4},
+        "granulation": {"amplitude": 0.04, "seed": 42},
+        "paperTexture": {"opacity": 0.16},
+        "edgeFeather": {"marginFraction": 0.09, "noiseScale": 0.016, "seed": 7},
+        "previewLongEdge": 2000,
+    },
+}
 
 
 def make_sample_ortho(w: int, h: int) -> np.ndarray:
@@ -60,19 +102,31 @@ def test_white_composite_corners() -> None:
     assert out[0, 0].mean() >= 245, f"corner should be white paper, got {out[0, 0]}"
 
 
-def main() -> int:
-    params = {
-        "bilateral": {"d": 9, "sigmaColor": 75, "sigmaSpace": 75},
-        "stylization": {"method": "stylization", "sigmaS": 60, "sigmaR": 0.45, "kuwaharaRadius": 5},
-        "posterize": {"levels": 20},
-        "hsv": {"saturationMultiplier": 1.15, "valueFloor": 0.12},
-        "edgeDarkening": {"enabled": True, "opacity": 0.18, "cannyLow": 50, "cannyHigh": 150, "blurRadius": 3},
-        "granulation": {"amplitude": 0.035, "seed": 42},
-        "paperTexture": {"opacity": 0.14},
-        "edgeFeather": {"marginFraction": 0.08, "noiseScale": 0.015, "seed": 7},
-        "previewLongEdge": 2000,
-    }
+def assert_preset(preset_id: str, params: dict, sample: np.ndarray, paper: Path) -> None:
+    h, w = sample.shape[:2]
+    rgb = apply_watercolor(sample, params, paper)
+    if rgb.shape[:2] != (h, w):
+        raise AssertionError(f"{preset_id}: dimensions {rgb.shape[1]}x{rgb.shape[0]} != {w}x{h}")
 
+    value_floor = float(params["hsv"]["valueFloor"])
+    _assert_lightening_contract(sample, rgb, value_floor)
+
+    if int(rgb.max()) < 240:
+        raise AssertionError(f"{preset_id}: highlights compressed max={rgb.max()}")
+
+    for corner in (rgb[0, 0], rgb[0, -1], rgb[-1, 0], rgb[-1, -1]):
+        if float(corner.min()) < 200:
+            raise AssertionError(f"{preset_id}: corner {corner} not white paper")
+
+    src_lum = _mean_luminance(sample)
+    out_lum = _mean_luminance(rgb)
+    if out_lum < src_lum:
+        raise AssertionError(
+            f"{preset_id}: output luminance {out_lum:.1f} < source {src_lum:.1f}"
+        )
+
+
+def main() -> int:
     test_value_floor_remap()
     test_white_composite_corners()
 
@@ -89,22 +143,17 @@ def main() -> int:
     ):
         w, h = size
         sample = sample_fn(w, h)
-        rgb = apply_watercolor(sample, params, paper)
-        if rgb.shape[:2] != (h, w):
-            print(f"FAIL {label}: dimensions")
-            return 1
-        try:
-            _assert_lightening_contract(sample, rgb, params["hsv"]["valueFloor"])
-        except AssertionError as exc:
-            print(f"FAIL {label}: {exc}")
-            return 1
-        if int(rgb.max()) < 240:
-            print(f"FAIL {label}: highlights compressed max={rgb.max()}")
-            return 1
+        for preset_id, params in PRESET_PARAMS.items():
+            try:
+                assert_preset(preset_id, params, sample, paper)
+            except AssertionError as exc:
+                print(f"FAIL {label}/{preset_id}: {exc}")
+                return 1
+            print(f"OK   {label}/{preset_id}")
 
     w, h = 1200, 800
     sample = make_sample_ortho(w, h)
-    rgb = apply_watercolor(sample, params, paper)
+    rgb = apply_watercolor(sample, PRESET_PARAMS["watercolor-soft"], paper)
 
     preview, _downscaled = downscale_preview(rgb, 2000)
     if preview.shape[0] > h or preview.shape[1] > w:
@@ -119,7 +168,7 @@ def main() -> int:
             print("FAIL saved PNG dimensions mismatch")
             return 1
 
-    print("OK   watercolor acceptance: lighter than source, white corners, value floor, highlights")
+    print("OK   all presets: lighter than source, white corners, value floor, highlights")
     return 0
 
 
