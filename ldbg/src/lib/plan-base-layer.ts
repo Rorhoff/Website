@@ -25,6 +25,8 @@ export function resolvePlanBaseLayer(
     styleJobRunning?: boolean;
     styleJobPythonInterpreter?: string;
     registration?: RegistrationResult;
+    unfilledFeatureCount?: number;
+    totalDesignFeatures?: number;
   }
 ): PlanBaseLayer {
   const baseMode = settings?.baseMode ?? "orthophoto";
@@ -48,11 +50,17 @@ export function resolvePlanBaseLayer(
         registration: urls.registration,
       };
     }
+    const fillsHint =
+      urls.unfilledFeatureCount != null &&
+      urls.totalDesignFeatures != null &&
+      urls.unfilledFeatureCount > 0
+        ? ` Fill ${urls.unfilledFeatureCount} remaining feature${urls.unfilledFeatureCount === 1 ? "" : "s"} first (Feature fills below), then save plan settings.`
+        : "";
     const errBase =
       urls.styleJobError ??
       (urls.styleJobRunning
         ? "Style pass is still generating…"
-        : "Style pass has not run — composite + style output missing.");
+        : `Style pass has not run — composite + style output missing.${fillsHint}`);
     const err = urls.styleJobPythonInterpreter
       ? `${errBase} (Python: ${urls.styleJobPythonInterpreter})`
       : errBase;

@@ -174,29 +174,34 @@ export function PlanPanel({
   const watercolorActive =
     watercolorJob?.status === "running" || watercolorJob?.status === "failed";
 
-  const planBase = useMemo(
-    () =>
-      resolvePlanBaseLayer(settings, {
-        rawUrl: rawBaseImageUrl,
-        cleanUrl: cleanImageUrl,
-        stylePreviewUrl,
-        styleJobError: styleJob?.status === "error" ? styleJob.error : undefined,
-        styleJobRunning: styleJob?.status === "running",
-        styleJobPythonInterpreter:
-          styleJob?.status === "error" ? styleJob.pythonInterpreter : undefined,
-        registration: styleEntry?.registration,
-      }),
-    [
-      settings,
-      rawBaseImageUrl,
-      cleanImageUrl,
+  const planBase = useMemo(() => {
+    const filled = designFeatures.filter(
+      (f) => featureFills?.[f.id]?.status === "filled"
+    ).length;
+    return resolvePlanBaseLayer(settings, {
+      rawUrl: rawBaseImageUrl,
+      cleanUrl: cleanImageUrl,
       stylePreviewUrl,
-      styleJob?.status,
-      styleJob?.error,
-      styleJob?.pythonInterpreter,
-      styleEntry?.registration,
-    ]
-  );
+      styleJobError: styleJob?.status === "error" ? styleJob.error : undefined,
+      styleJobRunning: styleJob?.status === "running",
+      styleJobPythonInterpreter:
+        styleJob?.status === "error" ? styleJob.pythonInterpreter : undefined,
+      registration: styleEntry?.registration,
+      totalDesignFeatures: designFeatures.length,
+      unfilledFeatureCount: designFeatures.length - filled,
+    });
+  }, [
+    settings,
+    rawBaseImageUrl,
+    cleanImageUrl,
+    stylePreviewUrl,
+    styleJob?.status,
+    styleJob?.error,
+    styleJob?.pythonInterpreter,
+    styleEntry?.registration,
+    designFeatures,
+    featureFills,
+  ]);
 
   async function ensureStylePass(preset: StylePresetId) {
     if (!presetUsesStylePass(preset)) return;
@@ -563,7 +568,7 @@ export function PlanPanel({
           legend={legend}
           imageWidth={imageWidth}
           imageHeight={imageHeight}
-          baseImageUrl={planBase.url ?? (stylePreset === "off" ? cleanImageUrl : undefined)}
+          baseImageUrl={planBase.url ?? cleanImageUrl}
           compareRawUrl={cleanImageUrl}
           baseUsesStylePass={planBase.usesStylePass}
           styleMissing={planBase.styleMissing}

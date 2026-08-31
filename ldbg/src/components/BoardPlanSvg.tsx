@@ -40,6 +40,8 @@ type BoardPlanProps = {
   hiddenFeatureTypes?: string[];
   featureFills?: Record<string, FeatureFillEntry>;
   featureFillImageUrl?: (filename: string) => string;
+  /** When true, show the full orthophoto frame instead of cropping to feature bounds. */
+  fullFrame?: boolean;
 };
 
 function isTreeType(featureType: string): boolean {
@@ -167,6 +169,7 @@ export function BoardPlanSvg({
   hiddenFeatureTypes = [],
   featureFills,
   featureFillImageUrl,
+  fullFrame = true,
 }: BoardPlanProps) {
   const baseMode = planSettings?.baseMode ?? "orthophoto";
   const orthoOpacity = planSettings?.orthophotoOpacity ?? 0.4;
@@ -182,8 +185,12 @@ export function BoardPlanSvg({
     return list;
   })();
 
-  const bounds = computePlanContentBounds(planFeaturesForBounds, imageWidth, imageHeight, georefCtx);
-  const planSpan = Math.min(bounds.width, bounds.height);
+  const bounds = fullFrame
+    ? { x: 0, y: 0, width: imageWidth, height: imageHeight }
+    : computePlanContentBounds(planFeaturesForBounds, imageWidth, imageHeight, georefCtx);
+  const planSpan = fullFrame
+    ? Math.min(imageWidth, imageHeight)
+    : Math.min(bounds.width, bounds.height);
   const { callouts } = buildCalloutsAndLegend(
     designFeatures,
     legend,
@@ -193,9 +200,11 @@ export function BoardPlanSvg({
     { georefCtx, planSpanPx: planSpan }
   );
 
-  const northSize = Math.min(bounds.width, bounds.height) * 0.08;
-  const northX = bounds.x + bounds.width - northSize * 0.8;
-  const northY = bounds.y + northSize * 0.9;
+  const northSize = planSpan * 0.08;
+  const northX = fullFrame
+    ? imageWidth - northSize * 0.9
+    : bounds.x + bounds.width - northSize * 0.8;
+  const northY = fullFrame ? northSize * 1.1 : bounds.y + northSize * 0.9;
 
   const filledFeatureIds = new Set<string>();
   if (featureFills) {

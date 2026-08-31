@@ -221,6 +221,8 @@ export default function PolygonEditor({
   const [showMaskOverlay, setShowMaskOverlay] = useState(false);
 
   const viewport = useStageViewport();
+  const lastWheelAtRef = useRef(0);
+  const WHEEL_CLICK_GUARD_MS = 450;
 
   const activeImageUrl =
     baseLayer === "clean" && cleanImageUrl
@@ -786,6 +788,7 @@ export default function PolygonEditor({
   }
 
   function handleStageClick(e: Konva.KonvaEventObject<MouseEvent | TouchEvent>) {
+    if (Date.now() - lastWheelAtRef.current < WHEEL_CLICK_GUARD_MS) return;
     if (shapeDrag) return;
     if (tool === "select") {
       if (e.target === e.target.getStage()) setSelectedId(null);
@@ -1483,7 +1486,10 @@ export default function PolygonEditor({
               handlePointerUp(e);
             }}
             onMouseLeave={() => setPlacementHoverPx(null)}
-            onWheel={viewport.onWheel}
+            onWheel={(e) => {
+              lastWheelAtRef.current = Date.now();
+              viewport.onWheel(e);
+            }}
             style={{
               cursor: viewport.isPanning
                 ? "grabbing"

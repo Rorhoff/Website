@@ -472,24 +472,36 @@ export function PlanDrawing({
         />
       ) : baseMode === "orthophoto" && styleMissing ? (
         <>
-          <rect
-            x={contentBounds.x}
-            y={contentBounds.y}
-            width={contentBounds.width}
-            height={contentBounds.height}
-            fill="#fef2f2"
-            stroke="#fca5a5"
-            strokeWidth={2}
-          />
+          {compareRawUrl || baseImageUrl ? (
+            <image
+              href={compareRawUrl ?? baseImageUrl}
+              x={0}
+              y={0}
+              width={planW}
+              height={planH}
+              opacity={orthoOpacity}
+              preserveAspectRatio="xMidYMid meet"
+            />
+          ) : (
+            <rect
+              x={contentBounds.x}
+              y={contentBounds.y}
+              width={contentBounds.width}
+              height={contentBounds.height}
+              fill="#ffffff"
+              stroke="#e7e5e4"
+              strokeWidth={2}
+            />
+          )}
           {styleError ? (
             <foreignObject
-              x={contentBounds.x + contentBounds.width * 0.05}
-              y={contentBounds.y + contentBounds.height * 0.35}
-              width={contentBounds.width * 0.9}
-              height={contentBounds.height * 0.3}
+              x={contentBounds.x + 12}
+              y={contentBounds.y + 12}
+              width={Math.min(contentBounds.width - 24, 520)}
+              height={120}
             >
-              <div className="rounded bg-white/90 p-3 text-xs leading-snug text-red-800 shadow-sm">
-                <p className="font-semibold">Plan style pass failed</p>
+              <div className="rounded border border-amber-300 bg-amber-50/95 p-2 text-[11px] leading-snug text-amber-950 shadow-sm">
+                <p className="font-semibold">Styled plan preview unavailable</p>
                 <p className="mt-1 whitespace-pre-wrap">{styleError}</p>
               </div>
             </foreignObject>

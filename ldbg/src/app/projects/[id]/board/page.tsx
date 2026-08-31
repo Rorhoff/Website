@@ -11,6 +11,7 @@ import {
   getPixelsPerFoot,
   getPrintBoardImage,
   getTracingImage,
+  imageDimensionsMatch,
   isGeoreferenced,
   isProjectScaled,
 } from "@/lib/georef";
@@ -96,12 +97,21 @@ export default async function BoardPage({ params, searchParams }: Props) {
     forPrint: exportMode,
     registration: spUrls.registration,
   });
-  const planBaseImageUrl = planBase.url ?? cleanUrl ?? rawBaseUrl;
+
+  const cleanMatchesTrace =
+    Boolean(clean && tracingImage && imageDimensionsMatch(clean, tracingImage));
+
+  const alignedBaseUrl = cleanMatchesTrace ? planBase.url : undefined;
+  const planBaseImageUrl =
+    alignedBaseUrl ?? (cleanMatchesTrace ? cleanUrl : undefined) ?? rawBaseUrl;
 
   const schematicFilename = await resolvePlanSchematicFilename(id, boardProject);
-  const planSchematicBaseUrl = schematicFilename
-    ? fileUrl(id, schematicFilename)
-    : cleanUrl;
+  const planSchematicBaseUrl =
+    cleanMatchesTrace && schematicFilename
+      ? fileUrl(id, schematicFilename)
+      : cleanMatchesTrace && clean
+        ? fileUrl(id, clean.filename)
+        : rawBaseUrl;
 
   const georefContext = rawBaseImage
     ? getGeorefDisplayContext(boardProject, rawBaseImage.width, rawBaseImage.height)

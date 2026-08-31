@@ -77,6 +77,22 @@
   display: block;
 }
 
+.thumbContain {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  background: #f5f5f4;
+}
+
+.renderContain {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  background: #f5f5f4;
+}
+
 .center {
   grid-area: center;
   display: grid;
@@ -184,6 +200,13 @@
   display: grid;
   grid-template-columns: 42% 1fr;
   gap: 8px;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.bottomConceptOnly {
+  grid-area: bottom;
+  display: block;
   overflow: hidden;
   min-height: 0;
 }
@@ -315,6 +338,14 @@
   padding: 6px;
   font-size: 10px;
   overflow: hidden;
+}
+
+.plantThumb {
+  width: 100%;
+  height: 52px;
+  border-radius: 3px;
+  margin-bottom: 6px;
+  background: #e7e5e4;
 }
 
 .plantName {

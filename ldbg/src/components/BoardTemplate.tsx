@@ -10,6 +10,8 @@ import {
   filterMaterialsToFeatures,
   type StoredDesignContent,
 } from "@/lib/design-content-schema";
+import { filterPlantsToFeatures, legendEntryForPlant } from "@/lib/board-plants";
+import { PlantReferenceThumb } from "@/components/PlantReferenceThumb";
 import type { InterpretFeature } from "@/lib/interpret-schema";
 import { boardDimensions, boardGridTracks, type BoardPageSize } from "@/lib/board-sizes";
 import { resolveEnabledNotes } from "@/lib/general-notes";
@@ -71,10 +73,12 @@ function RenderPanel({
   label,
   url,
   placeholder,
+  contain = false,
 }: {
   label: string;
   url?: string;
   placeholder: string;
+  contain?: boolean;
 }) {
   return (
     <div className={`${styles.panel} h-full`}>
@@ -82,7 +86,11 @@ function RenderPanel({
       <div className={styles.panelBody}>
         {url ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img className={styles.renderFill} src={url} alt="" />
+          <img
+            className={contain ? styles.renderContain : styles.renderFill}
+            src={url}
+            alt=""
+          />
         ) : (
           <Placeholder label={placeholder} />
         )}
@@ -144,7 +152,11 @@ export function BoardTemplate({
     designContent?.materialsAndFinishes ?? [],
     features
   );
-  const plants = designContent?.plantPalette ?? [];
+  const plants = filterPlantsToFeatures(
+    designContent?.plantPalette ?? [],
+    features,
+    legend
+  );
   const concept = designContent?.conceptOverview ?? [];
   const renderPrompts = designContent?.renderPrompts ?? [];
 
@@ -156,7 +168,7 @@ export function BoardTemplate({
     { id: "entry", url: renderSlots?.entry, caption: entryPrompt?.title ?? "Entry / pathway view" },
     { id: "fire_pit", url: renderSlots?.fire_pit, caption: firePrompt?.title ?? "Fire pit & pergola" },
     { id: "hero_dusk", url: renderSlots?.hero_dusk, caption: heroPrompt?.title ?? "Hero perspective at dusk" },
-  ];
+  ].filter((s) => Boolean(s.url));
 
   return (
     <div
@@ -188,7 +200,7 @@ export function BoardTemplate({
             <div className={styles.panelBody}>
               {annotatedUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img className={styles.thumbImg} src={annotatedUrl} alt="" />
+                <img className={styles.thumbContain} src={annotatedUrl} alt="" />
               ) : (
                 <Placeholder label="Source drone photo — upload annotated orthophoto" />
               )}
@@ -199,7 +211,7 @@ export function BoardTemplate({
             <div className={styles.panelBody}>
               {cleanUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img className={styles.thumbImg} src={cleanUrl} alt="" />
+                <img className={styles.thumbContain} src={cleanUrl} alt="" />
               ) : (
                 <Placeholder label="Clean orthophoto — upload unmarked base image" />
               )}
@@ -233,6 +245,7 @@ export function BoardTemplate({
                   georefCtx={georefContext}
                   featureFills={featureFills}
                   featureFillImageUrl={featureFillImageUrl}
+                  fullFrame
                 />
               ) : (
                 <Placeholder label="Plan schematic — draw features and fill materials" />
@@ -263,6 +276,7 @@ export function BoardTemplate({
                   hiddenFeatureTypes={hiddenTypes}
                   featureFills={featureFills}
                   featureFillImageUrl={featureFillImageUrl}
+                  fullFrame
                 />
               ) : (
                 <Placeholder label="Proposed landscape plan — draw or interpret features" />
@@ -303,6 +317,7 @@ export function BoardTemplate({
             label="Perspective"
             url={renderSlots?.hero}
             placeholder="Perspective render — Milestone 7 or manual upload"
+            contain
           />
           <div className={styles.panel}>
             <div className={styles.panelHead}>Materials &amp; finishes</div>
@@ -333,21 +348,32 @@ export function BoardTemplate({
             <div className={styles.panelBody}>
               {plants.length > 0 ? (
                 <div className={styles.plantsGrid}>
-                  {plants.slice(0, 12).map((p, i) => (
-                    <div key={i} className={styles.plantCard}>
-                      <div className={styles.plantName}>{p.commonName}</div>
-                      <div className={styles.plantSci}>{p.botanicalName}</div>
-                    </div>
-                  ))}
+                  {plants.map((p, i) => {
+                    const entry = legendEntryForPlant(p, legend);
+                    const fill = entry?.renderStyle.fill ?? "#8FBC8F";
+                    const stroke = entry?.renderStyle.stroke ?? "#556B2F";
+                    return (
+                      <div key={i} className={styles.plantCard}>
+                        <PlantReferenceThumb
+                          commonName={p.commonName}
+                          featureType={entry?.featureType}
+                          fill={fill}
+                          stroke={stroke}
+                        />
+                        <div className={styles.plantName}>{p.commonName}</div>
+                        <div className={styles.plantSci}>{p.botanicalName}</div>
+                      </div>
+                    );
+                  })}
                 </div>
               ) : (
-                <Placeholder label="Plant palette grid — generate design content" />
+                <Placeholder label="Plant palette — add plants in the feature editor" />
               )}
             </div>
           </div>
         </aside>
 
-        <div className={styles.bottom}>
+        <div className={supporting.length > 0 ? styles.bottom : styles.bottomConceptOnly}>
           <div className={styles.conceptPanel}>
             <div className={styles.conceptTitle}>Concept overview</div>
             {concept.length > 0 ? (
@@ -360,21 +386,24 @@ export function BoardTemplate({
               <Placeholder label="Concept overview bullets — generate design content" />
             )}
           </div>
-          <div className={styles.supportingRow}>
-            {supporting.map((s) => (
-              <div key={s.id} className={styles.supportSlot}>
-                <div className={styles.panelBody}>
-                  {s.url ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img className={styles.renderFill} src={s.url} alt="" />
-                  ) : (
-                    <Placeholder label={`Supporting render — ${s.caption}`} />
-                  )}
+          {supporting.length > 0 ? (
+            <div
+              className={styles.supportingRow}
+              style={{
+                gridTemplateColumns: `repeat(${supporting.length}, 1fr)`,
+              }}
+            >
+              {supporting.map((s) => (
+                <div key={s.id} className={styles.supportSlot}>
+                  <div className={styles.panelBody}>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img className={styles.renderContain} src={s.url} alt="" />
+                  </div>
+                  <div className={styles.supportCaption}>{s.caption}</div>
                 </div>
-                <div className={styles.supportCaption}>{s.caption}</div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          ) : null}
         </div>
 
         <div className={styles.titleArea}>
