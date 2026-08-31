@@ -215,6 +215,12 @@ sync_ldbg() {
     return 0
   fi
 
+  local avail_kb
+  avail_kb="$(df -Pk "$DEV_DIR" | awk 'NR==2 {print $4}')"
+  if [[ "${avail_kb:-0}" -lt 2097152 ]]; then
+    die "Less than 2GB free disk for LDBG build — run df -h and free space first."
+  fi
+
   log "Building LDBG from ${src_dir}…"
 
   if [[ "$COMMIT_FORCE" == "1" ]]; then
@@ -507,6 +513,16 @@ if command -v curl >/dev/null 2>&1; then
     ok "Health probe ${DEV_HEALTH_URL} responded."
   else
     warn "Health probe ${DEV_HEALTH_URL} did not respond — check the service logs."
+  fi
+
+  if [[ "$LDBG_REBUILT" == "1" ]] && [[ -f "$DEV_DIR/deploy/verify-ldbg-static.sh" ]]; then
+    log "Verifying LDBG static assets through FastAPI proxy…"
+    if LDBG_VERIFY_ORIGIN="http://127.0.0.1:8000" LDBG_REPO_ROOT="$DEV_DIR" \
+      bash "$DEV_DIR/deploy/verify-ldbg-static.sh"; then
+      ok "LDBG static assets OK via :8000 proxy."
+    else
+      die "LDBG static assets broken via proxy — run: bash ${DEV_DIR}/deploy/repair-ldbg-static.sh"
+    fi
   fi
   pay_status="$(curl -sS --max-time 5 "http://127.0.0.1:8000/api/referr-all/status" 2>/dev/null || true)"
   if [[ -n "$pay_status" ]] && echo "$pay_status" | grep -q '"paymentsConfigured": false'; then

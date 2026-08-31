@@ -37,7 +37,16 @@ sudo systemctl stop ldbg 2>/dev/null || true
 echo "==> Removing ${LDBG}/.next and ${LDBG}/.next.prev…"
 rm -rf "$LDBG/.next" "$LDBG/.next.prev"
 
-echo "==> Clean rebuild via commit.sh…"
-COMMIT_FORCE=1 bash "$COMMIT"
+echo "==> Clean rebuild (repair script — no full commit.sh)…"
+LDBG_REPO_ROOT="$DEV_DIR" bash "$DEV_DIR/deploy/ldbg-build.sh"
+
+sudo systemctl restart ldbg
+sleep 3
+LDBG_REPO_ROOT="$DEV_DIR" bash "$DEV_DIR/deploy/verify-ldbg-static.sh"
+
+sudo systemctl restart roryportfolio
+sleep 2
+LDBG_VERIFY_ORIGIN="http://127.0.0.1:8000" LDBG_REPO_ROOT="$DEV_DIR" \
+  bash "$DEV_DIR/deploy/verify-ldbg-static.sh"
 
 ensure_ldbg_up
