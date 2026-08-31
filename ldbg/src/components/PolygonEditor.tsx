@@ -96,7 +96,8 @@ const EDITOR_AUTOSAVE_MS = 4000;
 const VERTEX_HIT_RADIUS = 22;
 const NUDGE_STEP_PX = 2;
 const NUDGE_STEP_LARGE_PX = 10;
-const SNAP_THRESHOLD_PX = 12;
+/** Max distance (content px) before an edge snaps on release — kept small so shapes stay movable. */
+const SNAP_THRESHOLD_PX = 6;
 const DUPLICATE_OFFSET_PX = 16;
 
 type Props = {
@@ -182,6 +183,7 @@ export default function PolygonEditor({
   const selectedLineRef = useRef<Konva.Line>(null);
   const draggingVertexRef = useRef(false);
   const draggingGroupRef = useRef(false);
+  const moveCommittedRef = useRef(false);
 
   const [containerW, setContainerW] = useState(800);
   const [tool, setTool] = useState<EditorTool>("select");
@@ -555,9 +557,11 @@ export default function PolygonEditor({
 
   const updateFeature = useCallback(
     (id: string, updater: (f: InterpretFeature) => InterpretFeature) => {
-      commitFeatures(features.map((f) => (f.id === id ? updater(f) : f)));
+      commitFeatures(
+        featuresRef.current.map((f) => (f.id === id ? updater(f) : f))
+      );
     },
-    [commitFeatures, features]
+    [commitFeatures]
   );
 
   useEffect(() => {
@@ -837,30 +841,71 @@ export default function PolygonEditor({
 
   function onTransformEnd() {
     const group = selectedGroupRef.current;
-    if (!group || !selected) return;
-    const center = centroidNormFromFeature(selected, displayW, displayH, georefContext);
+    const activeId = selectedId;
+    if (!group || !activeId || moveCommittedRef.current) return;
+
+    const dxPx = group.x();
+    const dyPx = group.y();
     const scaleX = group.scaleX();
     const scaleY = group.scaleY();
     const rotation = group.rotation();
+    const hasMove = Math.abs(dxPx) >= 0.5 || Math.abs(dyPx) >= 0.5;
+    const hasTransform =
+      Math.abs(scaleX - 1) > 0.001 ||
+      Math.abs(scaleY - 1) > 0.001 ||
+      Math.abs(rotation) > 0.001;
+    if (!hasMove && !hasTransform) return;
+
+    const source = featuresRef.current.find((f) => f.id === activeId);
+    if (!source) return;
+
+    const center = centroidNormFromFeature(source, displayW, displayH, georefContext);
+
     group.scaleX(1);
     group.scaleY(1);
     group.rotation(0);
     group.x(0);
     group.y(0);
-    updateFeature(selected.id, (f) =>
-      georefContext
-        ? transformFeatureGeoref(
-            f,
-            displayW,
-            displayH,
-            center,
-            scaleX,
-            scaleY,
-            rotation,
-            georefContext
-          )
-        : transformFeaturePoints(f, displayW, displayH, center, scaleX, scaleY, rotation)
-    );
+
+    draggingGroupRef.current = true;
+    flushSync(() => {
+      commitFeatures(
+        featuresRef.current.map((f) => {
+          if (f.id !== activeId) return f;
+          let next = f;
+          if (hasMove) {
+            next = georefContext
+              ? moveFeatureGeoref(next, dxPx, dyPx, georefContext)
+              : moveFeature(next, dxPx / displayW, dyPx / displayH);
+          }
+          if (hasTransform) {
+            next = georefContext
+              ? transformFeatureGeoref(
+                  next,
+                  displayW,
+                  displayH,
+                  center,
+                  scaleX,
+                  scaleY,
+                  rotation,
+                  georefContext
+                )
+              : transformFeaturePoints(
+                  next,
+                  displayW,
+                  displayH,
+                  center,
+                  scaleX,
+                  scaleY,
+                  rotation
+                );
+          }
+          return next;
+        })
+      );
+    });
+    draggingGroupRef.current = false;
+    moveCommittedRef.current = true;
   }
 
   function onGroupDragStart(e: Konva.KonvaEventObject<DragEvent>) {
@@ -868,34 +913,26 @@ export default function PolygonEditor({
       e.target.stopDrag();
       return;
     }
+    moveCommittedRef.current = false;
     draggingGroupRef.current = true;
-  }
-
-  function onGroupDragMove(e: Konva.KonvaEventObject<DragEvent>) {
-    if (!selectedId || !snapEnabled || snapTargets.xs.length === 0) return;
-    const node = e.target;
-    const dxPx = node.x() / viewport.zoom;
-    const dyPx = node.y() / viewport.zoom;
-    const snapped = snapGroupDragPx(dxPx, dyPx, selectedId);
-    node.position({
-      x: snapped.dxPx * viewport.zoom,
-      y: snapped.dyPx * viewport.zoom,
-    });
   }
 
   function onGroupDragEnd(e: Konva.KonvaEventObject<DragEvent>) {
     const node = e.target;
     const activeId = selectedId;
-    if (!activeId) {
+    if (!activeId || moveCommittedRef.current) {
       draggingGroupRef.current = false;
       node.position({ x: 0, y: 0 });
       return;
     }
-    let dxPx = node.x() / viewport.zoom;
-    let dyPx = node.y() / viewport.zoom;
-    const snapped = snapGroupDragPx(dxPx, dyPx, activeId);
-    dxPx = snapped.dxPx;
-    dyPx = snapped.dyPx;
+    // Group x/y are already in content (pre-zoom) pixels — parent scale is visual only.
+    let dxPx = node.x();
+    let dyPx = node.y();
+    if (snapEnabled && snapTargets.xs.length > 0) {
+      const snapped = snapGroupDragPx(dxPx, dyPx, activeId);
+      dxPx = snapped.dxPx;
+      dyPx = snapped.dyPx;
+    }
 
     if (Math.abs(dxPx) < 0.5 && Math.abs(dyPx) < 0.5) {
       draggingGroupRef.current = false;
@@ -915,6 +952,7 @@ export default function PolygonEditor({
     });
     node.position({ x: 0, y: 0 });
     draggingGroupRef.current = false;
+    moveCommittedRef.current = true;
   }
 
   const canMeasure = georefContext != null || pixelsPerFoot != null;
@@ -1379,7 +1417,10 @@ export default function PolygonEditor({
       ) : null}
 
       <div className="grid gap-4 lg:grid-cols-[1fr_240px]">
-        <div ref={containerRef} className="overflow-hidden rounded-lg border border-stone-200 bg-stone-900">
+        <div
+          ref={containerRef}
+          className="mx-auto w-fit max-w-full overflow-hidden rounded-lg border border-stone-200 bg-stone-800"
+        >
           <Stage
             width={displayW}
             height={displayH}
@@ -1659,7 +1700,6 @@ export default function PolygonEditor({
                     ref={selectedGroupRef}
                     draggable={!draggingVertex}
                     onDragStart={onGroupDragStart}
-                    onDragMove={onGroupDragMove}
                     onDragEnd={onGroupDragEnd}
                     onTransformEnd={onTransformEnd}
                   >
