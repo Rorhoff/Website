@@ -42,6 +42,9 @@ export type LegendRow = {
   featureType: string;
   featureId: string;
   areaSqFt: number | null;
+  /** Plant groups and multi-placement "each" features. */
+  quantity: number | null;
+  lengthLf?: number | null;
 };
 
 /** 24×36 sheet at 300 DPI (portrait). */
@@ -220,7 +223,7 @@ export function buildCalloutsAndLegend(
       const first = members[0];
       const entry = legend.find((e) => e.featureType === first.featureType);
       let areaSum: number | null = null;
-      if (canMeasure) {
+      if (canMeasure && !isPlantPointFeatureType(first.featureType)) {
         areaSum = 0;
         for (const m of members) {
           const a = featureAreaSqFt(m, imageW, imageH, pixelsPerFoot, georefCtx);
@@ -233,6 +236,7 @@ export function buildCalloutsAndLegend(
         featureType: first.featureType,
         featureId: first.id,
         areaSqFt: areaSum,
+        quantity: members.length,
       });
     } else {
       const entry = legend.find((e) => e.featureType === f.featureType);
@@ -242,9 +246,12 @@ export function buildCalloutsAndLegend(
         featureType: f.featureType,
         featureId: f.id,
         areaSqFt:
-          canMeasure
+          canMeasure && entry?.unit !== "each"
             ? featureAreaSqFt(f, imageW, imageH, pixelsPerFoot, georefCtx)
-            : null,
+            : canMeasure && entry?.unit === "each"
+              ? featureAreaSqFt(f, imageW, imageH, pixelsPerFoot, georefCtx)
+              : null,
+        quantity: entry?.unit === "each" ? 1 : null,
       });
     }
   }

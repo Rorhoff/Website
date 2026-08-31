@@ -30,6 +30,9 @@ import {
   ClippedFeatureFills,
 } from "@/lib/plan-feature-fills";
 import { PlanInkLinework } from "@/lib/plan-ink-linework";
+import {
+  formatLegendRowMeasure,
+} from "@/lib/legend-display";
 
 export type PlanDrawingProject = {
   features: InterpretFeature[];
@@ -468,19 +471,17 @@ export function PlanDrawing({
           height={planH}
           opacity={compareRaw ? orthoOpacity : baseOpacity}
           filter={compareRaw ? undefined : baseImageFilter}
-          preserveAspectRatio="xMidYMid meet"
         />
       ) : baseMode === "orthophoto" && styleMissing ? (
         <>
-          {compareRawUrl || baseImageUrl ? (
+          {baseImageUrl || compareRawUrl ? (
             <image
-              href={compareRawUrl ?? baseImageUrl}
+              href={baseImageUrl ?? compareRawUrl}
               x={0}
               y={0}
               width={planW}
               height={planH}
               opacity={orthoOpacity}
-              preserveAspectRatio="xMidYMid meet"
             />
           ) : (
             <rect
@@ -764,10 +765,7 @@ export function PlanDrawing({
             legendRows.map((row, i) => {
               const y = 44 + i * 36;
               const typeLabel = labelForFeatureType(row.featureType, legend);
-              const area =
-                row.areaSqFt != null
-                  ? ` — ${row.areaSqFt.toLocaleString(undefined, { maximumFractionDigits: 0 })} sq ft`
-                  : "";
+              const measure = formatLegendRowMeasure(row, legend);
               return (
                 <g key={row.featureId} transform={`translate(0, ${y})`}>
                   <circle cx={16} cy={0} r={16} fill="#1c1917" />
@@ -792,7 +790,7 @@ export function PlanDrawing({
                     fontFamily="system-ui, sans-serif"
                   >
                     {row.label || typeLabel}
-                    {area}
+                    {measure}
                   </text>
                 </g>
               );

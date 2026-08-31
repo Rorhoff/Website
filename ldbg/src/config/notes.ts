@@ -65,8 +65,9 @@ export const GENERAL_NOTES: readonly GeneralNote[] = [
     defaultOn: true,
     category: "accuracy",
     text:
-      "Quantities, areas, and material takeoffs are estimates for planning " +
-      "purposes. Contractor to verify all field dimensions and quantities.",
+      "Quantities, plant counts, areas, and material takeoffs are preliminary " +
+      "estimates for planning purposes and may change during design development. " +
+      "Contractor to verify all field dimensions and quantities.",
   },
   {
     id: "plants",

@@ -46,7 +46,7 @@ type Props = {
   pixelsPerFoot?: number;
   georefContext?: GeorefDisplayContext;
   annotatedUrl?: string;
-  cleanUrl?: string;
+  styledPlanUrl?: string;
   planSchematicBaseUrl?: string;
   baseImageUrl?: string;
   baseImageFilter?: string;
@@ -69,36 +69,6 @@ function Placeholder({ label }: { label: string }) {
   );
 }
 
-function RenderPanel({
-  label,
-  url,
-  placeholder,
-  contain = false,
-}: {
-  label: string;
-  url?: string;
-  placeholder: string;
-  contain?: boolean;
-}) {
-  return (
-    <div className={`${styles.panel} h-full`}>
-      <div className={styles.panelHead}>{label}</div>
-      <div className={styles.panelBody}>
-        {url ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            className={contain ? styles.renderContain : styles.renderFill}
-            src={url}
-            alt=""
-          />
-        ) : (
-          <Placeholder label={placeholder} />
-        )}
-      </div>
-    </div>
-  );
-}
-
 export function BoardTemplate({
   projectId,
   metadata,
@@ -113,7 +83,7 @@ export function BoardTemplate({
   pixelsPerFoot,
   georefContext,
   annotatedUrl,
-  cleanUrl,
+  styledPlanUrl,
   planSchematicBaseUrl,
   baseImageUrl,
   baseImageFilter,
@@ -184,7 +154,7 @@ export function BoardTemplate({
           "--row-main": `${grid.rowMain}px`,
           "--row-bottom": `${grid.rowBottom}px`,
           "--center-legend-w": `${grid.centerLegendW}px`,
-          "--right-hero-h": `${grid.rightHeroH}px`,
+          "--right-notes-h": `${grid.rightNotesH}px`,
           "--right-materials-h": `${grid.rightMaterialsH}px`,
           "--rail-thumb-h": `${grid.railThumbH}px`,
           "--rail-schematic-h": `${grid.railSchematicH}px`,
@@ -207,13 +177,13 @@ export function BoardTemplate({
             </div>
           </div>
           <div className={styles.panel}>
-            <div className={styles.panelHead}>Clean orthophoto</div>
+            <div className={styles.panelHead}>Styled plan</div>
             <div className={styles.panelBody}>
-              {cleanUrl ? (
+              {styledPlanUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img className={styles.thumbContain} src={cleanUrl} alt="" />
+                <img className={styles.thumbContain} src={styledPlanUrl} alt="" />
               ) : (
-                <Placeholder label="Clean orthophoto — upload unmarked base image" />
+                <Placeholder label="Styled plan — fill features and save plan settings" />
               )}
             </div>
           </div>
@@ -226,7 +196,7 @@ export function BoardTemplate({
                   legend={legend}
                   imageWidth={imageWidth}
                   imageHeight={imageHeight}
-                  baseImageUrl={planSchematicBaseUrl ?? cleanUrl}
+                  baseImageUrl={planSchematicBaseUrl}
                   planSettings={{
                     baseMode: "orthophoto",
                     basePreset: planSettings?.basePreset ?? "off",
@@ -252,7 +222,6 @@ export function BoardTemplate({
               )}
             </div>
           </div>
-          <GeneralNotesBlock notes={numberedNotes} alwaysShow />
         </aside>
 
         <section className={`${styles.panel} ${styles.center}`}>
@@ -313,12 +282,7 @@ export function BoardTemplate({
         </section>
 
         <aside className={styles.right}>
-          <RenderPanel
-            label="Perspective"
-            url={renderSlots?.hero}
-            placeholder="Perspective render — Milestone 7 or manual upload"
-            contain
-          />
+          <GeneralNotesBlock notes={numberedNotes} alwaysShow />
           <div className={styles.panel}>
             <div className={styles.panelHead}>Materials &amp; finishes</div>
             <div className={styles.panelBody}>
@@ -355,7 +319,6 @@ export function BoardTemplate({
                     return (
                       <div key={i} className={styles.plantCard}>
                         <PlantReferenceThumb
-                          commonName={p.commonName}
                           featureType={entry?.featureType}
                           fill={fill}
                           stroke={stroke}

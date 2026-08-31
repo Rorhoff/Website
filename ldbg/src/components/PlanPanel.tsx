@@ -568,7 +568,7 @@ export function PlanPanel({
           legend={legend}
           imageWidth={imageWidth}
           imageHeight={imageHeight}
-          baseImageUrl={planBase.url ?? cleanImageUrl}
+          baseImageUrl={planBase.url ?? rawBaseImageUrl}
           compareRawUrl={cleanImageUrl}
           baseUsesStylePass={planBase.usesStylePass}
           styleMissing={planBase.styleMissing}

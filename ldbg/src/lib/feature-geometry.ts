@@ -1,4 +1,5 @@
 import type { InterpretFeature } from "@/lib/interpret-schema";
+import { getDecorativeObjectByFeatureType } from "@/config/decorative-objects";
 import type { GeorefDisplayContext } from "@/lib/georef-display";
 import {
   featureAreaSqFtGeoref,
@@ -83,6 +84,20 @@ export function featureAreaSqFt(
   pixelsPerFoot?: number,
   ctx?: GeorefDisplayContext
 ): number | null {
+  if (feature.geometry.kind === "point") {
+    const deco = getDecorativeObjectByFeatureType(feature.featureType);
+    if (deco) {
+      if (
+        feature.featureType.includes("round") ||
+        feature.featureType.endsWith("_round")
+      ) {
+        const rFt = deco.sizeFt / 2;
+        return Math.PI * rFt * rFt;
+      }
+      return deco.sizeFt * deco.sizeFt;
+    }
+  }
+
   const georef = featureAreaSqFtGeoref(feature);
   if (georef != null) return georef;
 

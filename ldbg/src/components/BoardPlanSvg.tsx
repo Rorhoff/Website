@@ -10,6 +10,10 @@ import {
   pickScaleBarFeet,
   pxPointsAttr,
 } from "@/lib/plan-layout";
+import {
+  formatLegendRowMeasure,
+  LEGEND_ESTIMATE_DISCLAIMER,
+} from "@/lib/legend-display";
 import { patternUrl, PlanPatternDefs } from "@/lib/plan-patterns";
 import type { PlanSettings } from "@/lib/project-schema";
 import type { FeatureFillEntry } from "@/lib/feature-fill-schema";
@@ -330,21 +334,19 @@ export function BoardPlanLegend({
       ) : (
         legendRows.map((row) => {
           const typeLabel = labelForFeatureType(row.featureType, legend);
-          const area =
-            row.areaSqFt != null
-              ? ` — ${row.areaSqFt.toLocaleString(undefined, { maximumFractionDigits: 0 })} sq ft`
-              : "";
+          const measure = formatLegendRowMeasure(row, legend);
           return (
             <div key={row.featureId} className={styles.legendRow}>
               <span className={styles.legendNum}>{row.number}</span>
               <span className={styles.legendText}>
                 {row.label || typeLabel}
-                {area}
+                {measure}
               </span>
             </div>
           );
         })
       )}
+      <p className={styles.legendDisclaimer}>{LEGEND_ESTIMATE_DISCLAIMER}</p>
     </>
   );
 }

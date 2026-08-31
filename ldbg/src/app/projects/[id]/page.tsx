@@ -396,8 +396,8 @@ export default function ProjectPage() {
             imageHeight={baseImage.height}
             rawBaseImageUrl={projectImageUrl(id, baseImage.filename)}
             cleanImageUrl={
-              project.images.clean
-                ? projectImageUrl(id, project.images.clean.filename)
+              cleanImage && imageDimensionsMatch(cleanImage, baseImage)
+                ? projectImageUrl(id, cleanImage.filename)
                 : undefined
             }
             planSettings={planSettings}

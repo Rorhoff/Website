@@ -177,7 +177,7 @@ export default async function BoardPage({ params, searchParams }: Props) {
           annotatedUrl={
             ann ? fileUrl(id, ann.filename) : undefined
           }
-          cleanUrl={clean ? fileUrl(id, clean.filename) : undefined}
+          styledPlanUrl={planBase.url}
           planSchematicBaseUrl={planSchematicBaseUrl}
           baseImageUrl={planBaseImageUrl}
           baseImageFilter={planBase.svgFilter}
