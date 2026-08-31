@@ -54,13 +54,13 @@ export function resolvePlanBaseLayer(
       urls.unfilledFeatureCount != null &&
       urls.totalDesignFeatures != null &&
       urls.unfilledFeatureCount > 0
-        ? ` Fill ${urls.unfilledFeatureCount} remaining feature${urls.unfilledFeatureCount === 1 ? "" : "s"} first (Feature fills below), then save plan settings.`
+        ? ` ${urls.unfilledFeatureCount} feature fill${urls.unfilledFeatureCount === 1 ? "" : "s"} still empty — optional but improves materials.`
         : "";
     const errBase =
       urls.styleJobError ??
       (urls.styleJobRunning
         ? "Style pass is still generating…"
-        : `Style pass has not run — composite + style output missing.${fillsHint}`);
+        : `Styled plan not generated yet — click Save plan settings to run the style pass.${fillsHint}`);
     const err = urls.styleJobPythonInterpreter
       ? `${errBase} (Python: ${urls.styleJobPythonInterpreter})`
       : errBase;

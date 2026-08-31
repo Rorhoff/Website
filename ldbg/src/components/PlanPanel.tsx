@@ -390,7 +390,12 @@ export function PlanPanel({
         </label>
         <button
           type="button"
-          onClick={onSavePlanSettings}
+          onClick={() => {
+            onSavePlanSettings();
+            if (presetUsesStylePass(stylePreset)) {
+              void ensureStylePass(stylePreset);
+            }
+          }}
           disabled={saving}
           className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
         >

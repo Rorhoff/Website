@@ -47,7 +47,6 @@ type Props = {
   georefContext?: GeorefDisplayContext;
   annotatedUrl?: string;
   styledPlanUrl?: string;
-  planSchematicBaseUrl?: string;
   baseImageUrl?: string;
   baseImageFilter?: string;
   featureFills?: Record<string, FeatureFillEntry>;
@@ -84,7 +83,6 @@ export function BoardTemplate({
   georefContext,
   annotatedUrl,
   styledPlanUrl,
-  planSchematicBaseUrl,
   baseImageUrl,
   baseImageFilter,
   featureFills,
@@ -157,7 +155,6 @@ export function BoardTemplate({
           "--right-notes-h": `${grid.rightNotesH}px`,
           "--right-materials-h": `${grid.rightMaterialsH}px`,
           "--rail-thumb-h": `${grid.railThumbH}px`,
-          "--rail-schematic-h": `${grid.railSchematicH}px`,
         } as React.CSSProperties
       }
       data-project-id={projectId}
@@ -178,47 +175,12 @@ export function BoardTemplate({
           </div>
           <div className={styles.panel}>
             <div className={styles.panelHead}>Styled plan</div>
-            <div className={styles.panelBody}>
+            <div className={`${styles.panelBody} ${styles.styledPlanCell}`}>
               {styledPlanUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img className={styles.thumbContain} src={styledPlanUrl} alt="" />
               ) : (
-                <Placeholder label="Styled plan — fill features and save plan settings" />
-              )}
-            </div>
-          </div>
-          <div className={styles.panel}>
-            <div className={styles.panelHead}>Plan schematic</div>
-            <div className={`${styles.panelBody} ${styles.schematicCell}`}>
-              {features.length > 0 ? (
-                <BoardPlanSvg
-                  features={features}
-                  legend={legend}
-                  imageWidth={imageWidth}
-                  imageHeight={imageHeight}
-                  baseImageUrl={planSchematicBaseUrl}
-                  planSettings={{
-                    baseMode: "orthophoto",
-                    basePreset: planSettings?.basePreset ?? "off",
-                    stylePreset: planSettings?.stylePreset ?? "off",
-                    orthophotoOpacity: planSchematicBaseUrl ? 1 : 0.4,
-                    showFeatureOutlines: true,
-                    showInkLinework: false,
-                    watercolorCompareRaw: planSettings?.watercolorCompareRaw ?? false,
-                    showContours: planSettings?.showContours ?? false,
-                    showDrainageArrows: planSettings?.showDrainageArrows ?? false,
-                    contourMinorFt: planSettings?.contourMinorFt ?? 1,
-                    contourMajorFt: planSettings?.contourMajorFt ?? 5,
-                  }}
-                  northRotationDeg={northRotationDeg}
-                  pixelsPerFoot={pixelsPerFoot}
-                  georefCtx={georefContext}
-                  featureFills={featureFills}
-                  featureFillImageUrl={featureFillImageUrl}
-                  fullFrame
-                />
-              ) : (
-                <Placeholder label="Plan schematic — draw features and fill materials" />
+                <Placeholder label="Styled plan — save plan settings to generate (fills optional but improve materials)" />
               )}
             </div>
           </div>
@@ -319,6 +281,7 @@ export function BoardTemplate({
                     return (
                       <div key={i} className={styles.plantCard}>
                         <PlantReferenceThumb
+                          commonName={p.commonName}
                           featureType={entry?.featureType}
                           fill={fill}
                           stroke={stroke}

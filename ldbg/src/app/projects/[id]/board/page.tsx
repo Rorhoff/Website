@@ -16,7 +16,6 @@ import {
   isProjectScaled,
 } from "@/lib/georef";
 import { getGeorefDisplayContext } from "@/lib/georef-display";
-import { resolvePlanSchematicFilename } from "@/lib/plan-composite-service";
 import { resolvePlanBaseLayer } from "@/lib/plan-base-layer";
 import {
   resolveStylePreset,
@@ -24,27 +23,15 @@ import {
   runStylePassForProject,
 } from "@/lib/style-pass-service";
 import { getLegend, getStorage } from "@/lib/storage";
-import { projectFilePathSegments } from "@/lib/image-utils";
+import { boardProjectFileUrl } from "@/lib/board-assets";
 
 type Props = {
   params: Promise<{ id: string }>;
   searchParams: Promise<{ size?: string; export?: string }>;
 };
 
-function exportAssetBase(): string {
-  return (
-    process.env.LDBG_EXPORT_BASE_URL ??
-    process.env.LDBG_INTERNAL_URL ??
-    "http://127.0.0.1:3002"
-  ).replace(/\/$/, "");
-}
-
-function basePath(): string {
-  return (process.env.LDBG_BASE_PATH ?? "").replace(/\/$/, "");
-}
-
-function fileUrl(projectId: string, filename: string): string {
-  return `${exportAssetBase()}${basePath()}/api/projects/${encodeURIComponent(projectId)}/files/${projectFilePathSegments(filename)}`;
+function fileUrl(projectId: string, filename: string, forExport: boolean): string {
+  return boardProjectFileUrl(projectId, filename, { forExport });
 }
 
 export default async function BoardPage({ params, searchParams }: Props) {
@@ -81,13 +68,13 @@ export default async function BoardPage({ params, searchParams }: Props) {
     tracingImage ??
     (exportMode ? getPrintBoardImage(project) : getDisplayImage(project));
 
-  const rawBaseUrl = rawBaseImage ? fileUrl(id, rawBaseImage.filename) : undefined;
+  const rawBaseUrl = rawBaseImage ? fileUrl(id, rawBaseImage.filename, exportMode) : undefined;
 
-  const cleanUrl = clean ? fileUrl(id, clean.filename) : undefined;
+  const cleanUrl = clean ? fileUrl(id, clean.filename, exportMode) : undefined;
 
   const spUrls = await resolveStylePassUrls(boardProject, id, stylePreset, exportMode);
-  const stylePreviewUrl = spUrls.preview ? fileUrl(id, spUrls.preview) : undefined;
-  const styleRegisteredUrl = spUrls.registered ? fileUrl(id, spUrls.registered) : undefined;
+  const stylePreviewUrl = spUrls.preview ? fileUrl(id, spUrls.preview, exportMode) : undefined;
+  const styleRegisteredUrl = spUrls.registered ? fileUrl(id, spUrls.registered, exportMode) : undefined;
 
   const planBase = resolvePlanBaseLayer(boardProject.planSettings, {
     rawUrl: rawBaseUrl,
@@ -105,32 +92,24 @@ export default async function BoardPage({ params, searchParams }: Props) {
   const planBaseImageUrl =
     alignedBaseUrl ?? (cleanMatchesTrace ? cleanUrl : undefined) ?? rawBaseUrl;
 
-  const schematicFilename = await resolvePlanSchematicFilename(id, boardProject);
-  const planSchematicBaseUrl =
-    cleanMatchesTrace && schematicFilename
-      ? fileUrl(id, schematicFilename)
-      : cleanMatchesTrace && clean
-        ? fileUrl(id, clean.filename)
-        : rawBaseUrl;
-
   const georefContext = rawBaseImage
     ? getGeorefDisplayContext(boardProject, rawBaseImage.width, rawBaseImage.height)
     : undefined;
 
-  const bp = basePath();
+  const bp = (process.env.LDBG_BASE_PATH ?? "").replace(/\/$/, "");
   const renderSlots = project.renderSlots
     ? {
         hero: project.renderSlots.hero
-          ? fileUrl(id, project.renderSlots.hero)
+          ? fileUrl(id, project.renderSlots.hero, exportMode)
           : undefined,
         entry: project.renderSlots.entry
-          ? fileUrl(id, project.renderSlots.entry)
+          ? fileUrl(id, project.renderSlots.entry, exportMode)
           : undefined,
         fire_pit: project.renderSlots.fire_pit
-          ? fileUrl(id, project.renderSlots.fire_pit)
+          ? fileUrl(id, project.renderSlots.fire_pit, exportMode)
           : undefined,
         hero_dusk: project.renderSlots.hero_dusk
-          ? fileUrl(id, project.renderSlots.hero_dusk)
+          ? fileUrl(id, project.renderSlots.hero_dusk, exportMode)
           : undefined,
       }
     : undefined;
@@ -175,14 +154,13 @@ export default async function BoardPage({ params, searchParams }: Props) {
           pixelsPerFoot={getPixelsPerFoot(boardProject)}
           georefContext={georefContext}
           annotatedUrl={
-            ann ? fileUrl(id, ann.filename) : undefined
+            ann ? fileUrl(id, ann.filename, exportMode) : undefined
           }
           styledPlanUrl={planBase.url}
-          planSchematicBaseUrl={planSchematicBaseUrl}
           baseImageUrl={planBaseImageUrl}
           baseImageFilter={planBase.svgFilter}
           featureFills={boardProject.featureFills}
-          featureFillImageUrl={(filename) => fileUrl(id, filename)}
+          featureFillImageUrl={(filename) => fileUrl(id, filename, exportMode)}
           hasFilledFeatures={Object.values(boardProject.featureFills ?? {}).some(
             (e) => e.status === "filled"
           )}

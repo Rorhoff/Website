@@ -59,10 +59,15 @@
 .rail {
   grid-area: rail;
   display: grid;
-  grid-template-rows: var(--rail-thumb-h) var(--rail-thumb-h) 1fr;
+  grid-template-rows: var(--rail-thumb-h) 1fr;
   gap: 8px;
   overflow: hidden;
   min-height: 0;
+}
+
+.styledPlanCell {
+  padding: 2px;
+  background: #fafaf9;
 }
 
 .schematicCell {
