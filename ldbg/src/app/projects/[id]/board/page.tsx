@@ -5,13 +5,17 @@ import { presetUsesStylePass } from "@/config/styles";
 import { BoardTemplate } from "@/components/BoardTemplate";
 import { boardDimensions, parseBoardPageSize } from "@/lib/board-sizes";
 import {
+  getBoardPlanImage,
   getDisplayImage,
   getNorthRotationDeg,
   getPixelsPerFoot,
   getPrintBoardImage,
+  getTracingImage,
   isGeoreferenced,
   isProjectScaled,
 } from "@/lib/georef";
+import { getGeorefDisplayContext } from "@/lib/georef-display";
+import { resolvePlanSchematicFilename } from "@/lib/plan-composite-service";
 import { resolvePlanBaseLayer } from "@/lib/plan-base-layer";
 import {
   resolveStylePreset,
@@ -59,11 +63,6 @@ export default async function BoardPage({ params, searchParams }: Props) {
 
   const ann = project.images.annotated;
   const clean = project.images.clean;
-  const rawBaseImage = exportMode ? getPrintBoardImage(project) : getDisplayImage(project);
-
-  const rawBaseUrl = rawBaseImage ? fileUrl(id, rawBaseImage.filename) : undefined;
-
-  const cleanUrl = clean ? fileUrl(id, clean.filename) : undefined;
   const stylePreset = resolveStylePreset(project);
   let boardProject = project;
   if (exportMode && presetUsesStylePass(stylePreset)) {
@@ -74,6 +73,16 @@ export default async function BoardPage({ params, searchParams }: Props) {
       console.warn("[board] style pass ensure failed:", e instanceof Error ? e.message : e);
     }
   }
+
+  const tracingImage = getTracingImage(boardProject);
+  const rawBaseImage =
+    getBoardPlanImage(boardProject) ??
+    tracingImage ??
+    (exportMode ? getPrintBoardImage(project) : getDisplayImage(project));
+
+  const rawBaseUrl = rawBaseImage ? fileUrl(id, rawBaseImage.filename) : undefined;
+
+  const cleanUrl = clean ? fileUrl(id, clean.filename) : undefined;
 
   const spUrls = await resolveStylePassUrls(boardProject, id, stylePreset, exportMode);
   const stylePreviewUrl = spUrls.preview ? fileUrl(id, spUrls.preview) : undefined;
@@ -88,6 +97,15 @@ export default async function BoardPage({ params, searchParams }: Props) {
     registration: spUrls.registration,
   });
   const planBaseImageUrl = planBase.url ?? cleanUrl ?? rawBaseUrl;
+
+  const schematicFilename = await resolvePlanSchematicFilename(id, boardProject);
+  const planSchematicBaseUrl = schematicFilename
+    ? fileUrl(id, schematicFilename)
+    : cleanUrl;
+
+  const georefContext = rawBaseImage
+    ? getGeorefDisplayContext(boardProject, rawBaseImage.width, rawBaseImage.height)
+    : undefined;
 
   const bp = basePath();
   const renderSlots = project.renderSlots
@@ -145,10 +163,12 @@ export default async function BoardPage({ params, searchParams }: Props) {
           imageWidth={rawBaseImage?.width ?? 1000}
           imageHeight={rawBaseImage?.height ?? 1000}
           pixelsPerFoot={getPixelsPerFoot(boardProject)}
+          georefContext={georefContext}
           annotatedUrl={
             ann ? fileUrl(id, ann.filename) : undefined
           }
           cleanUrl={clean ? fileUrl(id, clean.filename) : undefined}
+          planSchematicBaseUrl={planSchematicBaseUrl}
           baseImageUrl={planBaseImageUrl}
           baseImageFilter={planBase.svgFilter}
           featureFills={boardProject.featureFills}

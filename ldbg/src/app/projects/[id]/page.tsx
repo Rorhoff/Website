@@ -24,6 +24,8 @@ import {
   getDisplayImage,
   getNorthRotationDeg,
   getPixelsPerFoot,
+  getTracingImage,
+  imageDimensionsMatch,
   isGeoreferenced,
   isProjectScaled,
 } from "@/lib/georef";
@@ -218,7 +220,9 @@ export default function ProjectPage() {
 
   const ann = project.images.annotated;
   const displayImage = getDisplayImage(project);
-  const baseImage = displayImage;
+  const tracingImage = getTracingImage(project) ?? displayImage;
+  const baseImage = tracingImage ?? displayImage;
+  const cleanImage = project.images.clean;
   const pixelsPerFoot = getPixelsPerFoot(project);
   const northDeg = getNorthRotationDeg(project);
   const georef = isGeoreferenced(project);
@@ -239,11 +243,9 @@ export default function ProjectPage() {
     );
   }
 
-  const georefContext = getGeorefDisplayContext(
-    project,
-    displayImage.width,
-    displayImage.height
-  );
+  const georefContext = baseImage
+    ? getGeorefDisplayContext(project, baseImage.width, baseImage.height)
+    : undefined;
   const hasPropertyBoundary = features.some((f) => f.featureType === "property_boundary");
   const cvMaskUrl = interpretation?.importMaskFilename
     ? projectImageUrl(id, interpretation.importMaskFilename)
@@ -349,8 +351,9 @@ export default function ProjectPage() {
             projectId={id}
             annotatedImageUrl={projectImageUrl(id, ann?.filename ?? baseImage.filename)}
             cleanImageUrl={
-              project.images.clean
-                ? projectImageUrl(id, project.images.clean.filename)
+              cleanImage &&
+              imageDimensionsMatch(cleanImage, baseImage)
+                ? projectImageUrl(id, cleanImage.filename)
                 : undefined
             }
             imageWidth={baseImage.width}

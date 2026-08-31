@@ -6,7 +6,9 @@ export type PlantFeatureType =
   | "ornamental_grass"
   | "lavender"
   | "blue_grass"
-  | "sagebrush";
+  | "sagebrush"
+  | "boxwood"
+  | "daylily";
 
 export type UtahPlant = {
   id: string;
@@ -194,11 +196,29 @@ export const UTAH_PLANT_PALETTE: UtahPlant[] = [
   },
   {
     id: "ornamental-grass-karl-foerster",
-    commonName: "Karl Foerster Grass",
-    botanicalName: "Calamagrostis × acutiflora",
+    commonName: "Karl Foerster",
+    botanicalName: "Calamagrostis × acutiflora 'Karl Foerster'",
     featureType: "ornamental_grass",
     canopyDiameterFt: 2,
     sun: "Full sun",
+    water: "Moderate",
+  },
+  {
+    id: "boxwood-bush",
+    commonName: "Boxwood Bush",
+    botanicalName: "Buxus microphylla",
+    featureType: "boxwood",
+    canopyDiameterFt: 3,
+    sun: "Full sun–part shade",
+    water: "Moderate",
+  },
+  {
+    id: "daylily",
+    commonName: "Daylily",
+    botanicalName: "Hemerocallis spp.",
+    featureType: "daylily",
+    canopyDiameterFt: 2,
+    sun: "Full sun–part shade",
     water: "Moderate",
   },
   {

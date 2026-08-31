@@ -68,6 +68,7 @@ export function boardGridTracks(size: BoardPageSize) {
     centerLegendW: Math.round(300 * sx),
     rightHeroH: Math.round(560 * sy),
     rightMaterialsH: Math.round(360 * sy),
-    railThumbH: Math.round(380 * sy),
+    railThumbH: Math.round(300 * sy),
+    railSchematicH: Math.round(300 * sy),
   };
 }

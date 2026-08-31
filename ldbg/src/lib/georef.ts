@@ -42,6 +42,82 @@ export function getDisplayImage(project: Project):
   );
 }
 
+export function imageDimensionsMatch(
+  a: { width: number; height: number } | undefined,
+  b: { width: number; height: number } | undefined
+): boolean {
+  if (!a || !b) return false;
+  return a.width === b.width && a.height === b.height;
+}
+
+/**
+ * Raster that feature coordinates were authored against (interpret / trace space).
+ * Prefer the project image whose stored dimensions match interpretation.imageSize.
+ */
+export function getTracingImage(project: Project):
+  | { filename: string; width: number; height: number }
+  | undefined {
+  const interpret = project.interpretation;
+  if (interpret?.imageSize) {
+    const { width, height } = interpret.imageSize;
+    for (const candidate of [
+      project.images.annotated,
+      project.images.clean,
+      project.images.preview,
+    ]) {
+      if (candidate && candidate.width === width && candidate.height === height) {
+        return candidate;
+      }
+    }
+  }
+
+  if (interpret?.interpretImageSpace) {
+    const { coordWidth, coordHeight } = interpret.interpretImageSpace;
+    for (const candidate of [
+      project.images.annotated,
+      project.images.clean,
+      project.images.preview,
+    ]) {
+      if (
+        candidate &&
+        candidate.width === coordWidth &&
+        candidate.height === coordHeight
+      ) {
+        return candidate;
+      }
+    }
+  }
+
+  const ann = project.images.annotated;
+  const clean = project.images.clean;
+  if (ann && clean && imageDimensionsMatch(ann, clean)) {
+    return ann;
+  }
+  if (ann) return ann;
+  if (clean) return clean;
+  return getDisplayImage(project);
+}
+
+/**
+ * Board / plan hero raster — use print ortho only when it matches trace dimensions;
+ * otherwise fall back to the tracing image so linework stays registered.
+ */
+export function getBoardPlanImage(project: Project):
+  | { filename: string; width: number; height: number }
+  | undefined {
+  const tracing = getTracingImage(project);
+  const print = project.printOrtho;
+  if (print && tracing && imageDimensionsMatch(print, tracing)) {
+    return {
+      filename: print.filename,
+      width: print.width,
+      height: print.height,
+    };
+  }
+  if (tracing) return tracing;
+  return getPrintBoardImage(project) ?? getDisplayImage(project);
+}
+
 /** Full-resolution orthophoto pixel dimensions (WebODM / tile pyramid). */
 export function getFullOrthoDimensions(
   project: Project

@@ -51,6 +51,24 @@ export async function buildPlanCompositePng(
   return { buffer, width, height, hash };
 }
 
+/** Cached composite PNG URL for board schematic side panel. */
+export async function resolvePlanSchematicFilename(
+  projectId: string,
+  project: Project
+): Promise<string | undefined> {
+  if (!project.images.clean) return undefined;
+  try {
+    const { buffer, hash } = await buildPlanCompositePng(projectId, project);
+    const existing = await readCompositeCache(projectId, hash);
+    if (!existing) {
+      await saveCompositeCache(projectId, hash, buffer);
+    }
+    return `derived/composite-${hash}.png`;
+  } catch {
+    return undefined;
+  }
+}
+
 export async function saveCompositeCache(
   projectId: string,
   hash: string,

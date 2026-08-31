@@ -230,6 +230,11 @@ export default function PolygonEditor({
         : annotatedImageUrl;
   const image = useHtmlImage(activeImageUrl);
   const maskImage = useHtmlImage(showMaskOverlay && maskImageUrl ? maskImageUrl : "");
+  /** Prefer loaded raster dimensions when project metadata is stale vs file bytes. */
+  const coordW =
+    image?.naturalWidth && image.naturalWidth > 0 ? image.naturalWidth : imageWidth;
+  const coordH =
+    image?.naturalHeight && image.naturalHeight > 0 ? image.naturalHeight : imageHeight;
 
   const history = useBoundedHistory<InterpretFeature[]>(cloneFeatures(initialFeatures));
   const [features, setFeatures] = useState<InterpretFeature[]>(() =>
@@ -283,6 +288,12 @@ export default function PolygonEditor({
       /* best-effort */
     }
   }, [projectId, watercolorPreset, applyWatercolorPoll]);
+
+  useEffect(() => {
+    if (baseLayer === "clean" && !cleanImageUrl) {
+      setBaseLayer("annotated");
+    }
+  }, [baseLayer, cleanImageUrl]);
 
   useEffect(() => {
     if (editorSettings?.watercolorPreset) {
@@ -381,9 +392,9 @@ export default function PolygonEditor({
   }, []);
 
   const maxH = typeof window !== "undefined" ? window.innerHeight * 0.62 : 520;
-  const fitScale = Math.min(containerW / imageWidth, maxH / imageHeight, 1);
-  const displayW = Math.round(imageWidth * fitScale);
-  const displayH = Math.round(imageHeight * fitScale);
+  const fitScale = Math.min(containerW / coordW, maxH / coordH, 1);
+  const displayW = Math.round(coordW * fitScale);
+  const displayH = Math.round(coordH * fitScale);
 
   const snapTargets = useMemo(
     () =>
@@ -419,8 +430,8 @@ export default function PolygonEditor({
     if (!activePlant) return undefined;
     return canopyRadiusNorm(
       activePlant.canopyDiameterFt,
-      imageWidth,
-      imageHeight,
+      coordW,
+      coordH,
       pixelsPerFoot
     );
   }
@@ -435,8 +446,8 @@ export default function PolygonEditor({
     if (!activeObject) return undefined;
     return objectRadiusNorm(
       activeObject.sizeFt,
-      imageWidth,
-      imageHeight,
+      coordW,
+      coordH,
       pixelsPerFoot
     );
   }

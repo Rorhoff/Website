@@ -8,7 +8,21 @@ import {
   normToPx,
 } from "@/lib/feature-geometry";
 import type { InterpretFeature } from "@/lib/interpret-schema";
+import { isPlantPointFeatureType } from "@/config/utah-plants";
 import { computeFeaturePxBounds } from "@/lib/plan-bounds";
+
+/** Point plant markers share one legend number per species (e.g. all lavender → 9). */
+function calloutGroupKey(
+  f: InterpretFeature,
+  legend: LegendEntry[]
+): string | null {
+  if (f.geometry.kind !== "point") return null;
+  if (isPlantPointFeatureType(f.featureType)) {
+    return f.featureType;
+  }
+  const entry = legend.find((e) => e.featureType === f.featureType);
+  return (f.label || entry?.label || f.featureType).trim().toLowerCase();
+}
 
 export type Callout = {
   featureId: string;
@@ -147,7 +161,21 @@ export function buildCalloutsAndLegend(
       ? calloutRadiusForSpan(options.planSpanPx)
       : CALLOUT_RADIUS);
 
-  let callouts: Callout[] = ordered.map((f, i) => {
+  const numberByGroup = new Map<string, number>();
+  const numberByFeatureId = new Map<string, number>();
+  let nextNumber = 1;
+  for (const f of ordered) {
+    const groupKey = calloutGroupKey(f, legend);
+    if (groupKey != null) {
+      if (!numberByGroup.has(groupKey)) {
+        numberByGroup.set(groupKey, nextNumber++);
+      }
+    } else {
+      numberByFeatureId.set(f.id, nextNumber++);
+    }
+  }
+
+  let callouts: Callout[] = ordered.map((f) => {
     const c = centroidNormFromFeature(f, imageW, imageH, georefCtx);
     const px = normToPx(c, imageW, imageH);
     const entry = legend.find((e) => e.featureType === f.featureType);
@@ -157,9 +185,14 @@ export function buildCalloutsAndLegend(
       bounds.height,
       globalCalloutR
     );
+    const groupKey = calloutGroupKey(f, legend);
+    const number =
+      groupKey != null
+        ? numberByGroup.get(groupKey)!
+        : numberByFeatureId.get(f.id)!;
     return {
       featureId: f.id,
-      number: i + 1,
+      number,
       x: px.x,
       y: px.y,
       label: f.label || entry?.label || f.featureType,
@@ -174,13 +207,48 @@ export function buildCalloutsAndLegend(
 
   callouts = nudgeCallouts(callouts, options?.obstacles ?? []);
 
-  const legendRows: LegendRow[] = callouts.map((c) => ({
-    number: c.number,
-    label: c.label,
-    featureType: c.featureType,
-    featureId: c.featureId,
-    areaSqFt: c.areaSqFt,
-  }));
+  const legendRows: LegendRow[] = [];
+  const seenGroups = new Set<string>();
+  for (const f of ordered) {
+    const groupKey = calloutGroupKey(f, legend);
+    if (groupKey != null) {
+      if (seenGroups.has(groupKey)) continue;
+      seenGroups.add(groupKey);
+      const members = ordered.filter(
+        (m) => calloutGroupKey(m, legend) === groupKey
+      );
+      const first = members[0];
+      const entry = legend.find((e) => e.featureType === first.featureType);
+      let areaSum: number | null = null;
+      if (canMeasure) {
+        areaSum = 0;
+        for (const m of members) {
+          const a = featureAreaSqFt(m, imageW, imageH, pixelsPerFoot, georefCtx);
+          if (a != null) areaSum += a;
+        }
+      }
+      legendRows.push({
+        number: numberByGroup.get(groupKey)!,
+        label: first.label || entry?.label || first.featureType,
+        featureType: first.featureType,
+        featureId: first.id,
+        areaSqFt: areaSum,
+      });
+    } else {
+      const entry = legend.find((e) => e.featureType === f.featureType);
+      legendRows.push({
+        number: numberByFeatureId.get(f.id)!,
+        label: f.label || entry?.label || f.featureType,
+        featureType: f.featureType,
+        featureId: f.id,
+        areaSqFt:
+          canMeasure
+            ? featureAreaSqFt(f, imageW, imageH, pixelsPerFoot, georefCtx)
+            : null,
+      });
+    }
+  }
+  legendRows.sort((a, b) => a.number - b.number);
 
   return { callouts, legendRows };
 }

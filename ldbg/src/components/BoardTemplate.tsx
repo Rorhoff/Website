@@ -13,6 +13,7 @@ import {
 import type { InterpretFeature } from "@/lib/interpret-schema";
 import { boardDimensions, boardGridTracks, type BoardPageSize } from "@/lib/board-sizes";
 import { resolveEnabledNotes } from "@/lib/general-notes";
+import type { GeorefDisplayContext } from "@/lib/georef-display";
 import type {
   BoardSettings,
   PlanSettings,
@@ -41,8 +42,10 @@ type Props = {
   imageWidth: number;
   imageHeight: number;
   pixelsPerFoot?: number;
+  georefContext?: GeorefDisplayContext;
   annotatedUrl?: string;
   cleanUrl?: string;
+  planSchematicBaseUrl?: string;
   baseImageUrl?: string;
   baseImageFilter?: string;
   featureFills?: Record<string, FeatureFillEntry>;
@@ -100,8 +103,10 @@ export function BoardTemplate({
   imageWidth,
   imageHeight,
   pixelsPerFoot,
+  georefContext,
   annotatedUrl,
   cleanUrl,
+  planSchematicBaseUrl,
   baseImageUrl,
   baseImageFilter,
   featureFills,
@@ -131,7 +136,7 @@ export function BoardTemplate({
     imageHeight,
     planPanelWidth,
     pixelsPerFoot,
-    undefined,
+    georefContext,
     hiddenTypes
   );
 
@@ -170,6 +175,7 @@ export function BoardTemplate({
           "--right-hero-h": `${grid.rightHeroH}px`,
           "--right-materials-h": `${grid.rightMaterialsH}px`,
           "--rail-thumb-h": `${grid.railThumbH}px`,
+          "--rail-schematic-h": `${grid.railSchematicH}px`,
         } as React.CSSProperties
       }
       data-project-id={projectId}
@@ -199,6 +205,40 @@ export function BoardTemplate({
               )}
             </div>
           </div>
+          <div className={styles.panel}>
+            <div className={styles.panelHead}>Plan schematic</div>
+            <div className={`${styles.panelBody} ${styles.schematicCell}`}>
+              {features.length > 0 ? (
+                <BoardPlanSvg
+                  features={features}
+                  legend={legend}
+                  imageWidth={imageWidth}
+                  imageHeight={imageHeight}
+                  baseImageUrl={planSchematicBaseUrl ?? cleanUrl}
+                  planSettings={{
+                    baseMode: "orthophoto",
+                    basePreset: planSettings?.basePreset ?? "off",
+                    stylePreset: planSettings?.stylePreset ?? "off",
+                    orthophotoOpacity: planSchematicBaseUrl ? 1 : 0.4,
+                    showFeatureOutlines: true,
+                    showInkLinework: false,
+                    watercolorCompareRaw: planSettings?.watercolorCompareRaw ?? false,
+                    showContours: planSettings?.showContours ?? false,
+                    showDrainageArrows: planSettings?.showDrainageArrows ?? false,
+                    contourMinorFt: planSettings?.contourMinorFt ?? 1,
+                    contourMajorFt: planSettings?.contourMajorFt ?? 5,
+                  }}
+                  northRotationDeg={northRotationDeg}
+                  pixelsPerFoot={pixelsPerFoot}
+                  georefCtx={georefContext}
+                  featureFills={featureFills}
+                  featureFillImageUrl={featureFillImageUrl}
+                />
+              ) : (
+                <Placeholder label="Plan schematic — draw features and fill materials" />
+              )}
+            </div>
+          </div>
           <GeneralNotesBlock notes={numberedNotes} alwaysShow />
         </aside>
 
@@ -219,6 +259,7 @@ export function BoardTemplate({
                   planSettings={planSettings}
                   northRotationDeg={northRotationDeg}
                   pixelsPerFoot={pixelsPerFoot}
+                  georefCtx={georefContext}
                   hiddenFeatureTypes={hiddenTypes}
                   featureFills={featureFills}
                   featureFillImageUrl={featureFillImageUrl}
@@ -235,6 +276,7 @@ export function BoardTemplate({
                   imageWidth={imageWidth}
                   imageHeight={imageHeight}
                   pixelsPerFoot={pixelsPerFoot}
+                  georefCtx={georefContext}
                   hiddenFeatureTypes={hiddenTypes}
                 />
               ) : (
