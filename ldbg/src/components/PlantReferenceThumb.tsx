@@ -2,7 +2,6 @@ import { PlantReferenceSvg } from "@/components/PlantReferenceSvg";
 import styles from "./board.module.css";
 
 type Props = {
-  commonName: string;
   featureType?: string;
   fill?: string;
   stroke?: string;
