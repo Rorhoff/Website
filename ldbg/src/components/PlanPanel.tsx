@@ -436,7 +436,7 @@ export function PlanPanel({
             <p className="mt-2 text-red-700">{planBase.styleError}</p>
           ) : null}
         </details>
-      ) : planBase.styleMissing && presetUsesStylePass(stylePreset) ? (
+      ) : planBase.styleMissing && geminiEnabled() && presetUsesStylePass(stylePreset) ? (
         <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-800">
           <p className="font-medium">Style pass failed</p>
           <p className="mt-1 whitespace-pre-wrap">{planBase.styleError}</p>

@@ -9,6 +9,14 @@ export type GeneralNote = {
 
 export const GENERAL_NOTES: readonly GeneralNote[] = [
   {
+    id: "concept-disclaimer",
+    defaultOn: true,
+    category: "scope",
+    text:
+      "Conceptual design for illustration only. Not construction documents. " +
+      "Not prepared by a licensed landscape architect or engineer.",
+  },
+  {
     id: "concept",
     defaultOn: true,
     category: "scope",

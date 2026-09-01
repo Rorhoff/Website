@@ -110,6 +110,8 @@ type Props = {
   features: InterpretFeature[];
   legend: LegendEntry[];
   pixelsPerFoot?: number;
+  /** Calibration reference distance (ft) for area range display. */
+  calibrationDistanceFeet?: number;
   georefContext?: GeorefDisplayContext;
   editorSettings?: EditorSettings;
   projectId?: string;
@@ -165,6 +167,7 @@ export default function PolygonEditor({
   features: initialFeatures,
   legend,
   pixelsPerFoot,
+  calibrationDistanceFeet,
   georefContext,
   editorSettings,
   maskImageUrl,
@@ -1985,7 +1988,11 @@ export default function PolygonEditor({
                           ? "Size"
                           : "Area"}
                       </dt>
-                      <dd>{formatFeatureAreaLabel(area, selected.featureType)}</dd>
+                      <dd>
+                        {formatFeatureAreaLabel(area, selected.featureType, {
+                          calibrationDistanceFeet,
+                        })}
+                      </dd>
                     </div>
                   ) : null}
                   {perimeter != null ? (

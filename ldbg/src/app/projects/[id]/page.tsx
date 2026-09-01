@@ -362,6 +362,7 @@ export default function ProjectPage() {
             legend={legend}
             pixelsPerFoot={pixelsPerFoot}
             georefContext={georefContext}
+            calibrationDistanceFeet={calibration?.distanceFeet}
             editorSettings={editorSettings}
             maskImageUrl={cvMaskUrl}
             onAutosave={handleEditorAutosave}

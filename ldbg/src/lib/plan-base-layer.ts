@@ -1,3 +1,4 @@
+import { geminiEnabled } from "@/config/ai-features";
 import type { PlanSettings } from "@/lib/project-schema";
 import { presetUsesStylePass, type StylePresetId } from "@/config/styles";
 import type { RegistrationResult } from "@/lib/style-pass-schema";
@@ -31,13 +32,15 @@ export function resolvePlanBaseLayer(
 ): PlanBaseLayer {
   const baseMode = settings?.baseMode ?? "orthophoto";
   const opacity = settings?.orthophotoOpacity ?? 0.4;
-  const stylePreset = settings?.stylePreset ?? "watercolor-plan";
+  const stylePreset = settings?.stylePreset ?? "off";
+  const effectivePreset: StylePresetId =
+    !geminiEnabled() && presetUsesStylePass(stylePreset) ? "off" : stylePreset;
 
   if (baseMode === "white") {
-    return { opacity: 1, stylePreset };
+    return { opacity: 1, stylePreset: effectivePreset };
   }
 
-  if (presetUsesStylePass(stylePreset)) {
+  if (presetUsesStylePass(effectivePreset)) {
     const styledUrl = urls.forPrint
       ? (urls.styleRegisteredUrl ?? urls.stylePreviewUrl)
       : (urls.stylePreviewUrl ?? urls.styleRegisteredUrl);
@@ -46,7 +49,7 @@ export function resolvePlanBaseLayer(
         url: styledUrl,
         opacity: 1,
         usesStylePass: true,
-        stylePreset,
+        stylePreset: effectivePreset,
         registration: urls.registration,
       };
     }
@@ -68,13 +71,17 @@ export function resolvePlanBaseLayer(
       url: undefined,
       opacity: 1,
       usesStylePass: true,
-      stylePreset,
+      stylePreset: effectivePreset,
       styleMissing: true,
       styleError: err,
       registration: urls.registration,
     };
   }
 
-  const base = urls.cleanUrl ?? urls.rawUrl;
-  return { url: base, opacity: presetUsesStylePass(stylePreset) ? 1 : opacity, stylePreset };
+  const base = urls.rawUrl ?? urls.cleanUrl;
+  return {
+    url: base,
+    opacity: presetUsesStylePass(effectivePreset) ? 1 : opacity,
+    stylePreset: effectivePreset,
+  };
 }

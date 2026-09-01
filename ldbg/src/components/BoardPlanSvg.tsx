@@ -48,6 +48,14 @@ type BoardPlanProps = {
   fullFrame?: boolean;
 };
 
+type BoardPlanLegendProps = Omit<
+  BoardPlanProps,
+  "baseImageUrl" | "planSettings" | "northRotationDeg" | "baseImageFilter" | "featureFills" | "featureFillImageUrl" | "fullFrame"
+> & {
+  /** Manual calibration reference distance (ft) for ±1 ft area band. */
+  calibrationDistanceFeet?: number;
+};
+
 function isTreeType(featureType: string): boolean {
   return featureType === "tree" || featureType === "tree_specimen";
 }
@@ -246,7 +254,6 @@ export function BoardPlanSvg({
           height={imageHeight}
           opacity={baseOpacity}
           filter={baseImageFilter}
-          preserveAspectRatio="xMidYMid meet"
         />
       ) : (
         <rect x={bounds.x} y={bounds.y} width={bounds.width} height={bounds.height} fill="#ffffff" stroke="#e7e5e4" strokeWidth={1} />
@@ -313,7 +320,8 @@ export function BoardPlanLegend({
   pixelsPerFoot,
   georefCtx,
   hiddenFeatureTypes = [],
-}: Omit<BoardPlanProps, "baseImageUrl" | "planSettings" | "northRotationDeg">) {
+  calibrationDistanceFeet,
+}: BoardPlanLegendProps) {
   const designFeatures = features.filter(
     (f) => !f.existing && !hiddenFeatureTypes.includes(f.featureType)
   );
@@ -334,7 +342,9 @@ export function BoardPlanLegend({
       ) : (
         legendRows.map((row) => {
           const typeLabel = labelForFeatureType(row.featureType, legend);
-          const measure = formatLegendRowMeasure(row, legend);
+          const measure = formatLegendRowMeasure(row, legend, {
+            calibrationDistanceFeet,
+          });
           return (
             <div key={row.featureId} className={styles.legendRow}>
               <span className={styles.legendNum}>{row.number}</span>

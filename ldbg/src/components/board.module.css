@@ -359,8 +359,8 @@
 }
 
 .plantsList {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 6px;
   padding: 8px;
   overflow: hidden;

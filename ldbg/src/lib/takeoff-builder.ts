@@ -17,6 +17,34 @@ function wasteFactorPct(featureType: string, unit: LegendEntry["unit"]): number 
   return 0;
 }
 
+function quantityWithWaste(quantity: number, waste: number): number {
+  if (waste <= 0) return quantity;
+  return Math.round(quantity * (1 + waste / 100) * 10) / 10;
+}
+
+/** Roll up per-instance lines into one row per feature type + unit + label. */
+function aggregateTakeoffLines(lines: TakeoffLine[]): TakeoffLine[] {
+  const byKey = new Map<string, TakeoffLine>();
+
+  for (const line of lines) {
+    const key = `${line.featureType}\0${line.unit}`;
+    const existing = byKey.get(key);
+    if (!existing) {
+      byKey.set(key, { ...line });
+      continue;
+    }
+    existing.quantity = Math.round((existing.quantity + line.quantity) * 10) / 10;
+    existing.quantityWithWaste = quantityWithWaste(
+      existing.quantity,
+      existing.wasteFactorPct
+    );
+  }
+
+  return [...byKey.values()].sort((a, b) =>
+    a.featureType.localeCompare(b.featureType)
+  );
+}
+
 export function buildTakeoff(
   features: InterpretFeature[],
   legend: LegendEntry[],
@@ -47,10 +75,6 @@ export function buildTakeoff(
 
     quantity = Math.round(quantity * 10) / 10;
     const waste = wasteFactorPct(f.featureType, unit);
-    const quantityWithWaste =
-      waste > 0
-        ? Math.round(quantity * (1 + waste / 100) * 10) / 10
-        : quantity;
 
     lines.push({
       featureId: f.id,
@@ -59,11 +83,11 @@ export function buildTakeoff(
       unit,
       quantity,
       wasteFactorPct: waste,
-      quantityWithWaste,
+      quantityWithWaste: quantityWithWaste(quantity, waste),
     });
   }
 
-  return lines.sort((a, b) => a.featureType.localeCompare(b.featureType));
+  return aggregateTakeoffLines(lines);
 }
 
 /** Area quantities only — for design-content prompt (no elevation / slope fields). */

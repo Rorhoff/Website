@@ -11,15 +11,6 @@ type Props = {
   basePath?: string;
 };
 
-function formatIssueDate(iso?: string): string {
-  const d = iso ? new Date(iso) : new Date();
-  return d.toLocaleDateString("en-US", {
-    month: "numeric",
-    day: "numeric",
-    year: "numeric",
-  });
-}
-
 export function TitleBlock({
   metadata,
   boardSettings,
@@ -33,8 +24,6 @@ export function TitleBlock({
     { label: "PROJECT", value: metadata.projectTitle || "—" },
     { label: "CLIENT", value: metadata.clientName || "—" },
     { label: "LOCATION", value: metadata.propertyAddress || "—" },
-    { label: "DATE", value: formatIssueDate(boardSettings?.issueDate) },
-    { label: "SHEET", value: boardSettings?.sheetNumber ?? "C-100" },
     { label: "REVISION", value: boardSettings?.revision ?? "Rev 1" },
     { label: "DRAWN BY", value: boardSettings?.designer || "—" },
     { label: "SCALE", value: scaleLabel },
@@ -64,7 +53,6 @@ export function TitleBlock({
         <div className={styles.titleBlockContact}>{contactParts.join(" · ")}</div>
       ) : null}
       <hr className={styles.titleBlockRule} />
-      <p className={styles.titleBlockDisclaimer}>{BRAND.disclaimerShort}</p>
 
       <table className={styles.titleBlockTable}>
         <tbody>

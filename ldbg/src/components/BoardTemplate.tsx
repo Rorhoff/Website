@@ -48,7 +48,8 @@ type Props = {
   imageHeight: number;
   pixelsPerFoot?: number;
   georefContext?: GeorefDisplayContext;
-  annotatedUrl?: string;
+  calibrationDistanceFeet?: number;
+  sourceDroneUrl?: string;
   styledPlanUrl?: string;
   baseImageUrl?: string;
   baseImageFilter?: string;
@@ -85,7 +86,8 @@ export function BoardTemplate({
   imageHeight,
   pixelsPerFoot,
   georefContext,
-  annotatedUrl,
+  calibrationDistanceFeet,
+  sourceDroneUrl,
   styledPlanUrl,
   baseImageUrl,
   baseImageFilter,
@@ -195,6 +197,7 @@ export function BoardTemplate({
                   pixelsPerFoot={pixelsPerFoot}
                   georefCtx={georefContext}
                   hiddenFeatureTypes={hiddenTypes}
+                  calibrationDistanceFeet={calibrationDistanceFeet}
                 />
               ) : (
                 <Placeholder label="Numbered plan legend" />
@@ -279,11 +282,11 @@ export function BoardTemplate({
           <div className={styles.panel}>
             <div className={styles.panelHead}>Source drone</div>
             <div className={styles.panelBody}>
-              {annotatedUrl ? (
+              {sourceDroneUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img className={styles.thumbContain} src={annotatedUrl} alt="" />
+                <img className={styles.thumbContain} src={sourceDroneUrl} alt="" />
               ) : (
-                <Placeholder label="Source drone photo" />
+                <Placeholder label="Clean orthophoto" />
               )}
             </div>
           </div>
@@ -294,7 +297,7 @@ export function BoardTemplate({
                 // eslint-disable-next-line @next/next/no-img-element
                 <img className={styles.thumbContain} src={styledPlanUrl} alt="" />
               ) : (
-                <Placeholder label="Composite plan preview" />
+                <Placeholder label="Annotated plan sketch" />
               )}
             </div>
           </div>

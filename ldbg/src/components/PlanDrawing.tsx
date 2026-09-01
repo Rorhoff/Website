@@ -37,7 +37,7 @@ import {
 export type PlanDrawingProject = {
   features: InterpretFeature[];
   northRotationDeg: number;
-  calibration?: { pixelsPerFoot: number };
+  calibration?: { pixelsPerFoot: number; distanceFeet?: number };
   pixelsPerFoot?: number;
   georefCtx?: GeorefDisplayContext;
   elevationAnalysis?: StoredElevationAnalysis;
@@ -765,7 +765,9 @@ export function PlanDrawing({
             legendRows.map((row, i) => {
               const y = 44 + i * 36;
               const typeLabel = labelForFeatureType(row.featureType, legend);
-              const measure = formatLegendRowMeasure(row, legend);
+              const measure = formatLegendRowMeasure(row, legend, {
+                calibrationDistanceFeet: project.calibration?.distanceFeet,
+              });
               return (
                 <g key={row.featureId} transform={`translate(0, ${y})`}>
                   <circle cx={16} cy={0} r={16} fill="#1c1917" />

@@ -12,7 +12,6 @@ import {
   getPixelsPerFoot,
   getPrintBoardImage,
   getTracingImage,
-  imageDimensionsMatch,
   isGeoreferenced,
   isProjectScaled,
 } from "@/lib/georef";
@@ -92,17 +91,13 @@ export default async function BoardPage({ params, searchParams }: Props) {
     ? fileUrl(id, compositeFilename, exportMode)
     : undefined;
 
-  const cleanMatchesTrace =
-    Boolean(clean && tracingImage && imageDimensionsMatch(clean, tracingImage));
-
   const usesStyledBase = Boolean(planBase.usesStylePass && planBase.url);
-  const styledPlanUrl = planBase.url ?? compositeUrl;
+  /** Annotated/tracing image keeps feature linework aligned with the editor. */
   const planBaseImageUrl = usesStyledBase
     ? planBase.url
-    : compositeUrl ??
-      (cleanMatchesTrace ? planBase.url : undefined) ??
-      (cleanMatchesTrace ? cleanUrl : undefined) ??
-      rawBaseUrl;
+    : rawBaseUrl ?? cleanUrl ?? compositeUrl;
+  const sourceDroneUrl = cleanUrl;
+  const styledPlanThumbUrl = ann ? fileUrl(id, ann.filename, exportMode) : undefined;
 
   const hasFilledFeatures = Object.values(boardProject.featureFills ?? {}).some(
     (e) => e.status === "filled"
@@ -173,10 +168,9 @@ export default async function BoardPage({ params, searchParams }: Props) {
           imageHeight={rawBaseImage?.height ?? 1000}
           pixelsPerFoot={getPixelsPerFoot(boardProject)}
           georefContext={georefContext}
-          annotatedUrl={
-            ann ? fileUrl(id, ann.filename, exportMode) : undefined
-          }
-          styledPlanUrl={styledPlanUrl}
+          calibrationDistanceFeet={boardProject.calibration?.distanceFeet}
+          sourceDroneUrl={sourceDroneUrl}
+          styledPlanUrl={styledPlanThumbUrl}
           baseImageUrl={planBaseImageUrl}
           baseImageFilter={planBase.svgFilter}
           featureFills={boardProject.featureFills}
