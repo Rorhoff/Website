@@ -1,5 +1,7 @@
 import Phaser from 'phaser';
 import { Net, Lobbyist, Team } from '../net';
+import { updateBotBrains, type BotWorld } from '../bots';
+import { applyLocalKeyboard } from '../local-input';
 import {
   W, H, COLORS, TUNING, PLATFORMS, GEM_SPAWNS, SPAWN,
   SLOT_SIZE, HOARD_Y, slotRect,
@@ -149,6 +151,9 @@ export class Game extends Phaser.Scene {
   update(time: number, delta: number) {
     if (this.over) return;
 
+    applyLocalKeyboard(this.net, this.input.keyboard);
+    updateBotBrains(this.buildBotWorld(time));
+
     for (const a of this.actors) this.updateActor(a, time, delta);
 
     this.updateWyrm();
@@ -160,6 +165,39 @@ export class Game extends Phaser.Scene {
 
     // Edge flags live exactly one frame.
     for (const a of this.actors) { a.input.jumpEdge = false; a.input.actionEdge = false; }
+  }
+
+  private buildBotWorld(time: number): BotWorld {
+    const slotCount = (t: Team) => this.slots[t].filter(Boolean).length;
+    const gems: Array<{ x: number; y: number }> = [];
+    for (const child of this.gems.getChildren()) {
+      const s = child as Sprite;
+      if (s.active) gems.push({ x: s.x, y: s.y });
+    }
+    return {
+      time,
+      wyrmX: this.wyrm.x,
+      slotsFilled: { blue: slotCount('blue'), red: slotCount('red') },
+      gems,
+      actors: this.actors.map((a) => {
+        const body = a.sprite.body as Phaser.Physics.Arcade.Body;
+        return {
+          pid: a.pid,
+          team: a.team,
+          role: a.role,
+          x: a.sprite.x,
+          y: a.sprite.y,
+          vy: body.velocity.y,
+          onGround: body.blocked.down || body.touching.down,
+          carrying: a.carrying,
+          riding: a.riding,
+          deadUntil: a.deadUntil,
+          stunUntil: a.stunUntil,
+          input: a.input,
+          bot: a.bot,
+        };
+      }),
+    };
   }
 
   private updateActor(a: Actor, time: number, _delta: number) {

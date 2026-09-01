@@ -26,6 +26,41 @@ jobs:
       - name: Run T1 Landscape geo tests
         run: node t1landscape-test/test_geo.mjs
 
+  test-motherwyrm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install MotherWyrm TV deps
+        run: npm ci
+        working-directory: motherwyrm/tv
+      - name: MotherWyrm unit tests
+        run: npm test
+        working-directory: motherwyrm/tv
+      - name: Install Python deps
+        run: pip install -r requirements.txt
+      - name: MotherWyrm WebSocket relay tests
+        run: pytest mw-test/ -v
+
+  test-ldbg-features:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install LDBG deps
+        run: npm ci
+        working-directory: ldbg
+      - name: LDBG feature QA
+        run: npm run test:feature-qa
+        working-directory: ldbg
+
   test-itw:
     runs-on: ubuntu-latest
     services:

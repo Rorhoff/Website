@@ -9,6 +9,7 @@
     "start": "next start -p 3002",
     "lint": "eslint",
     "test:interpret": "tsx scripts/test-interpret.ts",
+    "test:feature-qa": "tsx scripts/test-feature-qa.ts",
     "test:cv-import": "python scripts/test_cv_import_fixtures.py",
     "test:watercolor": "python scripts/test_watercolor_acceptance.py"
   },

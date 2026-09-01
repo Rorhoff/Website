@@ -16,6 +16,10 @@ export interface Lobbyist {
   team: Team;
   role: Role;
   input: InputState;
+  /** Simulated phone player — no WebSocket. */
+  bot?: boolean;
+  /** Keyboard player on the TV. */
+  local?: boolean;
 }
 
 const blank = (): InputState => ({
@@ -42,6 +46,12 @@ export class Net {
   onLeave: (pid: number) => void = () => {};
 
   private ws!: WebSocket;
+  private localPid = 1000;
+
+  allocatePid(): number {
+    this.localPid += 1;
+    return this.localPid;
+  }
 
   connect(url?: string) {
     this.ws = new WebSocket(url ?? wsUrl());
@@ -66,7 +76,9 @@ export class Net {
 
           const p: Lobbyist = { pid: m.pid, name: m.name, team, role, input: blank() };
           this.players.set(m.pid, p);
-          this.send({ t: "assign", pid: m.pid, team, role });
+          if (!p.bot && !p.local) {
+            this.send({ t: "assign", pid: m.pid, team, role });
+          }
           this.onJoin(p);
           break;
         }
@@ -103,6 +115,8 @@ export class Net {
   }
 
   cue(pid: number, text: string) {
+    const p = this.players.get(pid);
+    if (p?.bot || p?.local) return;
     this.send({ t: "cue", pid, cue: text });
   }
 
