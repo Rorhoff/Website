@@ -143,6 +143,14 @@ export class Net {
     this.send({ ...msg, pid });
   }
 
+  notifyCountdown(n: number) {
+    for (const p of this.players.values()) {
+      if (!p.bot && !p.local) {
+        this.send({ t: "countdown", pid: p.pid, n });
+      }
+    }
+  }
+
   notifyGameStart() {
     for (const p of this.players.values()) {
       if (!p.bot && !p.local) {

@@ -2,6 +2,7 @@ import Phaser from "phaser";
 import { Net } from "../net";
 import { W, H, COLORS } from "../arena";
 import { addLocalPlayer, fillWithBots, formatPlayerLabel } from "../roster";
+import { padJoinUrl, qrDataUrl } from "../qr";
 
 export class Lobby extends Phaser.Scene {
   private net!: Net;
@@ -9,6 +10,11 @@ export class Lobby extends Phaser.Scene {
   private roster!: Phaser.GameObjects.Text;
   private hint!: Phaser.GameObjects.Text;
   private autoStartAt = 0;
+  private countingDown = false;
+  private countdownOverlay?: Phaser.GameObjects.Text;
+  private countdownSub?: Phaser.GameObjects.Text;
+  private qrImage?: Phaser.GameObjects.Image;
+  private qrCaption?: Phaser.GameObjects.Text;
 
   constructor() {
     super("Lobby");
@@ -20,6 +26,7 @@ export class Lobby extends Phaser.Scene {
 
   create() {
     this.cameras.main.setBackgroundColor(COLORS.sky);
+    this.countingDown = false;
 
     this.add.text(W / 2, 72, "MotherWyrm", {
       fontFamily: "system-ui, sans-serif",
@@ -28,7 +35,7 @@ export class Lobby extends Phaser.Scene {
       color: "#efe4d2",
     }).setOrigin(0.5);
 
-    this.add.text(W / 2, 132, `Phones: ${location.origin}/mw/pad/  ·  or play on keyboard`, {
+    this.add.text(W / 2, 132, "Scan the QR code on your phone · or play on keyboard", {
       fontFamily: "system-ui, sans-serif",
       fontSize: "20px",
       color: "#8b7a66",
@@ -53,6 +60,12 @@ export class Lobby extends Phaser.Scene {
       color: "#7fe3c4",
     }).setOrigin(0.5);
 
+    this.qrCaption = this.add.text(W - 132, 358, "Scan to join", {
+      fontFamily: "system-ui, sans-serif",
+      fontSize: "16px",
+      color: "#8b7a66",
+    }).setOrigin(0.5).setVisible(false);
+
     this.roster = this.add.text(W / 2, 400, "", {
       fontFamily: "system-ui, sans-serif",
       fontSize: "22px",
@@ -61,23 +74,59 @@ export class Lobby extends Phaser.Scene {
       lineSpacing: 8,
     }).setOrigin(0.5, 0);
 
+    this.add.text(W / 2, 528, "Blue button — Jump / Fly", {
+      fontFamily: "system-ui, sans-serif",
+      fontSize: "17px",
+      color: "#4aa3d8",
+    }).setOrigin(0.5);
+
+    this.add.text(W / 2, 554, "Red button — Drop gem / Attack", {
+      fontFamily: "system-ui, sans-serif",
+      fontSize: "17px",
+      color: "#e0663f",
+    }).setOrigin(0.5);
+
     this.hint = this.add.text(W / 2, H - 56, "Waiting for players…", {
       fontFamily: "system-ui, sans-serif",
       fontSize: "20px",
       color: "#8b7a66",
     }).setOrigin(0.5);
 
-    this.net.onCode = (code) => this.codeText.setText(code);
+    this.net.onCode = (code) => {
+      this.codeText.setText(code);
+      void this.refreshQr(code);
+    };
     this.net.onJoin = () => this.redraw();
     this.net.onLeave = () => this.redraw();
     this.net.onHostStart = () => this.tryStart();
     this.net.onHostFillBots = () => this.addRobots();
-    if (this.net.code) this.codeText.setText(this.net.code);
+    if (this.net.code) {
+      this.codeText.setText(this.net.code);
+      void this.refreshQr(this.net.code);
+    }
     this.redraw();
 
     this.input.keyboard?.on("keydown-R", () => this.addRobots());
     this.input.keyboard?.on("keydown-P", () => this.addHuman());
     this.input.keyboard?.on("keydown-SPACE", () => this.tryStart());
+  }
+
+  private async refreshQr(code: string) {
+    try {
+      const url = padJoinUrl(code, location.origin);
+      const dataUrl = await qrDataUrl(url);
+      const key = "mw_pad_qr";
+      const base64 = dataUrl.replace(/^data:image\/png;base64,/, "");
+      if (this.textures.exists(key)) this.textures.remove(key);
+      this.textures.addBase64(key, base64);
+      this.qrImage?.destroy();
+      this.qrImage = this.add.image(W - 132, 268, key)
+        .setDisplaySize(148, 148)
+        .setDepth(10);
+      this.qrCaption?.setVisible(true);
+    } catch {
+      this.qrCaption?.setText("QR unavailable").setVisible(true);
+    }
   }
 
   private addRobots() {
@@ -128,6 +177,8 @@ export class Lobby extends Phaser.Scene {
   }
 
   update() {
+    if (this.countingDown) return;
+
     const teams = new Set([...this.net.players.values()].map((p) => p.team));
     const ready = teams.size === 2 && this.net.players.size >= 2;
 
@@ -154,7 +205,7 @@ export class Lobby extends Phaser.Scene {
           return;
         }
       }
-      if (!this.hint.text.includes("Space")) {
+      if (!this.hint.text.includes("Space") && !this.hint.text.includes("countdown")) {
         const hostHint =
           this.net.hostPid != null
             ? "Host can start from phone · Space on TV · mothers tap Action"
@@ -166,9 +217,45 @@ export class Lobby extends Phaser.Scene {
 
   private tryStart() {
     const teams = new Set([...this.net.players.values()].map((p) => p.team));
-    if (teams.size < 2) return;
+    if (teams.size < 2 || this.countingDown) return;
+    this.countingDown = true;
     this.autoStartAt = 0;
-    this.net.notifyGameStart();
-    this.scene.start("Game", { net: this.net });
+    this.beginCountdown();
+  }
+
+  private beginCountdown() {
+    this.hint.setText("Rotate phones to landscape…");
+
+    this.countdownOverlay = this.add.text(W / 2, H / 2 - 30, "3", {
+      fontFamily: "system-ui, sans-serif",
+      fontSize: "200px",
+      fontStyle: "bold",
+      color: "#efe4d2",
+    }).setOrigin(0.5).setDepth(200);
+
+    this.countdownSub = this.add.text(W / 2, H / 2 + 90, "Rotate phones to landscape", {
+      fontFamily: "system-ui, sans-serif",
+      fontSize: "26px",
+      color: "#8b7a66",
+    }).setOrigin(0.5).setDepth(200);
+
+    const steps = [3, 2, 1];
+    let i = 0;
+
+    const tick = () => {
+      if (i >= steps.length) {
+        this.countdownOverlay?.destroy();
+        this.countdownSub?.destroy();
+        this.net.notifyGameStart();
+        this.scene.start("Game", { net: this.net });
+        return;
+      }
+      const n = steps[i++];
+      this.countdownOverlay?.setText(String(n));
+      this.net.notifyCountdown(n);
+      this.time.delayedCall(1000, tick);
+    };
+
+    tick();
   }
 }

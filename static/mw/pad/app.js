@@ -124,7 +124,14 @@ function connect(code, name) {
       return;
     }
 
+    if (msg.t === 'countdown') {
+      showCountdown(msg.n);
+      el('lobbyCue').textContent = 'Rotate to landscape…';
+      return;
+    }
+
     if (msg.t === 'game_start') {
+      hideCountdown();
       inGame = true;
       showPad();
       startStickLoop();
@@ -189,8 +196,9 @@ el('btnFillBots').addEventListener('click', () => {
 });
 
 el('btnStart').addEventListener('click', () => {
+  if (countdownActive) return;
   send({ t: 'host_start' });
-  el('lobbyCue').textContent = 'Starting…';
+  el('lobbyCue').textContent = 'Get ready…';
 });
 
 // ---------------------------------------------------------------- stick
@@ -239,6 +247,18 @@ for (const evt of ['pointerup', 'pointercancel']) {
 }
 
 let stickLoopStarted = false;
+let countdownActive = false;
+
+function showCountdown(n) {
+  countdownActive = true;
+  el('countdown').classList.remove('hidden');
+  el('countdownNum').textContent = String(n);
+}
+
+function hideCountdown() {
+  countdownActive = false;
+  el('countdown').classList.add('hidden');
+}
 function startStickLoop() {
   if (stickLoopStarted) return;
   stickLoopStarted = true;

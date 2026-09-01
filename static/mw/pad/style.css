@@ -196,6 +196,27 @@ input:focus-visible { outline: 2px solid var(--action-red); outline-offset: 2px;
 }
 .host-btn:active { transform: translateY(1px); }
 
+.controls-help {
+  margin: 0;
+  padding: 12px 24px 0;
+  text-align: center;
+}
+.controls-help p {
+  margin: 0 0 8px;
+  font-size: 0.95rem;
+  color: var(--spore-dim);
+}
+.ctrl-dot {
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  margin-right: 6px;
+  border-radius: 50%;
+  vertical-align: -1px;
+}
+.ctrl-dot.blue { background: var(--fly-blue); }
+.ctrl-dot.red { background: var(--action-red); }
+
 .pad-body {
   flex: 1;
   display: flex;
@@ -246,6 +267,33 @@ input:focus-visible { outline: 2px solid var(--action-red); outline-offset: 2px;
 .pad-btn.jump { background: var(--fly-blue); }
 .pad-btn.action { background: var(--action-red); }
 .pad-btn.pressed { transform: scale(0.94); filter: brightness(1.15); }
+
+.countdown {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: rgba(20, 16, 13, 0.94);
+  pointer-events: none;
+}
+.countdown.hidden { display: none; }
+#countdownNum {
+  margin: 0;
+  font-size: clamp(5rem, 28vw, 8rem);
+  font-weight: 800;
+  line-height: 1;
+  color: var(--spore);
+}
+.countdown-hint {
+  margin: 1.25rem 0 0;
+  font-size: 1.05rem;
+  color: var(--spore-dim);
+  text-align: center;
+  padding: 0 1.5rem;
+}
 
 .cue {
   min-height: 1.6em;

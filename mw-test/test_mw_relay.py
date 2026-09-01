@@ -70,6 +70,22 @@ def test_phone_input_relays_to_tv(client):
             assert btn["d"] == 1
 
 
+def test_tv_countdown_relays_to_phone(client):
+    with client.websocket_connect("/api/mw/ws") as tv:
+        tv.send_json({"t": "host"})
+        code = tv.receive_json()["code"]
+
+        with client.websocket_connect("/api/mw/ws") as phone:
+            phone.send_json({"t": "join", "code": code, "name": "Ready"})
+            pid = phone.receive_json()["pid"]
+            tv.receive_json()
+
+            tv.send_json({"t": "countdown", "pid": pid, "n": 2})
+            msg = phone.receive_json()
+            assert msg["t"] == "countdown"
+            assert msg["n"] == 2
+
+
 def test_join_rejects_unknown_code(client):
     with client.websocket_connect("/api/mw/ws") as phone:
         phone.send_json({"t": "join", "code": "ZZZZ", "name": "Lost"})
