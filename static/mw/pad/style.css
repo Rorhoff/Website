@@ -1,0 +1,192 @@
+/* Palette: damp forest floor. The phone stays dark so the TV keeps the room's
+   attention, and the one loud color is whichever team you got put on. */
+:root {
+  --soil:        #14100d;
+  --soil-raised: #211a15;
+  --rim:         #3a2e25;
+  --spore:       #efe4d2;
+  --spore-dim:   #a3927c;
+  --team:        #7d7268;   /* replaced at runtime once the TV assigns a team */
+  --team-deep:   #4a423b;
+  --danger:      #d4553f;
+}
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  background: var(--soil);
+  color: var(--spore);
+  font-family: ui-rounded, "SF Pro Rounded", "Segoe UI Variable Display", system-ui, sans-serif;
+}
+
+.screen {
+  position: fixed;
+  inset: 0;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  display: flex;
+  flex-direction: column;
+}
+.hidden { display: none; }
+
+/* ---------- Join ---------- */
+
+#join { align-items: center; justify-content: center; padding: 24px; }
+
+.join-card { width: 100%; max-width: 22rem; }
+
+.spore-mark {
+  width: 56px; height: 30px;
+  margin: 0 0 20px;
+  border-radius: 56px 56px 6px 6px;
+  background: radial-gradient(circle at 30% 40%, var(--spore) 0 3px, transparent 3px),
+              radial-gradient(circle at 66% 30%, var(--spore) 0 4px, transparent 4px),
+              radial-gradient(circle at 48% 68%, var(--spore) 0 2px, transparent 2px),
+              var(--danger);
+}
+
+h1 {
+  margin: 0;
+  font-size: 2.1rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.05;
+}
+
+.join-lede { margin: 8px 0 28px; color: var(--spore-dim); font-size: 1rem; }
+
+label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 0.85rem;
+  color: var(--spore-dim);
+}
+
+input {
+  width: 100%;
+  margin-bottom: 18px;
+  padding: 14px 16px;
+  border: 1px solid var(--rim);
+  border-radius: 12px;
+  background: var(--soil-raised);
+  color: var(--spore);
+  font: inherit;
+  font-size: 1.1rem;
+}
+input:focus-visible { outline: 2px solid var(--danger); outline-offset: 2px; }
+
+#code {
+  font-size: 2rem;
+  font-weight: 800;
+  letter-spacing: 0.35em;
+  text-align: center;
+  text-transform: uppercase;
+  padding-left: 0.35em; /* offsets the trailing letter-space so it reads centered */
+}
+
+.primary {
+  width: 100%;
+  padding: 16px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--danger);
+  color: #fff;
+  font: inherit;
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+.primary:active { transform: translateY(1px); }
+.primary:disabled { opacity: 0.5; }
+
+.error { min-height: 1.4em; margin: 14px 0 0; color: var(--danger); font-size: 0.95rem; }
+
+/* ---------- Pad ---------- */
+
+#pad { background: radial-gradient(120% 90% at 50% 0%, var(--team-deep) 0%, var(--soil) 62%); }
+
+.pad-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 12px 20px 0;
+  font-size: 0.9rem;
+  color: var(--spore-dim);
+}
+#padName { font-weight: 700; color: var(--spore); }
+#padRole { color: var(--team); font-weight: 700; }
+
+.pad-body {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 8px 20px;
+  min-height: 0;
+}
+
+.stick {
+  position: relative;
+  flex: 0 0 auto;
+  width: min(42vw, 40vh, 200px);
+  aspect-ratio: 1;
+  border: 2px solid var(--rim);
+  border-radius: 50%;
+  background: var(--soil-raised);
+}
+
+.knob {
+  position: absolute;
+  left: 50%; top: 50%;
+  width: 44%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: var(--team);
+  transform: translate(-50%, -50%);
+  will-change: transform;
+}
+
+.buttons {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 14px;
+}
+
+.pad-btn {
+  width: min(30vw, 26vh, 130px);
+  aspect-ratio: 1;
+  border: 2px solid var(--rim);
+  border-radius: 50%;
+  background: var(--soil-raised);
+  color: var(--spore);
+  font: inherit;
+  font-size: 1rem;
+  font-weight: 700;
+}
+.pad-btn.jump { background: var(--team); color: var(--soil); border-color: transparent; }
+.pad-btn.pressed { transform: scale(0.94); filter: brightness(1.25); }
+
+.cue {
+  min-height: 1.6em;
+  margin: 0;
+  padding: 0 20px 12px;
+  text-align: center;
+  color: var(--spore-dim);
+  font-size: 0.9rem;
+}
+
+/* Landscape is the intended grip; portrait still plays, just tighter. */
+@media (orientation: portrait) and (min-height: 620px) {
+  .pad-body { align-items: flex-end; padding-bottom: 8vh; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pad-btn.pressed, .primary:active { transform: none; }
+}

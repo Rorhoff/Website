@@ -12,6 +12,7 @@ const LINKS: { href: string; label: string; external?: boolean; active?: boolean
   { href: "/referr-all/", label: "Referr-All" },
   { href: "/t1landscape/", label: "T1 Landscape" },
   { href: "/ldbg", label: "LDBG", active: true },
+  { href: "/mw/", label: "MW" },
   { href: "/sss/", label: "SSS" },
 ];
 

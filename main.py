@@ -42,6 +42,7 @@ import credential_service
 from airevolution_routes import router as airevolution_router
 from classifieds_routes import router as classifieds_router
 from ldbg_proxy import router as ldbg_proxy_router
+from motherwyrm_routes import router as motherwyrm_router
 from sss_routes import router as sss_router
 from t1prod_routes import router as t1prod_router
 from t1referrall_routes import router as referr_all_router
@@ -193,6 +194,7 @@ if _REFERR_ALL_ONLY:
 elif not _CLASSIFIEDS_ONLY:
     app.include_router(airevolution_router)
     app.include_router(sss_router)
+    app.include_router(motherwyrm_router)
     app.include_router(t1prod_router)
     app.include_router(referr_all_router)
     app.include_router(in_the_wild_router)
@@ -976,6 +978,16 @@ else:
         StaticFiles(directory=str(STATIC_DIR / "t1-prod"), html=True),
         name="t1_prod",
     )
+    app.mount(
+        "/mw/pad",
+        StaticFiles(directory=str(STATIC_DIR / "mw" / "pad"), html=True),
+        name="mw_pad",
+    )
+    app.mount(
+        "/mw",
+        StaticFiles(directory=str(STATIC_DIR / "mw"), html=True),
+        name="mw_tv",
+    )
 
     @app.get("/")
     @app.get("/index.html")
@@ -1019,6 +1031,18 @@ else:
         # index.html uses relative asset URLs (styles.css, app.js) which only
         # resolve under /sss/ — serving the page at /sss breaks them all.
         return RedirectResponse(url="/sss/", status_code=301)
+
+    @app.get("/mw")
+    def mw_no_slash() -> RedirectResponse:
+        return RedirectResponse(url="/mw/", status_code=301)
+
+    @app.get("/mw/pad")
+    def mw_pad_no_slash() -> RedirectResponse:
+        return RedirectResponse(url="/mw/pad/", status_code=301)
+
+    @app.get("/mw/pad/c/{code}")
+    def mw_pad_deep_link(code: str):
+        return _static("mw/pad/index.html")
 
     @app.get("/sss/")
     def sss_root():
