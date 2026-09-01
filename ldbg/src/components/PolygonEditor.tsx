@@ -102,6 +102,17 @@ const NUDGE_STEP_LARGE_PX = 10;
 const SNAP_THRESHOLD_PX = 6;
 const DUPLICATE_OFFSET_PX = 16;
 
+function initialContainerWidth(): number {
+  if (typeof window === "undefined") return 800;
+  return Math.max(280, window.innerWidth - 48);
+}
+
+function measureContainerWidth(el: HTMLElement): number {
+  const w = el.getBoundingClientRect().width || el.clientWidth;
+  if (w > 0) return w;
+  return initialContainerWidth();
+}
+
 type Props = {
   annotatedImageUrl: string;
   cleanImageUrl?: string;
@@ -190,7 +201,7 @@ export default function PolygonEditor({
   const draggingGroupRef = useRef(false);
   const moveCommittedRef = useRef(false);
 
-  const [containerW, setContainerW] = useState(800);
+  const [containerW, setContainerW] = useState(initialContainerWidth);
   const [tool, setTool] = useState<EditorTool>("select");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draggingVertex, setDraggingVertex] = useState(false);
@@ -392,10 +403,15 @@ export default function PolygonEditor({
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    const ro = new ResizeObserver(() => setContainerW(el.clientWidth || 800));
+    const update = () => setContainerW(measureContainerWidth(el));
+    const ro = new ResizeObserver(update);
     ro.observe(el);
-    setContainerW(el.clientWidth || 800);
-    return () => ro.disconnect();
+    update();
+    window.addEventListener("resize", update);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", update);
+    };
   }, []);
 
   const maxH = typeof window !== "undefined" ? window.innerHeight * 0.62 : 520;
@@ -1092,7 +1108,7 @@ export default function PolygonEditor({
   }
 
   return (
-    <section className="space-y-4 rounded-xl border border-stone-200 bg-white p-4">
+    <section className="min-w-0 space-y-4 rounded-xl border border-stone-200 bg-white p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold text-stone-900">Feature editor</h2>
@@ -1100,7 +1116,7 @@ export default function PolygonEditor({
             {watercolorFilterEnabled
               ? "Draw features on the watercolor base from the step above (or switch base layers to compare)."
               : "Draw features directly on your annotated photo."}{" "}
-            Scroll to zoom; Space+drag, right-drag, or middle-drag to pan.
+            Pinch to zoom · one finger to pan when zoomed · Space+drag to pan on desktop.
           </p>
         </div>
         <span className="text-xs text-stone-500">{saveLabel}</span>
@@ -1435,10 +1451,10 @@ export default function PolygonEditor({
         </div>
       ) : null}
 
-      <div className="grid gap-4 lg:grid-cols-[1fr_240px]">
+      <div className="grid min-w-0 gap-4 lg:grid-cols-[1fr_240px]">
         <div
           ref={containerRef}
-          className="mx-auto w-fit max-w-full overflow-hidden rounded-lg border border-stone-200 bg-stone-800"
+          className="min-w-0 w-full max-w-full overflow-hidden rounded-lg border border-stone-200 bg-stone-800"
         >
           <Stage
             width={displayW}
@@ -1472,9 +1488,13 @@ export default function PolygonEditor({
                 return;
               }
               if (e.evt.touches.length === 1) {
-                if (tool === "select" && viewport.zoom > 1) {
+                if (viewport.zoom > 1) {
                   viewport.onTouchStart(e);
-                } else if (isDragShapeTool(tool)) {
+                  return;
+                }
+                if (isDragShapeTool(tool)) {
+                  handlePointerDown(e);
+                } else {
                   handlePointerDown(e);
                 }
               }
@@ -1484,11 +1504,21 @@ export default function PolygonEditor({
                 viewport.onTouchMove(e);
                 return;
               }
+              if (e.evt.touches.length === 1) {
+                viewport.onTouchMove(e);
+                if (!(viewport.zoom > 1)) {
+                  handlePointerMove(e);
+                }
+                return;
+              }
               handlePointerMove(e);
             }}
             onTouchEnd={(e) => {
+              const wasPan = viewport.wasTouchPanning();
               viewport.onTouchEnd();
-              handlePointerUp(e);
+              if (!wasPan) {
+                handlePointerUp(e);
+              }
             }}
             onMouseLeave={() => setPlacementHoverPx(null)}
             onWheel={(e) => {

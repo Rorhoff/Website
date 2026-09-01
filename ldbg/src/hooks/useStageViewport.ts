@@ -12,6 +12,7 @@ export function useStageViewport() {
   const panRef = useRef<{ x: number; y: number; panX: number; panY: number } | null>(
     null
   );
+  const touchPanningRef = useRef(false);
   const mousePanRef = useRef<{ x: number; y: number; panX: number; panY: number } | null>(
     null
   );
@@ -61,6 +62,7 @@ export function useStageViewport() {
         pinchRef.current = { dist: touchDistance(te.touches), zoom };
         panRef.current = null;
       } else if (te.touches.length === 1 && zoom > 1) {
+        touchPanningRef.current = false;
         panRef.current = {
           x: te.touches[0].clientX,
           y: te.touches[0].clientY,
@@ -85,6 +87,9 @@ export function useStageViewport() {
       te.preventDefault();
       const dx = te.touches[0].clientX - panRef.current.x;
       const dy = te.touches[0].clientY - panRef.current.y;
+      if (Math.abs(dx) > 2 || Math.abs(dy) > 2) {
+        touchPanningRef.current = true;
+      }
       setPan({ x: panRef.current.panX + dx, y: panRef.current.panY + dy });
     }
   }, []);
@@ -92,7 +97,10 @@ export function useStageViewport() {
   const onTouchEnd = useCallback(() => {
     pinchRef.current = null;
     panRef.current = null;
+    touchPanningRef.current = false;
   }, []);
+
+  const wasTouchPanning = useCallback(() => touchPanningRef.current, []);
 
   const onWheel = useCallback((e: Konva.KonvaEventObject<WheelEvent>) => {
     e.evt.preventDefault();
@@ -214,5 +222,6 @@ export function useStageViewport() {
     onMouseUp,
     endMousePan,
     pointerToContent,
+    wasTouchPanning,
   };
 }
