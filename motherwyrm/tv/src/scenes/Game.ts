@@ -14,9 +14,10 @@ import {
 } from '../assets';
 import { SPRITE_SCALE } from '../asset-manifest';
 import { drawCollisionOverlay } from '../collision-overlay';
+import { pickWhelpRespawn } from '../spawn';
 import {
   W, H, COLORS, TUNING, PLATFORMS, GEM_SPAWNS, SPAWN,
-  SLOT_SIZE, HOARD_Y, slotRect,
+  HOARD_Y, HOARD_WIDTH, HOARD_HEIGHT, slotRect,
 } from '../arena';
 
 type Sprite = Phaser.Physics.Arcade.Sprite;
@@ -241,15 +242,26 @@ export class Game extends Phaser.Scene {
   private updateActor(a: Actor, time: number, _delta: number) {
     const body = a.sprite.body as Phaser.Physics.Arcade.Body;
 
-    // Dead mother: parked off-screen until the respawn timer fires.
-    if (a.deadUntil > time) { a.label.setVisible(false); return; }
+    // Dead actors: hidden until respawn timer fires.
+    if (a.deadUntil > time) {
+      a.label.setVisible(false);
+      a.sprite.setVisible(false);
+      return;
+    }
     if (a.deadUntil !== 0 && a.deadUntil <= time) {
       a.deadUntil = 0;
-      a.hp = TUNING.motherHp;
-      a.invulnUntil = time + TUNING.motherInvulnMs;
-      a.sprite.setPosition(SPAWN[a.team].x, SPAWN[a.team].y).setVisible(true);
       body.enable = true;
       body.setVelocity(0, 0);
+      if (a.role === 'mother') {
+        a.hp = TUNING.motherHp;
+        a.invulnUntil = time + TUNING.motherInvulnMs;
+        a.sprite.setPosition(SPAWN[a.team].x, SPAWN[a.team].y).setVisible(true);
+      } else {
+        a.invulnUntil = time + TUNING.whelpInvulnMs;
+        const enemy = this.enemyMotherPos(a.team, time);
+        const pt = pickWhelpRespawn(a.team, enemy, TUNING.spawnCampRadius);
+        a.sprite.setPosition(pt.x, pt.y).setVisible(true);
+      }
     }
 
     a.label.setVisible(true).setPosition(a.sprite.x, a.sprite.y - a.sprite.displayHeight / 2 - 4);
@@ -435,7 +447,7 @@ export class Game extends Phaser.Scene {
           if (this.slots[team][i]) continue;
           if (Phaser.Geom.Intersects.RectangleToRectangle(bounds, slotRect(team, i))) {
             this.slots[team][i] = true;
-            this.recycle(obj);
+            this.consumeGem(obj);
             this.drawSlots();
             consumed = true;
             break;
@@ -451,7 +463,7 @@ export class Game extends Phaser.Scene {
         if (a.stunUntil > this.time.now || a.deadUntil > 0) continue;
         if (Phaser.Geom.Intersects.RectangleToRectangle(bounds, a.sprite.getBounds())) {
           a.carrying++;
-          this.recycle(obj);
+          this.consumeGem(obj);
           this.syncCarriedGem(a);
           break;
         }
@@ -474,12 +486,8 @@ export class Game extends Phaser.Scene {
     }
   }
 
-  private recycle(obj: Sprite) {
-    const idx = obj.getData('spawn') as number;
+  private consumeGem(obj: Sprite) {
     obj.destroy();
-    this.time.delayedCall(TUNING.gemRespawnMs, () => {
-      if (!this.over) this.spawnGem(idx);
-    });
   }
 
   private dropOneCarried(a: Actor) {
@@ -603,27 +611,30 @@ export class Game extends Phaser.Scene {
         if (Phaser.Math.Distance.Between(hx, hy, t.sprite.x, t.sprite.y) > 52) continue;
 
         if (t.role === 'mother') this.hurtMother(t, time, a.attackDir.x || a.facing);
-        else this.stun(t, time, a.attackDir.x || a.facing);
+        else this.killWhelp(t, time, a.attackDir.x || a.facing);
         a.attackUntil = time;
         break;
       }
     }
+  }
 
-    // Regular whelps take the mother down by dropping on its back. That is the
-    // only way a non-mother can put a dent in one, so the little guys matter.
-    for (const m of this.actors) {
-      if (m.role === 'mother' || m.riding || m.deadUntil > 0) continue;
-      const mb = m.sprite.body as Phaser.Physics.Arcade.Body;
-      if (mb.velocity.y <= 40) continue;
+  private enemyMotherPos(team: Team, time: number): { x: number; y: number } | null {
+    const m = this.actors.find(
+      (a) => a.role === 'mother' && a.team === OTHER[team] && a.deadUntil <= time
+    );
+    return m ? { x: m.sprite.x, y: m.sprite.y } : null;
+  }
 
-      for (const b of this.actors) {
-        if (b.role !== 'mother' || b.team === m.team || b.invulnUntil > time || b.deadUntil > 0) continue;
-        if (Math.abs(m.sprite.x - b.sprite.x) > 36) continue;
-        if (m.sprite.y > b.sprite.y - 8) continue;
-        this.hurtMother(b, time, 0);
-        mb.setVelocityY(-420);
-      }
-    }
+  private killWhelp(t: Actor, time: number, _dir: number) {
+    if (t.deadUntil > time) return;
+    if (t.riding) this.dismount(t, 0);
+    this.dropCarried(t);
+    t.stunUntil = 0;
+    t.deadUntil = time + TUNING.whelpRespawnMs;
+    t.sprite.setVisible(false);
+    (t.sprite.body as Phaser.Physics.Arcade.Body).enable = false;
+    this.puff(t.sprite.x, t.sprite.y);
+    this.net.cue(t.pid, 'Gulp! Respawning at the hoard…');
   }
 
   private stun(t: Actor, time: number, dir: number) {
@@ -641,7 +652,7 @@ export class Game extends Phaser.Scene {
     (b.sprite.body as Phaser.Physics.Arcade.Body).setVelocity(dir * 340, -300);
     this.puff(b.sprite.x, b.sprite.y);
 
-    if (b.hp > 0) { this.net.cue(b.pid, `Hit. ${b.hp} left.`); return; }
+    if (b.hp > 0) return;
 
     b.deaths++;
     b.deadUntil = time + TUNING.motherRespawnMs;
@@ -699,7 +710,12 @@ export class Game extends Phaser.Scene {
       }
       // shelf the slots sit on, so you can run along it
       this.slotGfx.fillStyle(COLORS.soilLip, 1);
-      this.slotGfx.fillRect(slotRect(team, 0).x - 6, HOARD_Y + SLOT_SIZE, 15 * 24 + 12, 6);
+      this.slotGfx.fillRect(
+        slotRect(team, 0).x - 6,
+        HOARD_Y + HOARD_HEIGHT,
+        HOARD_WIDTH + 12,
+        6
+      );
     }
   }
 
@@ -714,6 +730,20 @@ export class Game extends Phaser.Scene {
     this.wyrmGfx.fillStyle(0x241a12, 1);
     const eye = (this.wyrm.body as Phaser.Physics.Arcade.Body).velocity.x >= 0 ? 8 : -8;
     this.wyrmGfx.fillCircle(this.wyrm.x + 60 * Math.sign(eye) + eye * 0.4, this.wyrm.y - 5, 3);
+
+    const cx = this.wyrm.x;
+    const cy = this.wyrm.y - 36;
+    this.wyrmGfx.fillStyle(0xf4f0e8, 1);
+    this.wyrmGfx.fillEllipse(cx, cy, 30, 22);
+    this.wyrmGfx.fillStyle(0x2c2420, 1);
+    this.wyrmGfx.fillCircle(cx - 8, cy - 2, 5);
+    this.wyrmGfx.fillCircle(cx + 6, cy + 4, 4);
+    this.wyrmGfx.fillCircle(cx + 12, cy - 4, 3);
+    this.wyrmGfx.fillStyle(0xf4f0e8, 1);
+    this.wyrmGfx.fillCircle(cx + 14, cy - 10, 7);
+    this.wyrmGfx.fillStyle(0x2c2420, 1);
+    this.wyrmGfx.fillCircle(cx + 16, cy - 11, 2);
+    this.wyrmGfx.fillCircle(cx + 12, cy - 9, 2);
   }
 
   private puff(x: number, y: number) {
@@ -741,7 +771,7 @@ export class Game extends Phaser.Scene {
     const cells = 21;
     const at = Math.round(pct * (cells - 1));
     this.hudWyrm.setText([
-      'Wyrm',
+      'Cow',
       Array.from({ length: cells }, (_, i) => (i === at ? '◆' : '·')).join(''),
     ]);
   }
@@ -772,7 +802,7 @@ export class Game extends Phaser.Scene {
       }
     }
 
-    if (this.wyrm.x >= TUNING.wyrmWin.blue) return finish('blue', 'Rode the wyrm across the line.');
-    if (this.wyrm.x <= TUNING.wyrmWin.red) return finish('red', 'Rode the wyrm across the line.');
+    if (this.wyrm.x >= TUNING.wyrmWin.blue) return finish('blue', 'Escorted the cow across the line.');
+    if (this.wyrm.x <= TUNING.wyrmWin.red) return finish('red', 'Escorted the cow across the line.');
   }
 }

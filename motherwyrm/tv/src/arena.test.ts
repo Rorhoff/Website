@@ -8,9 +8,10 @@ describe("arena symmetry", () => {
     expect(ok).toBe(true);
   });
 
-  it("generates gem spawns as mirrored pairs", () => {
+  it("generates 30 mirrored gem clusters", () => {
+    expect(GEM_SPAWNS.length).toBe(30);
     const left = GEM_SPAWNS.filter(([x]) => x < W / 2);
-    expect(left.length).toBeGreaterThan(0);
+    expect(left.length).toBe(15);
     for (const [x, y] of left) {
       expect(GEM_SPAWNS.some(([gx, gy]) => gx === W - x && gy === y)).toBe(true);
     }

@@ -8,6 +8,7 @@ vi.mock("./arena", () => ({
     slotsToWin: 15,
   },
   HOARD_X: { blue: 70, red: 900 },
+  HOARD_WIDTH: 240,
 }));
 
 import { updateBotBrains, type BotWorld } from "./bots";

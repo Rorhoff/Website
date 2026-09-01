@@ -2,11 +2,11 @@ import Phaser from "phaser";
 import {
   COLORS,
   GEM_SPAWNS,
+  HOARD_HEIGHT,
+  HOARD_WIDTH,
   HOARD_X,
   HOARD_Y,
   PLATFORMS,
-  SLOT_GAP,
-  SLOT_SIZE,
   SPAWN,
   TUNING,
   W,
@@ -90,6 +90,5 @@ export function overlayLegend(scene: Phaser.Scene): Phaser.GameObjects.Text {
 }
 
 export function hoardBounds(team: Team) {
-  const w = TUNING.slotsToWin * (SLOT_SIZE + SLOT_GAP) - SLOT_GAP;
-  return { x: HOARD_X[team], y: HOARD_Y, w, h: SLOT_SIZE };
+  return { x: HOARD_X[team], y: HOARD_Y, w: HOARD_WIDTH, h: HOARD_HEIGHT };
 }

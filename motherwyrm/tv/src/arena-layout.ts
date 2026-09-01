@@ -26,10 +26,14 @@ export const TUNING = {
   motherSpeed: 210,
   motherThrust: -300,
   motherThrustCap: -430,
-  motherHp: 3,
+  motherHp: 1,
   motherDeathsToWin: 4,
   motherRespawnMs: 3000,
   motherInvulnMs: 2000,
+
+  whelpRespawnMs: 2500,
+  whelpInvulnMs: 1500,
+  spawnCampRadius: 180,
 
   diveSpeed: 820,
   motherShortDiveSpeed: 720,
@@ -40,6 +44,7 @@ export const TUNING = {
   swipeReach: 72,
   swipeMs: 180,
   stunMs: 1200,
+  eatenMs: 2200,
 
   puntWindowMs: 150,
   puntReach: 54,
@@ -50,7 +55,6 @@ export const TUNING = {
   wyrmSpeed: 120,
   wyrmWin: { blue: W - 60, red: 60 },
 
-  gemRespawnMs: 5000,
   slotsToWin: 15,
 };
 
@@ -66,22 +70,25 @@ export const PLATFORMS: [number, number, number, number][] = [
 ];
 
 export const SLOT_SIZE = 22;
-export const SLOT_GAP = 2;
-export const HOARD_Y = 560;
+export const SLOT_GAP = 8;
+export const SLOT_ROW_GAP = 10;
+export const SLOT_COLS = 8;
+export const SLOT_ROWS = 2;
+export const HOARD_Y = 536;
+export const HOARD_WIDTH = SLOT_COLS * (SLOT_SIZE + SLOT_GAP) - SLOT_GAP;
+export const HOARD_HEIGHT = SLOT_ROWS * SLOT_SIZE + (SLOT_ROWS - 1) * SLOT_ROW_GAP;
 export const HOARD_X: Record<Team, number> = {
   blue: 70,
-  red: W - 70 - 15 * (SLOT_SIZE + SLOT_GAP),
+  red: W - 70 - HOARD_WIDTH,
 };
 
+/** 15 left-side clusters mirrored → 30 fixed gems (no respawn). */
 export const GEM_SPAWNS: [number, number][] = (() => {
   const left: [number, number][] = [
-    [250, 390],
-    [340, 390],
-    [140, 225],
-    [210, 225],
-    [430, 650],
-    [560, 650],
-    [580, 290],
+    [250, 390], [305, 390], [340, 390], [395, 390],
+    [130, 225], [180, 225], [230, 225],
+    [540, 290], [580, 290], [620, 290],
+    [180, 650], [280, 650], [380, 650], [480, 650], [580, 650],
   ];
   return [...left, ...left.map(([x, y]) => [W - x, y] as [number, number])];
 })();
@@ -116,8 +123,8 @@ export function assertArenaSymmetry(): { ok: boolean; errors: string[] } {
     }
   }
 
-  const blueHoardCenter = HOARD_X.blue + (TUNING.slotsToWin * (SLOT_SIZE + SLOT_GAP)) / 2;
-  const redHoardCenter = HOARD_X.red + (TUNING.slotsToWin * (SLOT_SIZE + SLOT_GAP)) / 2;
+  const blueHoardCenter = HOARD_X.blue + HOARD_WIDTH / 2;
+  const redHoardCenter = HOARD_X.red + HOARD_WIDTH / 2;
   if (Math.abs(blueHoardCenter - (W - redHoardCenter)) > 0.5) {
     errors.push("hoard centers are not mirrored");
   }
@@ -130,9 +137,11 @@ export function assertArenaSymmetry(): { ok: boolean; errors: string[] } {
 }
 
 export function slotRect(team: Team, i: number) {
+  const col = i % SLOT_COLS;
+  const row = Math.floor(i / SLOT_COLS);
   return {
-    x: HOARD_X[team] + i * (SLOT_SIZE + SLOT_GAP),
-    y: HOARD_Y,
+    x: HOARD_X[team] + col * (SLOT_SIZE + SLOT_GAP),
+    y: HOARD_Y + row * (SLOT_SIZE + SLOT_ROW_GAP),
     width: SLOT_SIZE,
     height: SLOT_SIZE,
   };

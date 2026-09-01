@@ -16,8 +16,13 @@ export {
   SPAWN,
   SLOT_SIZE,
   SLOT_GAP,
+  SLOT_ROW_GAP,
+  SLOT_COLS,
+  SLOT_ROWS,
   HOARD_X,
   HOARD_Y,
+  HOARD_WIDTH,
+  HOARD_HEIGHT,
   assertArenaSymmetry,
   type Team,
 } from "./arena-layout";

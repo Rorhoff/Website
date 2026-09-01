@@ -1,4 +1,4 @@
-import { HOARD_X, TUNING, W, type Team } from "./arena-layout";
+import { HOARD_WIDTH, HOARD_X, TUNING, W, type Team } from "./arena-layout";
 import type { InputState, Team as NetTeam } from "./net";
 
 export type BotActorView = {
@@ -48,7 +48,11 @@ function tapAction(input: InputState) {
 }
 
 function hoardCenterX(team: NetTeam): number {
-  return HOARD_X[team] + (TUNING.slotsToWin * 24) / 2;
+  return HOARD_X[team] + HOARD_WIDTH / 2;
+}
+
+function homePatrolX(team: NetTeam): number {
+  return team === "blue" ? W * 0.38 : W * 0.62;
 }
 
 function nearestGem(gems: Array<{ x: number; y: number }>, x: number, y: number) {
@@ -73,10 +77,10 @@ function enemyMother(world: BotWorld, team: NetTeam) {
 function steerToward(input: InputState, fromX: number, toX: number, tol = 18) {
   const dx = toX - fromX;
   if (Math.abs(dx) < tol) {
-    setStick(input, 0, input.y);
+    setStick(input, 0, 0);
     return;
   }
-  setStick(input, Math.sign(dx), input.y);
+  setStick(input, Math.sign(dx), 0);
 }
 
 /** Simple heuristics — enough to chase gems, hoard, ride the wyrm, and scrap. */
@@ -85,6 +89,8 @@ export function updateBotBrains(world: BotWorld) {
     if (!a.bot) continue;
     if (a.deadUntil > world.time || a.stunUntil > world.time) continue;
 
+    a.input.x = 0;
+    a.input.y = 0;
     a.input.jump = false;
     a.input.action = false;
 
@@ -100,30 +106,32 @@ function updateMotherBot(a: BotActorView, world: BotWorld) {
   const enemy = enemyMother(world, a.team);
   const ourGems = world.slotsFilled[a.team];
   const theirGems = world.slotsFilled[OTHER[a.team]];
+  const hoardX = hoardCenterX(a.team);
+  const enemyHoardX = hoardCenterX(OTHER[a.team]);
 
-  if (a.y > 520 || a.vy > 120) {
-    tapJump(a.input);
-  } else if (world.time % 420 < 40) {
+  if (a.y > 500) {
     tapJump(a.input);
   }
 
-  if (enemy && theirGems >= 4 && a.y < 420 && Math.abs(a.x - hoardCenterX(OTHER[a.team])) < 120) {
-    setStick(a.input, a.x < hoardCenterX(OTHER[a.team]) ? 1 : -1, 1);
-    if (a.y > 300) tapAction(a.input);
-    return;
-  }
-
-  if (enemy) {
-    steerToward(a.input, a.x, enemy.x, 40);
-    if (Math.abs(a.x - enemy.x) < 90 && Math.abs(a.y - enemy.y) < 70) {
+  if (enemy && Math.abs(a.x - enemy.x) < 220 && Math.abs(a.y - enemy.y) < 160) {
+    steerToward(a.input, a.x, enemy.x, 36);
+    if (Math.abs(a.x - enemy.x) < 90 && Math.abs(a.y - enemy.y) < 80) {
       tapAction(a.input);
     }
     return;
   }
 
-  steerToward(a.input, a.x, a.team === "blue" ? W * 0.65 : W * 0.35);
+  if (theirGems >= 3 && Math.abs(a.x - hoardX) < 200) {
+    steerToward(a.input, a.x, hoardX, 28);
+    if (Math.abs(a.x - enemyHoardX) < 100 && a.y < 480 && world.time % 600 < 50) {
+      tapAction(a.input);
+    }
+    return;
+  }
 
-  if (ourGems >= 8 && world.time % 800 < 50) {
+  steerToward(a.input, a.x, homePatrolX(a.team), 40);
+
+  if (ourGems >= 10 && world.time % 900 < 50 && Math.abs(a.x - enemyHoardX) < 140) {
     tapAction(a.input);
   }
 }
@@ -151,20 +159,10 @@ function updateWhelpBot(a: BotActorView, world: BotWorld) {
     return;
   }
 
-  const mother = enemyMother(world, a.team);
-  if (mother && a.y < mother.y - 40 && Math.abs(a.x - mother.x) < 50 && a.onGround) {
-    tapJump(a.input);
-    steerToward(a.input, a.x, mother.x, 8);
-    return;
-  }
-
   if (ourGems + 3 <= theirGems || world.gems.length < 4) {
     steerToward(a.input, a.x, world.wyrmX, 30);
     if (a.onGround && Math.abs(a.x - world.wyrmX) < 70) {
       tapJump(a.input);
-    }
-    if (a.riding) {
-      setStick(a.input, a.team === "blue" ? 1 : -1, 0);
     }
     return;
   }
