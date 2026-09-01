@@ -7,7 +7,9 @@
     "build": "vite build",
     "preview": "vite preview --host",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "art": "bash ../art/scripts/export.sh",
+    "art:check": "bash ../art/scripts/export.sh --validate-only"
   },
   "dependencies": {
     "phaser": "^3.90.0"

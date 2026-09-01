@@ -1,4 +1,4 @@
-import { HOARD_X, TUNING, W, type Team } from "./arena";
+import { HOARD_X, TUNING, W, type Team } from "./arena-layout";
 import type { InputState, Team as NetTeam } from "./net";
 
 export type BotActorView = {

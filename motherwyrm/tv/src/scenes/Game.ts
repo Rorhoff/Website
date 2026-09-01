@@ -3,6 +3,18 @@ import { Net, Lobbyist, Team } from '../net';
 import { updateBotBrains, type BotWorld } from '../bots';
 import { applyLocalKeyboard } from '../local-input';
 import {
+  actorAtlasKey,
+  actorTextureKey,
+  applySpriteScale,
+  gemTextureKey,
+  getGemAnchor,
+  mountBackground,
+  tryPlayAnim,
+  wyrmTextureKey,
+} from '../assets';
+import { SPRITE_SCALE } from '../asset-manifest';
+import { drawCollisionOverlay } from '../collision-overlay';
+import {
   W, H, COLORS, TUNING, PLATFORMS, GEM_SPAWNS, SPAWN,
   SLOT_SIZE, HOARD_Y, slotRect,
 } from '../arena';
@@ -11,8 +23,10 @@ type Sprite = Phaser.Physics.Arcade.Sprite;
 
 interface Actor extends Lobbyist {
   sprite: Sprite;
+  atlasKey: string;
   facing: 1 | -1;
   carrying: number;
+  carriedGem?: Phaser.GameObjects.Image;
   hp: number;
   deaths: number;
   stunUntil: number;
@@ -45,6 +59,8 @@ export class Game extends Phaser.Scene {
   private hudRed!: Phaser.GameObjects.Text;
   private hudWyrm!: Phaser.GameObjects.Text;
   private over = false;
+  private showCollision = false;
+  private collisionGfx!: Phaser.GameObjects.Graphics;
 
   constructor() { super('Game'); }
 
@@ -58,6 +74,9 @@ export class Game extends Phaser.Scene {
     this.slots = { blue: new Array(TUNING.slotsToWin).fill(false), red: new Array(TUNING.slotsToWin).fill(false) };
     this.cameras.main.setBackgroundColor(COLORS.sky);
     this.physics.world.setBounds(0, 0, W, H);
+
+    mountBackground(this);
+    this.collisionGfx = this.add.graphics().setDepth(100).setVisible(false);
 
     this.buildPlatforms();
     this.slotGfx = this.add.graphics();
@@ -80,8 +99,19 @@ export class Game extends Phaser.Scene {
 
     this.net.onLeave = (pid) => {
       const i = this.actors.findIndex((a) => a.pid === pid);
-      if (i >= 0) { this.actors[i].sprite.destroy(); this.actors[i].label.destroy(); this.actors.splice(i, 1); }
+      if (i >= 0) {
+        this.actors[i].carriedGem?.destroy();
+        this.actors[i].sprite.destroy();
+        this.actors[i].label.destroy();
+        this.actors.splice(i, 1);
+      }
     };
+
+    this.input.keyboard?.on('keydown-F3', () => {
+      this.showCollision = !this.showCollision;
+      this.collisionGfx.setVisible(this.showCollision);
+      if (this.showCollision) drawCollisionOverlay(this.collisionGfx);
+    });
   }
 
   private buildPlatforms() {
@@ -104,7 +134,9 @@ export class Game extends Phaser.Scene {
 
   private buildWyrm() {
     this.wyrmGfx = this.add.graphics();
-    this.wyrm = this.physics.add.image(W / 2, 655, 'wyrm-seg').setVisible(false);
+    const key = wyrmTextureKey();
+    this.wyrm = this.physics.add.image(W / 2, 655, key).setVisible(false);
+    applySpriteScale(this.wyrm);
     const wb = this.wyrm.body as Phaser.Physics.Arcade.Body;
     wb.setSize(150, 34);
     wb.setAllowGravity(false);
@@ -113,9 +145,11 @@ export class Game extends Phaser.Scene {
 
   private buildActors() {
     for (const p of this.net.players.values()) {
-      const key = `${p.role === 'mother' ? 'mother' : 'whelp'}-${p.team}`;
+      const atlasKey = actorAtlasKey(p.role, p.team);
+      const key = actorTextureKey(p.role, p.team);
       const spawn = SPAWN[p.team];
       const sprite = this.physics.add.sprite(spawn.x, spawn.y, key);
+      applySpriteScale(sprite);
       sprite.setCollideWorldBounds(true);
       (sprite.body as Phaser.Physics.Arcade.Body).setGravityY(
         p.role === 'mother' ? TUNING.motherGravity - TUNING.gravity : 0
@@ -127,7 +161,7 @@ export class Game extends Phaser.Scene {
       }).setOrigin(0.5, 1).setDepth(40);
 
       this.actors.push({
-        ...p, sprite, label,
+        ...p, sprite, atlasKey, label,
         facing: p.team === 'blue' ? 1 : -1,
         carrying: 0,
         hp: TUNING.motherHp,
@@ -141,7 +175,9 @@ export class Game extends Phaser.Scene {
 
   private spawnGem(index: number) {
     const [x, y] = GEM_SPAWNS[index];
-    const c = this.gems.create(x, y, 'gem') as Sprite;
+    const key = gemTextureKey();
+    const c = this.gems.create(x, y, key) as Sprite;
+    if (key === 'props') c.setFrame(0);
     c.setData('spawn', index);
     c.setCollideWorldBounds(true);
   }
@@ -217,6 +253,24 @@ export class Game extends Phaser.Scene {
     a.label.setVisible(true).setPosition(a.sprite.x, a.sprite.y - a.sprite.displayHeight / 2 - 4);
     a.sprite.setAlpha(a.invulnUntil > time ? 0.55 : 1);
 
+    if (a.role === 'whelp') {
+      this.syncCarriedGem(a);
+      if (a.stunUntil <= time && a.deadUntil <= time) {
+        if (!body.blocked.down) {
+          tryPlayAnim(a.sprite, a.atlasKey, body.velocity.y < 0 ? 'jump' : 'fall');
+        } else if (Math.abs(a.input.x) > 0.3) {
+          tryPlayAnim(a.sprite, a.atlasKey, 'run');
+        } else {
+          tryPlayAnim(a.sprite, a.atlasKey, 'idle');
+        }
+      }
+      if (a.carrying > 0) {
+        a.label.setText(`${a.name} ◆`);
+      } else {
+        a.label.setText(a.name);
+      }
+    }
+
     if (a.stunUntil > time) { a.sprite.setAngle(Math.sin(time / 40) * 14); return; }
     a.sprite.setAngle(0);
 
@@ -238,10 +292,13 @@ export class Game extends Phaser.Scene {
     if (a.input.actionEdge && !body.blocked.down) {
       if (a.carrying > 0) {
         a.carrying--;
-        const c = this.gems.create(a.sprite.x + a.facing * 20, a.sprite.y - 10, 'gem') as Sprite;
+        const key = gemTextureKey();
+        const c = this.gems.create(a.sprite.x + a.facing * 20, a.sprite.y - 10, key) as Sprite;
+        if (key === 'props') c.setFrame(0);
         c.setData('spawn', Phaser.Math.Between(0, GEM_SPAWNS.length - 1));
         c.setCollideWorldBounds(true);
         c.setVelocity(a.facing * TUNING.throwPower, -320);
+        this.syncCarriedGem(a);
       } else {
         a.puntUntil = time + TUNING.puntWindowMs;
       }
@@ -353,6 +410,7 @@ export class Game extends Phaser.Scene {
         if (Phaser.Geom.Intersects.RectangleToRectangle(bounds, a.sprite.getBounds())) {
           a.carrying++;
           this.recycle(obj);
+          this.syncCarriedGem(a);
           break;
         }
       }
@@ -367,6 +425,7 @@ export class Game extends Phaser.Scene {
           this.slots[a.team][i] = true;
           a.carrying--;
           this.drawSlots();
+          this.syncCarriedGem(a);
           break;
         }
       }
@@ -381,14 +440,41 @@ export class Game extends Phaser.Scene {
     });
   }
 
+  private dropOneCarried(a: Actor) {
+    if (a.carrying <= 0) return;
+    a.carrying--;
+    const key = gemTextureKey();
+    const c = this.gems.create(a.sprite.x, a.sprite.y - 12, key) as Sprite;
+    if (key === 'props') c.setFrame(0);
+    c.setData('spawn', Phaser.Math.Between(0, GEM_SPAWNS.length - 1));
+    c.setCollideWorldBounds(true);
+    c.setVelocity(Phaser.Math.Between(-260, 260), -340);
+    this.syncCarriedGem(a);
+  }
+
   private dropCarried(a: Actor) {
-    for (let i = 0; i < a.carrying; i++) {
-      const c = this.gems.create(a.sprite.x, a.sprite.y - 12, 'gem') as Sprite;
-      c.setData('spawn', Phaser.Math.Between(0, GEM_SPAWNS.length - 1));
-      c.setCollideWorldBounds(true);
-      c.setVelocity(Phaser.Math.Between(-260, 260), -340);
+    while (a.carrying > 0) this.dropOneCarried(a);
+  }
+
+  private syncCarriedGem(a: Actor) {
+    if (a.role === 'mother') return;
+    if (a.carrying > 0) {
+      if (!a.carriedGem) {
+        const key = gemTextureKey();
+        a.carriedGem = this.add.image(0, 0, key);
+        if (key === 'props') a.carriedGem.setFrame(0);
+        a.carriedGem.setScale(SPRITE_SCALE);
+        a.carriedGem.setDepth(a.sprite.depth + 1);
+      }
+      a.carriedGem.setVisible(true);
+      const anchor = getGemAnchor(a.atlasKey);
+      a.carriedGem.setPosition(
+        a.sprite.x + anchor.x * SPRITE_SCALE * a.facing,
+        a.sprite.y + anchor.y * SPRITE_SCALE
+      );
+    } else {
+      a.carriedGem?.setVisible(false);
     }
-    a.carrying = 0;
   }
 
   // ---------------------------------------------------------------- combat
@@ -408,7 +494,7 @@ export class Game extends Phaser.Scene {
     for (const t of this.actors) {
       if (t.team === a.team || t.carrying === 0) continue;
       if (Phaser.Math.Distance.Between(a.sprite.x, a.sprite.y, t.sprite.x, t.sprite.y) > reach) continue;
-      this.dropCarried(t);
+      this.dropOneCarried(t);
       a.puntUntil = 0;
       this.puff(t.sprite.x, t.sprite.y);
       return;
@@ -485,7 +571,9 @@ export class Game extends Phaser.Scene {
       if (Math.abs(a.sprite.x - (r.x + r.width / 2)) > 90) continue;
       if (Math.abs(a.sprite.y - (r.y + r.height / 2)) > 120) continue;
       this.slots[enemy][i] = false;
-      const c = this.gems.create(r.x + r.width / 2, r.y - 20, 'gem') as Sprite;
+      const key = gemTextureKey();
+      const c = this.gems.create(r.x + r.width / 2, r.y - 20, key) as Sprite;
+      if (key === 'props') c.setFrame(0);
       c.setData('spawn', Phaser.Math.Between(0, GEM_SPAWNS.length - 1));
       c.setCollideWorldBounds(true);
       c.setVelocity(Phaser.Math.Between(-300, 300), -420);

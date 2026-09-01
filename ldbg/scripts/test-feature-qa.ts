@@ -15,7 +15,7 @@ import {
 } from "../src/lib/legend-display";
 import { buildTakeoff } from "../src/lib/takeoff-builder";
 import { getBoardPlanImage, getTracingImage } from "../src/lib/georef";
-import { createEmptyProject } from "../src/lib/project-schema";
+import { createEmptyProject, PlanSettingsSchema } from "../src/lib/project-schema";
 import type { InterpretFeature } from "../src/lib/interpret-schema";
 import type { LegendRow } from "../src/lib/plan-layout";
 
@@ -34,6 +34,18 @@ function assert(condition: boolean, label: string, detail?: string) {
 
 function section(title: string) {
   console.log(`\n${title}`);
+}
+
+function legendRow(
+  partial: Partial<LegendRow> & Pick<LegendRow, "featureType" | "label">
+): LegendRow {
+  return {
+    number: 1,
+    featureId: "qa-test",
+    areaSqFt: null,
+    quantity: null,
+    ...partial,
+  };
 }
 
 function plantPoint(id: string, featureType: string): InterpretFeature {
@@ -92,11 +104,11 @@ section("Legend area ranges (±1 ft calibration band)");
   assert(label === `${low.toLocaleString()}–${high.toLocaleString()} sq ft`, "putting_green shows sq ft range");
   assert(low === 81 && high === 121, "range math matches 10 ft calibration", `got ${low}–${high}`);
 
-  const row: LegendRow = {
+  const row = legendRow({
     featureType: "paver_patio",
     label: "Paver patio",
     areaSqFt: 200,
-  };
+  });
   const measure = formatLegendRowMeasure(row, DEFAULT_LEGEND, {
     calibrationDistanceFeet: 20,
   });
@@ -106,12 +118,12 @@ section("Legend area ranges (±1 ft calibration band)");
 
 section("Decorative footprints (fire pit 3×3, not 9 sq ft)");
 {
-  const row: LegendRow = { featureType: "fire_pit_square", label: "Fire pit", quantity: 1 };
+  const row = legendRow({ featureType: "fire_pit_square", label: "Fire pit", quantity: 1 });
   const measure = formatLegendRowMeasure(row, DEFAULT_LEGEND);
   assert(measure.includes("×") && measure.includes("ft"), "fire pit square shows footprint");
   assert(!measure.includes("9 sq ft"), "fire pit does not show 9 sq ft area");
 
-  const roundRow: LegendRow = { featureType: "fire_pit_round", label: "Fire pit", quantity: 1 };
+  const roundRow = legendRow({ featureType: "fire_pit_round", label: "Fire pit", quantity: 1 });
   const roundMeasure = formatLegendRowMeasure(roundRow, DEFAULT_LEGEND);
   assert(roundMeasure.includes("Ø"), "round fire pit shows diameter");
 }
@@ -144,6 +156,8 @@ section("Board plan base prefers annotated tracing image");
     features: [],
     siteObservations: [],
     ambiguities: [],
+    interpretedAt: "2026-01-01T00:00:00.000Z",
+    model: "qa-test",
   };
 
   const tracing = getTracingImage(project);
@@ -158,7 +172,7 @@ section("Plan base layer (Gemini off forces style preset off)");
   delete process.env.LDBG_GEMINI_ENABLED;
 
   const styled = resolvePlanBaseLayer(
-    { baseMode: "orthophoto", stylePreset: "watercolor-plan", orthophotoOpacity: 0.4 },
+    PlanSettingsSchema.parse({ stylePreset: "watercolor-plan" }),
     { rawUrl: "/raw.jpg", cleanUrl: "/clean.jpg" }
   );
   assert(styled.stylePreset === "off", "watercolor preset downgrades when Gemini off");

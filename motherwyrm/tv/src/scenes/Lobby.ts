@@ -1,6 +1,6 @@
 import Phaser from "phaser";
 import { Net } from "../net";
-import { W, H, COLORS, buildTextures } from "../arena";
+import { W, H, COLORS } from "../arena";
 import { addLocalPlayer, fillWithBots, formatPlayerLabel } from "../roster";
 
 export class Lobby extends Phaser.Scene {
@@ -19,7 +19,6 @@ export class Lobby extends Phaser.Scene {
   }
 
   create() {
-    buildTextures(this);
     this.cameras.main.setBackgroundColor(COLORS.sky);
 
     this.add.text(W / 2, 72, "MotherWyrm", {
@@ -39,6 +38,12 @@ export class Lobby extends Phaser.Scene {
       fontFamily: "system-ui, sans-serif",
       fontSize: "18px",
       color: "#7fe3c4",
+    }).setOrigin(0.5);
+
+    this.add.text(W / 2, 192, "?debug=assets · anims · collision", {
+      fontFamily: "system-ui, sans-serif",
+      fontSize: "14px",
+      color: "#5a4a3a",
     }).setOrigin(0.5);
 
     this.codeText = this.add.text(W / 2, 248, "····", {
