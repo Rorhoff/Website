@@ -23,12 +23,14 @@ export function boardProjectFileUrl(
 
 /** Bundled reference photos in /public/plants (PDF- and preview-safe). */
 const PLANT_PHOTO_FILES: Record<string, string> = {
-  "lavender-munstead": "lavender-munstead.svg",
-  "boxwood-bush": "boxwood-bush.svg",
-  "ornamental-grass-karl-foerster": "karl-foerster.svg",
-  daylily: "daylily.svg",
-  "quaking-aspen": "quaking-aspen.svg",
-  "colorado-blue-spruce": "blue-spruce.svg",
+  "lavender-munstead": "lavender-munstead.png",
+  "boxwood-bush": "boxwood-bush.png",
+  "ornamental-grass-karl-foerster": "karl-foerster.png",
+  daylily: "daylily.png",
+  "blue-grama-grass": "blue-grama-grass.png",
+  "sagebrush-wyoming": "sagebrush-wyoming.png",
+  "quaking-aspen": "quaking-aspen.png",
+  "colorado-blue-spruce": "blue-spruce.png",
 };
 
 export function resolvePlantPaletteId(commonName: string): string | undefined {
@@ -38,10 +40,26 @@ export function resolvePlantPaletteId(commonName: string): string | undefined {
   );
   if (exact) return exact.id;
   const base = cn.split("(")[0]?.trim() ?? cn;
-  return UTAH_PLANT_PALETTE.find((p) => {
+  const byPartial = UTAH_PLANT_PALETTE.find((p) => {
     const name = p.commonName.trim().toLowerCase();
-    return name.startsWith(base) || base.startsWith(name.split("(")[0]?.trim() ?? name);
-  })?.id;
+    const nameBase = name.split("(")[0]?.trim() ?? name;
+    return (
+      name.startsWith(base) ||
+      base.startsWith(nameBase) ||
+      name.includes(base) ||
+      base.includes(nameBase)
+    );
+  });
+  if (byPartial) return byPartial.id;
+  if (base.includes("karl") && base.includes("foerster")) {
+    return "ornamental-grass-karl-foerster";
+  }
+  if (base.includes("lavender")) return "lavender-munstead";
+  if (base.includes("boxwood")) return "boxwood-bush";
+  if (base.includes("daylily")) return "daylily";
+  if (base.includes("sagebrush")) return "sagebrush-wyoming";
+  if (base.includes("grama")) return "blue-grama-grass";
+  return undefined;
 }
 
 export function plantPhotoUrl(commonName: string, featureType?: string): string | undefined {

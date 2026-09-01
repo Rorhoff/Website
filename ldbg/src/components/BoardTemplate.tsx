@@ -7,10 +7,11 @@ import { GraphicScaleBar } from "@/components/GraphicScaleBar";
 import { ScaleVerificationStamp } from "@/components/ScaleVerificationStamp";
 import { TitleBlock } from "@/components/TitleBlock";
 import {
-  filterMaterialsToFeatures,
+  MATERIALS_DISCLAIMER,
   type StoredDesignContent,
 } from "@/lib/design-content-schema";
 import { filterPlantsToFeatures, legendEntryForPlant } from "@/lib/board-plants";
+import { buildMaterialsKeyRows } from "@/lib/board-materials-key";
 import { PlantReferenceThumb } from "@/components/PlantReferenceThumb";
 import type { InterpretFeature } from "@/lib/interpret-schema";
 import { boardDimensions, boardGridTracks, type BoardPageSize } from "@/lib/board-sizes";
@@ -52,6 +53,7 @@ type Props = {
   featureFills?: Record<string, FeatureFillEntry>;
   featureFillImageUrl?: (filename: string) => string;
   hasFilledFeatures?: boolean;
+  bakedFeatureFills?: boolean;
   renderSlots?: BoardRenderSlots;
   pageSize: BoardPageSize;
   basePath?: string;
@@ -88,6 +90,7 @@ export function BoardTemplate({
   featureFills,
   featureFillImageUrl,
   hasFilledFeatures = false,
+  bakedFeatureFills = false,
   renderSlots,
   pageSize,
   basePath = "",
@@ -116,27 +119,26 @@ export function BoardTemplate({
     hiddenTypes
   );
 
-  const materials = filterMaterialsToFeatures(
-    designContent?.materialsAndFinishes ?? [],
-    features
-  );
   const plants = filterPlantsToFeatures(
     designContent?.plantPalette ?? [],
     features,
     legend
   );
-  const concept = designContent?.conceptOverview ?? [];
-  const renderPrompts = designContent?.renderPrompts ?? [];
 
-  const entryPrompt = renderPrompts.find((r) => r.id === "entry");
-  const firePrompt = renderPrompts.find((r) => r.id === "fire_pit");
-  const heroPrompt = renderPrompts.find((r) => r.id === "hero_dusk");
+  const materialsKey = buildMaterialsKeyRows(
+    features,
+    legend,
+    featureFills,
+    featureFillImageUrl
+  );
 
   const supporting = [
-    { id: "entry", url: renderSlots?.entry, caption: entryPrompt?.title ?? "Entry / pathway view" },
-    { id: "fire_pit", url: renderSlots?.fire_pit, caption: firePrompt?.title ?? "Fire pit & pergola" },
-    { id: "hero_dusk", url: renderSlots?.hero_dusk, caption: heroPrompt?.title ?? "Hero perspective at dusk" },
+    { id: "entry", url: renderSlots?.entry, caption: "Entry / pathway view" },
+    { id: "fire_pit", url: renderSlots?.fire_pit, caption: "Fire pit & pergola" },
+    { id: "hero_dusk", url: renderSlots?.hero_dusk, caption: "Hero perspective at dusk" },
   ].filter((s) => Boolean(s.url));
+
+  const planFeatureFills = bakedFeatureFills ? undefined : featureFills;
 
   return (
     <div
@@ -154,7 +156,6 @@ export function BoardTemplate({
           "--center-legend-w": `${grid.centerLegendW}px`,
           "--right-notes-h": `${grid.rightNotesH}px`,
           "--right-materials-h": `${grid.rightMaterialsH}px`,
-          "--rail-thumb-h": `${grid.railThumbH}px`,
         } as React.CSSProperties
       }
       data-project-id={projectId}
@@ -162,25 +163,14 @@ export function BoardTemplate({
     >
       <div className={styles.grid}>
         <aside className={styles.rail}>
-          <div className={styles.panel}>
-            <div className={styles.panelHead}>Source drone</div>
+          <div className={`${styles.panel} ${styles.heroPanel}`}>
+            <div className={styles.panelHead}>Hero perspective</div>
             <div className={styles.panelBody}>
-              {annotatedUrl ? (
+              {renderSlots?.hero ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img className={styles.thumbContain} src={annotatedUrl} alt="" />
+                <img className={styles.renderFill} src={renderSlots.hero} alt="" />
               ) : (
-                <Placeholder label="Source drone photo — upload annotated orthophoto" />
-              )}
-            </div>
-          </div>
-          <div className={styles.panel}>
-            <div className={styles.panelHead}>Styled plan</div>
-            <div className={`${styles.panelBody} ${styles.styledPlanCell}`}>
-              {styledPlanUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img className={styles.thumbContain} src={styledPlanUrl} alt="" />
-              ) : (
-                <Placeholder label="Styled plan — save plan settings to generate (fills optional but improve materials)" />
+                <Placeholder label="Hero render — generate from render panel" />
               )}
             </div>
           </div>
@@ -205,7 +195,7 @@ export function BoardTemplate({
                   pixelsPerFoot={pixelsPerFoot}
                   georefCtx={georefContext}
                   hiddenFeatureTypes={hiddenTypes}
-                  featureFills={featureFills}
+                  featureFills={planFeatureFills}
                   featureFillImageUrl={featureFillImageUrl}
                   fullFrame
                 />
@@ -247,25 +237,27 @@ export function BoardTemplate({
           <GeneralNotesBlock notes={numberedNotes} alwaysShow />
           <div className={styles.panel}>
             <div className={styles.panelHead}>Materials &amp; finishes</div>
-            <div className={styles.panelBody}>
-              {materials.length > 0 ? (
+            <div className={`${styles.panelBody} ${styles.materialsKey}`}>
+              <p className={styles.materialsKeyDisclaimer}>{MATERIALS_DISCLAIMER}</p>
+              {materialsKey.length > 0 ? (
                 <div className={styles.swatches}>
-                  {materials.map((m) => {
-                    const entry = legend.find((e) => e.featureType === m.featureType);
-                    const fill = entry?.renderStyle.fill ?? "#ccc";
-                    return (
-                      <div key={m.featureId} className={styles.swatchItem}>
+                  {materialsKey.map((m) => (
+                    <div key={m.featureId} className={styles.swatchItem}>
+                      {m.swatchUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img className={styles.swatchImage} src={m.swatchUrl} alt="" />
+                      ) : (
                         <div
                           className={styles.swatch}
-                          style={{ background: fill === "none" ? "#e7e5e4" : fill }}
+                          style={{ background: m.swatchColor }}
                         />
-                        <div className={styles.swatchLabel}>{m.material}</div>
-                      </div>
-                    );
-                  })}
+                      )}
+                      <div className={styles.swatchLabel}>{m.label}</div>
+                    </div>
+                  ))}
                 </div>
               ) : (
-                <Placeholder label="Materials &amp; finishes — generate design content" />
+                <Placeholder label="Materials key — generate feature fills for mapped areas" />
               )}
             </div>
           </div>
@@ -299,18 +291,30 @@ export function BoardTemplate({
           </div>
         </aside>
 
-        <div className={supporting.length > 0 ? styles.bottom : styles.bottomConceptOnly}>
-          <div className={styles.conceptPanel}>
-            <div className={styles.conceptTitle}>Concept overview</div>
-            {concept.length > 0 ? (
-              <ul className={styles.conceptList}>
-                {concept.map((b, i) => (
-                  <li key={i}>{b}</li>
-                ))}
-              </ul>
-            ) : (
-              <Placeholder label="Concept overview bullets — generate design content" />
-            )}
+        <div
+          className={`${styles.bottomStrip} ${supporting.length > 0 ? styles.bottomStripWithSupporting : ""}`}
+        >
+          <div className={styles.panel}>
+            <div className={styles.panelHead}>Source drone</div>
+            <div className={styles.panelBody}>
+              {annotatedUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img className={styles.thumbContain} src={annotatedUrl} alt="" />
+              ) : (
+                <Placeholder label="Source drone photo" />
+              )}
+            </div>
+          </div>
+          <div className={styles.panel}>
+            <div className={styles.panelHead}>Styled plan</div>
+            <div className={`${styles.panelBody} ${styles.styledPlanCell}`}>
+              {styledPlanUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img className={styles.thumbContain} src={styledPlanUrl} alt="" />
+              ) : (
+                <Placeholder label="Styled plan — save plan settings or generate feature fills" />
+              )}
+            </div>
           </div>
           {supporting.length > 0 ? (
             <div
@@ -333,12 +337,14 @@ export function BoardTemplate({
         </div>
 
         <div className={styles.titleArea}>
-          <TitleBlock
-            metadata={metadata}
-            boardSettings={boardSettings}
-            scaleLabel={scale.scaleLabel}
-            basePath={basePath}
-          />
+          <div className={styles.titleWall}>
+            <TitleBlock
+              metadata={metadata}
+              boardSettings={boardSettings}
+              scaleLabel={scale.scaleLabel}
+              basePath={basePath}
+            />
+          </div>
         </div>
       </div>
     </div>

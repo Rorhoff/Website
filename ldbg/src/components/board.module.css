@@ -58,11 +58,59 @@
 
 .rail {
   grid-area: rail;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.heroPanel {
+  height: 100%;
+}
+
+.bottomStrip {
+  grid-area: bottom;
   display: grid;
-  grid-template-rows: var(--rail-thumb-h) 1fr;
+  grid-template-columns: 1fr 1fr;
   gap: 8px;
   overflow: hidden;
   min-height: 0;
+}
+
+.bottomStripWithSupporting {
+  grid-template-columns: 1fr 1fr 2fr;
+}
+
+.materialsKey {
+  padding: 8px;
+  overflow: hidden;
+}
+
+.materialsKeyDisclaimer {
+  margin: 0 0 8px;
+  font-size: 9px;
+  line-height: 1.35;
+  color: #78716c;
+  font-style: italic;
+}
+
+.titleWall {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  border: 2px solid #1c1917;
+  background: #fff;
+  padding: 8px;
+  box-sizing: border-box;
+}
+
+.swatchImage {
+  width: 36px;
+  height: 36px;
+  border-radius: 3px;
+  border: 1px solid #d6d3d1;
+  margin: 0 auto;
+  object-fit: cover;
+  display: block;
+  background: #f5f5f4;
 }
 
 .styledPlanCell {
@@ -210,43 +258,19 @@
 
 .bottom {
   grid-area: bottom;
-  display: grid;
-  grid-template-columns: 42% 1fr;
-  gap: 8px;
-  overflow: hidden;
-  min-height: 0;
-}
-
-.bottomConceptOnly {
-  grid-area: bottom;
   display: block;
   overflow: hidden;
   min-height: 0;
 }
 
-.conceptPanel {
-  overflow: hidden;
-  padding: 12px 14px;
-}
-
-.conceptTitle {
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--board-accent, #059669);
-  margin-bottom: 8px;
-}
-
-.conceptList {
-  margin: 0;
-  padding-left: 18px;
+.materialsDisclaimer {
   font-size: 11px;
   line-height: 1.45;
+  color: #44403c;
 }
 
-.conceptList li {
-  margin-bottom: 4px;
+.materialsDisclaimer p {
+  margin: 0;
 }
 
 .supportingRow {
@@ -355,11 +379,12 @@
 
 .plantThumb {
   width: 100%;
-  height: 52px;
+  height: 72px;
   border-radius: 3px;
   margin-bottom: 6px;
   background: #f5f5f4;
   display: block;
+  object-fit: cover;
 }
 
 .plantName {
@@ -402,6 +427,7 @@
   font-size: 11px;
   line-height: 1.4;
   overflow: hidden;
+  list-style: disc;
 }
 
 .generalNotesList li {

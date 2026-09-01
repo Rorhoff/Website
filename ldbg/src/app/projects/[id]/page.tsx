@@ -431,6 +431,7 @@ export default function ProjectPage() {
           <DesignContentPanel
             projectId={id}
             features={features}
+            legend={legend}
             designContent={designContent}
             onDesignContentChange={setDesignContent}
             hasFeatures={features.length > 0}

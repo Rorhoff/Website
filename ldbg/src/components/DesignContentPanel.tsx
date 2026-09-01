@@ -1,21 +1,22 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import type { LegendEntry } from "@/config/legend";
 import type { InterpretFeature } from "@/lib/interpret-schema";
 import { formatUsd } from "@/lib/interpret-cost";
+import { filterPlantsToFeatures } from "@/lib/board-plants";
 import {
-  filterMaterialsToFeatures,
-  type MaterialFinish,
-  PlantEntry,
-  RenderPrompt,
-  StoredDesignContent,
-  TakeoffLine,
+  MATERIALS_DISCLAIMER,
+  type PlantEntry,
+  type StoredDesignContent,
+  type TakeoffLine,
 } from "@/lib/design-content-schema";
 import { withBasePath } from "@/lib/paths";
 
 type Props = {
   projectId: string;
   features: InterpretFeature[];
+  legend: LegendEntry[];
   designContent?: StoredDesignContent;
   onDesignContentChange: (content: StoredDesignContent) => void;
   hasFeatures: boolean;
@@ -25,6 +26,7 @@ type Props = {
 export function DesignContentPanel({
   projectId,
   features,
+  legend,
   designContent,
   onDesignContentChange,
   hasFeatures,
@@ -41,12 +43,10 @@ export function DesignContentPanel({
 
   const content = draft ?? designContent;
 
-  const visibleMaterials = useMemo(
+  const visiblePlants = useMemo(
     () =>
-      content
-        ? filterMaterialsToFeatures(content.materialsAndFinishes, features)
-        : [],
-    [content, features]
+      content ? filterPlantsToFeatures(content.plantPalette, features, legend) : [],
+    [content, features, legend]
   );
 
   const syncDraft = useCallback((next: StoredDesignContent) => {
@@ -93,35 +93,16 @@ export function DesignContentPanel({
     }
   }
 
-  function updateConcept(i: number, value: string) {
-    if (!content) return;
-    const bullets = [...content.conceptOverview];
-    bullets[i] = value;
-    syncDraft({ ...content, conceptOverview: bullets });
-  }
-
-  function addConceptBullet() {
-    if (!content) return;
-    syncDraft({
-      ...content,
-      conceptOverview: [...content.conceptOverview, ""],
-    });
-  }
-
   function updatePlant(i: number, patch: Partial<PlantEntry>) {
     if (!content) return;
-    const plants = content.plantPalette.map((p, idx) =>
-      idx === i ? { ...p, ...patch } : p
+    const visible = filterPlantsToFeatures(content.plantPalette, features, legend);
+    const target = visible[i];
+    if (!target) return;
+    const key = target.commonName.trim().toLowerCase();
+    const plants = content.plantPalette.map((p) =>
+      p.commonName.trim().toLowerCase() === key ? { ...p, ...patch } : p
     );
     syncDraft({ ...content, plantPalette: plants });
-  }
-
-  function updateMaterial(featureId: string, patch: Partial<MaterialFinish>) {
-    if (!content) return;
-    const mats = content.materialsAndFinishes.map((m) =>
-      m.featureId === featureId ? { ...m, ...patch } : m
-    );
-    syncDraft({ ...content, materialsAndFinishes: mats });
   }
 
   function updateTakeoff(i: number, patch: Partial<TakeoffLine>) {
@@ -132,22 +113,14 @@ export function DesignContentPanel({
     syncDraft({ ...content, takeoff: lines });
   }
 
-  function updateRenderPrompt(i: number, patch: Partial<RenderPrompt>) {
-    if (!content) return;
-    const prompts = content.renderPrompts.map((r, idx) =>
-      idx === i ? { ...r, ...patch } : r
-    );
-    syncDraft({ ...content, renderPrompts: prompts });
-  }
-
   return (
     <section className="space-y-4 rounded-xl border border-stone-200 bg-white p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold text-stone-900">Design content</h2>
           <p className="text-sm text-stone-600">
-            Claude drafts board copy — concept, plants, materials, takeoff context, and render
-            prompts. Edit everything before approving.
+            Claude drafts plant palette and takeoff context for the board. Edit before
+            approving.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -213,109 +186,58 @@ export function DesignContentPanel({
         <p className="text-sm text-stone-500">No design content yet.</p>
       ) : (
         <div className="space-y-6">
-          <div>
-            <h3 className="font-medium text-stone-900">Concept overview</h3>
-            <ul className="mt-2 space-y-2">
-              {content.conceptOverview.map((bullet, i) => (
-                <li key={i}>
-                  <textarea
-                    className="w-full rounded border border-stone-300 px-3 py-2 text-sm"
-                    rows={2}
-                    value={bullet}
-                    onChange={(e) => updateConcept(i, e.target.value)}
-                  />
-                </li>
-              ))}
-            </ul>
-            <button
-              type="button"
-              onClick={addConceptBullet}
-              className="mt-2 text-sm text-emerald-700 underline"
-            >
-              Add bullet
-            </button>
+          <div className="rounded-lg border border-stone-200 bg-stone-50 px-3 py-2 text-sm text-stone-700">
+            {MATERIALS_DISCLAIMER}
           </div>
 
           <div>
             <h3 className="font-medium text-stone-900">Plant palette</h3>
-            <div className="mt-2 overflow-x-auto">
-              <table className="min-w-full text-left text-xs">
-                <thead className="bg-stone-50 text-stone-600">
-                  <tr>
-                    <th className="px-2 py-1">Common</th>
-                    <th className="px-2 py-1">Botanical</th>
-                    <th className="px-2 py-1">Size</th>
-                    <th className="px-2 py-1">Water</th>
-                    <th className="px-2 py-1">Sun</th>
-                    <th className="px-2 py-1">Placement</th>
-                    <th className="px-2 py-1">Why chosen</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {content.plantPalette.map((p, i) => (
-                    <tr key={i} className="border-t border-stone-100">
-                      {(
-                        [
-                          "commonName",
-                          "botanicalName",
-                          "matureSize",
-                          "waterNeeds",
-                          "sunExposure",
-                          "placement",
-                          "whyChosen",
-                        ] as const
-                      ).map((field) => (
-                        <td key={field} className="px-1 py-1">
-                          <input
-                            className="w-full min-w-24 rounded border px-1 py-0.5"
-                            value={p[field]}
-                            onChange={(e) => updatePlant(i, { [field]: e.target.value })}
-                          />
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          <div>
-            <h3 className="font-medium text-stone-900">Materials & finishes</h3>
-            {visibleMaterials.length === 0 ? (
-              <p className="mt-1 text-sm text-stone-500">
-                {content.materialsAndFinishes.length > 0
-                  ? "No materials for current design features."
-                  : "None generated."}
+            <p className="mt-1 text-xs text-stone-500">
+              Only plants placed in the design appear here (one row per species).
+            </p>
+            {visiblePlants.length === 0 ? (
+              <p className="mt-2 text-sm text-stone-500">
+                No plants in the current design — add plant markers in the feature editor.
               </p>
             ) : (
-              <ul className="mt-2 space-y-3">
-                {visibleMaterials.map((m) => (
-                  <li
-                    key={m.featureId}
-                    className="rounded-lg border border-stone-200 p-3 text-sm"
-                  >
-                    <p className="font-medium text-stone-800">
-                      {m.label}{" "}
-                      <span className="text-stone-400">({m.featureId})</span>
-                    </p>
-                    <input
-                      className="mt-2 w-full rounded border px-2 py-1"
-                      value={m.material}
-                      placeholder="Material"
-                      onChange={(e) => updateMaterial(m.featureId, { material: e.target.value })}
-                    />
-                    <textarea
-                      className="mt-1 w-full rounded border px-2 py-1"
-                      rows={2}
-                      value={m.description}
-                      onChange={(e) =>
-                        updateMaterial(m.featureId, { description: e.target.value })
-                      }
-                    />
-                  </li>
-                ))}
-              </ul>
+              <div className="mt-2 overflow-x-auto">
+                <table className="min-w-full text-left text-xs">
+                  <thead className="bg-stone-50 text-stone-600">
+                    <tr>
+                      <th className="px-2 py-1">Common</th>
+                      <th className="px-2 py-1">Botanical</th>
+                      <th className="px-2 py-1">Size</th>
+                      <th className="px-2 py-1">Water</th>
+                      <th className="px-2 py-1">Sun</th>
+                      <th className="px-2 py-1">Why chosen</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {visiblePlants.map((p, i) => (
+                      <tr key={p.commonName} className="border-t border-stone-100">
+                        {(
+                          [
+                            "commonName",
+                            "botanicalName",
+                            "matureSize",
+                            "waterNeeds",
+                            "sunExposure",
+                            "whyChosen",
+                          ] as const
+                        ).map((field) => (
+                          <td key={field} className="px-1 py-1">
+                            <input
+                              className="w-full min-w-24 rounded border px-1 py-0.5"
+                              value={p[field]}
+                              onChange={(e) => updatePlant(i, { [field]: e.target.value })}
+                            />
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
           </div>
 
@@ -355,28 +277,6 @@ export function DesignContentPanel({
                   ))}
                 </tbody>
               </table>
-            </div>
-          </div>
-
-          <div>
-            <h3 className="font-medium text-stone-900">Render prompts</h3>
-            <div className="mt-2 space-y-4">
-              {content.renderPrompts.map((r, i) => (
-                <div key={r.id} className="rounded-lg border border-stone-200 p-3">
-                  <input
-                    className="mb-2 w-full rounded border px-2 py-1 text-sm font-medium"
-                    value={r.title}
-                    onChange={(e) => updateRenderPrompt(i, { title: e.target.value })}
-                  />
-                  <textarea
-                    className="w-full rounded border px-2 py-1 text-sm"
-                    rows={4}
-                    value={r.prompt}
-                    onChange={(e) => updateRenderPrompt(i, { prompt: e.target.value })}
-                  />
-                  <p className="mt-1 text-xs text-stone-400">id: {r.id}</p>
-                </div>
-              ))}
             </div>
           </div>
         </div>

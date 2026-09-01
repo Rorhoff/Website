@@ -14,13 +14,11 @@ export function GeneralNotesBlock({ notes, alwaysShow = false }: Props) {
     <div className={styles.generalNotes}>
       <div className={styles.generalNotesHead}>General notes</div>
       {notes.length > 0 ? (
-        <ol className={styles.generalNotesList}>
+        <ul className={styles.generalNotesList}>
           {notes.map((n) => (
-            <li key={n.id} value={n.number}>
-              {n.text}
-            </li>
+            <li key={n.id}>{n.text}</li>
           ))}
-        </ol>
+        </ul>
       ) : (
         <div className={styles.placeholder}>General notes — enable notes in sheet settings</div>
       )}

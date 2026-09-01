@@ -1,6 +1,7 @@
 import { BRAND, brandAssetUrl } from "@/config/brand";
 import { BOARD_RENDER_PPI } from "@/lib/board-sizes";
-import { computeArchScaleLabel } from "@/lib/plan-layout";import type { BoardSettings, ProjectMetadata } from "@/lib/project-schema";
+import { computeArchScaleLabel } from "@/lib/plan-layout";
+import type { BoardSettings, ProjectMetadata } from "@/lib/project-schema";
 import styles from "./board.module.css";
 
 type Props = {

@@ -68,6 +68,10 @@ export const StoredDesignContentSchema = DesignContentResultSchema.merge(
 
 export type StoredDesignContent = z.infer<typeof StoredDesignContentSchema>;
 
+/** Shown on board and design content instead of per-feature material specs. */
+export const MATERIALS_DISCLAIMER =
+  "Material and product selection is subject to change at the discretion of the customer and landscaper.";
+
 /** Keep only materials matching design features actually in the project. */
 export function filterMaterialsToFeatures(
   materials: MaterialFinish[],

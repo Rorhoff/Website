@@ -17,6 +17,7 @@ import {
 } from "@/lib/georef";
 import { getGeorefDisplayContext } from "@/lib/georef-display";
 import { resolvePlanBaseLayer } from "@/lib/plan-base-layer";
+import { resolvePlanSchematicFilename } from "@/lib/plan-composite-service";
 import {
   resolveStylePreset,
   resolveStylePassUrls,
@@ -85,12 +86,22 @@ export default async function BoardPage({ params, searchParams }: Props) {
     registration: spUrls.registration,
   });
 
+  const compositeFilename = await resolvePlanSchematicFilename(id, boardProject);
+  const compositeUrl = compositeFilename
+    ? fileUrl(id, compositeFilename, exportMode)
+    : undefined;
+
   const cleanMatchesTrace =
     Boolean(clean && tracingImage && imageDimensionsMatch(clean, tracingImage));
 
-  const alignedBaseUrl = cleanMatchesTrace ? planBase.url : undefined;
-  const planBaseImageUrl =
-    alignedBaseUrl ?? (cleanMatchesTrace ? cleanUrl : undefined) ?? rawBaseUrl;
+  const usesStyledBase = Boolean(planBase.usesStylePass && planBase.url);
+  const styledPlanUrl = planBase.url ?? compositeUrl;
+  const planBaseImageUrl = usesStyledBase
+    ? planBase.url
+    : compositeUrl ??
+      (cleanMatchesTrace ? planBase.url : undefined) ??
+      (cleanMatchesTrace ? cleanUrl : undefined) ??
+      rawBaseUrl;
 
   const georefContext = rawBaseImage
     ? getGeorefDisplayContext(boardProject, rawBaseImage.width, rawBaseImage.height)
@@ -156,11 +167,12 @@ export default async function BoardPage({ params, searchParams }: Props) {
           annotatedUrl={
             ann ? fileUrl(id, ann.filename, exportMode) : undefined
           }
-          styledPlanUrl={planBase.url}
+          styledPlanUrl={styledPlanUrl}
           baseImageUrl={planBaseImageUrl}
           baseImageFilter={planBase.svgFilter}
           featureFills={boardProject.featureFills}
           featureFillImageUrl={(filename) => fileUrl(id, filename, exportMode)}
+          bakedFeatureFills={usesStyledBase}
           hasFilledFeatures={Object.values(boardProject.featureFills ?? {}).some(
             (e) => e.status === "filled"
           )}
