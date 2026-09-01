@@ -1,9 +1,11 @@
 import type { LegendEntry } from "@/config/legend";
 import { BRAND } from "@/config/brand";
+import { geminiEnabled } from "@/config/ai-features";
 import { presetUsesStylePass, type StylePresetId } from "@/config/styles";
 import { BoardPlanLegend, BoardPlanSvg, computeBoardPlanScale } from "@/components/BoardPlanSvg";
 import { GeneralNotesBlock } from "@/components/GeneralNotesBlock";
 import { GraphicScaleBar } from "@/components/GraphicScaleBar";
+import { MaterialPatternSwatch } from "@/components/MaterialPatternSwatch";
 import { ScaleVerificationStamp } from "@/components/ScaleVerificationStamp";
 import { TitleBlock } from "@/components/TitleBlock";
 import {
@@ -101,10 +103,10 @@ export function BoardTemplate({
   const dims = boardDimensions(pageSize);
   const grid = boardGridTracks(pageSize);
   const numberedNotes = resolveEnabledNotes(boardSettings?.enabledNoteIds, {
-    forceFeatureFillNote: hasFilledFeatures,
-    forceStylePassNote: presetUsesStylePass(
-      (planSettings?.stylePreset ?? "off") as StylePresetId
-    ),
+    forceFeatureFillNote: geminiEnabled() && hasFilledFeatures,
+    forceStylePassNote:
+      geminiEnabled() &&
+      presetUsesStylePass((planSettings?.stylePreset ?? "off") as StylePresetId),
   });
   const hiddenTypes: string[] = [];
 
@@ -125,12 +127,7 @@ export function BoardTemplate({
     legend
   );
 
-  const materialsKey = buildMaterialsKeyRows(
-    features,
-    legend,
-    featureFills,
-    featureFillImageUrl
-  );
+  const materialsKey = buildMaterialsKeyRows(features, legend);
 
   const supporting = [
     { id: "entry", url: renderSlots?.entry, caption: "Entry / pathway view" },
@@ -148,7 +145,6 @@ export function BoardTemplate({
           width: dims.widthPx,
           height: dims.heightPx,
           "--board-accent": BRAND.accentColor,
-          "--col-rail": `${grid.colRail}px`,
           "--col-center": `${grid.colCenter}px`,
           "--col-right": `${grid.colRight}px`,
           "--row-main": `${grid.rowMain}px`,
@@ -162,20 +158,6 @@ export function BoardTemplate({
       data-page-size={pageSize}
     >
       <div className={styles.grid}>
-        <aside className={styles.rail}>
-          <div className={`${styles.panel} ${styles.heroPanel}`}>
-            <div className={styles.panelHead}>Hero perspective</div>
-            <div className={styles.panelBody}>
-              {renderSlots?.hero ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img className={styles.renderFill} src={renderSlots.hero} alt="" />
-              ) : (
-                <Placeholder label="Hero render — generate from render panel" />
-              )}
-            </div>
-          </div>
-        </aside>
-
         <section className={`${styles.panel} ${styles.center}`}>
           <div className={styles.centerTitle}>
             {metadata.projectTitle || "Proposed landscape plan"}
@@ -243,21 +225,18 @@ export function BoardTemplate({
                 <div className={styles.swatches}>
                   {materialsKey.map((m) => (
                     <div key={m.featureId} className={styles.swatchItem}>
-                      {m.swatchUrl ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img className={styles.swatchImage} src={m.swatchUrl} alt="" />
-                      ) : (
-                        <div
-                          className={styles.swatch}
-                          style={{ background: m.swatchColor }}
-                        />
-                      )}
+                      <MaterialPatternSwatch
+                        patternId={m.patternId}
+                        fill={m.fill}
+                        stroke={m.stroke}
+                        uniqueId={m.featureId}
+                      />
                       <div className={styles.swatchLabel}>{m.label}</div>
                     </div>
                   ))}
                 </div>
               ) : (
-                <Placeholder label="Materials key — generate feature fills for mapped areas" />
+                <Placeholder label="Materials key — add hardscape features to the plan" />
               )}
             </div>
           </div>
@@ -265,21 +244,24 @@ export function BoardTemplate({
             <div className={styles.panelHead}>Plant palette</div>
             <div className={styles.panelBody}>
               {plants.length > 0 ? (
-                <div className={styles.plantsGrid}>
+                <div className={styles.plantsList}>
                   {plants.map((p, i) => {
                     const entry = legendEntryForPlant(p, legend);
                     const fill = entry?.renderStyle.fill ?? "#8FBC8F";
                     const stroke = entry?.renderStyle.stroke ?? "#556B2F";
                     return (
-                      <div key={i} className={styles.plantCard}>
+                      <div key={i} className={styles.plantRow}>
                         <PlantReferenceThumb
                           commonName={p.commonName}
                           featureType={entry?.featureType}
                           fill={fill}
                           stroke={stroke}
+                          className={styles.plantThumbSquare}
                         />
-                        <div className={styles.plantName}>{p.commonName}</div>
-                        <div className={styles.plantSci}>{p.botanicalName}</div>
+                        <div className={styles.plantText}>
+                          <div className={styles.plantName}>{p.commonName}</div>
+                          <div className={styles.plantSci}>{p.botanicalName}</div>
+                        </div>
                       </div>
                     );
                   })}
@@ -312,7 +294,7 @@ export function BoardTemplate({
                 // eslint-disable-next-line @next/next/no-img-element
                 <img className={styles.thumbContain} src={styledPlanUrl} alt="" />
               ) : (
-                <Placeholder label="Styled plan — save plan settings or generate feature fills" />
+                <Placeholder label="Composite plan preview" />
               )}
             </div>
           </div>

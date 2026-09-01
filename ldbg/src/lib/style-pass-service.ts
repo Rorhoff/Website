@@ -313,5 +313,5 @@ export function resolveStylePreset(project: Project): StylePresetId {
     return "watercolor-plan";
   }
   if (legacy === "off" || legacy === "desaturated") return "off";
-  return "watercolor-plan";
+  return "off";
 }

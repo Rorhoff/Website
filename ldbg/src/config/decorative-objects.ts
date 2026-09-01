@@ -82,3 +82,14 @@ export function objectRadiusNorm(
 export function objectNotes(obj: DecorativeObject): string {
   return obj.notes ?? obj.label;
 }
+
+/** Human label for footprint size in UI and legend (e.g. 3×3 ft, Ø3 ft). */
+export function decorativeSizeLabel(obj: DecorativeObject): string {
+  if (
+    obj.featureType.includes("round") ||
+    obj.featureType.endsWith("_round")
+  ) {
+    return `Ø${obj.sizeFt} ft`;
+  }
+  return `${obj.sizeFt}×${obj.sizeFt} ft`;
+}

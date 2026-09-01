@@ -3,6 +3,7 @@ import {
   anthropicKeySource,
   isAnthropicConfigured,
 } from "@/lib/anthropic-env";
+import { geminiEnabled } from "@/config/ai-features";
 import {
   getCachedSidecarImportCheck,
   verifyPythonSidecarImports,
@@ -17,6 +18,7 @@ export async function GET() {
   return NextResponse.json({
     anthropicConfigured: configured,
     anthropicKeySource: configured ? anthropicKeySource() : undefined,
+    geminiEnabled: geminiEnabled(),
     pythonSidecar: {
       ok: sidecar.ok,
       pythonCommand: sidecar.pythonCommand,

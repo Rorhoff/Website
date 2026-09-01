@@ -60,9 +60,9 @@ export function boardGridTracks(size: BoardPageSize) {
   return {
     sheetW: d.widthPx,
     sheetH: d.heightPx,
-    colRail: Math.round(792 * sx),
-    colCenter: Math.round(1620 * sx),
-    colRight: d.widthPx - Math.round(792 * sx) - Math.round(1620 * sx),
+    /** Main plan column — former rail + center merged (hero removed; plan is hero). */
+    colCenter: Math.round((1620 + 792) * sx),
+    colRight: d.widthPx - Math.round((1620 + 792) * sx),
     rowMain: Math.round(1800 * sy),
     rowBottom: d.heightPx - Math.round(1800 * sy),
     centerLegendW: Math.round(300 * sx),

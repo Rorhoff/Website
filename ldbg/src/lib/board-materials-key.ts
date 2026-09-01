@@ -1,22 +1,20 @@
 import type { LegendEntry } from "@/config/legend";
 import { isPlantPointFeatureType } from "@/config/utah-plants";
-import type { FeatureFillEntry } from "@/lib/feature-fill-schema";
 import { labelForFeatureType } from "@/lib/feature-styles";
 import type { InterpretFeature } from "@/lib/interpret-schema";
 
 export type MaterialsKeyRow = {
   featureId: string;
   label: string;
-  swatchUrl?: string;
-  swatchColor?: string;
+  fill: string;
+  stroke?: string;
+  patternId?: string;
 };
 
-/** Legend key rows using AI feature-fill previews when available (matches plan appearance). */
+/** Materials key rows using the same legend patterns as the plan drawing. */
 export function buildMaterialsKeyRows(
   features: InterpretFeature[],
-  legend: LegendEntry[],
-  featureFills: Record<string, FeatureFillEntry> | undefined,
-  featureFillImageUrl: ((filename: string) => string) | undefined
+  legend: LegendEntry[]
 ): MaterialsKeyRow[] {
   const design = features.filter(
     (f) =>
@@ -27,20 +25,19 @@ export function buildMaterialsKeyRows(
   );
 
   return design.map((f) => {
-    const fill = featureFills?.[f.id];
     const entry = legend.find((e) => e.featureType === f.featureType);
     const label = f.label || labelForFeatureType(f.featureType, legend);
-    const swatchColor =
+    const fill =
       entry?.renderStyle.fill && entry.renderStyle.fill !== "none"
         ? entry.renderStyle.fill
         : "#e7e5e4";
 
-    let swatchUrl: string | undefined;
-    if (fill?.status === "filled" && featureFillImageUrl) {
-      const preview = fill.cropPreviewFilename ?? fill.imageFilename;
-      if (preview) swatchUrl = featureFillImageUrl(preview);
-    }
-
-    return { featureId: f.id, label, swatchUrl, swatchColor };
+    return {
+      featureId: f.id,
+      label,
+      fill,
+      stroke: entry?.renderStyle.stroke,
+      patternId: entry?.renderStyle.patternId,
+    };
   });
 }

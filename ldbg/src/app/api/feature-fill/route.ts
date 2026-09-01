@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { GEMINI_DISABLED_MESSAGE, geminiEnabled } from "@/config/ai-features";
 import {
   fillAllEmptyFeatures,
   fillFeature,
@@ -22,6 +23,10 @@ export async function POST(req: Request) {
     body = BodySchema.parse(await req.json());
   } catch {
     return NextResponse.json({ error: "Invalid body" }, { status: 400 });
+  }
+
+  if (!geminiEnabled()) {
+    return NextResponse.json({ error: GEMINI_DISABLED_MESSAGE }, { status: 503 });
   }
 
   const storage = getStorage();

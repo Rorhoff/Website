@@ -20,11 +20,11 @@
   width: 100%;
   height: 100%;
   overflow: hidden;
-  grid-template-columns: var(--col-rail) var(--col-center) var(--col-right);
+  grid-template-columns: var(--col-center) var(--col-right);
   grid-template-rows: var(--row-main) var(--row-bottom);
   grid-template-areas:
-    "rail center right"
-    "bottom bottom title";
+    "center right"
+    "bottom title";
 }
 
 .panel {
@@ -56,14 +56,12 @@
   position: relative;
 }
 
-.rail {
-  grid-area: rail;
+.center {
+  grid-area: center;
+  display: grid;
+  grid-template-rows: 40px 1fr 56px;
   overflow: hidden;
-  min-height: 0;
-}
-
-.heroPanel {
-  height: 100%;
+  min-width: 0;
 }
 
 .bottomStrip {
@@ -144,13 +142,6 @@
   object-fit: contain;
   display: block;
   background: #f5f5f4;
-}
-
-.center {
-  grid-area: center;
-  display: grid;
-  grid-template-rows: 40px 1fr 56px;
-  overflow: hidden;
 }
 
 .centerTitle {
@@ -361,30 +352,45 @@
   text-overflow: ellipsis;
 }
 
-.plantsGrid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
+.swatchSvg {
+  display: block;
+  flex-shrink: 0;
+  border-radius: 3px;
+}
+
+.plantsList {
+  display: flex;
+  flex-direction: column;
   gap: 6px;
   padding: 8px;
   overflow: hidden;
 }
 
-.plantCard {
+.plantRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   border: 1px solid #e7e5e4;
   border-radius: 3px;
-  padding: 6px;
+  padding: 5px 6px;
   font-size: 10px;
+  min-width: 0;
+}
+
+.plantText {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
 }
 
-.plantThumb {
-  width: 100%;
-  height: 72px;
+.plantThumbSquare {
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
   border-radius: 3px;
-  margin-bottom: 6px;
+  object-fit: cover;
   background: #f5f5f4;
   display: block;
-  object-fit: cover;
 }
 
 .plantName {

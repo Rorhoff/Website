@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { GEMINI_DISABLED_MESSAGE, geminiEnabled } from "@/config/ai-features";
 import { isRenderSlotKey } from "@/lib/render-slots";
 import {
   clearRenderSlot,
@@ -28,6 +29,10 @@ export async function POST(req: Request, { params }: Params) {
 
   if (!isRenderSlotKey(body.slot)) {
     return NextResponse.json({ error: "Invalid render slot" }, { status: 400 });
+  }
+
+  if (!geminiEnabled()) {
+    return NextResponse.json({ error: GEMINI_DISABLED_MESSAGE }, { status: 503 });
   }
 
   const result = await generateRenderForSlot(id, body.slot, {

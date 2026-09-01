@@ -2,6 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { notFound } from "next/navigation";
 import { presetUsesStylePass } from "@/config/styles";
+import { geminiEnabled } from "@/config/ai-features";
 import { BoardTemplate } from "@/components/BoardTemplate";
 import { boardDimensions, parseBoardPageSize } from "@/lib/board-sizes";
 import {
@@ -54,7 +55,7 @@ export default async function BoardPage({ params, searchParams }: Props) {
   const clean = project.images.clean;
   const stylePreset = resolveStylePreset(project);
   let boardProject = project;
-  if (exportMode && presetUsesStylePass(stylePreset)) {
+  if (exportMode && geminiEnabled() && presetUsesStylePass(stylePreset)) {
     try {
       await runStylePassForProject(id, stylePreset, { quality: "final" });
       boardProject = (await getStorage().loadProject(id)) ?? project;
@@ -102,6 +103,14 @@ export default async function BoardPage({ params, searchParams }: Props) {
       (cleanMatchesTrace ? planBase.url : undefined) ??
       (cleanMatchesTrace ? cleanUrl : undefined) ??
       rawBaseUrl;
+
+  const hasFilledFeatures = Object.values(boardProject.featureFills ?? {}).some(
+    (e) => e.status === "filled"
+  );
+  /** Style pass and fill composites already bake fills into the raster base. */
+  const bakedFeatureFills =
+    usesStyledBase ||
+    (Boolean(compositeUrl) && hasFilledFeatures && planBaseImageUrl === compositeUrl);
 
   const georefContext = rawBaseImage
     ? getGeorefDisplayContext(boardProject, rawBaseImage.width, rawBaseImage.height)
@@ -172,10 +181,8 @@ export default async function BoardPage({ params, searchParams }: Props) {
           baseImageFilter={planBase.svgFilter}
           featureFills={boardProject.featureFills}
           featureFillImageUrl={(filename) => fileUrl(id, filename, exportMode)}
-          bakedFeatureFills={usesStyledBase}
-          hasFilledFeatures={Object.values(boardProject.featureFills ?? {}).some(
-            (e) => e.status === "filled"
-          )}
+          bakedFeatureFills={bakedFeatureFills}
+          hasFilledFeatures={hasFilledFeatures}
           renderSlots={renderSlots}
           pageSize={pageSize}
           basePath={bp}

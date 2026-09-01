@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { GEMINI_DISABLED_MESSAGE, geminiEnabled } from "@/config/ai-features";
 import { formatUsd } from "@/lib/interpret-cost";
 import { PRESET_LABELS, type BlenderRenders } from "@/lib/blender-schema";
 import { projectImageUrl } from "@/lib/image-utils";
@@ -164,19 +165,19 @@ export function RenderPanel({
           Perspective renders
         </h2>
         <p className="text-sm text-stone-600">
-          Blender builds a geometrically true base from the WebODM mesh; optional
-          Gemini pass finishes the look when{" "}
-          <code className="rounded bg-stone-100 px-1 text-xs">
-            LDBG_RENDER_IMG2IMG=true
-          </code>
-          . AI-only renders use{" "}
-          <code className="rounded bg-stone-100 px-1 text-xs">
-            LDBG_RENDERS_ENABLED=true
-          </code>
-          .
+          {geminiEnabled()
+            ? "Blender can build a geometric base from the WebODM mesh; optional Gemini finishes the look. You can also upload images manually."
+            : "Upload perspective renders manually. Gemini AI generation is disabled on this server."}
         </p>
       </div>
 
+      {!geminiEnabled() ? (
+        <p className="rounded-lg border border-stone-200 bg-stone-50 px-3 py-2 text-sm text-stone-600">
+          {GEMINI_DISABLED_MESSAGE}
+        </p>
+      ) : null}
+
+      {geminiEnabled() ? (
       <div className="flex flex-wrap items-center gap-3 text-sm">
         <span className="text-stone-600">Gemini quality:</span>
         <label className="flex items-center gap-1.5">
@@ -198,6 +199,7 @@ export function RenderPanel({
           Final (4K, pro)
         </label>
       </div>
+      ) : null}
 
       {hasMesh ? (
         <p className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
@@ -211,7 +213,7 @@ export function RenderPanel({
         </p>
       )}
 
-      {!hasDesignContent ? (
+      {!geminiEnabled() ? null : !hasDesignContent ? (
         <p className="text-sm text-amber-800">
           Generate design content first — render prompts come from Milestone 5.
         </p>
@@ -315,6 +317,7 @@ export function RenderPanel({
                     ) : null}
                   </>
                 ) : null}
+                {geminiEnabled() ? (
                 <button
                   type="button"
                   disabled={!hasDesignContent || busy || !!filename}
@@ -323,7 +326,8 @@ export function RenderPanel({
                 >
                   {busy ? "Working…" : blender ? "AI finish" : "Generate"}
                 </button>
-                {filename ? (
+                ) : null}
+                {filename && geminiEnabled() ? (
                   <button
                     type="button"
                     disabled={!hasDesignContent || busy}

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { presetUsesStylePass } from "@/config/styles";
+import { geminiEnabled } from "@/config/ai-features";
 import { exportBoardDocument } from "@/lib/board-export";
 import type { BoardPageSize } from "@/lib/board-sizes";
 import { isGeoreferenced } from "@/lib/georef";
@@ -63,7 +64,7 @@ export async function POST(req: Request, { params }: Params) {
     }
 
     const stylePreset = resolveStylePreset(project);
-    if (presetUsesStylePass(stylePreset)) {
+    if (geminiEnabled() && presetUsesStylePass(stylePreset)) {
       try {
         await runStylePassForProject(id, stylePreset, { quality: "final" });
       } catch (e) {

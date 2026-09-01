@@ -7,6 +7,7 @@ import type Konva from "konva";
 import type { LegendEntry } from "@/config/legend";
 import {
   DECORATIVE_OBJECTS,
+  decorativeSizeLabel,
   getDecorativeObject,
   isDecorativeObjectFeatureType,
   objectNotes,
@@ -73,6 +74,7 @@ import {
   updateVertex,
 } from "@/lib/feature-geometry";
 import { labelForFeatureType, styleForFeatureType } from "@/lib/feature-styles";
+import { formatFeatureAreaLabel } from "@/lib/legend-display";
 import { DecorativeObjectKonva } from "@/lib/decorative-object-render";
 import { canopyRadiusNorm, plantNotes } from "@/lib/plant-scale";
 import { useBoundedHistory } from "@/hooks/useBoundedHistory";
@@ -1293,7 +1295,7 @@ export default function PolygonEditor({
             <p className="text-sm font-medium text-amber-950">
               Place objects
               {activeObject
-                ? ` — ${activeObject.label} (~${activeObject.sizeFt} ft)`
+                ? ` — ${activeObject.label} (~${decorativeSizeLabel(activeObject)})`
                 : " — pick an object, then click the orthophoto"}
             </p>
             <button
@@ -1332,7 +1334,7 @@ export default function PolygonEditor({
                   <span className="font-medium">{obj.label}</span>
                   <span className={selected ? "text-amber-100" : "text-stone-500"}>
                     {" "}
-                    · {obj.sizeFt} ft
+                    · {decorativeSizeLabel(obj)}
                   </span>
                 </button>
               );
@@ -1701,7 +1703,7 @@ export default function PolygonEditor({
                     <Text
                       x={placementHoverPx.x + objectPreviewR + 8}
                       y={placementHoverPx.y - 10}
-                      text={`${activeObject.label} · ${activeObject.sizeFt} ft`}
+                      text={`${activeObject.label} · ${decorativeSizeLabel(activeObject)}`}
                       fontSize={12}
                       fill="#ffffff"
                       stroke="#1c1917"
@@ -1978,8 +1980,12 @@ export default function PolygonEditor({
                 <dl className="mt-3 space-y-1 text-xs text-stone-600">
                   {area != null ? (
                     <div className="flex justify-between">
-                      <dt>Area</dt>
-                      <dd>{area.toLocaleString(undefined, { maximumFractionDigits: 0 })} sq ft</dd>
+                      <dt>
+                        {isDecorativeObjectFeatureType(selected.featureType)
+                          ? "Size"
+                          : "Area"}
+                      </dt>
+                      <dd>{formatFeatureAreaLabel(area, selected.featureType)}</dd>
                     </div>
                   ) : null}
                   {perimeter != null ? (

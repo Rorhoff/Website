@@ -1,4 +1,5 @@
 import type { RenderProviderId } from "@/config/features";
+import { geminiEnabled } from "@/config/ai-features";
 import {
   defaultRenderProvider,
   rendersFeatureEnabled,
@@ -15,6 +16,8 @@ export function getRenderProvider(
   providerId?: RenderProviderId
 ): ImageRenderProvider | null {
   if (!rendersFeatureEnabled()) return null;
+
+  if (!geminiEnabled()) return null;
 
   const id = providerId ?? defaultRenderProvider();
 

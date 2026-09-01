@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { presetUsesStylePass, type StylePresetId } from "@/config/styles";
+import { GEMINI_DISABLED_MESSAGE, geminiEnabled } from "@/config/ai-features";
 import { getStorage } from "@/lib/storage";
 import { buildPlanCompositePng } from "@/lib/plan-composite-service";
 import {
@@ -34,6 +35,12 @@ export async function GET(_req: Request, { params }: Params) {
     return NextResponse.json({ error: "Project not found" }, { status: 404 });
   }
 
+  if (!geminiEnabled()) {
+    return NextResponse.json(
+      { job: { status: "idle", progress: 0 }, cacheReady: false, preset: resolveStylePreset(project), disabled: true },
+    );
+  }
+
   const job = await readStylePassJob(id);
   const preset = resolveStylePreset(project);
   let cacheReady = false;
@@ -58,6 +65,10 @@ export async function POST(req: Request, { params }: Params) {
   const project = await getStorage().loadProject(id);
   if (!project) {
     return NextResponse.json({ error: "Project not found" }, { status: 404 });
+  }
+
+  if (!geminiEnabled()) {
+    return NextResponse.json({ error: GEMINI_DISABLED_MESSAGE }, { status: 503 });
   }
 
   let body: z.infer<typeof PostBodySchema>;

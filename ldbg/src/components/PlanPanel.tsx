@@ -2,12 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { PlanDrawing } from "@/components/PlanDrawing";
-import {
-  presetUsesStylePass,
-  STYLE_PRESETS,
-  STYLE_PRESET_IDS,
-  type StylePresetId,
-} from "@/config/styles";
+import { geminiEnabled, GEMINI_DISABLED_MESSAGE } from "@/config/ai-features";
+import { presetUsesStylePass, STYLE_PRESETS, STYLE_PRESET_IDS, type StylePresetId } from "@/config/styles";
 import type { LegendEntry } from "@/config/legend";
 import type { StoredElevationAnalysis } from "@/lib/elevation-schema";
 import type { FeatureFillEntry } from "@/lib/feature-fill-schema";
@@ -48,16 +44,20 @@ type Props = {
 type LayerChoice = StylePresetId | "white";
 
 const LAYER_OPTIONS: { value: LayerChoice; label: string }[] = [
-  ...STYLE_PRESET_IDS.map((id) => ({
-    value: id as LayerChoice,
-    label: STYLE_PRESETS[id].label,
-  })),
+  ...(geminiEnabled()
+    ? STYLE_PRESET_IDS.map((id) => ({
+        value: id as LayerChoice,
+        label: STYLE_PRESETS[id].label,
+      }))
+    : [{ value: "off" as LayerChoice, label: STYLE_PRESETS.off.label }]),
   { value: "white", label: "White + house footprint" },
 ];
 
 function choiceFromSettings(settings: PlanSettings): LayerChoice {
   if (settings.baseMode === "white") return "white";
-  return settings.stylePreset ?? "watercolor-plan";
+  const preset = settings.stylePreset ?? "off";
+  if (!geminiEnabled() && presetUsesStylePass(preset)) return "off";
+  return preset;
 }
 
 export function PlanPanel({
@@ -86,7 +86,7 @@ export function PlanPanel({
   const settings: PlanSettings = planSettings ?? {
     baseMode: "orthophoto",
     basePreset: "off",
-    stylePreset: "watercolor-plan",
+    stylePreset: "off",
     orthophotoOpacity: 0.4,
     showFeatureOutlines: true,
     showInkLinework: false,
@@ -153,6 +153,10 @@ export function PlanPanel({
   }, [projectId]);
 
   useEffect(() => {
+    if (!geminiEnabled()) {
+      void pollWatercolor();
+      return;
+    }
     void pollStylePass();
     void pollWatercolor();
   }, [pollStylePass, pollWatercolor, settings.stylePreset, featureFills]);
@@ -204,7 +208,7 @@ export function PlanPanel({
   ]);
 
   async function ensureStylePass(preset: StylePresetId) {
-    if (!presetUsesStylePass(preset)) return;
+    if (!geminiEnabled() || !presetUsesStylePass(preset)) return;
     try {
       const res = await fetch(
         withBasePath(`/api/projects/${encodeURIComponent(projectId)}/style-pass`),
@@ -234,7 +238,7 @@ export function PlanPanel({
       basePreset: "off" as const,
     };
     onPlanSettingsChange(next);
-    if (presetUsesStylePass(value)) {
+    if (geminiEnabled() && presetUsesStylePass(value)) {
       void ensureStylePass(value);
     }
   };
@@ -314,7 +318,7 @@ export function PlanPanel({
   const filledCount = designFeatures.filter(
     (f) => featureFills?.[f.id]?.status === "filled"
   ).length;
-  const stylePreset = settings.stylePreset ?? "watercolor-plan";
+  const stylePreset = settings.stylePreset ?? "off";
 
   return (
     <section className="space-y-3 rounded-xl border border-stone-200 bg-white p-5">
@@ -322,12 +326,18 @@ export function PlanPanel({
         <div>
           <h2 className="text-lg font-semibold text-stone-900">Plan drawing</h2>
           <p className="text-sm text-stone-600">
-            Per-feature material fills composited, then an optional AI style pass for export
-            sheets. This is separate from the watercolor base step above the feature editor —
-            fills and style pass are not required to see the editor watercolor.
+            {geminiEnabled()
+              ? "Optional AI feature fills and style pass for export sheets. The watercolor base in the feature editor is separate and does not use Gemini."
+              : "Plan export uses your drawn features and orthophoto composite. Gemini AI fills and style pass are disabled on this server."}
           </p>
         </div>
       </div>
+
+      {!geminiEnabled() ? (
+        <p className="rounded-lg border border-stone-200 bg-stone-50 px-3 py-2 text-xs text-stone-600">
+          {GEMINI_DISABLED_MESSAGE}
+        </p>
+      ) : null}
 
       <div className="flex flex-wrap items-end gap-4 rounded-lg bg-stone-50 p-3 text-sm">
         <label className="block">
@@ -365,7 +375,7 @@ export function PlanPanel({
             />
           </label>
         ) : null}
-        {presetUsesStylePass(stylePreset) ? (
+        {geminiEnabled() && presetUsesStylePass(stylePreset) ? (
           <span className="text-xs text-stone-500">
             {styleJob?.status === "running"
               ? `Style pass (${styleJob.progress ?? 0}%${styleJob.step ? ` — ${styleJob.step}` : ""})…`
@@ -392,7 +402,7 @@ export function PlanPanel({
           type="button"
           onClick={() => {
             onSavePlanSettings();
-            if (presetUsesStylePass(stylePreset)) {
+            if (geminiEnabled() && presetUsesStylePass(stylePreset)) {
               void ensureStylePass(stylePreset);
             }
           }}
@@ -403,7 +413,7 @@ export function PlanPanel({
         </button>
       </div>
 
-      {presetUsesStylePass(stylePreset) && styleEntry?.registration ? (
+      {geminiEnabled() && presetUsesStylePass(stylePreset) && styleEntry?.registration ? (
         <details className="rounded-lg border border-stone-200 bg-stone-50 p-3 text-xs text-stone-700">
           <summary className="cursor-pointer font-medium text-stone-800">
             Registration diagnostic
@@ -467,7 +477,7 @@ export function PlanPanel({
         </p>
       ) : null}
 
-      {designFeatures.length > 0 ? (
+      {geminiEnabled() && designFeatures.length > 0 ? (
         <div className="space-y-2 rounded-lg border border-stone-200 p-3">
           <p className="text-xs text-stone-600">
             Feature fills add AI material textures for the <strong>Plan drawing</strong> export.

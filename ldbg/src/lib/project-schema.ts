@@ -141,7 +141,7 @@ export const PlanSettingsSchema = z.object({
   baseMode: z.enum(["orthophoto", "white"]).default("orthophoto"),
   /** @deprecated Legacy — use stylePreset. Kept for migration. */
   basePreset: WatercolorPresetIdSchema.default("off"),
-  stylePreset: StylePresetIdSchema.default("watercolor-plan"),
+  stylePreset: StylePresetIdSchema.default("off"),
   orthophotoOpacity: z.number().min(0.05).max(1).default(0.4),
   showFeatureOutlines: z.boolean().default(true),
   showInkLinework: z.boolean().default(false),
