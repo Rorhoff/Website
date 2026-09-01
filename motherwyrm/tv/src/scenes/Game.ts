@@ -35,6 +35,8 @@ interface Actor extends Lobbyist {
   attackUntil: number;
   attackDir: Phaser.Math.Vector2;
   diving: boolean;
+  shortDive: boolean;
+  lungeUntil: number;
   puntUntil: number;
   riding: boolean;
   label: Phaser.GameObjects.Text;
@@ -168,7 +170,7 @@ export class Game extends Phaser.Scene {
         deaths: 0,
         stunUntil: 0, invulnUntil: 0, deadUntil: 0,
         attackUntil: 0, attackDir: new Phaser.Math.Vector2(1, 0),
-        diving: false, puntUntil: 0, riding: false,
+        diving: false, shortDive: false, lungeUntil: 0, puntUntil: 0, riding: false,
       });
     }
   }
@@ -309,30 +311,70 @@ export class Game extends Phaser.Scene {
 
   private updateMother(a: Actor, time: number, body: Phaser.Physics.Arcade.Body) {
     if (a.diving) {
-      body.setVelocityY(TUNING.diveSpeed);
-      body.setVelocityX(a.input.x * TUNING.motherSpeed * 0.6);
-      if (body.blocked.down) { a.diving = false; this.diveImpact(a); }
+      if (a.shortDive) {
+        if (time < a.attackUntil) {
+          body.setVelocityY(TUNING.motherShortDiveSpeed);
+          body.setVelocityX(a.input.x * TUNING.motherSpeed * 0.55);
+        } else {
+          a.diving = false;
+          a.shortDive = false;
+        }
+      } else {
+        body.setVelocityY(TUNING.diveSpeed);
+        body.setVelocityX(a.input.x * TUNING.motherSpeed * 0.6);
+      }
+      if (body.blocked.down) {
+        a.diving = false;
+        a.shortDive = false;
+        this.diveImpact(a);
+      }
+      return;
+    }
+
+    if (a.lungeUntil > time) {
+      body.setVelocityX(Phaser.Math.Linear(body.velocity.x, a.input.x * TUNING.motherSpeed * 0.35, 0.15));
       return;
     }
 
     body.setVelocityX(a.input.x * TUNING.motherSpeed);
 
-    // Jetpack: every tap is a discrete impulse, capped so mashing has a ceiling.
     if (a.input.jumpEdge) {
       body.setVelocityY(Math.max(body.velocity.y + TUNING.motherThrust, TUNING.motherThrustCap));
       this.puff(a.sprite.x, a.sprite.y + 22);
     }
 
     if (a.input.actionEdge) {
-      if (a.input.y > 0.5 && !body.blocked.down) {
+      const stickMag = Math.hypot(a.input.x, a.input.y);
+      const airDown = !body.blocked.down && a.input.y > 0.5 &&
+        (stickMag < 0.3 || a.input.y >= Math.abs(a.input.x));
+
+      if (airDown) {
         a.diving = true;
-        a.attackUntil = time + 600;
-        a.attackDir.set(0, 1);
+        a.shortDive = true;
+        a.attackUntil = time + TUNING.motherShortDiveMs;
+        a.attackDir.set(a.input.x, 1);
+        if (a.attackDir.length() > 0) a.attackDir.normalize();
+        body.setVelocity(
+          a.input.x * TUNING.motherLungeSpeed * 0.35,
+          TUNING.motherShortDiveSpeed
+        );
+        tryPlayAnim(a.sprite, a.atlasKey, 'dive');
       } else {
-        const dir = a.input.x < -0.5 ? -1 : a.input.x > 0.5 ? 1 : a.facing;
-        a.facing = dir as 1 | -1;
-        a.attackDir.set(dir, 0);
+        let dx = a.input.x;
+        let dy = a.input.y;
+        if (stickMag < 0.3) {
+          dx = a.facing;
+          dy = 0;
+        } else {
+          dx /= stickMag;
+          dy /= stickMag;
+        }
+        if (Math.abs(dx) > 0.1) a.facing = dx > 0 ? 1 : -1;
+        a.attackDir.set(dx, dy);
         a.attackUntil = time + TUNING.swipeMs;
+        a.lungeUntil = time + TUNING.motherLungeMs;
+        body.setVelocity(dx * TUNING.motherLungeSpeed, dy * TUNING.motherLungeSpeed);
+        tryPlayAnim(a.sprite, a.atlasKey, 'claw');
       }
     }
   }
@@ -501,9 +543,57 @@ export class Game extends Phaser.Scene {
     }
   }
 
+  private motherAttackPoint(a: Actor) {
+    return {
+      x: a.sprite.x + a.attackDir.x * TUNING.swipeReach,
+      y: a.sprite.y + a.attackDir.y * TUNING.swipeReach,
+    };
+  }
+
+  private motherClash(a: Actor, b: Actor, time: number) {
+    const ab = a.sprite.body as Phaser.Physics.Arcade.Body;
+    const bb = b.sprite.body as Phaser.Physics.Arcade.Body;
+    const sep = Math.sign(a.sprite.x - b.sprite.x) || 1;
+    ab.setVelocity(-sep * TUNING.motherClashRecoil, -200);
+    bb.setVelocity(sep * TUNING.motherClashRecoil, -200);
+    a.attackUntil = time;
+    b.attackUntil = time;
+    a.lungeUntil = time;
+    b.lungeUntil = time;
+    a.diving = false;
+    b.diving = false;
+    a.shortDive = false;
+    b.shortDive = false;
+    this.puff((a.sprite.x + b.sprite.x) / 2, (a.sprite.y + b.sprite.y) / 2);
+    this.cameras.main.shake(90, 0.004);
+  }
+
   private resolveCombat(time: number) {
-    for (const a of this.actors) {
-      if (a.role !== 'mother' || a.attackUntil <= time || a.deadUntil > 0) continue;
+    const mothers = this.actors.filter(
+      (a) => a.role === 'mother' && a.attackUntil > time && a.deadUntil <= time
+    );
+    const clashed = new Set<number>();
+
+    for (let i = 0; i < mothers.length; i++) {
+      for (let j = i + 1; j < mothers.length; j++) {
+        const a = mothers[i];
+        const b = mothers[j];
+        if (a.team === b.team) continue;
+
+        const ap = this.motherAttackPoint(a);
+        const bp = this.motherAttackPoint(b);
+        const aHitsB = Phaser.Math.Distance.Between(ap.x, ap.y, b.sprite.x, b.sprite.y) <= 52;
+        const bHitsA = Phaser.Math.Distance.Between(bp.x, bp.y, a.sprite.x, a.sprite.y) <= 52;
+        if (!aHitsB || !bHitsA) continue;
+
+        this.motherClash(a, b, time);
+        clashed.add(a.pid);
+        clashed.add(b.pid);
+      }
+    }
+
+    for (const a of mothers) {
+      if (clashed.has(a.pid)) continue;
 
       const hx = a.sprite.x + a.attackDir.x * TUNING.swipeReach;
       const hy = a.sprite.y + a.attackDir.y * TUNING.swipeReach;
@@ -514,6 +604,8 @@ export class Game extends Phaser.Scene {
 
         if (t.role === 'mother') this.hurtMother(t, time, a.attackDir.x || a.facing);
         else this.stun(t, time, a.attackDir.x || a.facing);
+        a.attackUntil = time;
+        break;
       }
     }
 

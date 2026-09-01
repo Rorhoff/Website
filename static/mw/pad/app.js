@@ -3,12 +3,13 @@ const TEAM_COLORS = {
   red:  { team: '#e0663f', deep: '#3f1f16' },
 };
 
-const STICK_HZ = 20;        // analog updates per second
-const DEADZONE = 0.18;      // ignore thumb drift
-const SEND_EPSILON = 0.04;  // don't resend a stick position that barely moved
+const STICK_HZ = 20;
+const DEADZONE = 0.18;
+const SEND_EPSILON = 0.04;
 
 const el = (id) => document.getElementById(id);
 const joinScreen = el('join');
+const lobbyScreen = el('lobby');
 const padScreen = el('pad');
 const stick = el('stick');
 const knob = el('knob');
@@ -17,6 +18,52 @@ let ws = null;
 let stickX = 0, stickY = 0;
 let lastSentX = 0, lastSentY = 0;
 let stickPointer = null;
+let myPid = null;
+let isHost = false;
+let assigned = false;
+let inGame = false;
+
+function roleLabel(role) {
+  return role === 'mother' ? '★ Mother Wyrm' : 'Whelp';
+}
+
+function teamLabel(team) {
+  return team === 'blue' ? 'Blue team' : 'Red team';
+}
+
+function setIdentity(node, name, role, team) {
+  const roleClass = role === 'mother' ? 'role-mother' : '';
+  const teamClass = team === 'blue' ? 'team-blue' : 'team-red';
+  node.innerHTML =
+    `<span class="you">YOU · ${name}</span><br>` +
+    `<span class="${roleClass} ${teamClass}">${roleLabel(role)} · ${teamLabel(team)}</span>`;
+}
+
+function applyTeamTheme(team) {
+  const c = TEAM_COLORS[team];
+  if (!c) return;
+  document.documentElement.style.setProperty('--team', c.team);
+  document.documentElement.style.setProperty('--team-deep', c.deep);
+}
+
+function showLobby() {
+  joinScreen.classList.add('hidden');
+  padScreen.classList.add('hidden');
+  lobbyScreen.classList.remove('hidden');
+}
+
+function showPad() {
+  joinScreen.classList.add('hidden');
+  lobbyScreen.classList.add('hidden');
+  padScreen.classList.remove('hidden');
+}
+
+function updateLobbyUi() {
+  el('hostPanel').classList.toggle('hidden', !isHost || inGame);
+  if (isHost && !inGame) {
+    el('lobbyCue').textContent = 'Fill empty slots with robots, then start when both teams are ready.';
+  }
+}
 
 // ---------------------------------------------------------------- connection
 
@@ -37,39 +84,70 @@ function connect(code, name) {
     }
 
     if (msg.t === 'joined') {
-      el('padName').textContent = msg.name;
-      el('padRole').textContent = 'Waiting for the TV';
-      joinScreen.classList.add('hidden');
-      padScreen.classList.remove('hidden');
+      myPid = msg.pid;
+      showLobby();
+      el('lobbyStatus').textContent = `Connected as ${msg.name}`;
+      el('lobbyCue').textContent = 'Waiting for the TV…';
       requestWakeLock();
-      startStickLoop();
+      return;
+    }
+
+    if (msg.t === 'pick_team') {
+      isHost = Boolean(msg.host);
+      showLobby();
+      el('teamPick').classList.remove('hidden');
+      el('lobbyStatus').textContent = 'Pick your team';
+      el('lobbyCue').textContent = 'Choose Blue or Red to join as a whelp.';
+      updateLobbyUi();
       return;
     }
 
     if (msg.t === 'assigned') {
-      const c = TEAM_COLORS[msg.team];
-      if (c) {
-        document.documentElement.style.setProperty('--team', c.team);
-        document.documentElement.style.setProperty('--team-deep', c.deep);
+      assigned = true;
+      isHost = Boolean(msg.host);
+      applyTeamTheme(msg.team);
+      setIdentity(el('lobbyStatus'), msg.name || 'You', msg.role, msg.team);
+      setIdentity(el('padIdentity'), msg.name || 'You', msg.role, msg.team);
+      el('teamPick').classList.add('hidden');
+
+      if (!inGame) {
+        showLobby();
+        el('lobbyCue').textContent =
+          msg.role === 'mother'
+            ? 'You’re the dragon. Waiting for the host to start.'
+            : 'Waiting for the host to start the match.';
+        updateLobbyUi();
+      } else {
+        showPad();
+        startStickLoop();
       }
-      el('padRole').textContent = msg.role === 'mother' ? 'Mother Wyrm' : 'Whelp';
-      el('btnAction').textContent = msg.role === 'mother' ? 'Claw' : 'Action';
-      el('btnJump').textContent = msg.role === 'mother' ? 'Wings' : 'Jump';
       return;
     }
 
-    if (msg.t === 'cue') { el('padCue').textContent = msg.cue; return; }
+    if (msg.t === 'game_start') {
+      inGame = true;
+      showPad();
+      startStickLoop();
+      return;
+    }
+
+    if (msg.t === 'cue') {
+      if (inGame) el('padCue').textContent = msg.cue;
+      else el('lobbyCue').textContent = msg.cue;
+      return;
+    }
 
     if (msg.t === 'ended') {
+      el('lobbyCue').textContent = 'The game closed. Reload to join a new one.';
       el('padCue').textContent = 'The game closed. Reload to join a new one.';
       ws.close();
     }
   });
 
   ws.addEventListener('close', () => {
-    if (!padScreen.classList.contains('hidden')) {
-      el('padCue').textContent = 'Disconnected. Reload to rejoin.';
-    }
+    if (!joinScreen.classList.contains('hidden')) return;
+    el('lobbyCue').textContent = 'Disconnected. Reload to rejoin.';
+    el('padCue').textContent = 'Disconnected. Reload to rejoin.';
   });
 }
 
@@ -77,7 +155,6 @@ const send = (msg) => { if (ws && ws.readyState === 1) ws.send(JSON.stringify(ms
 
 // ---------------------------------------------------------------- join screen
 
-// A QR code on the TV can point at /c/ABCD, so prefill from the path.
 const pathCode = location.pathname.match(/\/c\/([A-Za-z]{4})/i);
 if (pathCode) el('code').value = pathCode[1].toUpperCase();
 
@@ -88,6 +165,32 @@ el('joinBtn').addEventListener('click', () => {
   el('joinError').textContent = '';
   el('joinBtn').disabled = true;
   connect(code, name);
+});
+
+// ---------------------------------------------------------------- team pick
+
+el('pickBlue').addEventListener('click', () => {
+  send({ t: 'pick', team: 'blue' });
+  el('teamPick').classList.add('hidden');
+  el('lobbyCue').textContent = 'Joining Blue…';
+});
+
+el('pickRed').addEventListener('click', () => {
+  send({ t: 'pick', team: 'red' });
+  el('teamPick').classList.add('hidden');
+  el('lobbyCue').textContent = 'Joining Red…';
+});
+
+// ---------------------------------------------------------------- host controls
+
+el('btnFillBots').addEventListener('click', () => {
+  send({ t: 'host_fill_bots' });
+  el('lobbyCue').textContent = 'Adding robots…';
+});
+
+el('btnStart').addEventListener('click', () => {
+  send({ t: 'host_start' });
+  el('lobbyCue').textContent = 'Starting…';
 });
 
 // ---------------------------------------------------------------- stick
@@ -135,9 +238,12 @@ for (const evt of ['pointerup', 'pointercancel']) {
   });
 }
 
-// Analog values go out on a fixed tick, and only when they actually changed.
+let stickLoopStarted = false;
 function startStickLoop() {
+  if (stickLoopStarted) return;
+  stickLoopStarted = true;
   setInterval(() => {
+    if (!inGame) return;
     if (Math.abs(stickX - lastSentX) < SEND_EPSILON &&
         Math.abs(stickY - lastSentY) < SEND_EPSILON) return;
     lastSentX = stickX;
@@ -148,8 +254,6 @@ function startStickLoop() {
 
 // ---------------------------------------------------------------- buttons
 
-// Buttons are edge events, never polled. A tap shorter than one stick tick
-// still has to land, because the jetpack and the gem punt are timing moves.
 function wireButton(node, key) {
   const down = (e) => {
     node.classList.add('pressed');
@@ -177,7 +281,7 @@ wireButton(el('btnAction'), 'action');
 async function requestWakeLock() {
   try {
     if ('wakeLock' in navigator) await navigator.wakeLock.request('screen');
-  } catch { /* not fatal, the screen just dims */ }
+  } catch { /* not fatal */ }
 }
 
 document.addEventListener('gesturestart', (e) => e.preventDefault());

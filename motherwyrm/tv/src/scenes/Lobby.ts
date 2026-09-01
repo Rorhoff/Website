@@ -61,7 +61,7 @@ export class Lobby extends Phaser.Scene {
       lineSpacing: 8,
     }).setOrigin(0.5, 0);
 
-    this.hint = this.add.text(W / 2, H - 56, "Press R to fill with robots.", {
+    this.hint = this.add.text(W / 2, H - 56, "Waiting for players…", {
       fontFamily: "system-ui, sans-serif",
       fontSize: "20px",
       color: "#8b7a66",
@@ -70,6 +70,8 @@ export class Lobby extends Phaser.Scene {
     this.net.onCode = (code) => this.codeText.setText(code);
     this.net.onJoin = () => this.redraw();
     this.net.onLeave = () => this.redraw();
+    this.net.onHostStart = () => this.tryStart();
+    this.net.onHostFillBots = () => this.addRobots();
     if (this.net.code) this.codeText.setText(this.net.code);
     this.redraw();
 
@@ -109,13 +111,20 @@ export class Lobby extends Phaser.Scene {
   }
 
   private redraw() {
+    const host = this.net.hostPid;
     const line = (team: "blue" | "red") =>
       [...this.net.players.values()]
         .filter((p) => p.team === team)
-        .map((p) => formatPlayerLabel(p))
+        .map((p) => {
+          const label = formatPlayerLabel(p);
+          return p.pid === host ? `${label} 👑` : label;
+        })
         .join("   ") || "(empty)";
 
-    this.roster.setText([`Blue   ${line("blue")}`, "", `Red   ${line("red")}`]);
+    const pending = this.net.pendingPick.size;
+    const lines = [`Blue   ${line("blue")}`, "", `Red   ${line("red")}`];
+    if (pending > 0) lines.push(`(${pending} picking a team…)`);
+    this.roster.setText(lines);
   }
 
   update() {
@@ -146,7 +155,11 @@ export class Lobby extends Phaser.Scene {
         }
       }
       if (!this.hint.text.includes("Space")) {
-        this.hint.setText("Space to start · mothers can tap Action on phone");
+        const hostHint =
+          this.net.hostPid != null
+            ? "Host can start from phone · Space on TV · mothers tap Action"
+            : "Space to start · mothers can tap Action on phone";
+        this.hint.setText(hostHint);
       }
     }
   }
@@ -155,6 +168,7 @@ export class Lobby extends Phaser.Scene {
     const teams = new Set([...this.net.players.values()].map((p) => p.team));
     if (teams.size < 2) return;
     this.autoStartAt = 0;
+    this.net.notifyGameStart();
     this.scene.start("Game", { net: this.net });
   }
 }

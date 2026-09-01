@@ -32,6 +32,11 @@ export const TUNING = {
   motherInvulnMs: 2000,
 
   diveSpeed: 820,
+  motherShortDiveSpeed: 720,
+  motherShortDiveMs: 380,
+  motherLungeSpeed: 520,
+  motherLungeMs: 160,
+  motherClashRecoil: 300,
   swipeReach: 72,
   swipeMs: 180,
   stunMs: 1200,

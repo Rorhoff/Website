@@ -1,14 +1,16 @@
-/* Palette: damp forest floor. The phone stays dark so the TV keeps the room's
-   attention, and the one loud color is whichever team you got put on. */
+/* Palette: damp forest floor. Jump is always blue, action always red. */
 :root {
   --soil:        #14100d;
   --soil-raised: #211a15;
   --rim:         #3a2e25;
   --spore:       #efe4d2;
   --spore-dim:   #a3927c;
-  --team:        #7d7268;   /* replaced at runtime once the TV assigns a team */
+  --team:        #7d7268;
   --team-deep:   #4a423b;
-  --danger:      #d4553f;
+  --fly-blue:    #4aa3d8;
+  --action-red:  #d4553f;
+  --blue-deep:   #16323f;
+  --red-deep:    #3f1f16;
 }
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -35,8 +37,6 @@ html, body {
 }
 .hidden { display: none; }
 
-/* ---------- Join ---------- */
-
 #join { align-items: center; justify-content: center; padding: 24px; }
 
 .join-card { width: 100%; max-width: 22rem; }
@@ -48,7 +48,7 @@ html, body {
   background: radial-gradient(circle at 30% 40%, var(--spore) 0 3px, transparent 3px),
               radial-gradient(circle at 66% 30%, var(--spore) 0 4px, transparent 4px),
               radial-gradient(circle at 48% 68%, var(--spore) 0 2px, transparent 2px),
-              var(--danger);
+              var(--action-red);
 }
 
 h1 {
@@ -79,7 +79,7 @@ input {
   font: inherit;
   font-size: 1.1rem;
 }
-input:focus-visible { outline: 2px solid var(--danger); outline-offset: 2px; }
+input:focus-visible { outline: 2px solid var(--action-red); outline-offset: 2px; }
 
 #code {
   font-size: 2rem;
@@ -87,7 +87,7 @@ input:focus-visible { outline: 2px solid var(--danger); outline-offset: 2px; }
   letter-spacing: 0.35em;
   text-align: center;
   text-transform: uppercase;
-  padding-left: 0.35em; /* offsets the trailing letter-space so it reads centered */
+  padding-left: 0.35em;
 }
 
 .primary {
@@ -95,7 +95,7 @@ input:focus-visible { outline: 2px solid var(--danger); outline-offset: 2px; }
   padding: 16px;
   border: 0;
   border-radius: 12px;
-  background: var(--danger);
+  background: var(--action-red);
   color: #fff;
   font: inherit;
   font-size: 1.05rem;
@@ -104,22 +104,97 @@ input:focus-visible { outline: 2px solid var(--danger); outline-offset: 2px; }
 .primary:active { transform: translateY(1px); }
 .primary:disabled { opacity: 0.5; }
 
-.error { min-height: 1.4em; margin: 14px 0 0; color: var(--danger); font-size: 0.95rem; }
+.error { min-height: 1.4em; margin: 14px 0 0; color: var(--action-red); font-size: 0.95rem; }
 
-/* ---------- Pad ---------- */
-
-#pad { background: radial-gradient(120% 90% at 50% 0%, var(--team-deep) 0%, var(--soil) 62%); }
+#lobby, #pad {
+  background: radial-gradient(120% 90% at 50% 0%, var(--team-deep) 0%, var(--soil) 62%);
+}
 
 .pad-head {
+  padding: 16px 20px 8px;
+}
+.pad-head.center { text-align: center; }
+
+.identity {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 800;
+  line-height: 1.35;
+  color: var(--spore);
+}
+.identity .role-mother { color: var(--fly-blue); }
+.identity .team-blue { color: var(--fly-blue); }
+.identity .team-red { color: var(--action-red); }
+
+.team-pick {
+  flex: 1;
   display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  padding: 12px 20px 0;
-  font-size: 0.9rem;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  padding: 20px;
+}
+
+.pick-lede {
+  margin: 0;
+  font-size: 1.1rem;
   color: var(--spore-dim);
 }
-#padName { font-weight: 700; color: var(--spore); }
-#padRole { color: var(--team); font-weight: 700; }
+
+.pick-row {
+  display: flex;
+  gap: 16px;
+  width: 100%;
+  max-width: 22rem;
+}
+
+.pick-btn {
+  flex: 1;
+  padding: 20px 12px;
+  border: 2px solid var(--rim);
+  border-radius: 14px;
+  font: inherit;
+  font-size: 1.1rem;
+  font-weight: 800;
+  color: var(--soil);
+}
+.pick-btn.blue { background: var(--fly-blue); border-color: transparent; }
+.pick-btn.red { background: var(--action-red); border-color: transparent; }
+.pick-btn:active { transform: scale(0.97); }
+
+.host-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 24px 24px;
+}
+
+.host-label {
+  margin: 0;
+  font-size: 0.95rem;
+  color: var(--spore-dim);
+}
+
+.host-btn {
+  width: 100%;
+  max-width: 18rem;
+  padding: 14px 18px;
+  border: 2px solid var(--rim);
+  border-radius: 12px;
+  background: var(--soil-raised);
+  color: var(--spore);
+  font: inherit;
+  font-size: 1rem;
+  font-weight: 700;
+}
+.host-btn.primary-host {
+  background: var(--fly-blue);
+  border-color: transparent;
+  color: var(--soil);
+}
+.host-btn:active { transform: translateY(1px); }
 
 .pad-body {
   flex: 1;
@@ -162,16 +237,15 @@ input:focus-visible { outline: 2px solid var(--danger); outline-offset: 2px; }
 .pad-btn {
   width: min(30vw, 26vh, 130px);
   aspect-ratio: 1;
-  border: 2px solid var(--rim);
+  border: 2px solid transparent;
   border-radius: 50%;
-  background: var(--soil-raised);
-  color: var(--spore);
-  font: inherit;
-  font-size: 1rem;
-  font-weight: 700;
+  font-size: 0;
+  color: transparent;
+  padding: 0;
 }
-.pad-btn.jump { background: var(--team); color: var(--soil); border-color: transparent; }
-.pad-btn.pressed { transform: scale(0.94); filter: brightness(1.25); }
+.pad-btn.jump { background: var(--fly-blue); }
+.pad-btn.action { background: var(--action-red); }
+.pad-btn.pressed { transform: scale(0.94); filter: brightness(1.15); }
 
 .cue {
   min-height: 1.6em;
@@ -182,11 +256,10 @@ input:focus-visible { outline: 2px solid var(--danger); outline-offset: 2px; }
   font-size: 0.9rem;
 }
 
-/* Landscape is the intended grip; portrait still plays, just tighter. */
 @media (orientation: portrait) and (min-height: 620px) {
   .pad-body { align-items: flex-end; padding-bottom: 8vh; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .pad-btn.pressed, .primary:active { transform: none; }
+  .pad-btn.pressed, .primary:active, .pick-btn:active, .host-btn:active { transform: none; }
 }

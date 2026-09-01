@@ -28,10 +28,31 @@
   </div>
 </main>
 
+<main id="lobby" class="screen hidden">
+  <header class="pad-head center">
+    <p id="lobbyStatus" class="identity">Connecting…</p>
+  </header>
+
+  <div id="teamPick" class="team-pick hidden">
+    <p class="pick-lede">Pick your team</p>
+    <div class="pick-row">
+      <button type="button" id="pickBlue" class="pick-btn blue">Blue</button>
+      <button type="button" id="pickRed" class="pick-btn red">Red</button>
+    </div>
+  </div>
+
+  <div id="hostPanel" class="host-panel hidden">
+    <p class="host-label">You’re the host</p>
+    <button type="button" id="btnFillBots" class="host-btn">Add robots</button>
+    <button type="button" id="btnStart" class="host-btn primary-host">Start game</button>
+  </div>
+
+  <p id="lobbyCue" class="cue" role="status">Waiting for the TV…</p>
+</main>
+
 <main id="pad" class="screen hidden">
-  <header class="pad-head">
-    <span id="padName"></span>
-    <span id="padRole"></span>
+  <header class="pad-head center">
+    <p id="padIdentity" class="identity">You</p>
   </header>
 
   <div class="pad-body">
@@ -40,8 +61,8 @@
     </div>
 
     <div class="buttons">
-      <button id="btnAction" class="pad-btn action">Action</button>
-      <button id="btnJump" class="pad-btn jump">Jump</button>
+      <button id="btnAction" class="pad-btn action" aria-label="Action"></button>
+      <button id="btnJump" class="pad-btn jump" aria-label="Fly"></button>
     </div>
   </div>
 

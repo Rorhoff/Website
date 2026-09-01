@@ -101,8 +101,32 @@ async def motherwyrm_ws(ws: WebSocket) -> None:
                     player.role = msg.get("role")
                     await _send(
                         player.ws,
-                        {"t": "assigned", "team": player.team, "role": player.role},
+                        {
+                            "t": "assigned",
+                            "team": player.team,
+                            "role": player.role,
+                            "host": bool(msg.get("host")),
+                            "name": msg.get("name") or player.name,
+                        },
                     )
+                continue
+
+            if meta.get("kind") == "tv" and t == "pick_team":
+                player = room.players.get(int(msg.get("pid", 0)))
+                if player:
+                    await _send(
+                        player.ws,
+                        {
+                            "t": "pick_team",
+                            "host": bool(msg.get("host")),
+                        },
+                    )
+                continue
+
+            if meta.get("kind") == "tv" and t == "game_start":
+                player = room.players.get(int(msg.get("pid", 0)))
+                if player:
+                    await _send(player.ws, {"t": "game_start"})
                 continue
 
             if meta.get("kind") == "tv" and t == "cue":
@@ -112,6 +136,16 @@ async def motherwyrm_ws(ws: WebSocket) -> None:
                 continue
 
             if meta.get("kind") == "phone" and t in ("i", "b"):
+                msg["pid"] = meta["pid"]
+                await _send(room.tv, msg)
+                continue
+
+            if meta.get("kind") == "phone" and t == "pick":
+                msg["pid"] = meta["pid"]
+                await _send(room.tv, msg)
+                continue
+
+            if meta.get("kind") == "phone" and t in ("host_start", "host_fill_bots"):
                 msg["pid"] = meta["pid"]
                 await _send(room.tv, msg)
 
