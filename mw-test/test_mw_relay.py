@@ -86,6 +86,13 @@ def test_tv_countdown_relays_to_phone(client):
             assert msg["n"] == 2
 
 
+def test_pad_deep_link_serves_join_page(client):
+    res = client.get("/mw/pad/c/FKVK")
+    assert res.status_code == 200
+    assert "MotherWyrm" in res.text
+    assert "joinBtn" in res.text
+
+
 def test_join_rejects_unknown_code(client):
     with client.websocket_connect("/api/mw/ws") as phone:
         phone.send_json({"t": "join", "code": "ZZZZ", "name": "Lost"})

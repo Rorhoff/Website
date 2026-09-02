@@ -978,6 +978,16 @@ else:
         StaticFiles(directory=str(STATIC_DIR / "t1-prod"), html=True),
         name="t1_prod",
     )
+
+    # Must register before /mw/pad StaticFiles — otherwise /mw/pad/c/ABCD 404s.
+    @app.get("/mw/pad/c/{code}", include_in_schema=False)
+    def mw_pad_deep_link(code: str):
+        return _static("mw/pad/index.html")
+
+    @app.get("/mw/pad", include_in_schema=False)
+    def mw_pad_no_slash() -> RedirectResponse:
+        return RedirectResponse(url="/mw/pad/", status_code=301)
+
     app.mount(
         "/mw/pad",
         StaticFiles(directory=str(STATIC_DIR / "mw" / "pad"), html=True),
@@ -1035,14 +1045,6 @@ else:
     @app.get("/mw")
     def mw_no_slash() -> RedirectResponse:
         return RedirectResponse(url="/mw/", status_code=301)
-
-    @app.get("/mw/pad")
-    def mw_pad_no_slash() -> RedirectResponse:
-        return RedirectResponse(url="/mw/pad/", status_code=301)
-
-    @app.get("/mw/pad/c/{code}")
-    def mw_pad_deep_link(code: str):
-        return _static("mw/pad/index.html")
 
     @app.get("/sss/")
     def sss_root():
