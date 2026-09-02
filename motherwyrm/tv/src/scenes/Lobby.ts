@@ -111,22 +111,28 @@ export class Lobby extends Phaser.Scene {
     this.input.keyboard?.on("keydown-SPACE", () => this.tryStart());
   }
 
-  private async refreshQr(code: string) {
-    try {
-      const url = padJoinUrl(code, location.origin);
-      const dataUrl = await qrDataUrl(url);
-      const key = "mw_pad_qr";
-      const base64 = dataUrl.replace(/^data:image\/png;base64,/, "");
-      if (this.textures.exists(key)) this.textures.remove(key);
-      this.textures.addBase64(key, base64);
-      this.qrImage?.destroy();
-      this.qrImage = this.add.image(W - 132, 268, key)
-        .setDisplaySize(148, 148)
-        .setDepth(10);
-      this.qrCaption?.setVisible(true);
-    } catch {
+  private refreshQr(code: string) {
+    const url = padJoinUrl(code, location.origin);
+    void qrDataUrl(url).then((dataUrl) => {
+      const img = new Image();
+      img.onload = () => {
+        if (!this.scene.isActive()) return;
+        const key = "mw_pad_qr";
+        if (this.textures.exists(key)) this.textures.remove(key);
+        this.textures.addImage(key, img);
+        this.qrImage?.destroy();
+        this.qrImage = this.add.image(W - 132, 268, key)
+          .setDisplaySize(148, 148)
+          .setDepth(10);
+        this.qrCaption?.setVisible(true);
+      };
+      img.onerror = () => {
+        this.qrCaption?.setText("QR unavailable").setVisible(true);
+      };
+      img.src = dataUrl;
+    }).catch(() => {
       this.qrCaption?.setText("QR unavailable").setVisible(true);
-    }
+    });
   }
 
   private addRobots() {

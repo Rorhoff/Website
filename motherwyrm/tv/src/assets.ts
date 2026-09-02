@@ -3,6 +3,7 @@ import {
   ATLAS_MANIFEST,
   GEM_ANCHOR_FALLBACK,
   IMAGE_MANIFEST,
+  REMOTE_ART_ENABLED,
   SPRITE_SCALE,
   type AtlasManifestEntry,
 } from "./asset-manifest";
@@ -43,6 +44,8 @@ export function isAtlasLoaded(key: string): boolean {
 }
 
 export function queueAssetLoads(load: Phaser.Loader.LoaderPlugin) {
+  if (!REMOTE_ART_ENABLED) return;
+
   for (const entry of ATLAS_MANIFEST) {
     load.aseprite(
       entry.key,
