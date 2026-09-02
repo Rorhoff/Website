@@ -55,16 +55,28 @@ function homePatrolX(team: NetTeam): number {
   return team === "blue" ? W * 0.38 : W * 0.62;
 }
 
-function nearestGem(gems: Array<{ x: number; y: number }>, x: number, y: number) {
+/** Prefer nearby gems; heavily penalize gems far above until we're closer. */
+export function pickBestGem(
+  gems: Array<{ x: number; y: number }>,
+  x: number,
+  y: number
+): { x: number; y: number } | null {
   let best: { x: number; y: number } | null = null;
-  let bestD = Infinity;
+  let bestScore = Infinity;
+
   for (const g of gems) {
-    const d = (g.x - x) ** 2 + (g.y - y) ** 2;
-    if (d < bestD) {
-      bestD = d;
+    const dx = Math.abs(g.x - x);
+    const dy = g.y - y;
+    let penalty = 0;
+    if (dy < -50) penalty += 500 + Math.abs(dy) * 3;
+    if (dy > 80) penalty += 200;
+    const score = dx * dx + dy * dy + penalty;
+    if (score < bestScore) {
+      bestScore = score;
       best = g;
     }
   }
+
   return best;
 }
 
@@ -81,6 +93,24 @@ function steerToward(input: InputState, fromX: number, toX: number, tol = 18) {
     return;
   }
   setStick(input, Math.sign(dx), 0);
+}
+
+function shouldEscortCow(a: BotActorView, world: BotWorld): boolean {
+  const our = world.slotsFilled[a.team];
+  const their = world.slotsFilled[OTHER[a.team]];
+  const escortTurn = (a.pid + Math.floor(world.time / 5000)) % 2 === 0;
+
+  if (their > our + 1) return true;
+  if (world.gems.length <= 6) return escortTurn;
+  if (our >= 6 && their <= our) return escortTurn;
+  return false;
+}
+
+function goToWyrm(a: BotActorView, world: BotWorld) {
+  steerToward(a.input, a.x, world.wyrmX, 24);
+  if (a.onGround && Math.abs(a.x - world.wyrmX) < 72) {
+    if (world.time % 600 < 50) tapJump(a.input);
+  }
 }
 
 /** Simple heuristics — enough to chase gems, hoard, ride the wyrm, and scrap. */
@@ -145,40 +175,40 @@ function updateWhelpBot(a: BotActorView, world: BotWorld) {
   if (a.riding) {
     const pull = a.team === "blue" ? 1 : -1;
     setStick(a.input, pull, 0);
-    if (Math.abs(world.wyrmX - winX) < 80) tapJump(a.input);
+    if (Math.abs(world.wyrmX - winX) < 120 && world.time % 800 < 50) {
+      tapJump(a.input);
+    }
     return;
   }
 
   if (a.carrying > 0) {
     steerToward(a.input, a.x, hoardX, 22);
-    if (!a.onGround && a.carrying > 0 && Math.abs(a.x - hoardX) < 50) {
+    if (!a.onGround && Math.abs(a.x - hoardX) < 50) {
       tapAction(a.input);
-    } else if (a.onGround && Math.random() < 0.02) {
-      tapJump(a.input);
     }
     return;
   }
 
-  if (ourGems + 3 <= theirGems || world.gems.length < 4) {
-    steerToward(a.input, a.x, world.wyrmX, 30);
-    if (a.onGround && Math.abs(a.x - world.wyrmX) < 70) {
-      tapJump(a.input);
-    }
+  if (shouldEscortCow(a, world)) {
+    goToWyrm(a, world);
     return;
   }
 
-  const gem = nearestGem(world.gems, a.x, a.y);
+  const gem = pickBestGem(world.gems, a.x, a.y);
   if (gem) {
-    steerToward(a.input, a.x, gem.x, 16);
-    if (a.onGround && gem.y < a.y - 40 && Math.abs(a.x - gem.x) < 40) {
-      tapJump(a.input);
-    }
-    if (!a.onGround && Math.abs(a.x - gem.x) < 36 && Math.random() < 0.04) {
-      tapAction(a.input);
+    steerToward(a.input, a.x, gem.x, 20);
+    const dy = gem.y - a.y;
+
+    if (a.onGround && dy < -35 && Math.abs(a.x - gem.x) < 48) {
+      if (world.time % 550 < 45) tapJump(a.input);
+    } else if (a.onGround && dy > 40 && Math.abs(a.x - gem.x) < 32) {
+      // Under a ledge — walk out and try again instead of hopping in place.
+      setStick(a.input, a.x < gem.x ? -1 : 1, 0);
     }
     return;
   }
 
-  steerToward(a.input, a.x, world.wyrmX, 40);
-  if (a.onGround && Math.abs(a.x - world.wyrmX) < 60) tapJump(a.input);
+  if (theirGems > ourGems || world.gems.length === 0) {
+    goToWyrm(a, world);
+  }
 }

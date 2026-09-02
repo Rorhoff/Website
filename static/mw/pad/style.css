@@ -206,6 +206,12 @@ input:focus-visible { outline: 2px solid var(--action-red); outline-offset: 2px;
   font-size: 0.95rem;
   color: var(--spore-dim);
 }
+.controls-note {
+  margin-top: 10px !important;
+  font-size: 0.85rem !important;
+  color: var(--spore-dim);
+  opacity: 0.9;
+}
 .ctrl-dot {
   display: inline-block;
   width: 11px;

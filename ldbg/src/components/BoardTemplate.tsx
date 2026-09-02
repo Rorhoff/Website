@@ -224,6 +224,26 @@ export function BoardTemplate({
             <div className={styles.panelHead}>Materials &amp; finishes</div>
             <div className={`${styles.panelBody} ${styles.materialsKey}`}>
               <p className={styles.materialsKeyDisclaimer}>{MATERIALS_DISCLAIMER}</p>
+              {features.length > 0 && baseImageUrl ? (
+                <div className={styles.materialsPlanPreview} aria-hidden>
+                  <BoardPlanSvg
+                    features={features}
+                    legend={legend}
+                    imageWidth={imageWidth}
+                    imageHeight={imageHeight}
+                    baseImageUrl={baseImageUrl}
+                    baseImageFilter={baseImageFilter}
+                    planSettings={planSettings}
+                    northRotationDeg={northRotationDeg}
+                    pixelsPerFoot={pixelsPerFoot}
+                    georefCtx={georefContext}
+                    hiddenFeatureTypes={hiddenTypes}
+                    featureFills={planFeatureFills}
+                    featureFillImageUrl={featureFillImageUrl}
+                    previewMode
+                  />
+                </div>
+              ) : null}
               {materialsKey.length > 0 ? (
                 <div className={styles.swatches}>
                   {materialsKey.map((m) => (

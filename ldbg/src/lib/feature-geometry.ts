@@ -1,5 +1,6 @@
 import type { InterpretFeature } from "@/lib/interpret-schema";
 import { getDecorativeObjectByFeatureType } from "@/config/decorative-objects";
+import { isLinearFeatureType } from "@/config/legend";
 import type { GeorefDisplayContext } from "@/lib/georef-display";
 import {
   featureAreaSqFtGeoref,
@@ -96,6 +97,11 @@ export function featureAreaSqFt(
       }
       return deco.sizeFt * deco.sizeFt;
     }
+  }
+
+  // Edging, walls, and other LF features follow the border — not interior area.
+  if (isLinearFeatureType(feature.featureType)) {
+    return null;
   }
 
   const georef = featureAreaSqFtGeoref(feature);

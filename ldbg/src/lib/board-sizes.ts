@@ -67,7 +67,7 @@ export function boardGridTracks(size: BoardPageSize) {
     rowBottom: d.heightPx - Math.round(1800 * sy),
     centerLegendW: Math.round(300 * sx),
     rightNotesH: Math.round(560 * sy),
-    rightMaterialsH: Math.round(360 * sy),
+    rightMaterialsH: Math.round(480 * sy),
     railThumbH: Math.round(300 * sy),
     railSchematicH: Math.round(300 * sy),
   };

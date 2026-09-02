@@ -14,6 +14,8 @@ import {
   LEGEND_ESTIMATE_DISCLAIMER,
 } from "../src/lib/legend-display";
 import { buildTakeoff } from "../src/lib/takeoff-builder";
+import { featureAreaSqFt, featurePerimeterLf } from "../src/lib/feature-geometry";
+import { buildCalloutsAndLegend } from "../src/lib/plan-layout";
 import { getBoardPlanImage, getTracingImage } from "../src/lib/georef";
 import { createEmptyProject, PlanSettingsSchema } from "../src/lib/project-schema";
 import type { InterpretFeature } from "../src/lib/interpret-schema";
@@ -186,6 +188,56 @@ section("Board general notes (conceptual disclaimer in catalog)");
   const conceptual = GENERAL_NOTES.find((n) => n.text.includes("conceptual design"));
   assert(conceptual != null, "conceptual disclaimer note exists");
   assert(conceptual?.defaultOn === true, "conceptual disclaimer is default-on");
+}
+
+section("Linear edging (perimeter, not enclosed area)");
+{
+  function edgingSquare(featureType: string): InterpretFeature {
+    return {
+      id: `${featureType}-1`,
+      featureType,
+      label: featureType,
+      existing: false,
+      confidence: 1,
+      notes: "",
+      geometry: {
+        kind: "polygon",
+        points: [
+          { x: 0.45, y: 0.45 },
+          { x: 0.55, y: 0.45 },
+          { x: 0.55, y: 0.55 },
+          { x: 0.45, y: 0.55 },
+        ],
+      },
+    };
+  }
+
+  const imageW = 1000;
+  const imageH = 1000;
+  const pixelsPerFoot = 10;
+
+  for (const featureType of ["steel_edging", "boulder_retaining_edge"]) {
+    const f = edgingSquare(featureType);
+    const area = featureAreaSqFt(f, imageW, imageH, pixelsPerFoot);
+    const lf = featurePerimeterLf(f, imageW, imageH, pixelsPerFoot);
+    assert(area == null, `${featureType} polygon has no filled area`);
+    assert(lf != null && Math.abs(lf - 40) < 0.5, `${featureType} 10×10 ft square = 40 LF`, `got ${lf}`);
+  }
+
+  const steel = edgingSquare("steel_edging");
+  const { legendRows } = buildCalloutsAndLegend(
+    [steel],
+    DEFAULT_LEGEND,
+    imageW,
+    imageH,
+    pixelsPerFoot
+  );
+  const row = legendRows.find((r) => r.featureType === "steel_edging");
+  assert(row != null, "steel edging appears in legend");
+  assert(row?.areaSqFt == null, "steel edging legend row has no sq ft");
+  assert(row?.lengthLf != null && Math.abs(row.lengthLf - 40) < 0.5, "steel edging legend shows 40 LF");
+  const measure = formatLegendRowMeasure(row!, DEFAULT_LEGEND);
+  assert(measure.includes("LF") && !measure.includes("sq ft"), "legend measure uses LF not sq ft");
 }
 
 section("Legend estimate disclaimer");

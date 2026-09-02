@@ -11,7 +11,7 @@ vi.mock("./arena", () => ({
   HOARD_WIDTH: 240,
 }));
 
-import { updateBotBrains, type BotWorld } from "./bots";
+import { pickBestGem, updateBotBrains, type BotWorld } from "./bots";
 
 function blankInput(): InputState {
   return { x: 0, y: 0, jump: false, action: false, jumpEdge: false, actionEdge: false };
@@ -26,6 +26,17 @@ function world(partial: Partial<BotWorld> & Pick<BotWorld, "actors">): BotWorld 
     ...partial,
   };
 }
+
+describe("pickBestGem", () => {
+  it("prefers reachable ground gems over gems far above", () => {
+    const gems = [
+      { x: 650, y: 260 },
+      { x: 640, y: 680 },
+    ];
+    const pick = pickBestGem(gems, 640, 680);
+    expect(pick).toEqual({ x: 640, y: 680 });
+  });
+});
 
 describe("updateBotBrains", () => {
   it("steers whelp bots toward nearby gems", () => {
@@ -101,6 +112,35 @@ describe("updateBotBrains", () => {
       })
     );
     expect(input.x).toBe(0);
+  });
+
+  it("steers whelp bots toward the cart when losing the hoard race", () => {
+    const input = blankInput();
+    updateBotBrains(
+      world({
+        wyrmX: 800,
+        gems: [{ x: 720, y: 400 }],
+        slotsFilled: { blue: 1, red: 6 },
+        actors: [
+          {
+            pid: 2,
+            team: "blue",
+            role: "whelp",
+            x: 640,
+            y: 400,
+            vy: 0,
+            onGround: true,
+            carrying: 0,
+            riding: false,
+            deadUntil: 0,
+            stunUntil: 0,
+            input,
+            bot: true,
+          },
+        ],
+      })
+    );
+    expect(input.x).toBeGreaterThan(0);
   });
 
   it("mother bots chase the enemy mother", () => {

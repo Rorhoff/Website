@@ -46,6 +46,8 @@ type BoardPlanProps = {
   featureFillImageUrl?: (filename: string) => string;
   /** When true, show the full orthophoto frame instead of cropping to feature bounds. */
   fullFrame?: boolean;
+  /** Compact inset for Materials panel — crop to design, no callouts or north arrow. */
+  previewMode?: boolean;
 };
 
 type BoardPlanLegendProps = Omit<
@@ -182,9 +184,11 @@ export function BoardPlanSvg({
   featureFills,
   featureFillImageUrl,
   fullFrame = true,
+  previewMode = false,
 }: BoardPlanProps) {
   const baseMode = planSettings?.baseMode ?? "orthophoto";
   const orthoOpacity = planSettings?.orthophotoOpacity ?? 0.4;
+  const useFullFrame = previewMode ? false : fullFrame;
 
   const visibleFeatures = features.filter((f) => !hiddenFeatureTypes.includes(f.featureType));
   const designFeatures = visibleFeatures.filter((f) => !f.existing);
@@ -197,26 +201,28 @@ export function BoardPlanSvg({
     return list;
   })();
 
-  const bounds = fullFrame
+  const bounds = useFullFrame
     ? { x: 0, y: 0, width: imageWidth, height: imageHeight }
     : computePlanContentBounds(planFeaturesForBounds, imageWidth, imageHeight, georefCtx);
-  const planSpan = fullFrame
+  const planSpan = useFullFrame
     ? Math.min(imageWidth, imageHeight)
     : Math.min(bounds.width, bounds.height);
-  const { callouts } = buildCalloutsAndLegend(
-    designFeatures,
-    legend,
-    imageWidth,
-    imageHeight,
-    pixelsPerFoot,
-    { georefCtx, planSpanPx: planSpan }
-  );
+  const { callouts } = previewMode
+    ? { callouts: [] as ReturnType<typeof buildCalloutsAndLegend>["callouts"] }
+    : buildCalloutsAndLegend(
+        designFeatures,
+        legend,
+        imageWidth,
+        imageHeight,
+        pixelsPerFoot,
+        { georefCtx, planSpanPx: planSpan }
+      );
 
   const northSize = planSpan * 0.08;
-  const northX = fullFrame
+  const northX = useFullFrame
     ? imageWidth - northSize * 0.9
     : bounds.x + bounds.width - northSize * 0.8;
-  const northY = fullFrame ? northSize * 1.1 : bounds.y + northSize * 0.9;
+  const northY = useFullFrame ? northSize * 1.1 : bounds.y + northSize * 0.9;
 
   const filledFeatureIds = new Set<string>();
   if (featureFills) {
@@ -289,25 +295,29 @@ export function BoardPlanSvg({
         />
       ) : null}
 
-      {callouts.map((c) => (
-        <g key={c.featureId}>
-          <circle cx={c.x} cy={c.y} r={c.radiusPx} fill="#1c1917" stroke="#fff" strokeWidth={1.25} />
-          <text
-            x={c.x}
-            y={c.y}
-            textAnchor="middle"
-            dominantBaseline="central"
-            fill="#fff"
-            fontSize={c.radiusPx * 0.88}
-            fontWeight="700"
-            fontFamily="system-ui,sans-serif"
-          >
-            {c.number}
-          </text>
-        </g>
-      ))}
+      {!previewMode
+        ? callouts.map((c) => (
+            <g key={c.featureId}>
+              <circle cx={c.x} cy={c.y} r={c.radiusPx} fill="#1c1917" stroke="#fff" strokeWidth={1.25} />
+              <text
+                x={c.x}
+                y={c.y}
+                textAnchor="middle"
+                dominantBaseline="central"
+                fill="#fff"
+                fontSize={c.radiusPx * 0.88}
+                fontWeight="700"
+                fontFamily="system-ui,sans-serif"
+              >
+                {c.number}
+              </text>
+            </g>
+          ))
+        : null}
 
-      <NorthArrow x={northX} y={northY} size={northSize} rotationDeg={northRotationDeg} />
+      {!previewMode ? (
+        <NorthArrow x={northX} y={northY} size={northSize} rotationDeg={northRotationDeg} />
+      ) : null}
     </svg>
   );
 }

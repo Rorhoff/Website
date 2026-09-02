@@ -991,8 +991,12 @@ export default function PolygonEditor({
   }
 
   const canMeasure = georefContext != null || pixelsPerFoot != null;
+  const selectedEntry = selected
+    ? legend.find((e) => e.featureType === selected.featureType)
+    : undefined;
+  const isLinearFeature = selectedEntry?.unit === "lf";
   const area =
-    selected && canMeasure
+    selected && canMeasure && !isLinearFeature
       ? featureAreaSqFt(selected, displayW, displayH, pixelsPerFoot, georefContext)
       : null;
   const perimeter =
@@ -2027,7 +2031,11 @@ export default function PolygonEditor({
                   ) : null}
                   {perimeter != null ? (
                     <div className="flex justify-between">
-                      <dt>{selected.geometry.kind === "polyline" ? "Length" : "Perimeter"}</dt>
+                      <dt>
+                        {isLinearFeature || selected.geometry.kind === "polyline"
+                          ? "Length"
+                          : "Perimeter"}
+                      </dt>
                       <dd>{perimeter.toLocaleString(undefined, { maximumFractionDigits: 1 })} lf</dd>
                     </div>
                   ) : null}

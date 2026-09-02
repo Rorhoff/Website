@@ -771,7 +771,7 @@ export class Game extends Phaser.Scene {
     const cells = 21;
     const at = Math.round(pct * (cells - 1));
     this.hudWyrm.setText([
-      'Cow',
+      'Cow cart',
       Array.from({ length: cells }, (_, i) => (i === at ? '◆' : '·')).join(''),
     ]);
   }

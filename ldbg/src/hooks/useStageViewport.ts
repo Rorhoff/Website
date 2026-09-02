@@ -3,6 +3,13 @@ import type Konva from "konva";
 
 type Pan = { x: number; y: number };
 
+function isEditableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  const tag = target.tagName;
+  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
+  return target.isContentEditable;
+}
+
 export function useStageViewport() {
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState<Pan>({ x: 0, y: 0 });
@@ -20,6 +27,7 @@ export function useStageViewport() {
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.code === "Space" && !e.repeat) {
+        if (isEditableTarget(e.target)) return;
         e.preventDefault();
         setSpacePan(true);
       }

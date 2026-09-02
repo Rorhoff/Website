@@ -5,6 +5,7 @@ import {
 } from "@/lib/feature-georef";
 import {
   featureAreaSqFt,
+  featurePerimeterLf,
   normToPx,
 } from "@/lib/feature-geometry";
 import type { InterpretFeature } from "@/lib/interpret-schema";
@@ -96,6 +97,55 @@ export function featureEligibleForCallout(
   return true;
 }
 
+/** Whether this feature appears in the plan legend / takeoff list. */
+export function featureEligibleForLegend(f: InterpretFeature): boolean {
+  return f.featureType !== "property_boundary";
+}
+
+function featureLegendMeasures(
+  f: InterpretFeature,
+  entry: LegendEntry | undefined,
+  imageW: number,
+  imageH: number,
+  pixelsPerFoot: number | undefined,
+  georefCtx: GeorefDisplayContext | undefined,
+  canMeasure: boolean
+): { areaSqFt: number | null; lengthLf: number | null } {
+  if (!canMeasure) return { areaSqFt: null, lengthLf: null };
+  if (entry?.unit === "lf") {
+    return {
+      areaSqFt: null,
+      lengthLf: featurePerimeterLf(f, imageW, imageH, pixelsPerFoot, georefCtx),
+    };
+  }
+  if (entry?.unit === "each") {
+    return {
+      areaSqFt: featureAreaSqFt(f, imageW, imageH, pixelsPerFoot, georefCtx),
+      lengthLf: null,
+    };
+  }
+  return {
+    areaSqFt: featureAreaSqFt(f, imageW, imageH, pixelsPerFoot, georefCtx),
+    lengthLf: null,
+  };
+}
+
+export function featureMeasureForSort(
+  f: InterpretFeature,
+  entry: LegendEntry | undefined,
+  imageW: number,
+  imageH: number,
+  pixelsPerFoot: number | undefined,
+  georefCtx: GeorefDisplayContext | undefined,
+  canMeasure: boolean
+): number {
+  if (!canMeasure) return 0;
+  if (entry?.unit === "lf") {
+    return featurePerimeterLf(f, imageW, imageH, pixelsPerFoot, georefCtx) ?? 0;
+  }
+  return featureAreaSqFt(f, imageW, imageH, pixelsPerFoot, georefCtx) ?? 0;
+}
+
 export function calloutMinDistForRadius(radius: number): number {
   return radius * 2.5;
 }
@@ -115,14 +165,26 @@ export function orderFeaturesForLegend(
     const ta = typeOrder.get(a.featureType) ?? 999;
     const tb = typeOrder.get(b.featureType) ?? 999;
     if (ta !== tb) return ta - tb;
-    const aa =
+    const entryA = legend.find((e) => e.featureType === a.featureType);
+    const entryB = legend.find((e) => e.featureType === b.featureType);
+    const aa = featureMeasureForSort(
+      a,
+      entryA,
+      imageW,
+      imageH,
+      pixelsPerFoot,
+      georefCtx,
       canMeasure
-        ? featureAreaSqFt(a, imageW, imageH, pixelsPerFoot, georefCtx) ?? 0
-        : 0;
-    const bb =
+    );
+    const bb = featureMeasureForSort(
+      b,
+      entryB,
+      imageW,
+      imageH,
+      pixelsPerFoot,
+      georefCtx,
       canMeasure
-        ? featureAreaSqFt(b, imageW, imageH, pixelsPerFoot, georefCtx) ?? 0
-        : 0;
+    );
     return bb - aa;
   });
 }
@@ -146,17 +208,18 @@ export function buildCalloutsAndLegend(
   const includeExisting = options?.includeExisting ?? false;
   const georefCtx = options?.georefCtx;
   const canMeasure = georefCtx != null || pixelsPerFoot != null;
-  const eligible = features.filter(
-    (f) => (includeExisting || !f.existing) && featureEligibleForCallout(f, legend)
+  const legendEligible = features.filter(
+    (f) => (includeExisting || !f.existing) && featureEligibleForLegend(f)
   );
   const ordered = orderFeaturesForLegend(
-    eligible,
+    legendEligible,
     legend,
     imageW,
     imageH,
     pixelsPerFoot,
     georefCtx
   );
+  const calloutFeatures = ordered.filter((f) => featureEligibleForCallout(f, legend));
 
   const globalCalloutR =
     options?.calloutRadiusPx ??
@@ -178,7 +241,7 @@ export function buildCalloutsAndLegend(
     }
   }
 
-  let callouts: Callout[] = ordered.map((f) => {
+  let callouts: Callout[] = calloutFeatures.map((f) => {
     const c = centroidNormFromFeature(f, imageW, imageH, georefCtx);
     const px = normToPx(c, imageW, imageH);
     const entry = legend.find((e) => e.featureType === f.featureType);
@@ -223,11 +286,20 @@ export function buildCalloutsAndLegend(
       const first = members[0];
       const entry = legend.find((e) => e.featureType === first.featureType);
       let areaSum: number | null = null;
+      let lengthSum: number | null = null;
       if (canMeasure && !isPlantPointFeatureType(first.featureType)) {
-        areaSum = 0;
-        for (const m of members) {
-          const a = featureAreaSqFt(m, imageW, imageH, pixelsPerFoot, georefCtx);
-          if (a != null) areaSum += a;
+        if (entry?.unit === "lf") {
+          lengthSum = 0;
+          for (const m of members) {
+            const lf = featurePerimeterLf(m, imageW, imageH, pixelsPerFoot, georefCtx);
+            if (lf != null) lengthSum += lf;
+          }
+        } else {
+          areaSum = 0;
+          for (const m of members) {
+            const a = featureAreaSqFt(m, imageW, imageH, pixelsPerFoot, georefCtx);
+            if (a != null) areaSum += a;
+          }
         }
       }
       legendRows.push({
@@ -236,21 +308,27 @@ export function buildCalloutsAndLegend(
         featureType: first.featureType,
         featureId: first.id,
         areaSqFt: areaSum,
+        lengthLf: lengthSum,
         quantity: members.length,
       });
     } else {
       const entry = legend.find((e) => e.featureType === f.featureType);
+      const measures = featureLegendMeasures(
+        f,
+        entry,
+        imageW,
+        imageH,
+        pixelsPerFoot,
+        georefCtx,
+        canMeasure
+      );
       legendRows.push({
         number: numberByFeatureId.get(f.id)!,
         label: f.label || entry?.label || f.featureType,
         featureType: f.featureType,
         featureId: f.id,
-        areaSqFt:
-          canMeasure && entry?.unit !== "each"
-            ? featureAreaSqFt(f, imageW, imageH, pixelsPerFoot, georefCtx)
-            : canMeasure && entry?.unit === "each"
-              ? featureAreaSqFt(f, imageW, imageH, pixelsPerFoot, georefCtx)
-              : null,
+        areaSqFt: measures.areaSqFt,
+        lengthLf: measures.lengthLf,
         quantity: entry?.unit === "each" ? 1 : null,
       });
     }

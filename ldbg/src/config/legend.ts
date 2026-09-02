@@ -368,6 +368,15 @@ export const DEFAULT_LEGEND: LegendEntry[] = [
   },
 ];
 
+/** Feature types measured in linear feet (perimeter/length), not enclosed area. */
+export const LINEAR_FEATURE_TYPES = new Set(
+  DEFAULT_LEGEND.filter((e) => e.unit === "lf").map((e) => e.featureType)
+);
+
+export function isLinearFeatureType(featureType: string): boolean {
+  return LINEAR_FEATURE_TYPES.has(featureType);
+}
+
 export function legendToPromptTable(entries: LegendEntry[]): string {
   return entries
     .map(
