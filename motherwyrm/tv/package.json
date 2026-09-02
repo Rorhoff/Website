@@ -9,6 +9,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "art": "bash ../art/scripts/export.sh",
+    "art:pack": "python ../art/scripts/pack-frames.py",
     "art:check": "bash ../art/scripts/export.sh --validate-only"
   },
   "dependencies": {

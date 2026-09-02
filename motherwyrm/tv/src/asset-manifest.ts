@@ -17,7 +17,7 @@ export type ImageManifestEntry = {
 };
 
 /** Set true once PNG atlases live under /mw/assets/ (see art export pipeline). */
-export const REMOTE_ART_ENABLED = false;
+export const REMOTE_ART_ENABLED = true;
 
 /** Pixel-art sprites render at 2×; world coords stay 1280×720. */
 export const SPRITE_SCALE = 2;
