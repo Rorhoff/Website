@@ -25,6 +25,18 @@ describe("mother clash", () => {
     expect(clash).toBe(true);
   });
 
+  it("deflects face-to-face lunges when claws cross", () => {
+    const clash = mothersClash(
+      { x: 130, y: 100 },
+      { x: 110, y: 100 },
+      { x: 90, y: 100 },
+      { x: 110, y: 100 },
+      { x: 1, y: 0 },
+      { x: -1, y: 0 }
+    );
+    expect(clash).toBe(true);
+  });
+
   it("does not deflect when only one side connects", () => {
     const oneSided = mothersClash(
       { x: 100, y: 100 },

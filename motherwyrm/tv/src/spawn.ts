@@ -78,16 +78,45 @@ export function pickWhelpRespawn(
   return best;
 }
 
-/** True when both mothers' attacks connect — clash, no damage. */
+/** True when both mothers' attacks connect — clash (parry), no damage. */
 export function mothersClash(
   aHitPoint: { x: number; y: number },
   bPos: { x: number; y: number },
   bHitPoint: { x: number; y: number },
   aPos: { x: number; y: number },
-  reach = 52
+  aAttackDir?: { x: number; y: number },
+  bAttackDir?: { x: number; y: number },
+  reach = 68
 ): boolean {
   const reach2 = reach ** 2;
+  const bodyDist2 = dist2(aPos.x, aPos.y, bPos.x, bPos.y);
+  const closeRange2 = (reach * 2.6) ** 2;
+
+  if (bodyDist2 > closeRange2) return false;
+
   const aHitsB = dist2(aHitPoint.x, aHitPoint.y, bPos.x, bPos.y) <= reach2;
   const bHitsA = dist2(bHitPoint.x, bHitPoint.y, aPos.x, aPos.y) <= reach2;
-  return aHitsB && bHitsA;
+  if (aHitsB && bHitsA) return true;
+
+  if (!aAttackDir || !bAttackDir) return false;
+
+  const toB = { x: bPos.x - aPos.x, y: bPos.y - aPos.y };
+  const toA = { x: aPos.x - bPos.x, y: aPos.y - bPos.y };
+  const bLen = Math.hypot(toB.x, toB.y) || 1;
+  const aLen = Math.hypot(toA.x, toA.y) || 1;
+  const aToward = (aAttackDir.x * toB.x + aAttackDir.y * toB.y) / bLen;
+  const bToward = (bAttackDir.x * toA.x + bAttackDir.y * toA.y) / aLen;
+  if (aToward <= 0.2 || bToward <= 0.2) return false;
+
+  // Claws meet between bodies (face-to-face lunge).
+  if (dist2(aHitPoint.x, aHitPoint.y, bHitPoint.x, bHitPoint.y) <= reach2 * 2.5) {
+    return true;
+  }
+
+  // Close range — both lunging toward each other.
+  if (bodyDist2 <= (reach * 2.1) ** 2) {
+    return true;
+  }
+
+  return false;
 }

@@ -143,6 +143,47 @@ describe("updateBotBrains", () => {
     expect(input.x).toBeGreaterThan(0);
   });
 
+  it("mother bots hunt enemy whelps", () => {
+    const input = blankInput();
+    updateBotBrains(
+      world({
+        actors: [
+          {
+            pid: 1,
+            team: "blue",
+            role: "mother",
+            x: 400,
+            y: 300,
+            vy: 0,
+            onGround: false,
+            carrying: 0,
+            riding: false,
+            deadUntil: 0,
+            stunUntil: 0,
+            input,
+            bot: true,
+          },
+          {
+            pid: 2,
+            team: "red",
+            role: "whelp",
+            x: 520,
+            y: 400,
+            vy: 0,
+            onGround: true,
+            carrying: 1,
+            riding: false,
+            deadUntil: 0,
+            stunUntil: 0,
+            input: blankInput(),
+            bot: true,
+          },
+        ],
+      })
+    );
+    expect(input.x).toBeGreaterThan(0);
+  });
+
   it("mother bots chase the enemy mother", () => {
     const input = blankInput();
     updateBotBrains(

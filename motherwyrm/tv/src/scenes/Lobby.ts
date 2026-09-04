@@ -1,7 +1,7 @@
 import Phaser from "phaser";
 import { Net } from "../net";
 import { W, H, COLORS } from "../arena";
-import { addLocalPlayer, fillWithBots, formatPlayerLabel } from "../roster";
+import { addLocalPlayer, addOneBot, ensureMinimumPlayers, formatPlayerLabel, MIN_PLAYERS } from "../roster";
 import { padJoinUrl, qrDataUrl } from "../qr";
 
 export class Lobby extends Phaser.Scene {
@@ -9,7 +9,6 @@ export class Lobby extends Phaser.Scene {
   private codeText!: Phaser.GameObjects.Text;
   private roster!: Phaser.GameObjects.Text;
   private hint!: Phaser.GameObjects.Text;
-  private autoStartAt = 0;
   private countingDown = false;
   private countdownOverlay?: Phaser.GameObjects.Text;
   private countdownSub?: Phaser.GameObjects.Text;
@@ -41,7 +40,7 @@ export class Lobby extends Phaser.Scene {
       color: "#8b7a66",
     }).setOrigin(0.5);
 
-    this.add.text(W / 2, 168, "R robots · P play as you · Space start", {
+    this.add.text(W / 2, 168, "R add robot · P play as you · Space start", {
       fontFamily: "system-ui, sans-serif",
       fontSize: "18px",
       color: "#7fe3c4",
@@ -142,18 +141,13 @@ export class Lobby extends Phaser.Scene {
   }
 
   private addRobots() {
-    const added = fillWithBots(this.net);
-    if (added === 0 && this.net.players.size >= 10) {
+    const bot = addOneBot(this.net);
+    if (!bot) {
       this.hint.setText("Roster full — Space to start.");
       return;
     }
     this.redraw();
-    if (!this.hasHumanPlayer()) {
-      this.autoStartAt = this.time.now + 2200;
-      this.hint.setText("Robot rumble loading… (Space to start now)");
-    } else {
-      this.hint.setText("Robots joined. Space to start.");
-    }
+    this.hint.setText(`Robot joined (${this.net.players.size}/${MIN_PLAYERS} min). Space to start.`);
   }
 
   private addHuman() {
@@ -162,7 +156,6 @@ export class Lobby extends Phaser.Scene {
       this.hint.setText("Already playing — or roster is full.");
       return;
     }
-    this.autoStartAt = 0;
     this.redraw();
     this.hint.setText("WASD move · Z jump · X action · Space to start");
   }
@@ -192,20 +185,26 @@ export class Lobby extends Phaser.Scene {
     if (this.countingDown) return;
 
     const teams = new Set([...this.net.players.values()].map((p) => p.team));
-    const ready = teams.size === 2 && this.net.players.size >= 2;
+    const count = this.net.players.size;
 
-    if (!ready) {
+    if (count === 0) {
+      this.hint.setText("Press R to add a robot, or P to play yourself.");
+      return;
+    }
+
+    if (teams.size < 2) {
       this.hint.setText(
-        this.net.players.size === 0
-          ? "Press R for a full robot match, or P to play yourself."
-          : "Need both teams — press R to fill robots."
+        count >= 1 && this.hasHumanPlayer()
+          ? `Start adds robots for both teams (${MIN_PLAYERS} players min).`
+          : "Need both teams — press R to add a robot."
       );
       return;
     }
 
-    if (this.autoStartAt > 0 && this.time.now >= this.autoStartAt) {
-      this.autoStartAt = 0;
-      this.tryStart();
+    if (count < MIN_PLAYERS) {
+      this.hint.setText(
+        `Need ${MIN_PLAYERS} players to start — start will add ${MIN_PLAYERS - count} robot(s).`
+      );
       return;
     }
 
@@ -228,10 +227,14 @@ export class Lobby extends Phaser.Scene {
   }
 
   private tryStart() {
+    if (this.countingDown) return;
+    ensureMinimumPlayers(this.net, MIN_PLAYERS);
+    this.redraw();
+
     const teams = new Set([...this.net.players.values()].map((p) => p.team));
-    if (teams.size < 2 || this.countingDown) return;
+    if (teams.size < 2 || this.net.players.size < MIN_PLAYERS) return;
+
     this.countingDown = true;
-    this.autoStartAt = 0;
     this.beginCountdown();
   }
 

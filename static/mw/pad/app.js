@@ -61,7 +61,7 @@ function showPad() {
 function updateLobbyUi() {
   el('hostPanel').classList.toggle('hidden', !isHost || inGame);
   if (isHost && !inGame) {
-    el('lobbyCue').textContent = 'Fill empty slots with robots, then start when both teams are ready.';
+    el('lobbyCue').textContent = 'Add robots one at a time, or start — need 4 players (robots fill in).';
   }
 }
 
@@ -192,7 +192,7 @@ el('pickRed').addEventListener('click', () => {
 
 el('btnFillBots').addEventListener('click', () => {
   send({ t: 'host_fill_bots' });
-  el('lobbyCue').textContent = 'Adding robots…';
+  el('lobbyCue').textContent = 'Adding robot…';
 });
 
 el('btnStart').addEventListener('click', () => {

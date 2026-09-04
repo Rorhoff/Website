@@ -3,6 +3,7 @@ import { BRAND } from "@/config/brand";
 import { geminiEnabled } from "@/config/ai-features";
 import { presetUsesStylePass, type StylePresetId } from "@/config/styles";
 import { BoardPlanLegend, BoardPlanSvg, computeBoardPlanScale } from "@/components/BoardPlanSvg";
+import { MaterialsPlanPreview } from "@/components/MaterialsPlanPreview";
 import { GeneralNotesBlock } from "@/components/GeneralNotesBlock";
 import { GraphicScaleBar } from "@/components/GraphicScaleBar";
 import { MaterialPatternSwatch } from "@/components/MaterialPatternSwatch";
@@ -224,26 +225,6 @@ export function BoardTemplate({
             <div className={styles.panelHead}>Materials &amp; finishes</div>
             <div className={`${styles.panelBody} ${styles.materialsKey}`}>
               <p className={styles.materialsKeyDisclaimer}>{MATERIALS_DISCLAIMER}</p>
-              {features.length > 0 && baseImageUrl ? (
-                <div className={styles.materialsPlanPreview} aria-hidden>
-                  <BoardPlanSvg
-                    features={features}
-                    legend={legend}
-                    imageWidth={imageWidth}
-                    imageHeight={imageHeight}
-                    baseImageUrl={baseImageUrl}
-                    baseImageFilter={baseImageFilter}
-                    planSettings={planSettings}
-                    northRotationDeg={northRotationDeg}
-                    pixelsPerFoot={pixelsPerFoot}
-                    georefCtx={georefContext}
-                    hiddenFeatureTypes={hiddenTypes}
-                    featureFills={planFeatureFills}
-                    featureFillImageUrl={featureFillImageUrl}
-                    previewMode
-                  />
-                </div>
-              ) : null}
               {materialsKey.length > 0 ? (
                 <div className={styles.swatches}>
                   {materialsKey.map((m) => (
@@ -261,6 +242,23 @@ export function BoardTemplate({
               ) : (
                 <Placeholder label="Materials key — add hardscape features to the plan" />
               )}
+              {features.length > 0 && baseImageUrl ? (
+                <MaterialsPlanPreview
+                  features={features}
+                  legend={legend}
+                  metadata={metadata}
+                  imageWidth={imageWidth}
+                  imageHeight={imageHeight}
+                  baseImageUrl={baseImageUrl}
+                  baseImageFilter={baseImageFilter}
+                  planSettings={planSettings}
+                  northRotationDeg={northRotationDeg}
+                  pixelsPerFoot={pixelsPerFoot}
+                  georefContext={georefContext}
+                  featureFills={planFeatureFills}
+                  featureFillImageUrl={featureFillImageUrl}
+                />
+              ) : null}
             </div>
           </div>
           <div className={styles.panel}>

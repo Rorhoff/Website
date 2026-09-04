@@ -1,5 +1,8 @@
 import type { InputState, Lobbyist, Net, Role, Team } from "./net";
 
+export const MIN_PLAYERS = 4;
+export const MAX_PLAYERS = 10;
+
 const BOT_NAMES = [
   "Clank",
   "Rusty",
@@ -53,7 +56,7 @@ export function addBotPlayer(net: Net, name?: string): Lobbyist {
 
 export function addLocalPlayer(net: Net, name = "You"): Lobbyist | null {
   if ([...net.players.values()].some((p) => p.local)) return null;
-  if (net.players.size >= 10) return null;
+  if (net.players.size >= MAX_PLAYERS) return null;
   const { team, role } = assignTeamRole(net.players);
   const pid = net.allocatePid();
   const p: Lobbyist = {
@@ -69,17 +72,31 @@ export function addLocalPlayer(net: Net, name = "You"): Lobbyist | null {
   return p;
 }
 
-/** Fill both teams to five players with robots. */
-export function fillWithBots(net: Net): number {
+function rosterFull(net: Net): boolean {
+  const blues = [...net.players.values()].filter((p) => p.team === "blue").length;
+  const reds = [...net.players.values()].filter((p) => p.team === "red").length;
+  return net.players.size >= MAX_PLAYERS || (blues >= 5 && reds >= 5);
+}
+
+/** Add one robot if there is room on the roster. */
+export function addOneBot(net: Net): Lobbyist | null {
+  if (rosterFull(net)) return null;
+  return addBotPlayer(net);
+}
+
+/** Add robots until at least `minimum` players (e.g. before start). */
+export function ensureMinimumPlayers(net: Net, minimum = MIN_PLAYERS): number {
   let added = 0;
-  while (net.players.size < 10) {
-    const blues = [...net.players.values()].filter((p) => p.team === "blue").length;
-    const reds = [...net.players.values()].filter((p) => p.team === "red").length;
-    if (blues >= 5 && reds >= 5) break;
+  while (net.players.size < minimum && !rosterFull(net)) {
     addBotPlayer(net);
     added += 1;
   }
   return added;
+}
+
+/** @deprecated Prefer addOneBot / ensureMinimumPlayers. */
+export function fillWithBots(net: Net): number {
+  return ensureMinimumPlayers(net, MAX_PLAYERS);
 }
 
 export function formatPlayerLabel(p: Lobbyist): string {

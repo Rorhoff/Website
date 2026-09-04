@@ -14,7 +14,7 @@ import {
 } from '../assets';
 import { SPRITE_SCALE } from '../asset-manifest';
 import { drawCollisionOverlay } from '../collision-overlay';
-import { pickWhelpRespawn } from '../spawn';
+import { mothersClash, pickWhelpRespawn } from '../spawn';
 import {
   W, H, COLORS, TUNING, PLATFORMS, GEM_SPAWNS, SPAWN,
   HOARD_Y, HOARD_WIDTH, HOARD_HEIGHT, slotRect,
@@ -590,9 +590,20 @@ export class Game extends Phaser.Scene {
 
         const ap = this.motherAttackPoint(a);
         const bp = this.motherAttackPoint(b);
-        const aHitsB = Phaser.Math.Distance.Between(ap.x, ap.y, b.sprite.x, b.sprite.y) <= 52;
-        const bHitsA = Phaser.Math.Distance.Between(bp.x, bp.y, a.sprite.x, a.sprite.y) <= 52;
-        if (!aHitsB || !bHitsA) continue;
+        const reach = TUNING.motherClashReach;
+        if (
+          !mothersClash(
+            ap,
+            { x: b.sprite.x, y: b.sprite.y },
+            bp,
+            { x: a.sprite.x, y: a.sprite.y },
+            a.attackDir,
+            b.attackDir,
+            reach
+          )
+        ) {
+          continue;
+        }
 
         this.motherClash(a, b, time);
         clashed.add(a.pid);
@@ -608,7 +619,7 @@ export class Game extends Phaser.Scene {
 
       for (const t of this.actors) {
         if (t.team === a.team || t.invulnUntil > time || t.deadUntil > 0) continue;
-        if (Phaser.Math.Distance.Between(hx, hy, t.sprite.x, t.sprite.y) > 52) continue;
+        if (Phaser.Math.Distance.Between(hx, hy, t.sprite.x, t.sprite.y) > TUNING.motherClashReach) continue;
 
         if (t.role === 'mother') this.hurtMother(t, time, a.attackDir.x || a.facing);
         else this.killWhelp(t, time, a.attackDir.x || a.facing);

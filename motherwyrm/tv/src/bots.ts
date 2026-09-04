@@ -26,6 +26,7 @@ export type BotWorld = {
 };
 
 const OTHER: Record<NetTeam, NetTeam> = { blue: "red", red: "blue" };
+const GROUND_Y = 655;
 
 function clamp(v: number, min: number, max: number) {
   return Math.max(min, Math.min(max, v));
@@ -51,11 +52,34 @@ function hoardCenterX(team: NetTeam): number {
   return HOARD_X[team] + HOARD_WIDTH / 2;
 }
 
-function homePatrolX(team: NetTeam): number {
-  return team === "blue" ? W * 0.38 : W * 0.62;
+function steerToward(input: InputState, fromX: number, toX: number, tol = 18) {
+  const dx = toX - fromX;
+  if (Math.abs(dx) < tol) {
+    setStick(input, 0, 0);
+    return;
+  }
+  setStick(input, Math.sign(dx), 0);
 }
 
-/** Prefer nearby gems; heavily penalize gems far above until we're closer. */
+function steerTowardPoint(
+  input: InputState,
+  fromX: number,
+  fromY: number,
+  toX: number,
+  toY: number,
+  tol = 24
+) {
+  const dx = toX - fromX;
+  const dy = toY - fromY;
+  const dist = Math.hypot(dx, dy);
+  if (dist < tol) {
+    setStick(input, 0, 0);
+    return;
+  }
+  setStick(input, dx / dist, dy / dist);
+}
+
+/** Prefer nearby gems; skip ledge gems when on the ground far below. */
 export function pickBestGem(
   gems: Array<{ x: number; y: number }>,
   x: number,
@@ -70,6 +94,7 @@ export function pickBestGem(
     let penalty = 0;
     if (dy < -50) penalty += 500 + Math.abs(dy) * 3;
     if (dy > 80) penalty += 200;
+    if (y > 520 && dy < -100) penalty += 2000;
     const score = dx * dx + dy * dy + penalty;
     if (score < bestScore) {
       bestScore = score;
@@ -86,30 +111,49 @@ function enemyMother(world: BotWorld, team: NetTeam) {
   );
 }
 
-function steerToward(input: InputState, fromX: number, toX: number, tol = 18) {
-  const dx = toX - fromX;
-  if (Math.abs(dx) < tol) {
-    setStick(input, 0, 0);
-    return;
+function nearestEnemyWhelp(
+  world: BotWorld,
+  team: NetTeam,
+  fromX: number,
+  fromY: number
+): BotActorView | null {
+  let best: BotActorView | null = null;
+  let bestScore = Infinity;
+
+  for (const w of world.actors) {
+    if (w.team === team || w.role !== "whelp" || w.deadUntil > world.time) continue;
+    const dx = w.x - fromX;
+    const dy = w.y - fromY;
+    let score = dx * dx + dy * dy;
+    if (w.carrying > 0) score *= 0.35;
+    if (w.riding) score *= 0.5;
+    if (score < bestScore) {
+      bestScore = score;
+      best = w;
+    }
   }
-  setStick(input, Math.sign(dx), 0);
+
+  return best;
 }
 
 function shouldEscortCow(a: BotActorView, world: BotWorld): boolean {
   const our = world.slotsFilled[a.team];
   const their = world.slotsFilled[OTHER[a.team]];
-  const escortTurn = (a.pid + Math.floor(world.time / 5000)) % 2 === 0;
 
-  if (their > our + 1) return true;
-  if (world.gems.length <= 6) return escortTurn;
-  if (our >= 6 && their <= our) return escortTurn;
+  if (their > our + 3) return true;
+  if (world.gems.length <= 4 && our >= 4) return true;
+  if (our >= 10 && (a.pid + Math.floor(world.time / 9000)) % 2 === 0) return true;
   return false;
 }
 
+/** Approach cart from the team side — avoids camping under the center platform. */
 function goToWyrm(a: BotActorView, world: BotWorld) {
-  steerToward(a.input, a.x, world.wyrmX, 24);
-  if (a.onGround && Math.abs(a.x - world.wyrmX) < 72) {
-    if (world.time % 600 < 50) tapJump(a.input);
+  const side = a.team === "blue" ? -1 : 1;
+  const targetX = world.wyrmX + side * 70;
+  steerToward(a.input, a.x, targetX, 28);
+
+  if (a.onGround && Math.abs(a.x - targetX) < 56 && a.y > GROUND_Y - 50) {
+    if (world.time % 650 < 50) tapJump(a.input);
   }
 }
 
@@ -138,32 +182,52 @@ function updateMotherBot(a: BotActorView, world: BotWorld) {
   const theirGems = world.slotsFilled[OTHER[a.team]];
   const hoardX = hoardCenterX(a.team);
   const enemyHoardX = hoardCenterX(OTHER[a.team]);
+  const winX = a.team === "blue" ? TUNING.wyrmWin.blue : TUNING.wyrmWin.red;
 
   if (a.y > 500) {
     tapJump(a.input);
   }
 
-  if (enemy && Math.abs(a.x - enemy.x) < 220 && Math.abs(a.y - enemy.y) < 160) {
-    steerToward(a.input, a.x, enemy.x, 36);
-    if (Math.abs(a.x - enemy.x) < 90 && Math.abs(a.y - enemy.y) < 80) {
+  if (enemy && Math.abs(a.x - enemy.x) < 260 && Math.abs(a.y - enemy.y) < 200) {
+    const dx = enemy.x - a.x;
+    const dy = enemy.y - a.y;
+    steerTowardPoint(a.input, a.x, a.y, enemy.x, enemy.y, 40);
+    if (Math.hypot(dx, dy) < 110) {
       tapAction(a.input);
     }
     return;
   }
 
-  if (theirGems >= 3 && Math.abs(a.x - hoardX) < 200) {
-    steerToward(a.input, a.x, hoardX, 28);
-    if (Math.abs(a.x - enemyHoardX) < 100 && a.y < 480 && world.time % 600 < 50) {
+  const prey = nearestEnemyWhelp(world, a.team, a.x, a.y);
+  if (prey) {
+    const dx = prey.x - a.x;
+    const dy = prey.y - a.y;
+    steerTowardPoint(a.input, a.x, a.y, prey.x, prey.y, 36);
+    if (Math.hypot(dx, dy) < 130) {
       tapAction(a.input);
     }
     return;
   }
 
-  steerToward(a.input, a.x, homePatrolX(a.team), 40);
-
-  if (ourGems >= 10 && world.time % 900 < 50 && Math.abs(a.x - enemyHoardX) < 140) {
-    tapAction(a.input);
+  if (theirGems > ourGems) {
+    steerToward(a.input, a.x, enemyHoardX, 40);
+    if (Math.abs(a.x - enemyHoardX) < 140 && a.y < 520 && world.time % 550 < 45) {
+      tapAction(a.input);
+    }
+    return;
   }
+
+  if (ourGems >= theirGems + 2 && Math.abs(a.x - world.wyrmX) > 100) {
+    const pushX = world.wyrmX + (a.team === "blue" ? -40 : 40);
+    steerToward(a.input, a.x, pushX, 36);
+    if (Math.abs(world.wyrmX - winX) < 160 && world.time % 700 < 50) {
+      tapAction(a.input);
+    }
+    return;
+  }
+
+  const patrolX = a.team === "blue" ? hoardX + 140 : hoardX - 140;
+  steerToward(a.input, a.x, patrolX, 48);
 }
 
 function updateWhelpBot(a: BotActorView, world: BotWorld) {
@@ -182,9 +246,12 @@ function updateWhelpBot(a: BotActorView, world: BotWorld) {
   }
 
   if (a.carrying > 0) {
-    steerToward(a.input, a.x, hoardX, 22);
-    if (!a.onGround && Math.abs(a.x - hoardX) < 50) {
+    const depositX = hoardX + (a.team === "blue" ? 30 : -30);
+    steerToward(a.input, a.x, depositX, 22);
+    if (!a.onGround && Math.abs(a.x - hoardX) < 60) {
       tapAction(a.input);
+    } else if (a.onGround && a.y > 600 && Math.abs(a.x - hoardX) < 40) {
+      if (world.time % 500 < 45) tapJump(a.input);
     }
     return;
   }
@@ -202,7 +269,8 @@ function updateWhelpBot(a: BotActorView, world: BotWorld) {
     if (a.onGround && dy < -35 && Math.abs(a.x - gem.x) < 48) {
       if (world.time % 550 < 45) tapJump(a.input);
     } else if (a.onGround && dy > 40 && Math.abs(a.x - gem.x) < 32) {
-      // Under a ledge — walk out and try again instead of hopping in place.
+      setStick(a.input, a.x < gem.x ? -1 : 1, 0);
+    } else if (a.onGround && dy < -100 && Math.abs(a.x - gem.x) < 64) {
       setStick(a.input, a.x < gem.x ? -1 : 1, 0);
     }
     return;

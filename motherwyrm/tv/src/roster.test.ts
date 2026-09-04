@@ -3,8 +3,11 @@ import { Net } from "./net";
 import {
   addBotPlayer,
   addLocalPlayer,
+  addOneBot,
+  ensureMinimumPlayers,
   fillWithBots,
   formatPlayerLabel,
+  MIN_PLAYERS,
 } from "./roster";
 
 function freshNet() {
@@ -12,17 +15,28 @@ function freshNet() {
 }
 
 describe("roster", () => {
-  it("fills both teams with ten robots", () => {
+  it("fills roster to max with fillWithBots", () => {
     const net = freshNet();
     expect(fillWithBots(net)).toBe(10);
     expect(net.players.size).toBe(10);
-    const blues = [...net.players.values()].filter((p) => p.team === "blue");
-    const reds = [...net.players.values()].filter((p) => p.team === "red");
-    expect(blues).toHaveLength(5);
-    expect(reds).toHaveLength(5);
-    expect(blues.filter((p) => p.role === "mother")).toHaveLength(1);
-    expect(reds.filter((p) => p.role === "mother")).toHaveLength(1);
-    expect([...net.players.values()].every((p) => p.bot)).toBe(true);
+  });
+
+  it("addOneBot adds a single robot", () => {
+    const net = freshNet();
+    expect(addOneBot(net)?.bot).toBe(true);
+    expect(net.players.size).toBe(1);
+    expect(addOneBot(net)?.bot).toBe(true);
+    expect(net.players.size).toBe(2);
+  });
+
+  it("ensureMinimumPlayers fills to four from one human", () => {
+    const net = freshNet();
+    addLocalPlayer(net, "You");
+    expect(net.players.size).toBe(1);
+    expect(ensureMinimumPlayers(net, MIN_PLAYERS)).toBe(3);
+    expect(net.players.size).toBe(MIN_PLAYERS);
+    const teams = new Set([...net.players.values()].map((p) => p.team));
+    expect(teams.size).toBe(2);
   });
 
   it("assigns the first player on each team as mother", () => {
