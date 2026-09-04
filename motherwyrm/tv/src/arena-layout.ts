@@ -72,53 +72,61 @@ export const TUNING = {
 
 export type Team = "blue" | "red";
 
-export const PLATFORMS: [number, number, number, number][] = [
-  [0, 690, W, 30],
-  [50, 430, 280, 16],
-  [950, 430, 280, 16],
-  [530, 330, 220, 16],
-  [90, 265, 180, 16],
-  [1010, 265, 180, 16],
-  // Stepping stones to reach upper gems
-  [120, 580, 140, 16],
-  [1020, 580, 140, 16],
-  [210, 495, 130, 16],
-  [940, 495, 130, 16],
-  [300, 365, 100, 16],
-  [880, 365, 100, 16],
-  [120, 310, 120, 16],
-  [1040, 310, 120, 16],
-  [500, 570, 280, 16],
-  [530, 470, 220, 16],
-];
-
 export const SLOT_SIZE = 22;
 export const SLOT_GAP = 8;
 export const SLOT_ROW_GAP = 10;
 export const SLOT_COLS = 8;
 export const SLOT_ROWS = 2;
-export const HOARD_Y = 536;
 export const HOARD_WIDTH = SLOT_COLS * (SLOT_SIZE + SLOT_GAP) - SLOT_GAP;
 export const HOARD_HEIGHT = SLOT_ROWS * SLOT_SIZE + (SLOT_ROWS - 1) * SLOT_ROW_GAP;
+/** Slots stack directly on top of the hoard shelf platform. */
+export const HOARD_SHELF_Y = 592;
+export const HOARD_Y = HOARD_SHELF_Y - HOARD_HEIGHT;
 export const HOARD_X: Record<Team, number> = {
   blue: 70,
   red: W - 70 - HOARD_WIDTH,
 };
 
-/** 15 left-side clusters mirrored → 30 fixed gems (no respawn). */
+/**
+ * Outer climbing ladder on each side, a self-mirroring center stack, and open
+ * flight corridors at x≈380–500 / 780–900 so a mother can cross any height.
+ */
+export const PLATFORMS: [number, number, number, number][] = [
+  [0, 690, W, 30],
+  // Team hoard shelves — the slot grid sits on these.
+  [56, HOARD_SHELF_Y, 260, 16],
+  [964, HOARD_SHELF_Y, 260, 16],
+  // Outer ladders, ~90px rises so a whelp clears each one.
+  [200, 490, 150, 16],
+  [930, 490, 150, 16],
+  [70, 400, 170, 16],
+  [1040, 400, 170, 16],
+  [210, 310, 170, 16],
+  [900, 310, 170, 16],
+  [80, 225, 170, 16],
+  [1030, 225, 170, 16],
+  // Center stack (mirrors onto itself).
+  [500, 570, 280, 16],
+  [520, 450, 240, 16],
+  [560, 330, 160, 16],
+];
+
+/** 15 left-side gems mirrored → 30 fixed gems (no respawn). */
 export const GEM_SPAWNS: [number, number][] = (() => {
   const left: [number, number][] = [
-    [250, 390], [305, 390], [340, 390], [395, 390],
-    [130, 225], [180, 225], [230, 225],
-    [540, 290], [580, 290], [620, 290],
-    [180, 650], [280, 650], [380, 650], [480, 650], [580, 650],
+    [180, 650], [280, 650], [380, 650], [460, 650],
+    [230, 468], [275, 468], [320, 468],
+    [110, 378], [155, 378], [200, 378],
+    [250, 288], [300, 288],
+    [120, 203], [165, 203],
+    [560, 548],
   ];
   return [...left, ...left.map(([x, y]) => [W - x, y] as [number, number])];
 })();
 
 export const SPAWN: Record<Team, { x: number; y: number }> = {
-  blue: { x: 150, y: 620 },
-  red: { x: W - 150, y: 620 },
+  blue: { x: 110, y: 520 },
+  red: { x: W - 110, y: 520 },
 };
 
 /** Assert arena geometry mirrors left/right. Used by QA tests. */

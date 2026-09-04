@@ -23,6 +23,7 @@ export {
   HOARD_Y,
   HOARD_WIDTH,
   HOARD_HEIGHT,
+  HOARD_SHELF_Y,
   assertArenaSymmetry,
   type Team,
 } from "./arena-layout";

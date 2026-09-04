@@ -16,25 +16,25 @@ export function hoardCenter(team: Team): { x: number; y: number } {
   };
 }
 
-/** Default respawn: on the shelf beside the team's gem hoard. */
+/** Default respawn: dropped just above the team's hoard shelf. */
 export function hoardSpawnPoint(team: Team): { x: number; y: number } {
   return {
     x: HOARD_X[team] + HOARD_WIDTH / 2,
-    y: HOARD_Y + HOARD_HEIGHT + 40,
+    y: HOARD_Y - 40,
   };
 }
 
 /** Fallback spawns when the enemy mother is camping the hoard. */
 export const WHELP_ALT_SPAWNS: Record<Team, { x: number; y: number }[]> = {
   blue: [
-    { x: 640, y: 620 },
-    { x: 305, y: 390 },
-    { x: 180, y: 225 },
+    { x: 420, y: 620 },
+    { x: 275, y: 430 },
+    { x: 155, y: 340 },
   ],
   red: [
-    { x: 640, y: 620 },
-    { x: W - 305, y: 390 },
-    { x: W - 180, y: 225 },
+    { x: W - 420, y: 620 },
+    { x: W - 275, y: 430 },
+    { x: W - 155, y: 340 },
   ],
 };
 

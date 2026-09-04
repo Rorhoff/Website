@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { Net, Lobbyist, Team } from '../net';
-import { updateBotBrains, type BotWorld } from '../bots';
+import { resetBotMemory, updateBotBrains, type BotWorld } from '../bots';
 import { applyLocalKeyboard } from '../local-input';
 import {
   actorAtlasKey,
@@ -15,8 +15,7 @@ import {
 import { drawCollisionOverlay } from '../collision-overlay';
 import { mothersClash, pickWhelpRespawn } from '../spawn';
 import {
-  W, H, COLORS, TUNING, PLATFORMS, GEM_SPAWNS, SPAWN,
-  HOARD_X, HOARD_Y, HOARD_WIDTH, HOARD_HEIGHT, slotRect,
+  W, H, COLORS, TUNING, PLATFORMS, GEM_SPAWNS, SPAWN, slotRect,
 } from '../arena';
 
 type Sprite = Phaser.Physics.Arcade.Sprite;
@@ -80,6 +79,7 @@ export class Game extends Phaser.Scene {
   create() {
     this.over = false;
     this.actors = [];
+    resetBotMemory();
     this.slots = { blue: new Array(TUNING.slotsToWin).fill(false), red: new Array(TUNING.slotsToWin).fill(false) };
     this.cameras.main.setBackgroundColor(COLORS.sky);
     this.physics.world.setBounds(0, 0, W, H);
@@ -287,6 +287,7 @@ export class Game extends Phaser.Scene {
     return {
       time,
       wyrmX: this.wyrm.x,
+      wyrmFace: this.cowFace(),
       slotsFilled: { blue: slotCount('blue'), red: slotCount('red') },
       gems,
       actors: this.actors.map((a) => {
@@ -379,7 +380,6 @@ export class Game extends Phaser.Scene {
   }
 
   private updateWhelp(a: Actor, time: number, body: Phaser.Physics.Arcade.Body) {
-    this.unstuckWhelp(a, body);
     body.setVelocityX(a.input.x * TUNING.whelpSpeed);
 
     if (a.input.jumpEdge && body.blocked.down) body.setVelocityY(TUNING.whelpJump);
@@ -469,26 +469,6 @@ export class Game extends Phaser.Scene {
         body.setVelocity(dx * TUNING.motherLungeSpeed, dy * TUNING.motherLungeSpeed);
         tryPlayAnim(a.sprite, a.atlasKey, 'claw', false);
       }
-    }
-  }
-
-  /** Nudge whelps out of hoard/finish corners where platform edges trap them. */
-  private unstuckWhelp(a: Actor, body: Phaser.Physics.Arcade.Body) {
-    if (!body.blocked.down || a.sprite.y < 500) return;
-    const hx = HOARD_X[a.team];
-    const inHoard = a.sprite.x >= hx - 24 && a.sprite.x <= hx + HOARD_WIDTH + 24;
-    if (!inHoard) return;
-
-    const finishX = a.team === 'blue' ? TUNING.wyrmWin.blue : TUNING.wyrmWin.red;
-    const atFinishEdge = a.team === 'blue'
-      ? a.sprite.x < finishX + 55
-      : a.sprite.x > finishX - 55;
-
-    if (atFinishEdge && Math.abs(body.velocity.x) < 24) {
-      body.setVelocityX(a.team === 'blue' ? 160 : -160);
-      if (body.velocity.y >= -20) body.setVelocityY(TUNING.whelpJump * 0.5);
-    } else if (Math.abs(body.velocity.x) < 10 && Math.abs(a.input.x) > 0.25) {
-      body.setVelocityX(a.input.x * TUNING.whelpSpeed * 1.15);
     }
   }
 
@@ -902,14 +882,6 @@ export class Game extends Phaser.Scene {
           this.slotGfx.strokeRect(r.x, r.y, r.width, r.height);
         }
       }
-      // shelf the slots sit on, so you can run along it
-      this.slotGfx.fillStyle(COLORS.soilLip, 1);
-      this.slotGfx.fillRect(
-        slotRect(team, 0).x - 6,
-        HOARD_Y + HOARD_HEIGHT,
-        HOARD_WIDTH + 12,
-        6
-      );
     }
   }
 
@@ -1012,6 +984,16 @@ export class Game extends Phaser.Scene {
       this.net.notifyGameEnd(team, why);
       this.time.delayedCall(5000, () => this.scene.start('Lobby', { net: this.net }));
     };
+
+    for (const team of ['blue', 'red'] as Team[]) {
+      const m = this.actors.find((a) => a.role === 'mother' && a.team === team);
+      if (m && m.deaths >= TUNING.motherDeathsToWin) {
+        return finish(
+          OTHER[team],
+          `The ${team} mother fell ${TUNING.motherDeathsToWin} times.`
+        );
+      }
+    }
 
     for (const team of ['blue', 'red'] as Team[]) {
       if (this.slots[team].every(Boolean)) return finish(team, 'All fifteen gems hoarded.');
