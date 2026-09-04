@@ -8,6 +8,13 @@ export interface InputState {
   action: boolean;
   jumpEdge: boolean;
   actionEdge: boolean;
+  /**
+   * Presses banked since the last frame. Taps can arrive faster than the render
+   * loop, and a dropped release used to wedge the level flag high and swallow
+   * every press after it, so the count is what the game actually consumes.
+   */
+  jumpPresses: number;
+  actionPresses: number;
 }
 
 export interface Lobbyist {
@@ -26,13 +33,15 @@ export interface Lobbyist {
   disconnected?: boolean;
 }
 
-const blank = (): InputState => ({
+export const blankInput = (): InputState => ({
   x: 0,
   y: 0,
   jump: false,
   action: false,
   jumpEdge: false,
   actionEdge: false,
+  jumpPresses: 0,
+  actionPresses: 0,
 });
 
 function wsUrl(): string {
@@ -62,6 +71,22 @@ export class Net {
   allocatePid(): number {
     this.localPid += 1;
     return this.localPid;
+  }
+
+  /**
+   * Bank a button press. Every press counts on its own rather than being gated
+   * on the level flag, so a release that never arrives cannot deafen the pad.
+   */
+  handleButton(pid: number, key: string, down: boolean) {
+    const p = this.players.get(pid);
+    if (!p) return;
+    if (key === "jump") {
+      if (down) p.input.jumpPresses++;
+      p.input.jump = down;
+    } else {
+      if (down) p.input.actionPresses++;
+      p.input.action = down;
+    }
   }
 
   connect(url?: string) {
@@ -136,16 +161,7 @@ export class Net {
         }
 
         case "b": {
-          const p = this.players.get(m.pid);
-          if (!p) break;
-          const down = m.d === 1;
-          if (m.k === "jump") {
-            if (down && !p.input.jump) p.input.jumpEdge = true;
-            p.input.jump = down;
-          } else {
-            if (down && !p.input.action) p.input.actionEdge = true;
-            p.input.action = down;
-          }
+          this.handleButton(m.pid, m.k, m.d === 1);
           break;
         }
       }
@@ -198,7 +214,7 @@ export class Net {
         name,
         team: motherSlot.team,
         role: "mother",
-        input: blank(),
+        input: blankInput(),
       };
       this.players.set(pid, p);
       this.sendAssign(pid, p);
@@ -223,7 +239,7 @@ export class Net {
       name,
       team: resolved,
       role: "whelp",
-      input: blank(),
+      input: blankInput(),
     };
     this.players.set(pid, p);
     this.sendAssign(pid, p);

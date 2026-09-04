@@ -1,3 +1,4 @@
+import { blankInput } from "./net";
 import type { InputState, Lobbyist, Net, Role, Team } from "./net";
 
 export const MIN_PLAYERS = 4;
@@ -46,7 +47,7 @@ export function addBotPlayer(net: Net, name?: string): Lobbyist {
     name: name ?? nextBotName(),
     team,
     role,
-    input: { x: 0, y: 0, jump: false, action: false, jumpEdge: false, actionEdge: false },
+    input: blankInput(),
     bot: true,
   };
   net.players.set(pid, p);
@@ -64,7 +65,7 @@ export function addLocalPlayer(net: Net, name = "You"): Lobbyist | null {
     name,
     team,
     role,
-    input: { x: 0, y: 0, jump: false, action: false, jumpEdge: false, actionEdge: false },
+    input: blankInput(),
     local: true,
   };
   net.players.set(pid, p);

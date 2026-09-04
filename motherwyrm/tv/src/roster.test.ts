@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Net } from "./net";
+import { blankInput, Net } from "./net";
 import {
   addBotPlayer,
   addLocalPlayer,
@@ -70,7 +70,7 @@ describe("roster", () => {
         name: "Clank",
         team: "blue",
         role: "mother",
-        input: { x: 0, y: 0, jump: false, action: false, jumpEdge: false, actionEdge: false },
+        input: blankInput(),
         bot: true,
       })
     ).toBe("★ Clank 🤖");
@@ -81,7 +81,7 @@ describe("roster", () => {
         name: "You",
         team: "red",
         role: "whelp",
-        input: { x: 0, y: 0, jump: false, action: false, jumpEdge: false, actionEdge: false },
+        input: blankInput(),
         local: true,
       })
     ).toBe("You (you)");

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { Net } from "./net";
+import { blankInput, Net } from "./net";
 
 function mockNet() {
   const net = new Net();
@@ -64,6 +64,37 @@ describe("phone join assignment", () => {
   });
 });
 
+describe("button presses", () => {
+  it("banks every press even when a release goes missing", () => {
+    const { net } = mockNet();
+    net.handlePhoneJoin(1, "Alpha");
+    const input = net.players.get(1)!.input;
+
+    net.handleButton(1, "jump", true);
+    net.handleButton(1, "jump", false);
+    expect(input.jumpPresses).toBe(1);
+
+    // Release dropped in transit, so the level flag stays high.
+    net.handleButton(1, "jump", true);
+    net.handleButton(1, "jump", true);
+    expect(input.jump).toBe(true);
+    expect(input.jumpPresses).toBe(3);
+  });
+
+  it("counts taps that land inside a single frame", () => {
+    const { net } = mockNet();
+    net.handlePhoneJoin(1, "Alpha");
+    const input = net.players.get(1)!.input;
+
+    for (let i = 0; i < 3; i++) {
+      net.handleButton(1, "action", true);
+      net.handleButton(1, "action", false);
+    }
+    expect(input.actionPresses).toBe(3);
+    expect(input.action).toBe(false);
+  });
+});
+
 describe("Net local players", () => {
   it("cue skips bots and local keyboard players", () => {
     const net = new Net();
@@ -77,7 +108,7 @@ describe("Net local players", () => {
       name: "Bot",
       team: "blue",
       role: "whelp",
-      input: { x: 0, y: 0, jump: false, action: false, jumpEdge: false, actionEdge: false },
+      input: blankInput(),
       bot: true,
     });
     net.players.set(2, {
@@ -85,7 +116,7 @@ describe("Net local players", () => {
       name: "You",
       team: "blue",
       role: "whelp",
-      input: { x: 0, y: 0, jump: false, action: false, jumpEdge: false, actionEdge: false },
+      input: blankInput(),
       local: true,
     });
     net.players.set(3, {
@@ -93,7 +124,7 @@ describe("Net local players", () => {
       name: "Phone",
       team: "red",
       role: "whelp",
-      input: { x: 0, y: 0, jump: false, action: false, jumpEdge: false, actionEdge: false },
+      input: blankInput(),
     });
 
     net.cue(1, "nope");

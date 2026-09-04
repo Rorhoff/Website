@@ -32,6 +32,8 @@ interface Actor extends Lobbyist {
   invulnUntil: number;
   deadUntil: number;
   attackUntil: number;
+  attackStart: number;
+  attackCooldownUntil: number;
   attackDir: Phaser.Math.Vector2;
   diving: boolean;
   shortDive: boolean;
@@ -224,7 +226,9 @@ export class Game extends Phaser.Scene {
         p.role === 'mother' ? TUNING.motherGravity - TUNING.gravity : 0
       );
       if (p.role === 'mother') {
-        body.setSize(28, 40, true);
+        // Narrower than the 40px art so she fits the shafts, but exactly as tall
+        // as the frame — any extra height parks her feet above the floor.
+        body.setSize(28, 32, true);
       }
       this.physics.add.collider(sprite, this.platforms);
 
@@ -239,7 +243,8 @@ export class Game extends Phaser.Scene {
         hp: TUNING.motherHp,
         deaths: 0,
         stunUntil: 0, invulnUntil: 0, deadUntil: 0,
-        attackUntil: 0, attackDir: new Phaser.Math.Vector2(1, 0),
+        attackUntil: 0, attackStart: 0, attackCooldownUntil: 0,
+        attackDir: new Phaser.Math.Vector2(1, 0),
         diving: false, shortDive: false, lungeUntil: 0, puntUntil: 0, riding: false,
         disconnected: Boolean(p.disconnected),
       });
@@ -259,6 +264,12 @@ export class Game extends Phaser.Scene {
 
   update(time: number, delta: number) {
     if (this.over) return;
+
+    // Hand each banked phone press its own frame so none are lost to a burst.
+    for (const a of this.actors) {
+      if (a.input.jumpPresses > 0) { a.input.jumpPresses--; a.input.jumpEdge = true; }
+      if (a.input.actionPresses > 0) { a.input.actionPresses--; a.input.actionEdge = true; }
+    }
 
     applyLocalKeyboard(this.net, this.input.keyboard);
     updateBotBrains(this.buildBotWorld(time));
@@ -405,16 +416,20 @@ export class Game extends Phaser.Scene {
 
   private updateMother(a: Actor, time: number, body: Phaser.Physics.Arcade.Body) {
     if (a.diving) {
-      tryPlayAnim(a.sprite, a.atlasKey, 'dive', false);
-      if (time < a.attackUntil) {
+      // The dive ends on the timer or the instant she touches down, whichever
+      // comes first. Landing must drop the pose immediately or she reads as
+      // frozen mid-attack.
+      const landed = body.blocked.down && body.velocity.y >= 0;
+      if (time < a.attackUntil && !landed) {
+        tryPlayAnim(a.sprite, a.atlasKey, 'dive');
         return;
       }
       a.diving = false;
       a.shortDive = false;
-      if (body.blocked.down && body.velocity.y >= 0) {
-        this.diveImpact(a);
-      }
-      return;
+      a.attackUntil = Math.min(a.attackUntil, time);
+      a.lungeUntil = Math.min(a.lungeUntil, time);
+      if (landed) this.diveImpact(a);
+      // Fall through so this same frame restores flight control and pose.
     }
 
     if (a.lungeUntil > time) {
@@ -435,7 +450,7 @@ export class Game extends Phaser.Scene {
       this.puff(a.sprite.x, a.sprite.y + 22);
     }
 
-    if (a.input.actionEdge) {
+    if (a.input.actionEdge && time >= a.attackCooldownUntil) {
       let dx = a.input.x;
       let dy = a.input.y;
       const stickMag = Math.hypot(dx, dy);
@@ -449,6 +464,15 @@ export class Game extends Phaser.Scene {
       }
       if (Math.abs(dx) > 0.1) a.facing = dx > 0 ? 1 : -1;
 
+      a.attackStart = time;
+      a.attackCooldownUntil = time + TUNING.motherAttackCooldownMs;
+
+      // A dive needs air underneath. Standing on the floor it swings level instead.
+      if (body.blocked.down && dy > 0.35) {
+        dy = 0;
+        if (Math.abs(dx) < 0.1) dx = a.facing;
+      }
+
       if (dy > 0.35) {
         a.diving = true;
         a.shortDive = true;
@@ -458,7 +482,7 @@ export class Game extends Phaser.Scene {
         if (a.attackDir.length() > 0) a.attackDir.normalize();
         const spd = TUNING.motherDiveSpeed;
         body.setVelocity(dx * spd, dy * spd);
-        tryPlayAnim(a.sprite, a.atlasKey, 'dive', false);
+        tryPlayAnim(a.sprite, a.atlasKey, 'dive');
       } else {
         const mag = Math.hypot(dx, dy) || 1;
         dx /= mag;
@@ -467,7 +491,7 @@ export class Game extends Phaser.Scene {
         a.attackUntil = time + TUNING.swipeMs;
         a.lungeUntil = time + TUNING.motherLungeMs;
         body.setVelocity(dx * TUNING.motherLungeSpeed, dy * TUNING.motherLungeSpeed);
-        tryPlayAnim(a.sprite, a.atlasKey, 'claw', false);
+        tryPlayAnim(a.sprite, a.atlasKey, 'claw');
       }
     }
   }
@@ -776,19 +800,34 @@ export class Game extends Phaser.Scene {
 
     for (const a of mothers) {
       if (clashed.has(a.pid)) continue;
+      // Let the strike travel first, so a kill lands on contact rather than the
+      // frame the button was pressed.
+      if (time < a.attackStart + TUNING.motherAttackWindupMs) continue;
 
-      const hx = a.sprite.x + a.attackDir.x * TUNING.swipeReach;
-      const hy = a.sprite.y + a.attackDir.y * TUNING.swipeReach;
-
+      const hits: Actor[] = [];
       for (const t of this.actors) {
         if (t.team === a.team || t.invulnUntil > time || t.deadUntil > 0) continue;
-        if (Phaser.Math.Distance.Between(hx, hy, t.sprite.x, t.sprite.y) > TUNING.motherClashReach) continue;
 
+        // Reach is measured from the mother herself, inside the arc she swung.
+        const dx = t.sprite.x - a.sprite.x;
+        const dy = t.sprite.y - a.sprite.y;
+        const dist = Math.hypot(dx, dy);
+        if (dist > TUNING.swipeReach) continue;
+        if (dist > 1) {
+          const aim = (dx * a.attackDir.x + dy * a.attackDir.y) / dist;
+          if (aim < TUNING.motherStrikeCone) continue;
+        }
+        hits.push(t);
+      }
+
+      if (hits.length === 0) continue;
+
+      // Everything caught in the same swing goes down together.
+      for (const t of hits) {
         if (t.role === 'mother') this.hurtMother(t, time, a.attackDir.x || a.facing);
         else this.killWhelp(t, time, a.attackDir.x || a.facing);
-        a.attackUntil = time;
-        break;
       }
+      a.attackUntil = time;
     }
   }
 

@@ -400,22 +400,36 @@ function startStickLoop() {
 // ---------------------------------------------------------------- buttons
 
 function wireButton(node, key) {
+  // Track the finger that started the press. Capturing it keeps the release on
+  // this node even if the thumb rolls off the edge mid-tap, which otherwise
+  // leaves the button stuck down on the TV.
+  let held = null;
+
   const down = (e) => {
+    if (held !== null) return;
+    held = e.pointerId;
+    try { node.setPointerCapture(e.pointerId); } catch { /* not fatal */ }
     node.classList.add('pressed');
     send({ t: 'b', k: key, d: 1 });
     if (navigator.vibrate) navigator.vibrate(12);
     e.preventDefault();
   };
+
   const up = (e) => {
+    if (held === null || (e.pointerId !== undefined && e.pointerId !== held)) return;
+    held = null;
     node.classList.remove('pressed');
     send({ t: 'b', k: key, d: 0 });
     e.preventDefault();
   };
+
   node.addEventListener('pointerdown', down);
   node.addEventListener('pointerup', up);
   node.addEventListener('pointercancel', up);
-  node.addEventListener('pointerleave', up);
+  node.addEventListener('lostpointercapture', up);
   node.addEventListener('contextmenu', (e) => e.preventDefault());
+  // Backstop: if the page is hidden mid-press the release never arrives.
+  window.addEventListener('blur', () => up({ pointerId: held, preventDefault() {} }));
 }
 
 wireButton(el('btnJump'), 'jump');

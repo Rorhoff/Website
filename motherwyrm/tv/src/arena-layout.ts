@@ -51,6 +51,12 @@ export const TUNING = {
   motherClashReach: 68,
   swipeReach: 88,
   swipeMs: 180,
+  /** A strike travels this long before it can connect, so kills read as contact. */
+  motherAttackWindupMs: 70,
+  /** Minimum gap between strikes — stops a held button chaining dives forever. */
+  motherAttackCooldownMs: 260,
+  /** Cosine of the strike cone half-angle; targets outside the arc are missed. */
+  motherStrikeCone: 0.3,
   stunMs: 1200,
   eatenMs: 2200,
 

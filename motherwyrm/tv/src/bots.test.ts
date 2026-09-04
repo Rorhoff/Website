@@ -14,7 +14,12 @@ vi.mock("./arena", () => ({
 import { pickBestGem, updateBotBrains, type BotWorld } from "./bots";
 
 function blankInput(): InputState {
-  return { x: 0, y: 0, jump: false, action: false, jumpEdge: false, actionEdge: false };
+  return {
+    x: 0, y: 0,
+    jump: false, action: false,
+    jumpEdge: false, actionEdge: false,
+    jumpPresses: 0, actionPresses: 0,
+  };
 }
 
 function world(partial: Partial<BotWorld> & Pick<BotWorld, "actors">): BotWorld {
