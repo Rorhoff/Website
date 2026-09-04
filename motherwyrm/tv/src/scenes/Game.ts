@@ -359,6 +359,7 @@ export class Game extends Phaser.Scene {
 
   private updateMother(a: Actor, time: number, body: Phaser.Physics.Arcade.Body) {
     if (a.diving) {
+      tryPlayAnim(a.sprite, a.atlasKey, 'dive');
       if (a.shortDive) {
         if (time < a.attackUntil) {
           body.setVelocityY(TUNING.motherShortDiveSpeed);

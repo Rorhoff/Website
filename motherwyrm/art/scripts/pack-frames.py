@@ -61,8 +61,10 @@ def pack_atlas(
     src_index: dict[str, int] = {}
 
     for i, (src, im) in enumerate(unique):
-        ox = i * fw
-        oy = (fh - im.size[1]) // 2
+        pad_x = (fw - im.size[0]) // 2
+        pad_y = (fh - im.size[1]) // 2
+        ox = i * fw + pad_x
+        oy = pad_y
         sheet.paste(im, (ox, oy), im)
         src_index[src] = i
         frames_json.append(
@@ -71,7 +73,7 @@ def pack_atlas(
                 "frame": {"x": ox, "y": oy, "w": im.size[0], "h": im.size[1]},
                 "rotated": False,
                 "trimmed": True,
-                "spriteSourceSize": {"x": 0, "y": 0, "w": im.size[0], "h": im.size[1]},
+                "spriteSourceSize": {"x": pad_x, "y": pad_y, "w": im.size[0], "h": im.size[1]},
                 "sourceSize": {"w": fw, "h": fh},
                 "duration": 100,
             }
