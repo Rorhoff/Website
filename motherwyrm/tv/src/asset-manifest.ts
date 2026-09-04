@@ -67,7 +67,7 @@ export const ATLAS_MANIFEST: AtlasManifestEntry[] = [
     png: "wyrm.png",
     json: "wyrm.json",
     proceduralKey: "wyrm-seg",
-    expectedTags: ["wyrm_crawl"],
+    expectedTags: ["idle", "charge", "recoil"].map((t) => `wyrm_${t}`),
   },
   {
     key: "props",

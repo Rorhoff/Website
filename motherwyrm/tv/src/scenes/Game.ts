@@ -45,6 +45,18 @@ interface Actor extends Lobbyist {
   label: Phaser.GameObjects.Text;
 }
 
+/**
+ * Cow art is a 56×44 frame at 2×, drawn feet-on-the-baseline and facing right.
+ * These are the offsets from its centre that the mount point and stomp reach
+ * are measured against.
+ */
+const COW_HALF_H = 44;
+/** Top of the back, below the centre by this much. */
+const COW_BACK_DY = -22;
+/** Head in the charge pose, relative to centre and before facing is applied. */
+const COW_HEAD_DX = 44;
+const COW_HEAD_DY = 20;
+
 const OTHER: Record<Team, Team> = { blue: 'red', red: 'blue' };
 const HEX: Record<Team, string> = { blue: '#4aa3d8', red: '#e0663f' };
 
@@ -57,8 +69,7 @@ export class Game extends Phaser.Scene {
   private slotGfx!: Phaser.GameObjects.Graphics;
   private fx!: Phaser.GameObjects.Graphics;
 
-  private wyrm!: Phaser.Physics.Arcade.Image;
-  private wyrmGfx!: Phaser.GameObjects.Graphics;
+  private wyrm!: Phaser.Physics.Arcade.Sprite;
   private finishGfx!: Phaser.GameObjects.Graphics;
 
   private hudBlue!: Phaser.GameObjects.Text;
@@ -69,7 +80,6 @@ export class Game extends Phaser.Scene {
   private collisionGfx!: Phaser.GameObjects.Graphics;
 
   private cowFacing: 1 | -1 = 1;
-  private cowHeadDrop = 0;
   private cowStompStart = 0;
   private cowStompHit = false;
   private cowStompCooldownUntil = 0;
@@ -170,16 +180,18 @@ export class Game extends Phaser.Scene {
   }
 
   private buildWyrm() {
-    this.wyrmGfx = this.add.graphics().setDepth(12);
     this.finishGfx = this.add.graphics().setDepth(11);
     const key = wyrmTextureKey();
     const feetY = TUNING.cowGroundY;
-    this.wyrm = this.physics.add.image(W / 2, feetY - 22, key).setVisible(false);
+    this.wyrm = this.physics.add
+      .sprite(W / 2, feetY - COW_HALF_H, key)
+      .setDepth(12);
     applySpriteScale(this.wyrm);
     const wb = this.wyrm.body as Phaser.Physics.Arcade.Body;
-    wb.setSize(52, 36);
+    wb.setSize(52, 40);
     wb.setAllowGravity(false);
     this.wyrm.setImmovable(true);
+    tryPlayAnim(this.wyrm, 'wyrm', 'idle');
   }
 
   private drawFinishLines() {
@@ -531,7 +543,8 @@ export class Game extends Phaser.Scene {
   }
 
   private cowBackY() {
-    return this.wyrm.y - 30;
+    // Riders are centred a half-whelp above the back so they stand on it.
+    return this.wyrm.y + COW_BACK_DY - 24;
   }
 
   private cowFeetY() {
@@ -572,7 +585,7 @@ export class Game extends Phaser.Scene {
     const face = this.cowFace();
     const dx = a.sprite.x - cx;
     const forward = face > 0 ? dx : -dx;
-    if (forward < 6 || forward > 62) return false;
+    if (forward < 10 || forward > 90) return false;
     if (Math.abs(a.sprite.y - (feetY - 22)) > 34) return false;
     const body = a.sprite.body as Phaser.Physics.Arcade.Body;
     return body.blocked.down || body.touching.down || a.sprite.y >= feetY - 40;
@@ -584,17 +597,13 @@ export class Game extends Phaser.Scene {
 
     if (this.cowStompStart > 0) {
       const elapsed = time - this.cowStompStart;
-      if (elapsed < downMs) {
-        this.cowHeadDrop = Phaser.Math.Easing.Quadratic.In(elapsed / downMs);
-      } else if (elapsed < downMs + upMs) {
+      if (elapsed >= downMs && elapsed < downMs + upMs) {
         if (!this.cowStompHit) {
           this.cowStompHit = true;
           this.applyCowStompKill(time);
         }
-        this.cowHeadDrop = 1 - Phaser.Math.Easing.Quadratic.Out((elapsed - downMs) / upMs);
-      } else {
+      } else if (elapsed >= downMs + upMs) {
         this.cowStompStart = 0;
-        this.cowHeadDrop = 0;
         this.cowStompHit = false;
         this.cowStompCooldownUntil = time + TUNING.cowStompCooldownMs;
       }
@@ -608,23 +617,20 @@ export class Game extends Phaser.Scene {
       if (!this.whelpInFrontOfCow(a)) continue;
       this.cowStompStart = time;
       this.cowStompHit = false;
-      this.cowHeadDrop = 0;
       return;
     }
   }
 
   private applyCowStompKill(time: number) {
-    const cx = this.wyrm.x;
-    const feetY = this.cowFeetY();
     const face = this.cowFace();
-    const headX = cx + face * 20;
-    const headY = feetY - 34;
+    const headX = this.wyrm.x + face * COW_HEAD_DX;
+    const headY = this.wyrm.y + COW_HEAD_DY;
     const pushing = this.cowPushTeam();
 
     for (const a of this.actors) {
       if (a.role !== 'whelp' || a.riding || a.deadUntil > time || a.invulnUntil > time) continue;
       if (a.team === pushing) continue;
-      if (Phaser.Math.Distance.Between(a.sprite.x, a.sprite.y, headX, headY) > 38) continue;
+      if (Phaser.Math.Distance.Between(a.sprite.x, a.sprite.y, headX, headY) > 46) continue;
       this.killWhelp(a, time, 0, 'The cow stomped you! Respawning…');
     }
     this.cameras.main.shake(90, 0.004);
@@ -645,7 +651,7 @@ export class Game extends Phaser.Scene {
       this.wyrm.setVelocityX(0);
     }
     this.wyrm.x = Phaser.Math.Clamp(this.wyrm.x, 40, W - 40);
-    this.wyrm.y = this.wyrm.y + (this.cowFeetY() - 22 - this.wyrm.y) * 0.35;
+    this.wyrm.y = this.wyrm.y + (this.cowFeetY() - COW_HALF_H - this.wyrm.y) * 0.35;
 
     // Mount by landing on the cow's back.
     const backY = this.cowBackY();
@@ -964,47 +970,15 @@ export class Game extends Phaser.Scene {
   }
 
   private drawCow() {
-    const g = this.wyrmGfx;
-    g.clear();
-    const cx = this.wyrm.x;
-    const feetY = this.cowFeetY();
-    const face = this.cowFace();
-    const drop = this.cowHeadDrop;
+    // Art is drawn facing right, so a leftward push mirrors it.
+    this.wyrm.setFlipX(this.cowFace() < 0);
 
-    // Legs on the ground
-    g.fillStyle(0xf4f0e8, 1);
-    for (const ox of [-14, -5, 5, 14]) {
-      g.fillRect(cx + ox - 3, feetY - 16, 6, 16);
+    let tag = 'idle';
+    if (this.cowStompStart > 0) {
+      const elapsed = this.time.now - this.cowStompStart;
+      tag = elapsed < TUNING.cowStompDownMs ? 'charge' : 'recoil';
     }
-    g.fillStyle(0x2c2420, 1);
-    for (const ox of [-14, -5, 5, 14]) {
-      g.fillRect(cx + ox - 4, feetY - 4, 8, 4);
-    }
-
-    const bodyY = feetY - 28;
-    g.fillStyle(0xf4f0e8, 1);
-    g.fillEllipse(cx, bodyY, 34, 22);
-    g.fillStyle(0x2c2420, 1);
-    g.fillCircle(cx - 9, bodyY - 1, 5);
-    g.fillCircle(cx + 7, bodyY + 3, 4);
-    g.fillCircle(cx + 12, bodyY - 3, 3);
-
-    const neckBaseX = cx + face * 14;
-    const neckBaseY = bodyY - 8;
-    const headX = neckBaseX + face * (4 + drop * 6);
-    const headY = neckBaseY + drop * 22;
-    if (drop > 0.05) {
-      g.lineStyle(5, 0xf4f0e8, 1);
-      g.lineBetween(neckBaseX, neckBaseY, headX - face * 3, headY);
-    }
-
-    g.fillStyle(0xf4f0e8, 1);
-    g.fillCircle(headX, headY, 9 + drop * 2);
-    g.fillStyle(0x2c2420, 1);
-    g.fillCircle(headX + face * 4, headY - 2 + drop * 3, 2);
-    g.fillCircle(headX + face * 2, headY + 2 + drop * 2, 2);
-    g.fillStyle(0xc97a5a, 1);
-    g.fillCircle(headX + face * 8, headY + 1 + drop * 4, 3);
+    tryPlayAnim(this.wyrm, 'wyrm', tag);
   }
 
   private puff(x: number, y: number) {

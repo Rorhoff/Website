@@ -22,6 +22,12 @@ MOTHER_TAGS: list[tuple[str, str]] = [
     ("death", "idle"),
 ]
 
+WYRM_TAGS: list[tuple[str, str]] = [
+    ("idle", "idle"),
+    ("charge", "charge"),
+    ("recoil", "recoil"),
+]
+
 WHELP_TAGS: list[tuple[str, str]] = [
     ("idle", "idle"),
     ("run", "idle"),
@@ -115,11 +121,18 @@ def main() -> None:
     pack_atlas("mother_red", "mother_red", MOTHER_TAGS)
     pack_atlas("whelp_blue", "whelp_blue", WHELP_TAGS)
     pack_atlas("whelp_red", "whelp_red", WHELP_TAGS)
+    pack_atlas("wyrm", "wyrm", WYRM_TAGS)
 
     PUBLIC.mkdir(parents=True, exist_ok=True)
     for ext in ("png", "json"):
         for path in BUILD.glob(f"*.{ext}"):
-            if path.stem in {"mother_blue", "mother_red", "whelp_blue", "whelp_red"}:
+            if path.stem in {
+                "mother_blue",
+                "mother_red",
+                "whelp_blue",
+                "whelp_red",
+                "wyrm",
+            }:
                 dest = PUBLIC / path.name
                 dest.write_bytes(path.read_bytes())
                 print(f"COPY {dest.relative_to(ROOT.parent)}")
