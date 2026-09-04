@@ -22,6 +22,8 @@ export interface Lobbyist {
   local?: boolean;
   /** Awaiting team pick before lobby slot is final. */
   pending?: boolean;
+  /** Phone disconnected — slot kept for rejoin. */
+  disconnected?: boolean;
 }
 
 const blank = (): InputState => ({
@@ -49,6 +51,8 @@ export class Net {
   onCode: (code: string) => void = () => {};
   onJoin: (p: Lobbyist) => void = () => {};
   onLeave: (pid: number) => void = () => {};
+  onDisconnect: (pid: number) => void = () => {};
+  onRejoin: (pid: number) => void = () => {};
   onHostStart: () => void = () => {};
   onHostFillBots: () => void = () => {};
 
@@ -88,6 +92,23 @@ export class Net {
           }
           this.onLeave(m.pid);
           break;
+
+        case "player_disconnect": {
+          const p = this.players.get(m.pid);
+          if (p) p.disconnected = true;
+          this.onDisconnect(m.pid);
+          break;
+        }
+
+        case "player_rejoin": {
+          const p = this.players.get(m.pid);
+          if (p) {
+            p.disconnected = false;
+            this.sendAssign(m.pid, p);
+            this.onRejoin(m.pid);
+          }
+          break;
+        }
 
         case "pick": {
           const team = m.team === "red" ? "red" : "blue";

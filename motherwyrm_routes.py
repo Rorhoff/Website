@@ -15,10 +15,11 @@ CODE_ALPHABET = "ACDEFGHJKLMNPQRTUVWXY"
 
 @dataclass
 class MwPlayer:
-    ws: WebSocket
+    ws: WebSocket | None
     name: str
     team: str | None = None
     role: str | None = None
+    disconnected: bool = False
 
 
 @dataclass
@@ -38,11 +39,43 @@ def _make_code() -> str:
             return code
 
 
-async def _send(ws: WebSocket, msg: dict[str, Any]) -> None:
+async def _send(ws: WebSocket | None, msg: dict[str, Any]) -> None:
+    if ws is None:
+        return
     try:
         await ws.send_json(msg)
     except Exception:
         pass
+
+
+def _find_reconnect_slot(room: MwRoom, name: str) -> int | None:
+    key = name.strip().casefold()
+    if not key:
+        return None
+    for pid, player in room.players.items():
+        if player.disconnected and player.name.strip().casefold() == key:
+            return pid
+    return None
+
+
+async def _restore_phone_session(
+    room: MwRoom, pid: int, ws: WebSocket, player: MwPlayer
+) -> None:
+    player.ws = ws
+    player.disconnected = False
+    await _send(ws, {"t": "rejoined", "pid": pid, "name": player.name})
+    await _send(room.tv, {"t": "player_rejoin", "pid": pid})
+    if player.team and player.role:
+        await _send(
+            ws,
+            {
+                "t": "assigned",
+                "team": player.team,
+                "role": player.role,
+                "host": False,
+                "name": player.name,
+            },
+        )
 
 
 @router.websocket("/api/mw/ws")
@@ -73,13 +106,22 @@ async def motherwyrm_ws(ws: WebSocket) -> None:
                 if not room:
                     await _send(ws, {"t": "error", "reason": "No game with that code."})
                     continue
-                if len(room.players) >= 10:
+
+                name = str(msg.get("name", "Whelp"))[:12]
+                reconnect_pid = _find_reconnect_slot(room, name)
+                if reconnect_pid is not None:
+                    player = room.players[reconnect_pid]
+                    meta = {"kind": "phone", "code": code, "pid": reconnect_pid}
+                    await _restore_phone_session(room, reconnect_pid, ws, player)
+                    continue
+
+                active = sum(1 for p in room.players.values() if not p.disconnected)
+                if active >= 10:
                     await _send(ws, {"t": "error", "reason": "That game is full."})
                     continue
 
                 pid = room.next_pid
                 room.next_pid += 1
-                name = str(msg.get("name", "Whelp"))[:12]
                 room.players[pid] = MwPlayer(ws=ws, name=name)
                 meta = {"kind": "phone", "code": code, "pid": pid}
 
@@ -181,5 +223,8 @@ async def motherwyrm_ws(ws: WebSocket) -> None:
                 rooms.pop(code, None)
             else:
                 pid = int(meta.get("pid", 0))
-                room.players.pop(pid, None)
-                await _send(room.tv, {"t": "player_leave", "pid": pid})
+                player = room.players.get(pid)
+                if player:
+                    player.ws = None
+                    player.disconnected = True
+                    await _send(room.tv, {"t": "player_disconnect", "pid": pid})

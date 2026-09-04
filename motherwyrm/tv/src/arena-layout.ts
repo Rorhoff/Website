@@ -20,7 +20,7 @@ export const TUNING = {
   gravity: 1400,
 
   whelpSpeed: 195,
-  whelpJump: -560,
+  whelpJump: -620,
 
   motherGravity: 780,
   motherSpeed: 210,
@@ -31,13 +31,19 @@ export const TUNING = {
   motherRespawnMs: 3000,
   motherInvulnMs: 2000,
 
-  whelpRespawnMs: 2500,
+  whelpRespawnMs: 1500,
   whelpInvulnMs: 1500,
   spawnCampRadius: 180,
 
-  diveSpeed: 820,
-  motherShortDiveSpeed: 720,
-  motherShortDiveMs: 380,
+  /** Timed dive burst — same duration as claw lunge, not a fall until landing. */
+  motherDiveMs: 220,
+  motherDiveSpeed: 680,
+  motherShortDiveMs: 220,
+  motherShortDiveSpeed: 680,
+  /** Cow head-stomp when a whelp walks in front. */
+  cowStompDownMs: 180,
+  cowStompUpMs: 140,
+  cowStompCooldownMs: 500,
   motherLungeSpeed: 680,
   motherLungeMs: 220,
   motherClashRecoil: 300,
@@ -68,9 +74,9 @@ export type Team = "blue" | "red";
 
 export const PLATFORMS: [number, number, number, number][] = [
   [0, 690, W, 30],
-  [200, 430, 210, 16],
-  [870, 430, 210, 16],
-  [520, 330, 240, 16],
+  [50, 430, 280, 16],
+  [950, 430, 280, 16],
+  [530, 330, 220, 16],
   [90, 265, 180, 16],
   [1010, 265, 180, 16],
   // Stepping stones to reach upper gems
@@ -78,8 +84,10 @@ export const PLATFORMS: [number, number, number, number][] = [
   [1020, 580, 140, 16],
   [210, 495, 130, 16],
   [940, 495, 130, 16],
-  [330, 365, 120, 16],
-  [830, 365, 120, 16],
+  [300, 365, 100, 16],
+  [880, 365, 100, 16],
+  [120, 310, 120, 16],
+  [1040, 310, 120, 16],
   [500, 570, 280, 16],
   [530, 470, 220, 16],
 ];

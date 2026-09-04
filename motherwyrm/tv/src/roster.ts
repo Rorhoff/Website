@@ -101,6 +101,7 @@ export function fillWithBots(net: Net): number {
 
 export function formatPlayerLabel(p: Lobbyist): string {
   const tag = p.role === "mother" ? "★ " : "";
-  const suffix = p.bot ? " 🤖" : p.local ? " (you)" : "";
+  const away = p.disconnected ? " (away)" : "";
+  const suffix = p.bot ? " 🤖" : p.local ? " (you)" : away;
   return `${tag}${p.name}${suffix}`;
 }

@@ -160,6 +160,19 @@ function unstuckFromCenterLedge(a: BotActorView): boolean {
   return true;
 }
 
+/** Push out of hoard/finish shelf corners. */
+function unstuckFromHoard(a: BotActorView): boolean {
+  if (!a.onGround || a.y < 500) return false;
+  const hx = HOARD_X[a.team];
+  if (a.x < hx - 20 || a.x > hx + HOARD_WIDTH + 20) return false;
+  const finishX = a.team === "blue" ? TUNING.wyrmWin.blue : TUNING.wyrmWin.red;
+  const atEdge = a.team === "blue" ? a.x < finishX + 55 : a.x > finishX - 55;
+  if (!atEdge) return false;
+  steerToward(a.input, a.x, hx + HOARD_WIDTH / 2, 16);
+  if (a.onGround) tapJump(a.input);
+  return true;
+}
+
 /** Approach cow from the team side on the ground. */
 function goToWyrm(a: BotActorView, world: BotWorld) {
   if (unstuckFromCenterLedge(a)) return;
@@ -258,6 +271,7 @@ function updateWhelpBot(a: BotActorView, world: BotWorld) {
   }
 
   if (a.carrying > 0) {
+    if (unstuckFromHoard(a)) return;
     const depositX = hoardX + (a.team === "blue" ? 30 : -30);
     steerToward(a.input, a.x, depositX, 22);
     if (!a.onGround && Math.abs(a.x - hoardX) < 60) {

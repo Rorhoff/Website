@@ -106,9 +106,45 @@ function scheduleFitScreens() {
   });
 }
 
+let reconnectTimer = null;
+let sessionCode = '';
+let sessionName = '';
+
+function saveSession(code, name) {
+  sessionCode = code;
+  sessionName = name;
+  try {
+    sessionStorage.setItem('mw_code', code);
+    sessionStorage.setItem('mw_name', name);
+  } catch { /* ignore */ }
+}
+
+function loadSession() {
+  try {
+    sessionCode = sessionStorage.getItem('mw_code') || sessionCode;
+    sessionName = sessionStorage.getItem('mw_name') || sessionName;
+  } catch { /* ignore */ }
+}
+
+function scheduleReconnect() {
+  if (reconnectTimer || !sessionCode || !sessionName) return;
+  if (joinScreen.classList.contains('hidden')) {
+    el('lobbyCue').textContent = 'Reconnecting…';
+    el('padCue').textContent = 'Reconnecting…';
+  }
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null;
+    if (sessionCode && sessionName) connect(sessionCode, sessionName);
+  }, 1200);
+}
+
 // ---------------------------------------------------------------- connection
 
 function connect(code, name) {
+  saveSession(code, name);
+  if (ws) {
+    try { ws.close(); } catch { /* ignore */ }
+  }
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   ws = new WebSocket(`${proto}://${location.host}/api/mw/ws`);
 
@@ -124,8 +160,24 @@ function connect(code, name) {
       return;
     }
 
+    if (msg.t === 'rejoined') {
+      myPid = msg.pid;
+      el('joinBtn').disabled = false;
+      if (inGame) {
+        showPad();
+        startStickLoop();
+        el('padCue').textContent = 'Reconnected!';
+      } else {
+        showLobby();
+        el('lobbyCue').textContent = 'Reconnected — waiting for the TV…';
+      }
+      requestWakeLock();
+      return;
+    }
+
     if (msg.t === 'joined') {
       myPid = msg.pid;
+      saveSession(code, name);
       showLobby();
       el('lobbyStatus').textContent = `Connected as ${msg.name}`;
       el('lobbyCue').textContent = 'Waiting for the TV…';
@@ -208,9 +260,11 @@ function connect(code, name) {
   });
 
   ws.addEventListener('close', () => {
-    if (!joinScreen.classList.contains('hidden')) return;
-    el('lobbyCue').textContent = 'Disconnected. Reload to rejoin.';
-    el('padCue').textContent = 'Disconnected. Reload to rejoin.';
+    if (!joinScreen.classList.contains('hidden')) {
+      el('joinBtn').disabled = false;
+      return;
+    }
+    scheduleReconnect();
   });
 }
 
@@ -228,6 +282,17 @@ el('joinBtn').addEventListener('click', () => {
   el('joinError').textContent = '';
   el('joinBtn').disabled = true;
   connect(code, name);
+});
+
+loadSession();
+if (sessionCode) el('code').value = sessionCode;
+if (sessionName) el('name').value = sessionName;
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && sessionCode && sessionName &&
+      (!ws || ws.readyState !== WebSocket.OPEN)) {
+    scheduleReconnect();
+  }
 });
 
 // ---------------------------------------------------------------- team pick

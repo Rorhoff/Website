@@ -103,6 +103,8 @@ export class Lobby extends Phaser.Scene {
     };
     this.net.onJoin = () => this.redraw();
     this.net.onLeave = () => this.redraw();
+    this.net.onDisconnect = () => this.redraw();
+    this.net.onRejoin = () => this.redraw();
     this.net.onHostStart = () => this.tryStart();
     this.net.onHostFillBots = () => this.addRobots();
     if (this.net.code) {

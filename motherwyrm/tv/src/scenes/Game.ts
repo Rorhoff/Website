@@ -16,7 +16,7 @@ import { drawCollisionOverlay } from '../collision-overlay';
 import { mothersClash, pickWhelpRespawn } from '../spawn';
 import {
   W, H, COLORS, TUNING, PLATFORMS, GEM_SPAWNS, SPAWN,
-  HOARD_Y, HOARD_WIDTH, HOARD_HEIGHT, slotRect,
+  HOARD_X, HOARD_Y, HOARD_WIDTH, HOARD_HEIGHT, slotRect,
 } from '../arena';
 
 type Sprite = Phaser.Physics.Arcade.Sprite;
@@ -39,6 +39,7 @@ interface Actor extends Lobbyist {
   lungeUntil: number;
   puntUntil: number;
   riding: boolean;
+  disconnected: boolean;
   label: Phaser.GameObjects.Text;
 }
 
@@ -64,6 +65,11 @@ export class Game extends Phaser.Scene {
   private over = false;
   private showCollision = false;
   private collisionGfx!: Phaser.GameObjects.Graphics;
+
+  private cowHeadDrop = 0;
+  private cowStompStart = 0;
+  private cowStompHit = false;
+  private cowStompCooldownUntil = 0;
 
   constructor() { super('Game'); }
 
@@ -109,6 +115,29 @@ export class Game extends Phaser.Scene {
         this.actors[i].label.destroy();
         this.actors.splice(i, 1);
       }
+    };
+
+    this.net.onDisconnect = (pid) => {
+      const a = this.actors.find((x) => x.pid === pid);
+      if (!a) return;
+      a.disconnected = true;
+      a.diving = false;
+      a.shortDive = false;
+      a.input.x = 0;
+      a.input.y = 0;
+      a.input.jump = false;
+      a.input.action = false;
+      a.label.setText(`${a.name} (away)`);
+      a.sprite.setAlpha(0.45);
+    };
+
+    this.net.onRejoin = (pid) => {
+      const a = this.actors.find((x) => x.pid === pid);
+      if (!a) return;
+      a.disconnected = false;
+      a.label.setText(a.name);
+      a.sprite.setAlpha(a.invulnUntil > this.time.now ? 0.55 : 1);
+      this.net.cue(pid, 'Back in the fight!');
     };
 
     this.input.keyboard?.on('keydown-F3', () => {
@@ -190,9 +219,13 @@ export class Game extends Phaser.Scene {
       const sprite = this.physics.add.sprite(spawn.x, spawn.y, key);
       applySpriteScale(sprite);
       sprite.setCollideWorldBounds(true);
-      (sprite.body as Phaser.Physics.Arcade.Body).setGravityY(
+      const body = sprite.body as Phaser.Physics.Arcade.Body;
+      body.setGravityY(
         p.role === 'mother' ? TUNING.motherGravity - TUNING.gravity : 0
       );
+      if (p.role === 'mother') {
+        body.setSize(28, 40, true);
+      }
       this.physics.add.collider(sprite, this.platforms);
 
       const label = this.add.text(0, 0, p.name, {
@@ -208,6 +241,7 @@ export class Game extends Phaser.Scene {
         stunUntil: 0, invulnUntil: 0, deadUntil: 0,
         attackUntil: 0, attackDir: new Phaser.Math.Vector2(1, 0),
         diving: false, shortDive: false, lungeUntil: 0, puntUntil: 0, riding: false,
+        disconnected: Boolean(p.disconnected),
       });
     }
   }
@@ -232,6 +266,7 @@ export class Game extends Phaser.Scene {
     for (const a of this.actors) this.updateActor(a, time, delta);
 
     this.updateWyrm();
+    this.updateCowStomp(time);
     this.updateGems(time);
     this.resolveCombat(time);
     this.drawCow();
@@ -278,6 +313,13 @@ export class Game extends Phaser.Scene {
   private updateActor(a: Actor, time: number, _delta: number) {
     const body = a.sprite.body as Phaser.Physics.Arcade.Body;
 
+    if (a.disconnected) {
+      a.input.x = 0;
+      a.input.y = 0;
+      a.input.jump = false;
+      a.input.action = false;
+    }
+
     // Dead actors: hidden until respawn timer fires.
     if (a.deadUntil > time) {
       a.label.setVisible(false);
@@ -301,7 +343,10 @@ export class Game extends Phaser.Scene {
     }
 
     a.label.setVisible(true).setPosition(a.sprite.x, a.sprite.y - a.sprite.displayHeight / 2 - 4);
-    a.sprite.setAlpha(a.invulnUntil > time ? 0.55 : 1);
+    const baseAlpha = a.disconnected ? 0.45 : 1;
+    a.sprite.setAlpha(a.invulnUntil > time ? Math.min(baseAlpha, 0.55) : baseAlpha);
+
+    if (a.disconnected) return;
 
     if (a.role === 'whelp') {
       this.syncCarriedGem(a);
@@ -334,6 +379,7 @@ export class Game extends Phaser.Scene {
   }
 
   private updateWhelp(a: Actor, time: number, body: Phaser.Physics.Arcade.Body) {
+    this.unstuckWhelp(a, body);
     body.setVelocityX(a.input.x * TUNING.whelpSpeed);
 
     if (a.input.jumpEdge && body.blocked.down) body.setVelocityY(TUNING.whelpJump);
@@ -359,22 +405,13 @@ export class Game extends Phaser.Scene {
 
   private updateMother(a: Actor, time: number, body: Phaser.Physics.Arcade.Body) {
     if (a.diving) {
-      tryPlayAnim(a.sprite, a.atlasKey, 'dive');
-      if (a.shortDive) {
-        if (time < a.attackUntil) {
-          body.setVelocityY(TUNING.motherShortDiveSpeed);
-          body.setVelocityX(a.input.x * TUNING.motherSpeed * 0.55);
-        } else {
-          a.diving = false;
-          a.shortDive = false;
-        }
-      } else {
-        body.setVelocityY(TUNING.diveSpeed);
-        body.setVelocityX(a.input.x * TUNING.motherSpeed * 0.6);
+      tryPlayAnim(a.sprite, a.atlasKey, 'dive', false);
+      if (time < a.attackUntil) {
+        return;
       }
-      if (body.blocked.down) {
-        a.diving = false;
-        a.shortDive = false;
+      a.diving = false;
+      a.shortDive = false;
+      if (body.blocked.down && body.velocity.y >= 0) {
         this.diveImpact(a);
       }
       return;
@@ -385,6 +422,12 @@ export class Game extends Phaser.Scene {
       return;
     }
 
+    if (!body.blocked.down) {
+      tryPlayAnim(a.sprite, a.atlasKey, 'flap');
+    } else {
+      tryPlayAnim(a.sprite, a.atlasKey, 'idle');
+    }
+
     body.setVelocityX(a.input.x * TUNING.motherSpeed);
 
     if (a.input.jumpEdge) {
@@ -393,42 +436,59 @@ export class Game extends Phaser.Scene {
     }
 
     if (a.input.actionEdge) {
-      const stickMag = Math.hypot(a.input.x, a.input.y);
-      const airDown = !body.blocked.down && a.input.y > 0.5 &&
-        (stickMag < 0.3 || a.input.y >= Math.abs(a.input.x));
+      let dx = a.input.x;
+      let dy = a.input.y;
+      const stickMag = Math.hypot(dx, dy);
+      if (stickMag < 0.3) {
+        dx = a.facing;
+        dy = 0;
+      } else {
+        dx /= stickMag;
+        dy /= stickMag;
+        if (dy < 0) dy = 0;
+      }
+      if (Math.abs(dx) > 0.1) a.facing = dx > 0 ? 1 : -1;
 
-      if (airDown) {
+      if (dy > 0.35) {
         a.diving = true;
         a.shortDive = true;
-        a.attackUntil = time + TUNING.motherShortDiveMs;
-        a.attackDir.set(a.input.x, 1);
+        a.attackUntil = time + TUNING.motherDiveMs;
+        a.lungeUntil = time + TUNING.motherDiveMs;
+        a.attackDir.set(dx, dy);
         if (a.attackDir.length() > 0) a.attackDir.normalize();
-        body.setVelocity(
-          a.input.x * TUNING.motherLungeSpeed * 0.35,
-          TUNING.motherShortDiveSpeed
-        );
-        tryPlayAnim(a.sprite, a.atlasKey, 'dive');
+        const spd = TUNING.motherDiveSpeed;
+        body.setVelocity(dx * spd, dy * spd);
+        tryPlayAnim(a.sprite, a.atlasKey, 'dive', false);
       } else {
-        let dx = a.input.x;
-        let dy = a.input.y;
-        if (stickMag < 0.3) {
-          dx = a.facing;
-          dy = 0;
-        } else {
-          dx /= stickMag;
-          dy /= stickMag;
-          if (dy < 0) dy = 0;
-          const mag = Math.hypot(dx, dy) || 1;
-          dx /= mag;
-          dy /= mag;
-        }
-        if (Math.abs(dx) > 0.1) a.facing = dx > 0 ? 1 : -1;
+        const mag = Math.hypot(dx, dy) || 1;
+        dx /= mag;
+        dy /= mag;
         a.attackDir.set(dx, dy);
         a.attackUntil = time + TUNING.swipeMs;
         a.lungeUntil = time + TUNING.motherLungeMs;
         body.setVelocity(dx * TUNING.motherLungeSpeed, dy * TUNING.motherLungeSpeed);
-        tryPlayAnim(a.sprite, a.atlasKey, 'claw');
+        tryPlayAnim(a.sprite, a.atlasKey, 'claw', false);
       }
+    }
+  }
+
+  /** Nudge whelps out of hoard/finish corners where platform edges trap them. */
+  private unstuckWhelp(a: Actor, body: Phaser.Physics.Arcade.Body) {
+    if (!body.blocked.down || a.sprite.y < 500) return;
+    const hx = HOARD_X[a.team];
+    const inHoard = a.sprite.x >= hx - 24 && a.sprite.x <= hx + HOARD_WIDTH + 24;
+    if (!inHoard) return;
+
+    const finishX = a.team === 'blue' ? TUNING.wyrmWin.blue : TUNING.wyrmWin.red;
+    const atFinishEdge = a.team === 'blue'
+      ? a.sprite.x < finishX + 55
+      : a.sprite.x > finishX - 55;
+
+    if (atFinishEdge && Math.abs(body.velocity.x) < 24) {
+      body.setVelocityX(a.team === 'blue' ? 160 : -160);
+      if (body.velocity.y >= -20) body.setVelocityY(TUNING.whelpJump * 0.5);
+    } else if (Math.abs(body.velocity.x) < 10 && Math.abs(a.input.x) > 0.25) {
+      body.setVelocityX(a.input.x * TUNING.whelpSpeed * 1.15);
     }
   }
 
@@ -462,13 +522,85 @@ export class Game extends Phaser.Scene {
 
   // ------------------------------------------------------------------- wyrm
 
+  private cowFace(): 1 | -1 {
+    return (this.wyrm.body as Phaser.Physics.Arcade.Body).velocity.x >= 0 ? 1 : -1;
+  }
+
+  private whelpInFrontOfCow(a: Actor): boolean {
+    if (a.role !== 'whelp' || a.riding || a.deadUntil > this.time.now) return false;
+    const cx = this.wyrm.x;
+    const feetY = this.cowFeetY();
+    const face = this.cowFace();
+    const dx = a.sprite.x - cx;
+    const forward = face > 0 ? dx : -dx;
+    if (forward < 6 || forward > 62) return false;
+    if (Math.abs(a.sprite.y - (feetY - 22)) > 34) return false;
+    const body = a.sprite.body as Phaser.Physics.Arcade.Body;
+    return body.blocked.down || body.touching.down || a.sprite.y >= feetY - 40;
+  }
+
+  private updateCowStomp(time: number) {
+    const downMs = TUNING.cowStompDownMs;
+    const upMs = TUNING.cowStompUpMs;
+
+    if (this.cowStompStart > 0) {
+      const elapsed = time - this.cowStompStart;
+      if (elapsed < downMs) {
+        this.cowHeadDrop = Phaser.Math.Easing.Quadratic.In(elapsed / downMs);
+      } else if (elapsed < downMs + upMs) {
+        if (!this.cowStompHit) {
+          this.cowStompHit = true;
+          this.applyCowStompKill(time);
+        }
+        this.cowHeadDrop = 1 - Phaser.Math.Easing.Quadratic.Out((elapsed - downMs) / upMs);
+      } else {
+        this.cowStompStart = 0;
+        this.cowHeadDrop = 0;
+        this.cowStompHit = false;
+        this.cowStompCooldownUntil = time + TUNING.cowStompCooldownMs;
+      }
+      return;
+    }
+
+    if (time < this.cowStompCooldownUntil) return;
+
+    for (const a of this.actors) {
+      if (a.invulnUntil > time) continue;
+      if (!this.whelpInFrontOfCow(a)) continue;
+      this.cowStompStart = time;
+      this.cowStompHit = false;
+      this.cowHeadDrop = 0;
+      return;
+    }
+  }
+
+  private applyCowStompKill(time: number) {
+    const cx = this.wyrm.x;
+    const feetY = this.cowFeetY();
+    const face = this.cowFace();
+    const headX = cx + face * 20;
+    const headY = feetY - 34;
+
+    for (const a of this.actors) {
+      if (a.role !== 'whelp' || a.riding || a.deadUntil > time || a.invulnUntil > time) continue;
+      if (Phaser.Math.Distance.Between(a.sprite.x, a.sprite.y, headX, headY) > 38) continue;
+      this.killWhelp(a, time, 0, 'The cow stomped you! Respawning…');
+    }
+    this.cameras.main.shake(90, 0.004);
+  }
+
   private updateWyrm() {
+    const stomping = this.cowStompStart > 0;
     const riders = this.actors.filter((r) => r.riding);
 
-    // Whoever is aboard steers. Two teams pulling opposite ways cancel out,
-    // so a contested wyrm just sits there and the fight decides it.
-    const pull = riders.reduce((s, r) => s + r.input.x, 0);
-    this.wyrm.setVelocityX(Phaser.Math.Clamp(pull, -1, 1) * TUNING.wyrmSpeed);
+    if (!stomping) {
+      // Whoever is aboard steers. Two teams pulling opposite ways cancel out,
+      // so a contested wyrm just sits there and the fight decides it.
+      const pull = riders.reduce((s, r) => s + r.input.x, 0);
+      this.wyrm.setVelocityX(Phaser.Math.Clamp(pull, -1, 1) * TUNING.wyrmSpeed);
+    } else {
+      this.wyrm.setVelocityX(0);
+    }
     this.wyrm.x = Phaser.Math.Clamp(this.wyrm.x, 40, W - 40);
     this.wyrm.y = this.wyrm.y + (this.cowFeetY() - 22 - this.wyrm.y) * 0.35;
 
@@ -687,7 +819,7 @@ export class Game extends Phaser.Scene {
     return m ? { x: m.sprite.x, y: m.sprite.y } : null;
   }
 
-  private killWhelp(t: Actor, time: number, _dir: number) {
+  private killWhelp(t: Actor, time: number, _dir: number, cue?: string) {
     if (t.deadUntil > time) return;
     if (t.riding) this.dismount(t, 0);
     this.dropCarried(t);
@@ -696,7 +828,7 @@ export class Game extends Phaser.Scene {
     t.sprite.setVisible(false);
     (t.sprite.body as Phaser.Physics.Arcade.Body).enable = false;
     this.puff(t.sprite.x, t.sprite.y);
-    this.net.cue(t.pid, 'Gulp! Respawning at the hoard…');
+    this.net.cue(t.pid, cue ?? 'Gulp! Back in 1.5 seconds…');
   }
 
   private stun(t: Actor, time: number, dir: number) {
@@ -786,7 +918,8 @@ export class Game extends Phaser.Scene {
     g.clear();
     const cx = this.wyrm.x;
     const feetY = this.cowFeetY();
-    const face = (this.wyrm.body as Phaser.Physics.Arcade.Body).velocity.x >= 0 ? 1 : -1;
+    const face = this.cowFace();
+    const drop = this.cowHeadDrop;
 
     // Legs on the ground
     g.fillStyle(0xf4f0e8, 1);
@@ -806,15 +939,22 @@ export class Game extends Phaser.Scene {
     g.fillCircle(cx + 7, bodyY + 3, 4);
     g.fillCircle(cx + 12, bodyY - 3, 3);
 
-    const headX = cx + face * 16;
-    const headY = bodyY - 12;
+    const neckBaseX = cx + face * 14;
+    const neckBaseY = bodyY - 8;
+    const headX = neckBaseX + face * (4 + drop * 6);
+    const headY = neckBaseY + drop * 22;
+    if (drop > 0.05) {
+      g.lineStyle(5, 0xf4f0e8, 1);
+      g.lineBetween(neckBaseX, neckBaseY, headX - face * 3, headY);
+    }
+
     g.fillStyle(0xf4f0e8, 1);
-    g.fillCircle(headX, headY, 9);
+    g.fillCircle(headX, headY, 9 + drop * 2);
     g.fillStyle(0x2c2420, 1);
-    g.fillCircle(headX + face * 4, headY - 2, 2);
-    g.fillCircle(headX + face * 2, headY + 2, 2);
+    g.fillCircle(headX + face * 4, headY - 2 + drop * 3, 2);
+    g.fillCircle(headX + face * 2, headY + 2 + drop * 2, 2);
     g.fillStyle(0xc97a5a, 1);
-    g.fillCircle(headX + face * 8, headY + 1, 3);
+    g.fillCircle(headX + face * 8, headY + 1 + drop * 4, 3);
   }
 
   private puff(x: number, y: number) {
