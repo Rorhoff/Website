@@ -304,6 +304,35 @@ install_nginx_ldbg_upload() {
 }
 
 # Restart ldbg; full static verify + rollback only after a fresh build.
+force_clean_ldbg_rebuild() {
+  log "Clean LDBG rebuild (removing stale .next)…"
+  sudo systemctl stop ldbg 2>/dev/null || true
+  rm -rf "$DEV_DIR/ldbg/.next" "$DEV_DIR/ldbg/.next.prev"
+  LDBG_REPO_ROOT="$DEV_DIR" bash "$DEV_DIR/deploy/ldbg-build.sh" || return 1
+  LDBG_REBUILT=1
+  sudo systemctl restart ldbg || return 1
+  restart_ldbg_with_verify || return 1
+  sudo systemctl restart "$DEV_SERVICE" || return 1
+  verify_ldbg_proxy_with_retries || return 1
+  return 0
+}
+
+verify_ldbg_proxy_with_retries() {
+  [[ -f "$DEV_DIR/deploy/verify-ldbg-static.sh" ]] || return 0
+  local attempt
+  for attempt in 1 2 3 4 5 6; do
+    sleep 2
+    if LDBG_VERIFY_ORIGIN="http://127.0.0.1:8000" LDBG_REPO_ROOT="$DEV_DIR" \
+      bash "$DEV_DIR/deploy/verify-ldbg-static.sh"; then
+      ok "LDBG static assets OK via :8000 proxy (attempt ${attempt})."
+      return 0
+    fi
+    warn "LDBG proxy static verify attempt ${attempt}/6 failed — restarting ${DEV_SERVICE}…"
+    sudo systemctl restart "$DEV_SERVICE" 2>/dev/null || true
+  done
+  return 1
+}
+
 restart_ldbg_service() {
   log "Restarting ldbg…"
   sudo systemctl restart ldbg || warn "ldbg failed to restart — check journalctl -u ldbg"
@@ -314,7 +343,8 @@ restart_ldbg_service() {
     if bash "$DEV_DIR/deploy/verify-ldbg-static.sh"; then
       ok "ldbg static assets OK (no rebuild)."
     else
-      die "LDBG static assets broken — run: bash ${DEV_DIR}/deploy/nuke-ldbg-build.sh"
+      warn "LDBG static assets broken — forcing clean rebuild…"
+      force_clean_ldbg_rebuild || die "LDBG static repair failed — run: bash ${DEV_DIR}/deploy/repair-ldbg-static.sh"
     fi
   else
     ok "ldbg restarted (no rebuild — skipped static asset verify)."
@@ -517,9 +547,10 @@ if command -v curl >/dev/null 2>&1; then
 
   if [[ "$LDBG_REBUILT" == "1" ]] && [[ -f "$DEV_DIR/deploy/verify-ldbg-static.sh" ]]; then
     log "Verifying LDBG static assets through FastAPI proxy…"
-    if LDBG_VERIFY_ORIGIN="http://127.0.0.1:8000" LDBG_REPO_ROOT="$DEV_DIR" \
-      bash "$DEV_DIR/deploy/verify-ldbg-static.sh"; then
-      ok "LDBG static assets OK via :8000 proxy."
+    if verify_ldbg_proxy_with_retries; then
+      :
+    elif force_clean_ldbg_rebuild; then
+      ok "LDBG static assets recovered after clean rebuild."
     else
       die "LDBG static assets broken via proxy — run: bash ${DEV_DIR}/deploy/repair-ldbg-static.sh"
     fi
