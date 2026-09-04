@@ -15,6 +15,9 @@ export interface InputState {
    */
   jumpPresses: number;
   actionPresses: number;
+  /** Highest press count seen per button, used to recover dropped messages. */
+  jumpSeq?: number;
+  actionSeq?: number;
 }
 
 export interface Lobbyist {
@@ -74,17 +77,31 @@ export class Net {
   }
 
   /**
-   * Bank a button press. Every press counts on its own rather than being gated
-   * on the level flag, so a release that never arrives cannot deafen the pad.
+   * Bank a button press. Presses are counted rather than gated on the level
+   * flag, so a release that never arrives cannot deafen the pad. When the phone
+   * tags a message with its running press count, any press lost in transit is
+   * recovered from the gap — including by the matching release.
    */
-  handleButton(pid: number, key: string, down: boolean) {
+  handleButton(pid: number, key: string, down: boolean, seq?: number) {
     const p = this.players.get(pid);
     if (!p) return;
-    if (key === "jump") {
-      if (down) p.input.jumpPresses++;
+    const jump = key === "jump";
+    const seen = jump ? p.input.jumpSeq : p.input.actionSeq;
+
+    let presses: number;
+    if (typeof seq === "number") {
+      presses = seen === undefined ? (down ? 1 : 0) : Math.max(0, seq - seen);
+      if (jump) p.input.jumpSeq = seq;
+      else p.input.actionSeq = seq;
+    } else {
+      presses = down ? 1 : 0;
+    }
+
+    if (jump) {
+      p.input.jumpPresses += presses;
       p.input.jump = down;
     } else {
-      if (down) p.input.actionPresses++;
+      p.input.actionPresses += presses;
       p.input.action = down;
     }
   }
@@ -161,7 +178,7 @@ export class Net {
         }
 
         case "b": {
-          this.handleButton(m.pid, m.k, m.d === 1);
+          this.handleButton(m.pid, m.k, m.d === 1, m.n);
           break;
         }
       }

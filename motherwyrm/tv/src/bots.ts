@@ -31,6 +31,8 @@ export type BotWorld = {
   /** Direction the cow's head points — its stomp only hits what is in front. */
   wyrmFace?: 1 | -1;
   slotsFilled: Record<NetTeam, number>;
+  /** Centre x of each still-empty hoard slot, so a carrier aims at a real gap. */
+  openSlots?: Record<NetTeam, number[]>;
   gems: Array<{ x: number; y: number }>;
 };
 
@@ -348,17 +350,24 @@ function goToWyrm(a: BotActorView, world: BotWorld, m: BotMemory) {
 }
 
 function goDeposit(a: BotActorView, world: BotWorld, m: BotMemory) {
-  const hoardX = hoardCenterX(a.team);
-  const moving = driveX(a.input, a.x, hoardX, 10);
+  // Aim at the nearest slot that is genuinely empty. Parking on the hoard
+  // centre only ever overlaps the middle columns, so once those fill the
+  // carrier has nowhere to drop and dithers on the shelf holding its gem.
+  const open = world.openSlots?.[a.team] ?? [];
+  const targetX = open.length
+    ? open.reduce((best, x) => (Math.abs(x - a.x) < Math.abs(best - a.x) ? x : best))
+    : hoardCenterX(a.team);
+
+  const moving = driveX(a.input, a.x, targetX, 6);
 
   // Standing on the ground below the shelf — hop up onto it.
   if (a.onGround && a.y > HOARD_SHELF_Y + 20) {
     jumpThrottled(a, m, world.time, 420);
   }
 
-  // Parked on the hoard without a slot contact: shuffle along the shelf.
+  // On the mark but nothing registered: sweep the shelf instead of dithering.
   if (!moving && a.onGround) {
-    a.input.x = Math.floor(world.time / 400) % 2 === 0 ? 1 : -1;
+    a.input.x = Math.floor(world.time / 500) % 2 === 0 ? 1 : -1;
   }
 
   if (isStuck(m, world.time, 700)) breakout(a, m, world.time);

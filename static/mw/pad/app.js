@@ -400,27 +400,29 @@ function startStickLoop() {
 // ---------------------------------------------------------------- buttons
 
 function wireButton(node, key) {
-  // Track the finger that started the press. Capturing it keeps the release on
-  // this node even if the thumb rolls off the edge mid-tap, which otherwise
-  // leaves the button stuck down on the TV.
-  let held = null;
+  // Every finger that lands is its own press — thumbs alternating on one button
+  // are normal play, so a second pointer must not be swallowed. Capturing keeps
+  // the release on this node when a thumb rolls off the edge mid-tap.
+  const activePointers = new Set();
+  let seq = 0;
 
   const down = (e) => {
-    if (held !== null) return;
-    held = e.pointerId;
+    activePointers.add(e.pointerId);
     try { node.setPointerCapture(e.pointerId); } catch { /* not fatal */ }
     node.classList.add('pressed');
-    send({ t: 'b', k: key, d: 1 });
+    seq++;
+    send({ t: 'b', k: key, d: 1, n: seq });
     if (navigator.vibrate) navigator.vibrate(12);
     e.preventDefault();
   };
 
   const up = (e) => {
-    if (held === null || (e.pointerId !== undefined && e.pointerId !== held)) return;
-    held = null;
+    if (!activePointers.delete(e.pointerId)) return;
+    if (activePointers.size > 0) return;
     node.classList.remove('pressed');
-    send({ t: 'b', k: key, d: 0 });
-    e.preventDefault();
+    // The release carries the same count, so a dropped press is recovered.
+    send({ t: 'b', k: key, d: 0, n: seq });
+    if (e.preventDefault) e.preventDefault();
   };
 
   node.addEventListener('pointerdown', down);
@@ -428,8 +430,18 @@ function wireButton(node, key) {
   node.addEventListener('pointercancel', up);
   node.addEventListener('lostpointercapture', up);
   node.addEventListener('contextmenu', (e) => e.preventDefault());
+
   // Backstop: if the page is hidden mid-press the release never arrives.
-  window.addEventListener('blur', () => up({ pointerId: held, preventDefault() {} }));
+  const releaseAll = () => {
+    if (activePointers.size === 0) return;
+    activePointers.clear();
+    node.classList.remove('pressed');
+    send({ t: 'b', k: key, d: 0, n: seq });
+  };
+  window.addEventListener('blur', releaseAll);
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) releaseAll();
+  });
 }
 
 wireButton(el('btnJump'), 'jump');

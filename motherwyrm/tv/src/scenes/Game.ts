@@ -37,6 +37,7 @@ interface Actor extends Lobbyist {
   attackDir: Phaser.Math.Vector2;
   diving: boolean;
   shortDive: boolean;
+  diveFromY: number;
   lungeUntil: number;
   puntUntil: number;
   riding: boolean;
@@ -67,6 +68,7 @@ export class Game extends Phaser.Scene {
   private showCollision = false;
   private collisionGfx!: Phaser.GameObjects.Graphics;
 
+  private cowFacing: 1 | -1 = 1;
   private cowHeadDrop = 0;
   private cowStompStart = 0;
   private cowStompHit = false;
@@ -245,7 +247,8 @@ export class Game extends Phaser.Scene {
         stunUntil: 0, invulnUntil: 0, deadUntil: 0,
         attackUntil: 0, attackStart: 0, attackCooldownUntil: 0,
         attackDir: new Phaser.Math.Vector2(1, 0),
-        diving: false, shortDive: false, lungeUntil: 0, puntUntil: 0, riding: false,
+        diving: false, shortDive: false, diveFromY: 0,
+        lungeUntil: 0, puntUntil: 0, riding: false,
         disconnected: Boolean(p.disconnected),
       });
     }
@@ -290,6 +293,15 @@ export class Game extends Phaser.Scene {
 
   private buildBotWorld(time: number): BotWorld {
     const slotCount = (t: Team) => this.slots[t].filter(Boolean).length;
+    const openSlotXs = (t: Team) => {
+      const xs: number[] = [];
+      for (let i = 0; i < TUNING.slotsToWin; i++) {
+        if (this.slots[t][i]) continue;
+        const r = slotRect(t, i);
+        xs.push(r.x + r.width / 2);
+      }
+      return xs;
+    };
     const gems: Array<{ x: number; y: number }> = [];
     for (const child of this.gems.getChildren()) {
       const s = child as Sprite;
@@ -300,6 +312,7 @@ export class Game extends Phaser.Scene {
       wyrmX: this.wyrm.x,
       wyrmFace: this.cowFace(),
       slotsFilled: { blue: slotCount('blue'), red: slotCount('red') },
+      openSlots: { blue: openSlotXs('blue'), red: openSlotXs('red') },
       gems,
       actors: this.actors.map((a) => {
         const body = a.sprite.body as Phaser.Physics.Arcade.Body;
@@ -416,11 +429,12 @@ export class Game extends Phaser.Scene {
 
   private updateMother(a: Actor, time: number, body: Phaser.Physics.Arcade.Body) {
     if (a.diving) {
-      // The dive ends on the timer or the instant she touches down, whichever
-      // comes first. Landing must drop the pose immediately or she reads as
+      // The dive ends on the timer, on its distance cap, or the instant she
+      // touches down. Landing must drop the pose immediately or she reads as
       // frozen mid-attack.
       const landed = body.blocked.down && body.velocity.y >= 0;
-      if (time < a.attackUntil && !landed) {
+      const dropped = a.sprite.y - a.diveFromY;
+      if (time < a.attackUntil && !landed && dropped < TUNING.motherDiveMaxDrop) {
         tryPlayAnim(a.sprite, a.atlasKey, 'dive');
         return;
       }
@@ -428,7 +442,13 @@ export class Game extends Phaser.Scene {
       a.shortDive = false;
       a.attackUntil = Math.min(a.attackUntil, time);
       a.lungeUntil = Math.min(a.lungeUntil, time);
-      if (landed) this.diveImpact(a);
+      if (landed) {
+        this.diveImpact(a);
+      } else {
+        // Spend the plunge here. Left running it carries her to the floor and
+        // the dive reads as full-screen however short the timer is.
+        body.setVelocity(body.velocity.x * 0.3, Math.min(body.velocity.y, 0));
+      }
       // Fall through so this same frame restores flight control and pose.
     }
 
@@ -476,6 +496,7 @@ export class Game extends Phaser.Scene {
       if (dy > 0.35) {
         a.diving = true;
         a.shortDive = true;
+        a.diveFromY = a.sprite.y;
         a.attackUntil = time + TUNING.motherDiveMs;
         a.lungeUntil = time + TUNING.motherDiveMs;
         a.attackDir.set(dx, dy);
@@ -527,11 +548,25 @@ export class Game extends Phaser.Scene {
   // ------------------------------------------------------------------- wyrm
 
   private cowFace(): 1 | -1 {
-    return (this.wyrm.body as Phaser.Physics.Arcade.Body).velocity.x >= 0 ? 1 : -1;
+    // Latched, not read live: the cow is held at zero velocity mid-stomp, and a
+    // live read would swing its head to the right in the middle of the swing.
+    return this.cowFacing;
+  }
+
+  /** Team currently driving the cow. Its own herders never get stomped. */
+  private cowPushTeam(): Team | null {
+    const pull: Record<Team, number> = { blue: 0, red: 0 };
+    for (const r of this.actors) {
+      if (!r.riding) continue;
+      pull[r.team] += Math.abs(r.input.x);
+    }
+    if (pull.blue < 0.1 && pull.red < 0.1) return null;
+    return pull.blue >= pull.red ? 'blue' : 'red';
   }
 
   private whelpInFrontOfCow(a: Actor): boolean {
     if (a.role !== 'whelp' || a.riding || a.deadUntil > this.time.now) return false;
+    if (a.team === this.cowPushTeam()) return false;
     const cx = this.wyrm.x;
     const feetY = this.cowFeetY();
     const face = this.cowFace();
@@ -584,9 +619,11 @@ export class Game extends Phaser.Scene {
     const face = this.cowFace();
     const headX = cx + face * 20;
     const headY = feetY - 34;
+    const pushing = this.cowPushTeam();
 
     for (const a of this.actors) {
       if (a.role !== 'whelp' || a.riding || a.deadUntil > time || a.invulnUntil > time) continue;
+      if (a.team === pushing) continue;
       if (Phaser.Math.Distance.Between(a.sprite.x, a.sprite.y, headX, headY) > 38) continue;
       this.killWhelp(a, time, 0, 'The cow stomped you! Respawning…');
     }
@@ -601,7 +638,9 @@ export class Game extends Phaser.Scene {
       // Whoever is aboard steers. Two teams pulling opposite ways cancel out,
       // so a contested wyrm just sits there and the fight decides it.
       const pull = riders.reduce((s, r) => s + r.input.x, 0);
-      this.wyrm.setVelocityX(Phaser.Math.Clamp(pull, -1, 1) * TUNING.wyrmSpeed);
+      const vx = Phaser.Math.Clamp(pull, -1, 1) * TUNING.wyrmSpeed;
+      this.wyrm.setVelocityX(vx);
+      if (Math.abs(vx) > 1) this.cowFacing = vx > 0 ? 1 : -1;
     } else {
       this.wyrm.setVelocityX(0);
     }

@@ -81,6 +81,24 @@ describe("button presses", () => {
     expect(input.jumpPresses).toBe(3);
   });
 
+  it("recovers a press lost in transit from the sequence number", () => {
+    const { net } = mockNet();
+    net.handlePhoneJoin(1, "Alpha");
+    const input = net.players.get(1)!.input;
+
+    net.handleButton(1, "jump", true, 1);
+    net.handleButton(1, "jump", false, 1);
+    expect(input.jumpPresses).toBe(1);
+
+    // Press n=2 never made it, but its release did.
+    net.handleButton(1, "jump", false, 2);
+    expect(input.jumpPresses).toBe(2);
+
+    // And a duplicate of an already-counted message adds nothing.
+    net.handleButton(1, "jump", false, 2);
+    expect(input.jumpPresses).toBe(2);
+  });
+
   it("counts taps that land inside a single frame", () => {
     const { net } = mockNet();
     net.handlePhoneJoin(1, "Alpha");

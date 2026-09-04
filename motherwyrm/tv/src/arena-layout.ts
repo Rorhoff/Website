@@ -38,6 +38,8 @@ export const TUNING = {
   /** Timed dive burst — same duration as claw lunge, not a fall until landing. */
   motherDiveMs: 220,
   motherDiveSpeed: 680,
+  /** Hard ceiling on how far a dive may carry her, whatever the frame rate. */
+  motherDiveMaxDrop: 150,
   motherShortDiveMs: 220,
   motherShortDiveSpeed: 680,
   /** Cow head-stomp when a whelp walks in front. */
