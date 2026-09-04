@@ -26,7 +26,7 @@ export type BotWorld = {
 };
 
 const OTHER: Record<NetTeam, NetTeam> = { blue: "red", red: "blue" };
-const GROUND_Y = 655;
+const GROUND_Y = TUNING.cowGroundY ?? 690;
 
 function clamp(v: number, min: number, max: number) {
   return Math.max(min, Math.min(max, v));

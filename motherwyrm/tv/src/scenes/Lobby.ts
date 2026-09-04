@@ -85,7 +85,7 @@ export class Lobby extends Phaser.Scene {
       color: "#e0663f",
     }).setOrigin(0.5);
 
-    this.add.text(W / 2, 582, "Keyboard: WASD · Z jump/fly · X attack  ·  Ride the cart & push the cow to win", {
+    this.add.text(W / 2, 582, "Keyboard: WASD · Z jump/fly · X attack  ·  Ride the cow & push to your finish line", {
       fontFamily: "system-ui, sans-serif",
       fontSize: "14px",
       color: "#8b7a66",

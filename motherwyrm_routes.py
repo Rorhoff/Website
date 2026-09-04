@@ -135,6 +135,19 @@ async def motherwyrm_ws(ws: WebSocket) -> None:
                     await _send(player.ws, {"t": "game_start"})
                 continue
 
+            if meta.get("kind") == "tv" and t == "game_end":
+                player = room.players.get(int(msg.get("pid", 0)))
+                if player:
+                    await _send(
+                        player.ws,
+                        {
+                            "t": "game_end",
+                            "winner": msg.get("winner"),
+                            "reason": msg.get("reason"),
+                        },
+                    )
+                continue
+
             if meta.get("kind") == "tv" and t == "cue":
                 player = room.players.get(int(msg.get("pid", 0)))
                 if player:

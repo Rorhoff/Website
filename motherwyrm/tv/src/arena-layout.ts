@@ -56,6 +56,9 @@ export const TUNING = {
 
   wyrmSpeed: 120,
   wyrmWin: { blue: W - 60, red: 60 },
+  /** Top of the ground platform — cow feet sit here. */
+  cowGroundY: 690,
+  cowFinishHeight: 110,
 
   slotsToWin: 15,
 };

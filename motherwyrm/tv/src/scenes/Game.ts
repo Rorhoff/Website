@@ -12,7 +12,6 @@ import {
   tryPlayAnim,
   wyrmTextureKey,
 } from '../assets';
-import { SPRITE_SCALE } from '../asset-manifest';
 import { drawCollisionOverlay } from '../collision-overlay';
 import { mothersClash, pickWhelpRespawn } from '../spawn';
 import {
@@ -57,6 +56,7 @@ export class Game extends Phaser.Scene {
 
   private wyrm!: Phaser.Physics.Arcade.Image;
   private wyrmGfx!: Phaser.GameObjects.Graphics;
+  private finishGfx!: Phaser.GameObjects.Graphics;
 
   private hudBlue!: Phaser.GameObjects.Text;
   private hudRed!: Phaser.GameObjects.Text;
@@ -90,6 +90,7 @@ export class Game extends Phaser.Scene {
     GEM_SPAWNS.forEach((_, i) => this.spawnGem(i));
 
     this.buildWyrm();
+    this.drawFinishLines();
     this.buildActors();
 
     this.fx = this.add.graphics();
@@ -136,14 +137,49 @@ export class Game extends Phaser.Scene {
   }
 
   private buildWyrm() {
-    this.wyrmGfx = this.add.graphics();
+    this.wyrmGfx = this.add.graphics().setDepth(12);
+    this.finishGfx = this.add.graphics().setDepth(11);
     const key = wyrmTextureKey();
-    this.wyrm = this.physics.add.image(W / 2, 655, key).setVisible(false);
+    const feetY = TUNING.cowGroundY;
+    this.wyrm = this.physics.add.image(W / 2, feetY - 22, key).setVisible(false);
     applySpriteScale(this.wyrm);
     const wb = this.wyrm.body as Phaser.Physics.Arcade.Body;
-    wb.setSize(150, 34);
+    wb.setSize(52, 36);
     wb.setAllowGravity(false);
     this.wyrm.setImmovable(true);
+  }
+
+  private drawFinishLines() {
+    const g = this.finishGfx;
+    g.clear();
+    const top = TUNING.cowGroundY - TUNING.cowFinishHeight;
+    const bottom = TUNING.cowGroundY;
+
+    g.lineStyle(5, COLORS.blue, 0.9);
+    g.lineBetween(TUNING.wyrmWin.blue, top, TUNING.wyrmWin.blue, bottom);
+    g.lineStyle(3, COLORS.blue, 0.45);
+    g.strokeRect(TUNING.wyrmWin.blue - 2, top, 4, bottom - top);
+
+    g.lineStyle(5, COLORS.red, 0.9);
+    g.lineBetween(TUNING.wyrmWin.red, top, TUNING.wyrmWin.red, bottom);
+    g.lineStyle(3, COLORS.red, 0.45);
+    g.strokeRect(TUNING.wyrmWin.red - 2, top, 4, bottom - top);
+
+    const labelStyle = {
+      fontFamily: 'system-ui, sans-serif',
+      fontSize: '15px',
+      fontStyle: 'bold' as const,
+    };
+    this.add.text(TUNING.wyrmWin.blue - 8, top - 10, 'BLUE\nFINISH', {
+      ...labelStyle,
+      color: HEX.blue,
+      align: 'right',
+    }).setOrigin(1, 1).setDepth(12);
+    this.add.text(TUNING.wyrmWin.red + 8, top - 10, 'RED\nFINISH', {
+      ...labelStyle,
+      color: HEX.red,
+      align: 'left',
+    }).setOrigin(0, 1).setDepth(12);
   }
 
   private buildActors() {
@@ -198,7 +234,7 @@ export class Game extends Phaser.Scene {
     this.updateWyrm();
     this.updateGems(time);
     this.resolveCombat(time);
-    this.drawWyrm();
+    this.drawCow();
     this.drawHud();
     this.checkWin();
 
@@ -344,7 +380,9 @@ export class Game extends Phaser.Scene {
     }
 
     if (a.lungeUntil > time) {
-      body.setVelocityX(Phaser.Math.Linear(body.velocity.x, a.input.x * TUNING.motherSpeed * 0.35, 0.15));
+      if (Math.abs(a.attackDir.y) <= 0.45) {
+        body.setVelocityX(Phaser.Math.Linear(body.velocity.x, a.input.x * TUNING.motherSpeed * 0.35, 0.15));
+      }
       return;
     }
 
@@ -375,8 +413,16 @@ export class Game extends Phaser.Scene {
         let dx = a.input.x;
         let dy = a.input.y;
         if (stickMag < 0.3) {
-          dx = a.facing;
-          dy = 0;
+          if (a.input.y < -0.25) {
+            dx = 0;
+            dy = -1;
+          } else if (a.input.y > 0.25) {
+            dx = a.facing * 0.35;
+            dy = 1;
+          } else {
+            dx = a.facing;
+            dy = 0;
+          }
         } else {
           dx /= stickMag;
           dy /= stickMag;
@@ -396,11 +442,20 @@ export class Game extends Phaser.Scene {
     body.setAllowGravity(false);
     const riders = this.actors.filter((r) => r.riding);
     const i = riders.indexOf(a);
-    const spread = (i - (riders.length - 1) / 2) * 34;
-    a.sprite.setPosition(this.wyrm.x + spread, this.wyrm.y - 30);
+    const spread = (i - (riders.length - 1) / 2) * 28;
+    const backY = this.cowBackY();
+    a.sprite.setPosition(this.wyrm.x + spread, backY);
     body.setVelocity(0, 0);
 
     if (a.input.jumpEdge) this.dismount(a, -480);
+  }
+
+  private cowBackY() {
+    return this.wyrm.y - 30;
+  }
+
+  private cowFeetY() {
+    return TUNING.cowGroundY;
   }
 
   private dismount(a: Actor, vy: number) {
@@ -420,14 +475,16 @@ export class Game extends Phaser.Scene {
     const pull = riders.reduce((s, r) => s + r.input.x, 0);
     this.wyrm.setVelocityX(Phaser.Math.Clamp(pull, -1, 1) * TUNING.wyrmSpeed);
     this.wyrm.x = Phaser.Math.Clamp(this.wyrm.x, 40, W - 40);
+    this.wyrm.y = this.wyrm.y + (this.cowFeetY() - 22 - this.wyrm.y) * 0.35;
 
-    // Mount by landing on the wyrm's back.
+    // Mount by landing on the cow's back.
+    const backY = this.cowBackY();
     for (const a of this.actors) {
       if (a.riding || a.role === 'mother' || a.stunUntil > this.time.now) continue;
       const body = a.sprite.body as Phaser.Physics.Arcade.Body;
       if (body.velocity.y < 0) continue;
-      if (Math.abs(a.sprite.x - this.wyrm.x) < 80 &&
-          Math.abs(a.sprite.y - (this.wyrm.y - 30)) < 26) {
+      if (Math.abs(a.sprite.x - this.wyrm.x) < 46 &&
+          Math.abs(a.sprite.y - backY) < 28) {
         a.riding = true;
       }
     }
@@ -513,14 +570,13 @@ export class Game extends Phaser.Scene {
         const key = gemTextureKey();
         a.carriedGem = this.add.image(0, 0, key);
         if (key === 'props') a.carriedGem.setFrame(0);
-        a.carriedGem.setScale(SPRITE_SCALE);
         a.carriedGem.setDepth(a.sprite.depth + 1);
       }
       a.carriedGem.setVisible(true);
       const anchor = getGemAnchor(a.atlasKey);
       a.carriedGem.setPosition(
-        a.sprite.x + anchor.x * SPRITE_SCALE * a.facing,
-        a.sprite.y + anchor.y * SPRITE_SCALE
+        a.sprite.x + anchor.x * a.facing,
+        a.sprite.y + anchor.y
       );
     } else {
       a.carriedGem?.setVisible(false);
@@ -730,31 +786,40 @@ export class Game extends Phaser.Scene {
     }
   }
 
-  private drawWyrm() {
-    this.wyrmGfx.clear();
-    this.wyrmGfx.fillStyle(COLORS.wyrm, 1);
-    for (let i = 0; i < 5; i++) {
-      const x = this.wyrm.x - 60 + i * 30;
-      const y = this.wyrm.y + Math.sin(this.time.now / 220 + i * 0.9) * 5;
-      this.wyrmGfx.fillCircle(x, y, 16 - Math.abs(i - 2) * 1.5);
-    }
-    this.wyrmGfx.fillStyle(0x241a12, 1);
-    const eye = (this.wyrm.body as Phaser.Physics.Arcade.Body).velocity.x >= 0 ? 8 : -8;
-    this.wyrmGfx.fillCircle(this.wyrm.x + 60 * Math.sign(eye) + eye * 0.4, this.wyrm.y - 5, 3);
-
+  private drawCow() {
+    const g = this.wyrmGfx;
+    g.clear();
     const cx = this.wyrm.x;
-    const cy = this.wyrm.y - 36;
-    this.wyrmGfx.fillStyle(0xf4f0e8, 1);
-    this.wyrmGfx.fillEllipse(cx, cy, 30, 22);
-    this.wyrmGfx.fillStyle(0x2c2420, 1);
-    this.wyrmGfx.fillCircle(cx - 8, cy - 2, 5);
-    this.wyrmGfx.fillCircle(cx + 6, cy + 4, 4);
-    this.wyrmGfx.fillCircle(cx + 12, cy - 4, 3);
-    this.wyrmGfx.fillStyle(0xf4f0e8, 1);
-    this.wyrmGfx.fillCircle(cx + 14, cy - 10, 7);
-    this.wyrmGfx.fillStyle(0x2c2420, 1);
-    this.wyrmGfx.fillCircle(cx + 16, cy - 11, 2);
-    this.wyrmGfx.fillCircle(cx + 12, cy - 9, 2);
+    const feetY = this.cowFeetY();
+    const face = (this.wyrm.body as Phaser.Physics.Arcade.Body).velocity.x >= 0 ? 1 : -1;
+
+    // Legs on the ground
+    g.fillStyle(0xf4f0e8, 1);
+    for (const ox of [-14, -5, 5, 14]) {
+      g.fillRect(cx + ox - 3, feetY - 16, 6, 16);
+    }
+    g.fillStyle(0x2c2420, 1);
+    for (const ox of [-14, -5, 5, 14]) {
+      g.fillRect(cx + ox - 4, feetY - 4, 8, 4);
+    }
+
+    const bodyY = feetY - 28;
+    g.fillStyle(0xf4f0e8, 1);
+    g.fillEllipse(cx, bodyY, 34, 22);
+    g.fillStyle(0x2c2420, 1);
+    g.fillCircle(cx - 9, bodyY - 1, 5);
+    g.fillCircle(cx + 7, bodyY + 3, 4);
+    g.fillCircle(cx + 12, bodyY - 3, 3);
+
+    const headX = cx + face * 16;
+    const headY = bodyY - 12;
+    g.fillStyle(0xf4f0e8, 1);
+    g.fillCircle(headX, headY, 9);
+    g.fillStyle(0x2c2420, 1);
+    g.fillCircle(headX + face * 4, headY - 2, 2);
+    g.fillCircle(headX + face * 2, headY + 2, 2);
+    g.fillStyle(0xc97a5a, 1);
+    g.fillCircle(headX + face * 8, headY + 1, 3);
   }
 
   private puff(x: number, y: number) {
@@ -777,12 +842,18 @@ export class Game extends Phaser.Scene {
     this.hudBlue.setText(line('blue'));
     this.hudRed.setText(line('red'));
 
-    // The wyrm bar reads left to right: red is dragging it left, blue right.
-    const pct = Phaser.Math.Clamp((this.wyrm.x - 60) / (W - 120), 0, 1);
+    const distBlue = Math.max(0, TUNING.wyrmWin.blue - this.wyrm.x);
+    const distRed = Math.max(0, this.wyrm.x - TUNING.wyrmWin.red);
+    const pct = Phaser.Math.Clamp(
+      (this.wyrm.x - TUNING.wyrmWin.red) / (TUNING.wyrmWin.blue - TUNING.wyrmWin.red),
+      0,
+      1
+    );
     const cells = 21;
     const at = Math.round(pct * (cells - 1));
     this.hudWyrm.setText([
-      'Cow cart',
+      'Cow push',
+      `Red finish ${Math.round(distRed)}px · Blue finish ${Math.round(distBlue)}px`,
       Array.from({ length: cells }, (_, i) => (i === at ? '◆' : '·')).join(''),
     ]);
   }
@@ -800,20 +871,21 @@ export class Game extends Phaser.Scene {
       this.add.text(W / 2, H / 2 + 40, why, {
         fontFamily: 'system-ui, sans-serif', fontSize: '26px', color: '#efe4d2',
       }).setOrigin(0.5).setDepth(91);
-      for (const a of this.actors) this.net.cue(a.pid, a.team === team ? 'You won.' : 'Next round.');
-      this.time.delayedCall(8000, () => this.scene.start('Lobby', { net: this.net }));
+      this.add.text(W / 2, H / 2 + 88, 'Returning to lobby…', {
+        fontFamily: 'system-ui, sans-serif', fontSize: '20px', color: '#8b7a66',
+      }).setOrigin(0.5).setDepth(91);
+      for (const a of this.actors) {
+        this.net.cue(a.pid, a.team === team ? 'You won!' : `${team.toUpperCase()} wins.`);
+      }
+      this.net.notifyGameEnd(team, why);
+      this.time.delayedCall(5000, () => this.scene.start('Lobby', { net: this.net }));
     };
 
     for (const team of ['blue', 'red'] as Team[]) {
       if (this.slots[team].every(Boolean)) return finish(team, 'All fifteen gems hoarded.');
-
-      const enemyMother = this.actors.find((a) => a.role === 'mother' && a.team === OTHER[team]);
-      if (enemyMother && enemyMother.deaths >= TUNING.motherDeathsToWin) {
-        return finish(team, `Mother whelp put down ${TUNING.motherDeathsToWin} times.`);
-      }
     }
 
-    if (this.wyrm.x >= TUNING.wyrmWin.blue) return finish('blue', 'Escorted the cow across the line.');
-    if (this.wyrm.x <= TUNING.wyrmWin.red) return finish('red', 'Escorted the cow across the line.');
+    if (this.wyrm.x >= TUNING.wyrmWin.blue) return finish('blue', 'Cow reached the blue finish line.');
+    if (this.wyrm.x <= TUNING.wyrmWin.red) return finish('red', 'Cow reached the red finish line.');
   }
 }

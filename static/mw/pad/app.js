@@ -19,6 +19,7 @@ let stickX = 0, stickY = 0;
 let lastSentX = 0, lastSentY = 0;
 let stickPointer = null;
 let myPid = null;
+let myTeam = null;
 let isHost = false;
 let assigned = false;
 let inGame = false;
@@ -105,6 +106,7 @@ function connect(code, name) {
     if (msg.t === 'assigned') {
       assigned = true;
       isHost = Boolean(msg.host);
+      myTeam = msg.team;
       applyTeamTheme(msg.team);
       setIdentity(el('lobbyStatus'), msg.name || 'You', msg.role, msg.team);
       setIdentity(el('padIdentity'), msg.name || 'You', msg.role, msg.team);
@@ -135,6 +137,18 @@ function connect(code, name) {
       inGame = true;
       showPad();
       startStickLoop();
+      return;
+    }
+
+    if (msg.t === 'game_end') {
+      hideCountdown();
+      inGame = false;
+      showLobby();
+      const won = msg.winner === myTeam;
+      const headline = won ? 'You won!' : `${String(msg.winner || '').toUpperCase()} wins`;
+      el('lobbyCue').textContent = msg.reason || headline;
+      el('padCue').textContent = `${headline} — back in lobby`;
+      updateLobbyUi();
       return;
     }
 

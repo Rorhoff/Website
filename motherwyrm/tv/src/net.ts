@@ -159,6 +159,14 @@ export class Net {
     }
   }
 
+  notifyGameEnd(winner: Team, reason: string) {
+    for (const p of this.players.values()) {
+      if (!p.bot && !p.local) {
+        this.send({ t: "game_end", pid: p.pid, winner, reason });
+      }
+    }
+  }
+
   handlePhoneJoin(pid: number, name: string) {
     if (this.hostPid === null) this.hostPid = pid;
 
