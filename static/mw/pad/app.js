@@ -51,12 +51,14 @@ function showLobby() {
   joinScreen.classList.add('hidden');
   padScreen.classList.add('hidden');
   lobbyScreen.classList.remove('hidden');
+  scheduleFitScreens();
 }
 
 function showPad() {
   joinScreen.classList.add('hidden');
   lobbyScreen.classList.add('hidden');
   padScreen.classList.remove('hidden');
+  scheduleFitScreens();
 }
 
 function updateLobbyUi() {
@@ -64,6 +66,44 @@ function updateLobbyUi() {
   if (isHost && !inGame && assigned) {
     el('lobbyCue').textContent = 'Add robots one at a time, or start — need 4 players (robots fill in).';
   }
+  scheduleFitScreens();
+}
+
+function syncViewport() {
+  const vv = window.visualViewport;
+  const h = vv?.height ?? window.innerHeight;
+  const top = vv?.offsetTop ?? 0;
+  document.documentElement.style.setProperty('--vv-height', `${h}px`);
+  document.documentElement.style.setProperty('--vv-top', `${top}px`);
+}
+
+function fitScreens() {
+  syncViewport();
+  for (const root of [document.querySelector('.join-card'), document.querySelector('.lobby-inner')]) {
+    if (!root) continue;
+    const screen = root.closest('.screen');
+    if (!screen || screen.classList.contains('hidden')) {
+      root.style.transform = '';
+      continue;
+    }
+    root.style.transform = '';
+    const available = screen.clientHeight;
+    const h = root.offsetHeight;
+    if (h <= 0 || available <= 0) continue;
+    const scale = Math.min(1, available / h);
+    root.style.transform = scale < 0.999 ? `scale(${scale})` : '';
+  }
+}
+
+let fitQueued = false;
+function scheduleFitScreens() {
+  if (fitQueued) return;
+  fitQueued = true;
+  requestAnimationFrame(() => {
+    fitQueued = false;
+    fitScreens();
+    requestAnimationFrame(fitScreens);
+  });
 }
 
 // ---------------------------------------------------------------- connection
@@ -101,6 +141,7 @@ function connect(code, name) {
       el('lobbyStatus').textContent = 'Pick your team';
       el('lobbyCue').textContent = 'Choose Blue or Red to join as a whelp.';
       updateLobbyUi();
+      scheduleFitScreens();
       return;
     }
 
@@ -324,3 +365,10 @@ async function requestWakeLock() {
 }
 
 document.addEventListener('gesturestart', (e) => e.preventDefault());
+
+window.addEventListener('resize', scheduleFitScreens);
+window.visualViewport?.addEventListener('resize', scheduleFitScreens);
+window.visualViewport?.addEventListener('scroll', scheduleFitScreens);
+window.addEventListener('orientationchange', () => setTimeout(scheduleFitScreens, 100));
+window.addEventListener('pageshow', scheduleFitScreens);
+scheduleFitScreens();

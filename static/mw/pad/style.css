@@ -17,7 +17,8 @@
 
 html, body {
   margin: 0;
-  height: 100%;
+  height: var(--vv-height, 100svh);
+  max-height: var(--vv-height, 100svh);
   overflow: hidden;
   overscroll-behavior: none;
   touch-action: manipulation;
@@ -30,7 +31,12 @@ html, body {
 
 .screen {
   position: fixed;
-  inset: 0;
+  left: 0;
+  right: 0;
+  top: var(--vv-top, 0);
+  width: 100%;
+  height: var(--vv-height, 100svh);
+  max-height: var(--vv-height, 100svh);
   padding:
     env(safe-area-inset-top)
     env(safe-area-inset-right)
@@ -38,29 +44,39 @@ html, body {
     env(safe-area-inset-left);
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
-.scroll-screen {
-  overflow-x: hidden;
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
-  overscroll-behavior-y: contain;
-  touch-action: pan-y;
+.fit-screen {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .hidden { display: none !important; }
 
-#join {
+#join,
+#lobby {
   align-items: center;
-  justify-content: flex-start;
-  padding: max(16px, env(safe-area-inset-top)) 20px 28px;
+  justify-content: center;
+  padding: 6px 16px;
+}
+
+.join-card,
+.lobby-inner {
+  width: 100%;
+  max-width: 22rem;
+  flex-shrink: 0;
+  transform-origin: center center;
+  will-change: transform;
 }
 
 .join-card {
-  width: 100%;
-  max-width: 22rem;
-  margin: auto 0;
-  padding-bottom: 8px;
+  padding-bottom: 4px;
 }
 
 .spore-mark {
@@ -141,6 +157,7 @@ input:focus-visible { outline: 2px solid var(--action-red); outline-offset: 2px;
 .primary:disabled { opacity: 0.5; }
 
 .error { min-height: 1.4em; margin: 12px 0 0; color: var(--action-red); font-size: 0.95rem; }
+.error:empty { min-height: 0; margin: 0; }
 
 #lobby {
   background: radial-gradient(120% 90% at 50% 0%, var(--team-deep) 0%, var(--soil) 62%);
@@ -149,9 +166,8 @@ input:focus-visible { outline: 2px solid var(--action-red); outline-offset: 2px;
 .lobby-inner {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  min-height: min(100%, 100dvh);
-  padding: 12px 20px 28px;
+  align-items: center;
+  gap: 12px;
 }
 
 #pad {
@@ -339,7 +355,10 @@ input:focus-visible { outline: 2px solid var(--action-red); outline-offset: 2px;
 
 .countdown {
   position: fixed;
-  inset: 0;
+  left: 0;
+  right: 0;
+  top: var(--vv-top, 0);
+  height: var(--vv-height, 100svh);
   z-index: 200;
   display: flex;
   flex-direction: column;
@@ -374,16 +393,66 @@ input:focus-visible { outline: 2px solid var(--action-red); outline-offset: 2px;
   line-height: 1.35;
 }
 
+.cue:empty { min-height: 0; }
+
 .lobby-cue {
-  padding-bottom: 8px;
+  padding-bottom: 0;
 }
 
 @media (max-height: 720px) {
-  .join-lede { margin-bottom: 14px; }
-  input { margin-bottom: 10px; padding: 10px 12px; }
-  .lobby-inner { gap: 12px; padding-bottom: 20px; }
-  .team-pick { gap: 12px; }
+  .join-lede { margin-bottom: 10px; }
+  input { margin-bottom: 8px; padding: 10px 12px; }
+  .lobby-inner { gap: 10px; }
+  .team-pick { gap: 10px; }
   .pick-btn { min-height: 46px; padding: 12px; }
+}
+
+/* iPhone landscape (15 Pro Max ≈ 430×932) — Safari chrome leaves ~320–390px visible */
+@media (orientation: landscape) {
+  .spore-mark { display: none; }
+
+  h1 { font-size: 1.3rem; }
+  .join-lede { margin: 4px 0 8px; font-size: 0.85rem; }
+  label { margin-bottom: 2px; font-size: 0.78rem; }
+  input { margin-bottom: 6px; padding: 8px 10px; font-size: 0.95rem; }
+  #code { font-size: 1.15rem; letter-spacing: 0.26em; }
+  .primary { min-height: 40px; padding: 10px 14px; font-size: 0.95rem; }
+  .error { margin-top: 4px; font-size: 0.88rem; }
+
+  .identity { font-size: 0.9rem; line-height: 1.2; }
+  .pad-head { padding: 0; }
+  .lobby-inner { gap: 8px; }
+  .team-pick { gap: 6px; padding: 0; }
+  .pick-lede { font-size: 0.85rem; }
+  .pick-btn { min-height: 40px; padding: 10px; font-size: 0.92rem; }
+  .host-panel { gap: 4px; padding: 0; }
+  .host-label { font-size: 0.82rem; }
+  .host-actions {
+    flex-direction: row;
+    gap: 8px;
+  }
+  .host-btn {
+    min-height: 40px;
+    padding: 10px 12px;
+    font-size: 0.88rem;
+  }
+  .lobby-cue {
+    font-size: 0.72rem;
+    line-height: 1.2;
+  }
+  .host-panel:not(.hidden) ~ .lobby-cue {
+    display: none;
+  }
+}
+
+@media (orientation: landscape) and (max-height: 400px) {
+  h1 { font-size: 1.1rem; }
+  .join-lede { margin: 2px 0 6px; font-size: 0.78rem; }
+  input { margin-bottom: 5px; padding: 6px 8px; }
+  .primary { min-height: 36px; padding: 8px 12px; font-size: 0.85rem; }
+  .pick-btn { min-height: 36px; padding: 8px; }
+  .host-btn { min-height: 36px; padding: 8px 10px; font-size: 0.8rem; }
+  .lobby-inner { gap: 5px; }
 }
 
 @media (orientation: portrait) and (min-height: 620px) {
