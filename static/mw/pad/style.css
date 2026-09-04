@@ -20,7 +20,7 @@ html, body {
   height: 100%;
   overflow: hidden;
   overscroll-behavior: none;
-  touch-action: none;
+  touch-action: manipulation;
   user-select: none;
   -webkit-user-select: none;
   background: var(--soil);
@@ -31,19 +31,42 @@ html, body {
 .screen {
   position: fixed;
   inset: 0;
-  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  padding:
+    env(safe-area-inset-top)
+    env(safe-area-inset-right)
+    env(safe-area-inset-bottom)
+    env(safe-area-inset-left);
   display: flex;
   flex-direction: column;
 }
-.hidden { display: none; }
 
-#join { align-items: center; justify-content: center; padding: 24px; }
+.scroll-screen {
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+  touch-action: pan-y;
+}
 
-.join-card { width: 100%; max-width: 22rem; }
+.hidden { display: none !important; }
+
+#join {
+  align-items: center;
+  justify-content: flex-start;
+  padding: max(16px, env(safe-area-inset-top)) 20px 28px;
+}
+
+.join-card {
+  width: 100%;
+  max-width: 22rem;
+  margin: auto 0;
+  padding-bottom: 8px;
+}
 
 .spore-mark {
-  width: 56px; height: 30px;
-  margin: 0 0 20px;
+  width: 48px;
+  height: 26px;
+  margin: 0 0 14px;
   border-radius: 56px 56px 6px 6px;
   background: radial-gradient(circle at 30% 40%, var(--spore) 0 3px, transparent 3px),
               radial-gradient(circle at 66% 30%, var(--spore) 0 4px, transparent 4px),
@@ -53,13 +76,17 @@ html, body {
 
 h1 {
   margin: 0;
-  font-size: 2.1rem;
+  font-size: clamp(1.65rem, 7vw, 2.1rem);
   font-weight: 800;
   letter-spacing: -0.02em;
   line-height: 1.05;
 }
 
-.join-lede { margin: 8px 0 28px; color: var(--spore-dim); font-size: 1rem; }
+.join-lede {
+  margin: 8px 0 20px;
+  color: var(--spore-dim);
+  font-size: 0.95rem;
+}
 
 label {
   display: block;
@@ -70,19 +97,20 @@ label {
 
 input {
   width: 100%;
-  margin-bottom: 18px;
-  padding: 14px 16px;
+  margin-bottom: 14px;
+  padding: 12px 14px;
   border: 1px solid var(--rim);
   border-radius: 12px;
   background: var(--soil-raised);
   color: var(--spore);
   font: inherit;
-  font-size: 1.1rem;
+  font-size: 1.05rem;
+  touch-action: manipulation;
 }
 input:focus-visible { outline: 2px solid var(--action-red); outline-offset: 2px; }
 
 #code {
-  font-size: 2rem;
+  font-size: clamp(1.45rem, 7vw, 2rem);
   font-weight: 800;
   letter-spacing: 0.35em;
   text-align: center;
@@ -90,9 +118,17 @@ input:focus-visible { outline: 2px solid var(--action-red); outline-offset: 2px;
   padding-left: 0.35em;
 }
 
+.primary,
+.host-btn,
+.pick-btn {
+  touch-action: manipulation;
+  cursor: pointer;
+}
+
 .primary {
   width: 100%;
-  padding: 16px;
+  min-height: 48px;
+  padding: 14px 16px;
   border: 0;
   border-radius: 12px;
   background: var(--action-red);
@@ -104,20 +140,35 @@ input:focus-visible { outline: 2px solid var(--action-red); outline-offset: 2px;
 .primary:active { transform: translateY(1px); }
 .primary:disabled { opacity: 0.5; }
 
-.error { min-height: 1.4em; margin: 14px 0 0; color: var(--action-red); font-size: 0.95rem; }
+.error { min-height: 1.4em; margin: 12px 0 0; color: var(--action-red); font-size: 0.95rem; }
 
-#lobby, #pad {
+#lobby {
   background: radial-gradient(120% 90% at 50% 0%, var(--team-deep) 0%, var(--soil) 62%);
 }
 
+.lobby-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-height: min(100%, 100dvh);
+  padding: 12px 20px 28px;
+}
+
+#pad {
+  background: radial-gradient(120% 90% at 50% 0%, var(--team-deep) 0%, var(--soil) 62%);
+  touch-action: none;
+  overflow: hidden;
+}
+
 .pad-head {
-  padding: 16px 20px 8px;
+  padding: 12px 20px 4px;
+  flex-shrink: 0;
 }
 .pad-head.center { text-align: center; }
 
 .identity {
   margin: 0;
-  font-size: 1.15rem;
+  font-size: clamp(1rem, 4.2vw, 1.15rem);
   font-weight: 800;
   line-height: 1.35;
   color: var(--spore);
@@ -127,35 +178,34 @@ input:focus-visible { outline: 2px solid var(--action-red); outline-offset: 2px;
 .identity .team-red { color: var(--action-red); }
 
 .team-pick {
-  flex: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: 20px;
-  padding: 20px;
+  gap: 16px;
+  padding: 8px 0 4px;
 }
 
 .pick-lede {
   margin: 0;
-  font-size: 1.1rem;
+  font-size: 1rem;
   color: var(--spore-dim);
 }
 
 .pick-row {
   display: flex;
-  gap: 16px;
+  gap: 12px;
   width: 100%;
   max-width: 22rem;
 }
 
 .pick-btn {
   flex: 1;
-  padding: 20px 12px;
+  min-height: 52px;
+  padding: 16px 12px;
   border: 2px solid var(--rim);
   border-radius: 14px;
   font: inherit;
-  font-size: 1.1rem;
+  font-size: 1.05rem;
   font-weight: 800;
   color: var(--soil);
 }
@@ -166,20 +216,30 @@ input:focus-visible { outline: 2px solid var(--action-red); outline-offset: 2px;
 .host-panel {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 12px;
-  padding: 8px 24px 24px;
+  align-items: stretch;
+  gap: 10px;
+  padding: 4px 0;
 }
 
 .host-label {
   margin: 0;
+  text-align: center;
   font-size: 0.95rem;
   color: var(--spore-dim);
 }
 
+.host-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  max-width: 22rem;
+  margin: 0 auto;
+}
+
 .host-btn {
   width: 100%;
-  max-width: 18rem;
+  min-height: 48px;
   padding: 14px 18px;
   border: 2px solid var(--rim);
   border-radius: 12px;
@@ -198,17 +258,18 @@ input:focus-visible { outline: 2px solid var(--action-red); outline-offset: 2px;
 
 .controls-help {
   margin: 0;
-  padding: 12px 24px 0;
+  padding: 8px 20px 0;
   text-align: center;
+  flex-shrink: 0;
 }
 .controls-help p {
-  margin: 0 0 8px;
-  font-size: 0.95rem;
+  margin: 0 0 6px;
+  font-size: 0.9rem;
   color: var(--spore-dim);
 }
 .controls-note {
-  margin-top: 10px !important;
-  font-size: 0.85rem !important;
+  margin-top: 6px !important;
+  font-size: 0.82rem !important;
   color: var(--spore-dim);
   opacity: 0.9;
 }
@@ -245,7 +306,8 @@ input:focus-visible { outline: 2px solid var(--action-red); outline-offset: 2px;
 
 .knob {
   position: absolute;
-  left: 50%; top: 50%;
+  left: 50%;
+  top: 50%;
   width: 44%;
   aspect-ratio: 1;
   border-radius: 50%;
@@ -269,6 +331,7 @@ input:focus-visible { outline: 2px solid var(--action-red); outline-offset: 2px;
   font-size: 0;
   color: transparent;
   padding: 0;
+  touch-action: none;
 }
 .pad-btn.jump { background: var(--fly-blue); }
 .pad-btn.action { background: var(--action-red); }
@@ -302,12 +365,25 @@ input:focus-visible { outline: 2px solid var(--action-red); outline-offset: 2px;
 }
 
 .cue {
-  min-height: 1.6em;
+  min-height: 1.4em;
   margin: 0;
-  padding: 0 20px 12px;
+  padding: 0 4px;
   text-align: center;
   color: var(--spore-dim);
-  font-size: 0.9rem;
+  font-size: 0.88rem;
+  line-height: 1.35;
+}
+
+.lobby-cue {
+  padding-bottom: 8px;
+}
+
+@media (max-height: 720px) {
+  .join-lede { margin-bottom: 14px; }
+  input { margin-bottom: 10px; padding: 10px 12px; }
+  .lobby-inner { gap: 12px; padding-bottom: 20px; }
+  .team-pick { gap: 12px; }
+  .pick-btn { min-height: 46px; padding: 12px; }
 }
 
 @media (orientation: portrait) and (min-height: 620px) {

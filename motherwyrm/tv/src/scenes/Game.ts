@@ -170,16 +170,16 @@ export class Game extends Phaser.Scene {
       fontSize: '15px',
       fontStyle: 'bold' as const,
     };
-    this.add.text(TUNING.wyrmWin.blue - 8, top - 10, 'BLUE\nFINISH', {
+    this.add.text(TUNING.wyrmWin.blue + 8, top - 10, 'BLUE\nFINISH', {
       ...labelStyle,
       color: HEX.blue,
-      align: 'right',
-    }).setOrigin(1, 1).setDepth(12);
-    this.add.text(TUNING.wyrmWin.red + 8, top - 10, 'RED\nFINISH', {
-      ...labelStyle,
-      color: HEX.red,
       align: 'left',
     }).setOrigin(0, 1).setDepth(12);
+    this.add.text(TUNING.wyrmWin.red - 8, top - 10, 'RED\nFINISH', {
+      ...labelStyle,
+      color: HEX.red,
+      align: 'right',
+    }).setOrigin(1, 1).setDepth(12);
   }
 
   private buildActors() {
@@ -380,9 +380,7 @@ export class Game extends Phaser.Scene {
     }
 
     if (a.lungeUntil > time) {
-      if (Math.abs(a.attackDir.y) <= 0.45) {
-        body.setVelocityX(Phaser.Math.Linear(body.velocity.x, a.input.x * TUNING.motherSpeed * 0.35, 0.15));
-      }
+      body.setVelocityX(Phaser.Math.Linear(body.velocity.x, a.input.x * TUNING.motherSpeed * 0.35, 0.15));
       return;
     }
 
@@ -413,19 +411,15 @@ export class Game extends Phaser.Scene {
         let dx = a.input.x;
         let dy = a.input.y;
         if (stickMag < 0.3) {
-          if (a.input.y < -0.25) {
-            dx = 0;
-            dy = -1;
-          } else if (a.input.y > 0.25) {
-            dx = a.facing * 0.35;
-            dy = 1;
-          } else {
-            dx = a.facing;
-            dy = 0;
-          }
+          dx = a.facing;
+          dy = 0;
         } else {
           dx /= stickMag;
           dy /= stickMag;
+          if (dy < 0) dy = 0;
+          const mag = Math.hypot(dx, dy) || 1;
+          dx /= mag;
+          dy /= mag;
         }
         if (Math.abs(dx) > 0.1) a.facing = dx > 0 ? 1 : -1;
         a.attackDir.set(dx, dy);
@@ -842,18 +836,15 @@ export class Game extends Phaser.Scene {
     this.hudBlue.setText(line('blue'));
     this.hudRed.setText(line('red'));
 
-    const distBlue = Math.max(0, TUNING.wyrmWin.blue - this.wyrm.x);
-    const distRed = Math.max(0, this.wyrm.x - TUNING.wyrmWin.red);
-    const pct = Phaser.Math.Clamp(
-      (this.wyrm.x - TUNING.wyrmWin.red) / (TUNING.wyrmWin.blue - TUNING.wyrmWin.red),
-      0,
-      1
-    );
+    const distBlue = Math.max(0, this.wyrm.x - TUNING.wyrmWin.blue);
+    const distRed = Math.max(0, TUNING.wyrmWin.red - this.wyrm.x);
+    const span = TUNING.wyrmWin.red - TUNING.wyrmWin.blue;
+    const pct = Phaser.Math.Clamp((this.wyrm.x - TUNING.wyrmWin.blue) / span, 0, 1);
     const cells = 21;
     const at = Math.round(pct * (cells - 1));
     this.hudWyrm.setText([
       'Cow push',
-      `Red finish ${Math.round(distRed)}px · Blue finish ${Math.round(distBlue)}px`,
+      `Blue finish ${Math.round(distBlue)}px · Red finish ${Math.round(distRed)}px`,
       Array.from({ length: cells }, (_, i) => (i === at ? '◆' : '·')).join(''),
     ]);
   }
@@ -885,7 +876,7 @@ export class Game extends Phaser.Scene {
       if (this.slots[team].every(Boolean)) return finish(team, 'All fifteen gems hoarded.');
     }
 
-    if (this.wyrm.x >= TUNING.wyrmWin.blue) return finish('blue', 'Cow reached the blue finish line.');
-    if (this.wyrm.x <= TUNING.wyrmWin.red) return finish('red', 'Cow reached the red finish line.');
+    if (this.wyrm.x <= TUNING.wyrmWin.blue) return finish('blue', 'Cow reached the blue finish line.');
+    if (this.wyrm.x >= TUNING.wyrmWin.red) return finish('red', 'Cow reached the red finish line.');
   }
 }

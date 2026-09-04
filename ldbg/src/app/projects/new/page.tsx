@@ -11,11 +11,11 @@ export default function NewProjectPage() {
 
         <section className="rounded-xl border border-stone-200 bg-white p-5">
           <h3 className="text-lg font-semibold text-stone-900">
-            Legacy: upload annotated JPEG
+            Legacy: upload orthophoto JPEG
           </h3>
           <p className="mt-1 mb-4 text-sm text-stone-600">
-            Upload a hand-annotated orthophoto sketch (original SPEC workflow). Scale calibration
-            is set on the project page after upload.
+            Start with an annotated sketch, a clean orthophoto, or both. Scale calibration is
+            set on the project page after upload.
           </p>
           <UploadForm />
         </section>

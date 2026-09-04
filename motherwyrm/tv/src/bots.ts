@@ -27,6 +27,8 @@ export type BotWorld = {
 
 const OTHER: Record<NetTeam, NetTeam> = { blue: "red", red: "blue" };
 const GROUND_Y = TUNING.cowGroundY ?? 690;
+/** Center gem platform — whelps get stuck jumping under this without a path out. */
+const CENTER_LEDGE = { xMin: 490, xMax: 790, yTop: 570 };
 
 function clamp(v: number, min: number, max: number) {
   return Math.max(min, Math.min(max, v));
@@ -95,6 +97,9 @@ export function pickBestGem(
     if (dy < -50) penalty += 500 + Math.abs(dy) * 3;
     if (dy > 80) penalty += 200;
     if (y > 520 && dy < -100) penalty += 2000;
+    if (y > 615 && g.x > CENTER_LEDGE.xMin && g.x < CENTER_LEDGE.xMax && g.y > 620) {
+      penalty += 1500;
+    }
     const score = dx * dx + dy * dy + penalty;
     if (score < bestScore) {
       bestScore = score;
@@ -146,15 +151,22 @@ function shouldEscortCow(a: BotActorView, world: BotWorld): boolean {
   return false;
 }
 
-/** Approach cart from the team side — avoids camping under the center platform. */
+/** Walk out from under the center platform before crossing to the cow. */
+function unstuckFromCenterLedge(a: BotActorView): boolean {
+  if (!a.onGround || a.y < 610 || a.y > 670) return false;
+  if (a.x <= CENTER_LEDGE.xMin || a.x >= CENTER_LEDGE.xMax) return false;
+  const escapeX = a.x < W / 2 ? CENTER_LEDGE.xMin - 40 : CENTER_LEDGE.xMax + 40;
+  steerToward(a.input, a.x, escapeX, 20);
+  return true;
+}
+
+/** Approach cow from the team side on the ground. */
 function goToWyrm(a: BotActorView, world: BotWorld) {
+  if (unstuckFromCenterLedge(a)) return;
+
   const side = a.team === "blue" ? -1 : 1;
   const targetX = world.wyrmX + side * 70;
   steerToward(a.input, a.x, targetX, 28);
-
-  if (a.onGround && Math.abs(a.x - targetX) < 56 && a.y > GROUND_Y - 50) {
-    if (world.time % 650 < 50) tapJump(a.input);
-  }
 }
 
 /** Simple heuristics — enough to chase gems, hoard, ride the wyrm, and scrap. */
@@ -237,7 +249,7 @@ function updateWhelpBot(a: BotActorView, world: BotWorld) {
   const theirGems = world.slotsFilled[OTHER[a.team]];
 
   if (a.riding) {
-    const pull = a.team === "blue" ? 1 : -1;
+    const pull = a.team === "blue" ? -1 : 1;
     setStick(a.input, pull, 0);
     if (Math.abs(world.wyrmX - winX) < 120 && world.time % 800 < 50) {
       tapJump(a.input);
@@ -263,15 +275,20 @@ function updateWhelpBot(a: BotActorView, world: BotWorld) {
 
   const gem = pickBestGem(world.gems, a.x, a.y);
   if (gem) {
+    if (unstuckFromCenterLedge(a)) return;
+
     steerToward(a.input, a.x, gem.x, 20);
     const dy = gem.y - a.y;
 
     if (a.onGround && dy < -35 && Math.abs(a.x - gem.x) < 48) {
       if (world.time % 550 < 45) tapJump(a.input);
-    } else if (a.onGround && dy > 40 && Math.abs(a.x - gem.x) < 32) {
-      setStick(a.input, a.x < gem.x ? -1 : 1, 0);
+    } else if (a.onGround && dy > 40) {
+      steerToward(a.input, a.x, gem.x, 16);
+      if (a.y < 620 && Math.abs(a.x - gem.x) < 28) {
+        setStick(a.input, 0, 1);
+      }
     } else if (a.onGround && dy < -100 && Math.abs(a.x - gem.x) < 64) {
-      setStick(a.input, a.x < gem.x ? -1 : 1, 0);
+      steerToward(a.input, a.x, gem.x, 20);
     }
     return;
   }

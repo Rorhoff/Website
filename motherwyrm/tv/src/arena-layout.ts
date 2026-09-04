@@ -19,7 +19,7 @@ export const COLORS = {
 export const TUNING = {
   gravity: 1400,
 
-  whelpSpeed: 230,
+  whelpSpeed: 195,
   whelpJump: -560,
 
   motherGravity: 780,
@@ -54,8 +54,9 @@ export const TUNING = {
   throwPower: 440,
   carryMax: 1,
 
-  wyrmSpeed: 120,
-  wyrmWin: { blue: W - 60, red: 60 },
+  /** ~580px center→finish in 20s with one rider pulling. */
+  wyrmSpeed: 29,
+  wyrmWin: { blue: 60, red: W - 60 },
   /** Top of the ground platform — cow feet sit here. */
   cowGroundY: 690,
   cowFinishHeight: 110,

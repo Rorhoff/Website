@@ -12,6 +12,7 @@ import { GeometryExportPanel } from "@/components/GeometryExportPanel";
 import { DesignContentPanel } from "@/components/DesignContentPanel";
 import { ElevationPanel } from "@/components/ElevationPanel";
 import { InterpretPanel } from "@/components/InterpretPanel";
+import { LegacyOrthophotoPanel } from "@/components/LegacyOrthophotoPanel";
 import { MetadataForm } from "@/components/MetadataForm";
 import { PlanPanel } from "@/components/PlanPanel";
 import { PolygonEditorLoader } from "@/components/PolygonEditorLoader";
@@ -177,6 +178,16 @@ export default function ProjectPage() {
     }
   }, []);
 
+  const reloadProject = useCallback(() => {
+    fetch(withBasePath(`/api/projects/${id}`))
+      .then((r) => {
+        if (!r.ok) throw new Error("Reload failed");
+        return r.json();
+      })
+      .then((p: Project) => handleProjectRefresh(p))
+      .catch(() => setSaveNotice("Could not reload project after upload."));
+  }, [id, handleProjectRefresh]);
+
   const handleEditorAutosave = useCallback(
     (payload: { features: InterpretFeature[]; editorSettings: EditorSettings }) => {
       setFeatures(payload.features);
@@ -306,6 +317,20 @@ export default function ProjectPage() {
             saving={saving}
           />
         )}
+        {!georef && !ann ? (
+          <LegacyOrthophotoPanel
+            projectId={id}
+            missing="annotated"
+            onUploaded={reloadProject}
+          />
+        ) : null}
+        {!georef && !cleanImage ? (
+          <LegacyOrthophotoPanel
+            projectId={id}
+            missing="clean"
+            onUploaded={reloadProject}
+          />
+        ) : null}
         {georef && pixelsPerFoot ? (
           <ScaleVerificationPanel
             imageUrl={projectImageUrl(id, displayImage.filename)}

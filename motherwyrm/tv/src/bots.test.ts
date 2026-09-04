@@ -4,7 +4,7 @@ import type { InputState } from "./net";
 vi.mock("./arena", () => ({
   W: 1280,
   TUNING: {
-    wyrmWin: { blue: 1220, red: 60 },
+    wyrmWin: { blue: 60, red: 1220 },
     slotsToWin: 15,
   },
   HOARD_X: { blue: 70, red: 900 },

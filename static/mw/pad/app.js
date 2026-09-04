@@ -60,8 +60,8 @@ function showPad() {
 }
 
 function updateLobbyUi() {
-  el('hostPanel').classList.toggle('hidden', !isHost || inGame);
-  if (isHost && !inGame) {
+  el('hostPanel').classList.toggle('hidden', !isHost || inGame || !assigned);
+  if (isHost && !inGame && assigned) {
     el('lobbyCue').textContent = 'Add robots one at a time, or start — need 4 players (robots fill in).';
   }
 }
@@ -95,6 +95,7 @@ function connect(code, name) {
 
     if (msg.t === 'pick_team') {
       isHost = Boolean(msg.host);
+      assigned = false;
       showLobby();
       el('teamPick').classList.remove('hidden');
       el('lobbyStatus').textContent = 'Pick your team';
@@ -204,12 +205,16 @@ el('pickRed').addEventListener('click', () => {
 
 // ---------------------------------------------------------------- host controls
 
-el('btnFillBots').addEventListener('click', () => {
+el('btnFillBots').addEventListener('click', (e) => {
+  e.preventDefault();
+  e.stopPropagation();
   send({ t: 'host_fill_bots' });
   el('lobbyCue').textContent = 'Adding robot…';
 });
 
-el('btnStart').addEventListener('click', () => {
+el('btnStart').addEventListener('click', (e) => {
+  e.preventDefault();
+  e.stopPropagation();
   if (countdownActive) return;
   send({ t: 'host_start' });
   el('lobbyCue').textContent = 'Get ready…';
