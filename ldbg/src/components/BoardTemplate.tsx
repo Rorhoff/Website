@@ -168,6 +168,7 @@ export function BoardTemplate({
           "--row-bottom": `${grid.rowBottom}px`,
           "--center-legend-w": `${grid.centerLegendW}px`,
           "--right-notes-h": `${grid.rightNotesH}px`,
+          "--right-plants-h": `${grid.rightPlantsH}px`,
           "--right-materials-h": `${grid.rightMaterialsH}px`,
         } as React.CSSProperties
       }
@@ -275,7 +276,7 @@ export function BoardTemplate({
               ) : null}
             </div>
           </div>
-          <div className={styles.panel}>
+          <div className={`${styles.panel} ${styles.plantsPanel}`}>
             <div className={styles.panelHead}>Plant palette</div>
             <div className={styles.panelBody}>
               {plants.length > 0 ? (

@@ -36,7 +36,10 @@ function isOrnamentalGrassType(featureType: string): boolean {
     featureType === "ornamental_grass" ||
     featureType === "lavender" ||
     featureType === "blue_grass" ||
-    featureType === "sagebrush"
+    featureType === "sagebrush" ||
+    featureType === "rabbitbrush" ||
+    featureType === "manzanita" ||
+    featureType === "lantana"
   );
 }
 

@@ -94,13 +94,28 @@
   overflow: hidden;
   padding: 4px;
   display: flex;
-  align-items: flex-start;
+  align-items: stretch;
   justify-content: center;
 }
 
 .materialsPlanDrawing {
   width: 100%;
+  height: 100%;
+  min-height: 0;
+  display: flex;
   margin: 0 !important;
+}
+
+/*
+  The drawing carries width="100%" height="auto", which fills the panel's width
+  and lets the rest run off the bottom — a portrait plan showed as a thin band
+  across its middle. Bounding both axes lets preserveAspectRatio="xMidYMid meet"
+  letterbox it instead, so the whole plan is on the sheet.
+*/
+.materialsPlanDrawing > svg {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
 }
 
 .materialsPlanDrawing svg {
@@ -272,7 +287,17 @@
 .right {
   grid-area: right;
   display: grid;
-  grid-template-rows: var(--right-notes-h) var(--right-materials-h) 1fr;
+  /*
+    Notes and plants take only the height their content needs — fixed tracks
+    left large blank gaps under a short notes list and a small palette. Their
+    caps live on .generalNotes and .plantsPanel. Materials takes the remainder
+    so the plan photo gets every spare millimetre, with --right-materials-h as
+    its floor for the case where both neighbours are at their caps.
+  */
+  grid-template-rows:
+    minmax(0, auto)
+    minmax(var(--right-materials-h), 1fr)
+    minmax(0, auto);
   gap: 8px;
   overflow: hidden;
   min-height: 0;
@@ -391,6 +416,10 @@
   border-radius: 3px;
 }
 
+.plantsPanel {
+  max-height: var(--right-plants-h);
+}
+
 .plantsList {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -445,7 +474,7 @@
   border: 1px solid #d6d3d1;
   background: #fff;
   min-height: 0;
-  height: 100%;
+  max-height: var(--right-notes-h);
 }
 
 .generalNotesHead {

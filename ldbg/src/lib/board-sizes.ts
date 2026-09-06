@@ -66,8 +66,15 @@ export function boardGridTracks(size: BoardPageSize) {
     rowMain: Math.round(1800 * sy),
     rowBottom: d.heightPx - Math.round(1800 * sy),
     centerLegendW: Math.round(300 * sx),
+    /**
+     * Notes and plants size to their own content and these are the ceilings;
+     * materials takes whatever is left over, so the plan photo is as large as
+     * the sheet allows instead of a fixed slot with blank paper around it. The
+     * three values stay inside rowMain even at their caps.
+     */
     rightNotesH: Math.round(560 * sy),
-    rightMaterialsH: Math.round(480 * sy),
+    rightPlantsH: Math.round(560 * sy),
+    rightMaterialsH: Math.round(600 * sy),
     railThumbH: Math.round(300 * sy),
     railSchematicH: Math.round(300 * sy),
   };

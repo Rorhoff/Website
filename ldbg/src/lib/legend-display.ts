@@ -4,52 +4,45 @@ import { isPlantPointFeatureType } from "@/config/utah-plants";
 import type { LegendRow } from "@/lib/plan-layout";
 
 export const LEGEND_ESTIMATE_DISCLAIMER =
-  "Quantities and areas shown are preliminary estimates and may change during design development and construction.";
-
-/** Area features show a band derived from ±1 ft on the calibration reference distance. */
-const AREA_RANGE_TYPES = new Set([
-  "putting_green",
-  "water_feature",
-  "paver_path",
-  "paver_patio",
-  "flagstone_paving",
-]);
+  "Quantities and areas shown are preliminary estimates and may change during design " +
+  "development and construction. Areas are given as three figures — the scale " +
+  "reference measured 1 ft short, as entered, and 1 ft long.";
 
 export type AreaMeasureOptions = {
   /** Manual calibration reference distance (ft) used for ±1 ft scale band. */
   calibrationDistanceFeet?: number;
 };
 
+/**
+ * Every area on the sheet is only as good as the one distance the plan was
+ * calibrated against, and the error squares. A 40 ft reference read 1 ft short
+ * moves a 1,500 sq ft lawn by about 75 sq ft, so the low/measured/high triple
+ * says plainly how much of the number is scale rather than design.
+ */
 function areaRangeFromCalibration(
   areaSqFt: number,
   distanceFeet: number
-): { low: number; high: number } | null {
+): { low: number; mid: number; high: number } | null {
   if (distanceFeet <= 1) return null;
   const low = areaSqFt * ((distanceFeet - 1) / distanceFeet) ** 2;
   const high = areaSqFt * ((distanceFeet + 1) / distanceFeet) ** 2;
   return {
     low: Math.max(0, Math.round(low)),
+    mid: Math.round(areaSqFt),
     high: Math.round(high),
   };
 }
 
-function formatSqFtMeasure(
-  areaSqFt: number,
-  featureType: string,
-  options?: AreaMeasureOptions
-): string {
-  const center = Math.round(areaSqFt);
-  if (AREA_RANGE_TYPES.has(featureType)) {
-    const dist = options?.calibrationDistanceFeet;
-    if (dist != null && dist > 1) {
-      const range = areaRangeFromCalibration(areaSqFt, dist);
-      if (range) {
-        return ` — ~${range.low.toLocaleString()}–${range.high.toLocaleString()} sq ft`;
-      }
+/** "1,410 / 1,500 / 1,595 sq ft", or a single figure when scale is unknown. */
+function formatSqFt(areaSqFt: number, options?: AreaMeasureOptions): string {
+  const dist = options?.calibrationDistanceFeet;
+  if (dist != null && dist > 1) {
+    const range = areaRangeFromCalibration(areaSqFt, dist);
+    if (range) {
+      return `~${range.low.toLocaleString()} / ${range.mid.toLocaleString()} / ${range.high.toLocaleString()} sq ft`;
     }
-    return ` — ~${center.toLocaleString()} sq ft`;
   }
-  return ` — ~${center.toLocaleString()} sq ft`;
+  return `~${Math.round(areaSqFt).toLocaleString()} sq ft`;
 }
 
 function decorativeFootprintSuffix(featureType: string): string | null {
@@ -91,7 +84,7 @@ export function formatLegendRowMeasure(
   }
 
   if (unit === "sqft" && row.areaSqFt != null) {
-    return formatSqFtMeasure(row.areaSqFt, row.featureType, options);
+    return ` — ${formatSqFt(row.areaSqFt, options)}`;
   }
 
   if (unit === "lf" && row.lengthLf != null) {
@@ -108,15 +101,5 @@ export function formatFeatureAreaLabel(
 ): string {
   const footprint = decorativeFootprintSuffix(featureType);
   if (footprint) return footprint.replace(/^ — /, "");
-  if (AREA_RANGE_TYPES.has(featureType)) {
-    const dist = options?.calibrationDistanceFeet;
-    if (dist != null && dist > 1) {
-      const range = areaRangeFromCalibration(areaSqFt, dist);
-      if (range) {
-        return `${range.low.toLocaleString()}–${range.high.toLocaleString()} sq ft`;
-      }
-    }
-    return `${Math.round(areaSqFt).toLocaleString()} sq ft`;
-  }
-  return `${Math.round(areaSqFt).toLocaleString()} sq ft`;
+  return formatSqFt(areaSqFt, options);
 }

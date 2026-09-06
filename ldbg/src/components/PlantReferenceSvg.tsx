@@ -80,14 +80,16 @@ function pickIllustration(featureType?: string) {
   if (
     featureType === "boxwood" ||
     featureType === "sagebrush" ||
-    featureType === "lavender"
+    featureType === "lavender" ||
+    featureType === "rabbitbrush" ||
+    featureType === "manzanita"
   ) {
     return ShrubSvg;
   }
   if (featureType === "ornamental_grass" || featureType === "blue_grass") {
     return GrassSvg;
   }
-  if (featureType === "daylily") return FlowerSvg;
+  if (featureType === "daylily" || featureType === "lantana") return FlowerSvg;
   return DefaultPlantSvg;
 }
 

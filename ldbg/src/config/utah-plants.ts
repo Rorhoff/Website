@@ -8,7 +8,10 @@ export type PlantFeatureType =
   | "blue_grass"
   | "sagebrush"
   | "boxwood"
-  | "daylily";
+  | "daylily"
+  | "rabbitbrush"
+  | "manzanita"
+  | "lantana";
 
 export type UtahPlant = {
   id: string;
@@ -21,14 +24,18 @@ export type UtahPlant = {
   water: string;
 };
 
-/** New-install sizes — 10 ft smaller than typical mature catalog sizes. */
+/**
+ * New-install sizes, not mature catalog sizes. Trees are all drawn at a 6 ft
+ * canopy: a plan showing 20 ft canopies reads as a finished landscape twenty
+ * years out and hides the ground the client is actually buying.
+ */
 export const UTAH_PLANT_PALETTE: UtahPlant[] = [
   {
     id: "quaking-aspen",
     commonName: "Quaking Aspen",
     botanicalName: "Populus tremuloides",
     featureType: "tree",
-    canopyDiameterFt: 14,
+    canopyDiameterFt: 6,
     sun: "Full sun",
     water: "Moderate",
   },
@@ -37,7 +44,7 @@ export const UTAH_PLANT_PALETTE: UtahPlant[] = [
     commonName: "Colorado Blue Spruce",
     botanicalName: "Picea pungens",
     featureType: "tree_specimen",
-    canopyDiameterFt: 8,
+    canopyDiameterFt: 6,
     sun: "Full sun",
     water: "Low–moderate",
   },
@@ -46,7 +53,7 @@ export const UTAH_PLANT_PALETTE: UtahPlant[] = [
     commonName: "Rocky Mountain Juniper",
     botanicalName: "Juniperus scopulorum",
     featureType: "tree",
-    canopyDiameterFt: 8,
+    canopyDiameterFt: 6,
     sun: "Full sun",
     water: "Low",
   },
@@ -55,7 +62,7 @@ export const UTAH_PLANT_PALETTE: UtahPlant[] = [
     commonName: "Gambel Oak",
     botanicalName: "Quercus gambelii",
     featureType: "tree",
-    canopyDiameterFt: 8,
+    canopyDiameterFt: 6,
     sun: "Full sun–part shade",
     water: "Low–moderate",
   },
@@ -64,7 +71,7 @@ export const UTAH_PLANT_PALETTE: UtahPlant[] = [
     commonName: "Bigtooth Maple",
     botanicalName: "Acer grandidentatum",
     featureType: "tree_specimen",
-    canopyDiameterFt: 10,
+    canopyDiameterFt: 6,
     sun: "Full sun–part shade",
     water: "Moderate",
   },
@@ -73,7 +80,7 @@ export const UTAH_PLANT_PALETTE: UtahPlant[] = [
     commonName: "Honeylocust (thornless)",
     botanicalName: "Gleditsia triacanthos",
     featureType: "tree",
-    canopyDiameterFt: 22,
+    canopyDiameterFt: 6,
     sun: "Full sun",
     water: "Moderate",
   },
@@ -82,7 +89,7 @@ export const UTAH_PLANT_PALETTE: UtahPlant[] = [
     commonName: "Autumn Blaze Maple",
     botanicalName: "Acer × freemanii",
     featureType: "tree",
-    canopyDiameterFt: 20,
+    canopyDiameterFt: 6,
     sun: "Full sun",
     water: "Moderate",
   },
@@ -91,7 +98,7 @@ export const UTAH_PLANT_PALETTE: UtahPlant[] = [
     commonName: "Crabapple",
     botanicalName: "Malus spp.",
     featureType: "tree_specimen",
-    canopyDiameterFt: 8,
+    canopyDiameterFt: 6,
     sun: "Full sun",
     water: "Moderate",
   },
@@ -100,7 +107,7 @@ export const UTAH_PLANT_PALETTE: UtahPlant[] = [
     commonName: "Serviceberry",
     botanicalName: "Amelanchier spp.",
     featureType: "tree_specimen",
-    canopyDiameterFt: 8,
+    canopyDiameterFt: 6,
     sun: "Full sun–part shade",
     water: "Moderate",
   },
@@ -109,7 +116,7 @@ export const UTAH_PLANT_PALETTE: UtahPlant[] = [
     commonName: "Eastern Redbud",
     botanicalName: "Cercis canadensis",
     featureType: "tree_specimen",
-    canopyDiameterFt: 8,
+    canopyDiameterFt: 6,
     sun: "Full sun–part shade",
     water: "Moderate",
   },
@@ -118,7 +125,7 @@ export const UTAH_PLANT_PALETTE: UtahPlant[] = [
     commonName: "Purple Leaf Plum",
     botanicalName: "Prunus cerasifera",
     featureType: "tree_specimen",
-    canopyDiameterFt: 8,
+    canopyDiameterFt: 6,
     sun: "Full sun",
     water: "Moderate",
   },
@@ -127,7 +134,7 @@ export const UTAH_PLANT_PALETTE: UtahPlant[] = [
     commonName: "Austrian Pine",
     botanicalName: "Pinus nigra",
     featureType: "tree",
-    canopyDiameterFt: 18,
+    canopyDiameterFt: 6,
     sun: "Full sun",
     water: "Low–moderate",
   },
@@ -136,7 +143,7 @@ export const UTAH_PLANT_PALETTE: UtahPlant[] = [
     commonName: "Pinyon Pine",
     botanicalName: "Pinus edulis",
     featureType: "tree",
-    canopyDiameterFt: 8,
+    canopyDiameterFt: 6,
     sun: "Full sun",
     water: "Low",
   },
@@ -145,7 +152,7 @@ export const UTAH_PLANT_PALETTE: UtahPlant[] = [
     commonName: "American Linden",
     botanicalName: "Tilia americana",
     featureType: "tree",
-    canopyDiameterFt: 24,
+    canopyDiameterFt: 6,
     sun: "Full sun–part shade",
     water: "Moderate",
   },
@@ -154,7 +161,7 @@ export const UTAH_PLANT_PALETTE: UtahPlant[] = [
     commonName: "Hackberry",
     botanicalName: "Celtis occidentalis",
     featureType: "tree",
-    canopyDiameterFt: 20,
+    canopyDiameterFt: 6,
     sun: "Full sun",
     water: "Low–moderate",
   },
@@ -163,7 +170,7 @@ export const UTAH_PLANT_PALETTE: UtahPlant[] = [
     commonName: "London Planetree",
     botanicalName: "Platanus × acerifolia",
     featureType: "tree",
-    canopyDiameterFt: 26,
+    canopyDiameterFt: 6,
     sun: "Full sun",
     water: "Moderate",
   },
@@ -172,7 +179,7 @@ export const UTAH_PLANT_PALETTE: UtahPlant[] = [
     commonName: "Japanese Zelkova",
     botanicalName: "Zelkova serrata",
     featureType: "tree",
-    canopyDiameterFt: 18,
+    canopyDiameterFt: 6,
     sun: "Full sun",
     water: "Moderate",
   },
@@ -181,7 +188,7 @@ export const UTAH_PLANT_PALETTE: UtahPlant[] = [
     commonName: "Flowering Pear",
     botanicalName: "Pyrus calleryana",
     featureType: "tree_specimen",
-    canopyDiameterFt: 12,
+    canopyDiameterFt: 6,
     sun: "Full sun",
     water: "Moderate",
   },
@@ -238,6 +245,33 @@ export const UTAH_PLANT_PALETTE: UtahPlant[] = [
     canopyDiameterFt: 3,
     sun: "Full sun",
     water: "Low",
+  },
+  {
+    id: "rabbitbrush",
+    commonName: "Rabbitbrush",
+    botanicalName: "Ericameria nauseosa",
+    featureType: "rabbitbrush",
+    canopyDiameterFt: 3,
+    sun: "Full sun",
+    water: "Low",
+  },
+  {
+    id: "manzanita",
+    commonName: "Manzanita",
+    botanicalName: "Arctostaphylos patula",
+    featureType: "manzanita",
+    canopyDiameterFt: 3,
+    sun: "Full sun–part shade",
+    water: "Low",
+  },
+  {
+    id: "lantana",
+    commonName: "Lantana",
+    botanicalName: "Lantana camara",
+    featureType: "lantana",
+    canopyDiameterFt: 2,
+    sun: "Full sun",
+    water: "Low–moderate",
   },
 ];
 

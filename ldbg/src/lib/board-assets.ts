@@ -30,7 +30,9 @@ const PLANT_PHOTO_FILES: Record<string, string> = {
   "blue-grama-grass": "blue-grama-grass.png",
   "sagebrush-wyoming": "sagebrush-wyoming.png",
   "quaking-aspen": "quaking-aspen.png",
-  "colorado-blue-spruce": "blue-spruce.png",
+  rabbitbrush: "rabbitbrush.png",
+  manzanita: "manzanita.png",
+  lantana: "lantana.png",
 };
 
 export function resolvePlantPaletteId(commonName: string): string | undefined {
