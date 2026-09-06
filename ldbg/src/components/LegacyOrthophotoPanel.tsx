@@ -3,7 +3,11 @@
 import { useCallback, useRef, useState } from "react";
 import { readImageDimensions } from "@/lib/image-utils";
 import { withBasePath } from "@/lib/paths";
-import { compressOrthophotoForUpload, formatMb } from "@/lib/resize-orthophoto";
+import {
+  compressOrthophotoForUpload,
+  formatMb,
+  needsServerDecode,
+} from "@/lib/resize-orthophoto";
 import { UPLOAD_MAX_BYTES, uploadPreflightError } from "@/lib/upload-limits";
 import { parseUploadErrorResponse, xhrUploadFormData } from "@/lib/upload-xhr";
 
@@ -28,7 +32,9 @@ export function LegacyOrthophotoPanel({ projectId, missing, onUploaded }: Props)
 
   const onPick = useCallback((files: FileList | null) => {
     const f = files?.[0];
-    if (!f || !f.type.startsWith("image/")) return;
+    // Some browsers hand over a .tif with an empty type, so the extension is
+    // the only thing to go on.
+    if (!f || !(f.type.startsWith("image/") || needsServerDecode(f))) return;
     if (f.size > UPLOAD_MAX_BYTES) {
       setError(uploadPreflightError(f.size, label));
       return;
@@ -46,20 +52,22 @@ export function LegacyOrthophotoPanel({ projectId, missing, onUploaded }: Props)
     setBusy(true);
     setError("");
     try {
-      const prepared = await compressOrthophotoForUpload(file);
-      const dims = prepared.wasCompressed
-        ? { width: prepared.width, height: prepared.height }
-        : await readImageDimensions(prepared.file);
-
       const fd = new FormData();
-      if (missing === "annotated") {
-        fd.set("annotated", prepared.file);
-        fd.set("annotatedWidth", String(dims.width));
-        fd.set("annotatedHeight", String(dims.height));
+      const key = missing === "annotated" ? "annotated" : "clean";
+
+      if (needsServerDecode(file)) {
+        // Send it whole and let the server convert and measure it. Reporting
+        // dimensions is not possible here, and the server knows to skip the
+        // cross-check when they are absent for these.
+        fd.set(key, file);
       } else {
-        fd.set("clean", prepared.file);
-        fd.set("cleanWidth", String(dims.width));
-        fd.set("cleanHeight", String(dims.height));
+        const prepared = await compressOrthophotoForUpload(file);
+        const dims = prepared.wasCompressed
+          ? { width: prepared.width, height: prepared.height }
+          : await readImageDimensions(prepared.file);
+        fd.set(key, prepared.file);
+        fd.set(`${key}Width`, String(dims.width));
+        fd.set(`${key}Height`, String(dims.height));
       }
 
       const result = await xhrUploadFormData(
@@ -72,7 +80,7 @@ export function LegacyOrthophotoPanel({ projectId, missing, onUploaded }: Props)
           parseUploadErrorResponse(
             result.status,
             result.responseText,
-            formatMb(prepared.file.size)
+            formatMb(file.size)
           )
         );
       }
@@ -97,7 +105,7 @@ export function LegacyOrthophotoPanel({ projectId, missing, onUploaded }: Props)
           <input
             ref={inputRef}
             type="file"
-            accept="image/jpeg,image/png,image/webp"
+            accept="image/jpeg,image/png,image/webp,image/tiff,.tif,.tiff"
             className="hidden"
             onChange={(e) => onPick(e.target.files)}
           />

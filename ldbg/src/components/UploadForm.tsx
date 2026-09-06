@@ -12,6 +12,7 @@ import {
 import {
   compressOrthophotoForUpload,
   formatMb,
+  needsServerDecode,
   prepareOrthophotoPairForUpload,
 } from "@/lib/resize-orthophoto";
 import {
@@ -20,30 +21,9 @@ import {
   type UploadProgress,
 } from "@/lib/upload-xhr";
 
-type LegacyMode = "annotated" | "clean" | "both";
-
-const MODE_OPTIONS: { id: LegacyMode; title: string; detail: string }[] = [
-  {
-    id: "annotated",
-    title: "Annotated only",
-    detail: "Hand-marked design sketch — import polygons from colors; add clean later for AI fills.",
-  },
-  {
-    id: "clean",
-    title: "Clean only",
-    detail: "Unmarked orthophoto — draw features manually; add annotated later to import.",
-  },
-  {
-    id: "both",
-    title: "Both photos",
-    detail: "Best for CV import and plan AI fills (same frame, with and without markings).",
-  },
-];
-
 export function UploadForm() {
   const router = useRouter();
   const abortRef = useRef<AbortController | null>(null);
-  const [mode, setMode] = useState<LegacyMode>("both");
   const [annotated, setAnnotated] = useState<File | null>(null);
   const [clean, setClean] = useState<File | null>(null);
   const [phase, setPhase] = useState<"idle" | "optimizing" | "uploading">("idle");
@@ -51,17 +31,15 @@ export function UploadForm() {
   const [error, setError] = useState("");
   const [progress, setProgress] = useState<UploadProgress | null>(null);
 
-  const needsAnnotated = mode === "annotated" || mode === "both";
-  const needsClean = mode === "clean" || mode === "both";
-
   const totalBytes = useMemo(
     () => (annotated?.size ?? 0) + (clean?.size ?? 0),
     [annotated, clean]
   );
 
   const overLimit = totalBytes > UPLOAD_MAX_BYTES;
-  const canSubmit =
-    (!needsAnnotated || annotated) && (!needsClean || clean);
+  // Whatever is in the slots is the project. No mode to pick: one photo, the
+  // other, or both are all valid starting points and the server takes any of them.
+  const canSubmit = Boolean(annotated || clean);
 
   const validateFile = useCallback((f: File, label: string) => {
     if (f.size > UPLOAD_MAX_BYTES) {
@@ -73,7 +51,8 @@ export function UploadForm() {
   const onDrop = useCallback(
     (kind: "annotated" | "clean", files: FileList | null) => {
       const f = files?.[0];
-      if (!f || !f.type.startsWith("image/")) return;
+      // A .tif often arrives with an empty type, so fall back to the extension.
+      if (!f || !(f.type.startsWith("image/") || needsServerDecode(f))) return;
       const label = kind === "annotated" ? "Annotated orthophoto" : "Clean orthophoto";
       const fileErr = validateFile(f, label);
       if (fileErr) {
@@ -95,12 +74,11 @@ export function UploadForm() {
     [annotated, clean, validateFile]
   );
 
-  function onModeChange(next: LegacyMode) {
-    setMode(next);
+  const onClear = useCallback((kind: "annotated" | "clean") => {
+    if (kind === "annotated") setAnnotated(null);
+    else setClean(null);
     setError("");
-    if (next === "annotated") setClean(null);
-    if (next === "clean") setAnnotated(null);
-  }
+  }, []);
 
   function cancelUpload() {
     abortRef.current?.abort();
@@ -112,12 +90,8 @@ export function UploadForm() {
   }
 
   async function submit() {
-    if (needsAnnotated && !annotated) {
-      setError("Annotated orthophoto is required for this option.");
-      return;
-    }
-    if (needsClean && !clean) {
-      setError("Clean orthophoto is required for this option.");
+    if (!annotated && !clean) {
+      setError("Add an annotated orthophoto, a clean one, or both.");
       return;
     }
 
@@ -153,19 +127,28 @@ export function UploadForm() {
       let ann: Awaited<ReturnType<typeof compressOrthophotoForUpload>> | null = null;
       let cl: Awaited<ReturnType<typeof compressOrthophotoForUpload>> | null = null;
 
-      if (annotated && clean) {
-        const pair = await prepareOrthophotoPairForUpload(annotated, clean);
+      // TIFFs go up untouched: nothing here can open one, so the server does
+      // the converting and the measuring.
+      const rawAnnotated = annotated && needsServerDecode(annotated) ? annotated : null;
+      const rawClean = clean && needsServerDecode(clean) ? clean : null;
+      const localAnnotated = rawAnnotated ? null : annotated;
+      const localClean = rawClean ? null : clean;
+
+      if (localAnnotated && localClean) {
+        const pair = await prepareOrthophotoPairForUpload(localAnnotated, localClean);
         ann = pair.annotated;
         cl = pair.clean;
-      } else if (annotated) {
-        ann = await compressOrthophotoForUpload(annotated);
-      } else if (clean) {
-        cl = await compressOrthophotoForUpload(clean);
+      } else if (localAnnotated) {
+        ann = await compressOrthophotoForUpload(localAnnotated);
+      } else if (localClean) {
+        cl = await compressOrthophotoForUpload(localClean);
       }
 
       if (signal.aborted) return;
 
-      const combined = (ann?.file.size ?? 0) + (cl?.file.size ?? 0);
+      const combined =
+        (ann?.file.size ?? rawAnnotated?.size ?? 0) +
+        (cl?.file.size ?? rawClean?.size ?? 0);
       if (combined > UPLOAD_MAX_BYTES) {
         throw new Error(uploadPreflightError(combined, "Upload"));
       }
@@ -179,6 +162,8 @@ export function UploadForm() {
       const project = await createRes.json();
 
       const fd = new FormData();
+      if (rawAnnotated) fd.set("annotated", rawAnnotated);
+      if (rawClean) fd.set("clean", rawClean);
       if (ann) {
         const annDim = ann.wasCompressed
           ? { width: ann.width, height: ann.height }
@@ -255,23 +240,43 @@ export function UploadForm() {
       >
         <input
           type="file"
-          accept="image/jpeg,image/png,image/webp"
+          accept="image/jpeg,image/png,image/webp,image/tiff,.tif,.tiff"
           className="hidden"
-          onChange={(e) => onDrop(kind, e.target.files)}
+          onChange={(e) => {
+            onDrop(kind, e.target.files);
+            // Let the same file be re-picked after clearing it.
+            e.target.value = "";
+          }}
         />
-        <span className="font-medium text-stone-800">{label} *</span>
+        <span className="font-medium text-stone-800">{label}</span>
         <span className="mt-1 text-sm text-stone-500">{hint}</span>
         {file ? (
-          <span
-            className={`mt-3 rounded px-2 py-1 text-sm ring-1 ${
-              file.size > UPLOAD_MAX_BYTES
-                ? "bg-red-50 text-red-900 ring-red-200"
-                : "bg-white text-emerald-800 ring-emerald-200"
-            }`}
-          >
-            {file.name} ({formatMb(file.size)} MB)
+          <span className="mt-3 flex flex-wrap items-center justify-center gap-2">
+            <span
+              className={`rounded px-2 py-1 text-sm ring-1 ${
+                file.size > UPLOAD_MAX_BYTES
+                  ? "bg-red-50 text-red-900 ring-red-200"
+                  : "bg-white text-emerald-800 ring-emerald-200"
+              }`}
+            >
+              {file.name} ({formatMb(file.size)} MB)
+            </span>
+            <button
+              type="button"
+              className="rounded px-2 py-1 text-xs text-stone-600 underline hover:text-stone-900"
+              onClick={(e) => {
+                // Sits inside the label, which would otherwise reopen the picker.
+                e.preventDefault();
+                e.stopPropagation();
+                onClear(kind);
+              }}
+            >
+              Remove
+            </button>
           </span>
-        ) : null}
+        ) : (
+          <span className="mt-3 text-xs text-stone-400">Optional</span>
+        )}
       </label>
     );
   }
@@ -280,71 +285,41 @@ export function UploadForm() {
 
   return (
     <div className="space-y-4">
-      <fieldset className="space-y-2">
-        <legend className="text-sm font-medium text-stone-800">Start with</legend>
-        <div className="grid gap-2 sm:grid-cols-3">
-          {MODE_OPTIONS.map((opt) => (
-            <label
-              key={opt.id}
-              className={`cursor-pointer rounded-lg border p-3 text-left transition-colors ${
-                mode === opt.id
-                  ? "border-emerald-600 bg-emerald-50 ring-1 ring-emerald-600"
-                  : "border-stone-200 bg-white hover:border-stone-300"
-              }`}
-            >
-              <input
-                type="radio"
-                name="legacy-mode"
-                value={opt.id}
-                checked={mode === opt.id}
-                onChange={() => onModeChange(opt.id)}
-                className="sr-only"
-              />
-              <span className="block text-sm font-medium text-stone-900">{opt.title}</span>
-              <span className="mt-1 block text-xs text-stone-600">{opt.detail}</span>
-            </label>
-          ))}
-        </div>
-      </fieldset>
-
       <p className="text-sm text-stone-600">
+        Add either photo or both — whichever you drop in is what the project starts with.
         Maximum upload size is <strong>{formatUploadMb(UPLOAD_MAX_BYTES)} MB</strong> per file
-        {mode === "both" ? " (combined when uploading both)" : ""}. Slightly over may be
-        compressed automatically before upload.
+        (combined when uploading both). Slightly over may be compressed automatically before
+        upload.
       </p>
 
-      <div className={`grid gap-4 ${mode === "both" ? "md:grid-cols-2" : ""}`}>
-        {needsAnnotated ? (
-          <DropZone
-            label="Annotated orthophoto"
-            hint="Color-coded design sketch on the drone frame"
-            file={annotated}
-            kind="annotated"
-          />
-        ) : null}
-        {needsClean ? (
-          <DropZone
-            label="Clean orthophoto"
-            hint="Same frame, no markings"
-            file={clean}
-            kind="clean"
-          />
-        ) : null}
+      <div className="grid gap-4 md:grid-cols-2">
+        <DropZone
+          label="Annotated orthophoto"
+          hint="Color-coded design sketch on the drone frame"
+          file={annotated}
+          kind="annotated"
+        />
+        <DropZone
+          label="Clean orthophoto"
+          hint="Same frame, no markings"
+          file={clean}
+          kind="clean"
+        />
       </div>
 
-      {canSubmit && totalBytes > 0 ? (
+      {totalBytes > 0 ? (
         <p className={`text-xs ${overLimit ? "text-amber-800" : "text-stone-500"}`}>
           Selected:{" "}
           {annotated ? `${formatMb(annotated.size)} MB annotated` : null}
           {annotated && clean ? " + " : null}
           {clean ? `${formatMb(clean.size)} MB clean` : null}
-          {mode === "both" ? (
+          {annotated && clean ? (
             <>
               {" "}
               = <strong>{formatMb(totalBytes)} MB</strong>
               {overLimit
-                ? " — over the 200 MB cap; will compress on submit if possible."
-                : " — within the 200 MB limit."}
+                ? ` — over the ${formatUploadMb(UPLOAD_MAX_BYTES)} MB cap; will compress on submit if possible.`
+                : ` — within the ${formatUploadMb(UPLOAD_MAX_BYTES)} MB limit.`}
             </>
           ) : null}
         </p>

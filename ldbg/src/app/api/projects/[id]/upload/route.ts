@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import sharp from "sharp";
 import { validateAnnotatedUpload } from "@/lib/annotation-base-validation";
 import { logImageIngestDiagnostic } from "@/lib/image-dimensions";
 import { readImageDimensionsFromBuffer } from "@/lib/image-dimensions-server";
@@ -13,30 +14,71 @@ export const maxDuration = 300;
 
 type Params = { params: Promise<{ id: string }> };
 
-const ALLOWED = new Set(["image/jpeg", "image/png", "image/webp"]);
+const BROWSER_DECODABLE = new Set(["image/jpeg", "image/png", "image/webp"]);
 
-function extForMime(type: string): "jpg" | "png" | "webp" {
+type Ext = "jpg" | "png" | "webp";
+
+function extForMime(type: string): Ext {
   if (type === "image/png") return "png";
   if (type === "image/webp") return "webp";
   return "jpg";
 }
+
+/** Kept in step with needsServerDecode on the client. */
+function isTiff(file: File): boolean {
+  return file.type === "image/tiff" || /\.tiff?$/i.test(file.name);
+}
+
+type Prepared = { ok: true; buf: Buffer; width: number; height: number; ext: Ext };
+type Rejected = { ok: false; error: string; status: number };
 
 async function validateImageFile(
   file: File,
   label: string,
   reportedW: number,
   reportedH: number
-): Promise<{ ok: true; buf: Buffer } | { ok: false; error: string; status: number }> {
+): Promise<Prepared | Rejected> {
   if (file.size > UPLOAD_MAX_BYTES) {
     return { ok: false, error: "File too large", status: 413 };
   }
-  if (!ALLOWED.has(file.type)) {
+  const tiff = isTiff(file);
+  if (!tiff && !BROWSER_DECODABLE.has(file.type)) {
     return {
       ok: false,
-      error: `${label} must be JPEG, PNG, or WebP`,
+      error: `${label} must be JPEG, PNG, WebP, or TIFF`,
       status: 400,
     };
   }
+
+  const raw = Buffer.from(await file.arrayBuffer());
+
+  if (tiff) {
+    // The browser could not open it, so it sent the bytes as they are and no
+    // dimensions with them. Convert to something the app can display and take
+    // the size from the result. Alpha is common on drone orthos, where the
+    // frame's nodata edges are transparent, and flattening turns those black.
+    try {
+      const meta = await sharp(raw).metadata();
+      const buf = meta.hasAlpha
+        ? await sharp(raw).png().toBuffer()
+        : await sharp(raw).jpeg({ quality: 92 }).toBuffer();
+      const dims = await readImageDimensionsFromBuffer(buf);
+      return {
+        ok: true,
+        buf,
+        width: dims.width,
+        height: dims.height,
+        ext: meta.hasAlpha ? "png" : "jpg",
+      };
+    } catch {
+      return {
+        ok: false,
+        error: `${label} could not be read as an image. TIFFs with unusual compression may need exporting as JPEG or PNG first.`,
+        status: 400,
+      };
+    }
+  }
+
   if (!reportedW || !reportedH) {
     return {
       ok: false,
@@ -45,8 +87,7 @@ async function validateImageFile(
     };
   }
 
-  const buf = Buffer.from(await file.arrayBuffer());
-  const fileDims = await readImageDimensionsFromBuffer(buf);
+  const fileDims = await readImageDimensionsFromBuffer(raw);
   if (fileDims.width !== reportedW || fileDims.height !== reportedH) {
     return {
       ok: false,
@@ -55,7 +96,13 @@ async function validateImageFile(
     };
   }
 
-  return { ok: true, buf };
+  return {
+    ok: true,
+    buf: raw,
+    width: reportedW,
+    height: reportedH,
+    ext: extForMime(file.type),
+  };
 }
 
 export async function POST(req: Request, { params }: Params) {
@@ -100,19 +147,29 @@ export async function POST(req: Request, { params }: Params) {
     }
 
     if (project.annotationBase) {
-      const dimCheck = await validateAnnotatedUpload(project, check.buf, annW, annH);
+      const dimCheck = await validateAnnotatedUpload(
+        project,
+        check.buf,
+        check.width,
+        check.height
+      );
       if (!dimCheck.ok) {
         return NextResponse.json({ error: dimCheck.error }, { status: 400 });
       }
     }
 
-    logImageIngestDiagnostic(`project=${id}`, "annotated-upload", annW, annH);
-    const annName = `annotated.${extForMime(annotated.type)}`;
+    logImageIngestDiagnostic(
+      `project=${id}`,
+      "annotated-upload",
+      check.width,
+      check.height
+    );
+    const annName = `annotated.${check.ext}`;
     await storage.saveProjectFile(id, annName, check.buf);
     project.images.annotated = {
       filename: annName,
-      width: annW,
-      height: annH,
+      width: check.width,
+      height: check.height,
     };
   }
 
@@ -125,13 +182,18 @@ export async function POST(req: Request, { params }: Params) {
       return NextResponse.json({ error: check.error }, { status: check.status });
     }
 
-    logImageIngestDiagnostic(`project=${id}`, "clean-upload", cleanW, cleanH);
-    const cleanName = `clean.${extForMime(clean.type)}`;
+    logImageIngestDiagnostic(
+      `project=${id}`,
+      "clean-upload",
+      check.width,
+      check.height
+    );
+    const cleanName = `clean.${check.ext}`;
     await storage.saveProjectFile(id, cleanName, check.buf);
     project.images.clean = {
       filename: cleanName,
-      width: cleanW,
-      height: cleanH,
+      width: check.width,
+      height: check.height,
     };
   }
 

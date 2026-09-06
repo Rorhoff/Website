@@ -59,6 +59,15 @@ function renderToBlob(
   });
 }
 
+/**
+ * TIFF has to be handed to the server untouched. No browser decodes it, so
+ * loadImage cannot measure or shrink one — it just reports the file as corrupt.
+ * Drone exports are very often .tif, so this is a normal path, not an edge case.
+ */
+export function needsServerDecode(file: File): boolean {
+  return file.type === "image/tiff" || /\.tiff?$/i.test(file.name);
+}
+
 export type OrthophotoCompressResult = {
   file: File;
   width: number;

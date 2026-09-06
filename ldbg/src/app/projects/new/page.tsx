@@ -14,7 +14,7 @@ export default function NewProjectPage() {
             Legacy: upload orthophoto JPEG
           </h3>
           <p className="mt-1 mb-4 text-sm text-stone-600">
-            Start with an annotated sketch, a clean orthophoto, or both. Scale calibration is
+            Drop in an annotated sketch, a clean orthophoto, or both. Scale calibration is
             set on the project page after upload.
           </p>
           <UploadForm />
