@@ -31,6 +31,8 @@ export type BotWorld = {
   wyrmX: number;
   /** Direction the cow's head points — its stomp only hits what is in front. */
   wyrmFace?: 1 | -1;
+  /** Team holding the cow, or null when the saddle is free. */
+  cowTeam?: NetTeam | null;
   slotsFilled: Record<NetTeam, number>;
   /** Centre x of each still-empty hoard slot, so a carrier aims at a real gap. */
   openSlots?: Record<NetTeam, number[]>;
@@ -45,11 +47,21 @@ const CENTER_LEDGE = { xMin: 500, xMax: 780, yTop: 570 };
 const WHELP_HALF = 24;
 /** How far below the shelf lip a whelp's centre sits when stood on it. */
 const SHELF_STAND_Y = HOARD_SHELF_Y - WHELP_HALF;
-/** Time chasing one gem before we accept it needs a route we cannot find. */
+/**
+ * Time making no headway toward a gem before we accept we cannot route to it.
+ * This has to measure stalling, not elapsed time: climbing three rungs is
+ * several seconds of honest progress, and a flat budget cancelled it every
+ * time, leaving the bot to hop at the same gem forever.
+ */
 const GEM_GIVEUP_MS = 2200;
 const GEM_AVOID_MS = 6000;
 /** Distance that counts as having got somewhere, for the wedged check. */
 const PROGRESS_PX = 45;
+/**
+ * Height a whelp gains from a standing jump, less a safety margin. The ladders
+ * rise ~90-100px a rung, so one hop clears exactly one rung and no more.
+ */
+const MAX_RISE = 125;
 
 /** Per-bot scratch state: throttles taps and detects when a bot is wedged. */
 type BotMemory = {
@@ -64,11 +76,13 @@ type BotMemory = {
   breakoutDir: 1 | -1;
   /** The gem we committed to, so we can notice we are getting nowhere with it. */
   gemKey: string;
-  gemSince: number;
   /** Gems that beat us recently, keyed as above, mapped to when to retry. */
   avoid: Map<string, number>;
   /** Committed to stepping off a ledge, so the fall is not steered back onto it. */
   dropping: boolean;
+  /** Mid climb hop, and the x it is aimed at, held for the whole flight. */
+  climbing: boolean;
+  climbAim: number;
 };
 
 const memory = new Map<number, BotMemory>();
@@ -90,9 +104,10 @@ function memoryFor(a: BotActorView, time: number): BotMemory {
       breakoutUntil: 0,
       breakoutDir: 1,
       gemKey: "",
-      gemSince: time,
       avoid: new Map(),
       dropping: false,
+      climbing: false,
+      climbAim: a.x,
     };
     memory.set(a.pid, m);
   }
@@ -139,10 +154,11 @@ function tapAction(input: InputState) {
   input.action = false;
 }
 
-function jumpThrottled(a: BotActorView, m: BotMemory, time: number, ms: number) {
-  if (time - m.lastJump < ms) return;
+function jumpThrottled(a: BotActorView, m: BotMemory, time: number, ms: number): boolean {
+  if (time - m.lastJump < ms) return false;
   m.lastJump = time;
   tapJump(a.input);
+  return true;
 }
 
 function hoardCenterX(team: NetTeam): number {
@@ -209,6 +225,96 @@ function descendToward(a: BotActorView, m: BotMemory, targetX: number): boolean 
     Math.abs(targetX - offLeft) <= Math.abs(targetX - offRight) ? offLeft : offRight;
   m.dropping = true;
   driveX(a.input, a.x, exit, 4);
+  return true;
+}
+
+/** Top of the lowest ledge a standing hop would land us on, or null for clear air. */
+function ceilingAbove(a: BotActorView): number | null {
+  const feet = a.y + WHELP_HALF;
+  let best: number | null = null;
+  for (const [px, py, pw] of PLATFORMS) {
+    if (pw >= W * 0.9) continue;
+    if (py >= feet) continue;
+    if (feet - py > MAX_RISE) continue;
+    if (a.x + WHELP_HALF <= px || a.x - WHELP_HALF >= px + pw) continue;
+    if (best === null || py > best) best = py;
+  }
+  return best;
+}
+
+/** How far a rung's span sits from x, zero when x is over it. */
+function rungGap(p: [number, number, number, number], x: number): number {
+  const [px, , pw] = p;
+  if (x < px) return px - x;
+  if (x > px + pw) return x - (px + pw);
+  return 0;
+}
+
+/**
+ * Climb one rung toward something above us.
+ *
+ * Hopping at the target's x only works when a ledge happens to overhang that
+ * spot. On the outer ladders it usually does not — rungs are staggered and two
+ * rungs apart is 180px, well past a 137px jump — so the bot hammered jump under
+ * open air. This instead picks the lowest rung that is both within jump range
+ * and overlapping the ledge we are stood on, walks into that overlap, and hops
+ * from there.
+ */
+function climbToward(
+  a: BotActorView,
+  m: BotMemory,
+  time: number,
+  targetX: number,
+  targetY: number
+): boolean {
+  if (!a.onGround) {
+    if (!m.climbing) return false;
+    // Hold the aim for the whole hop. Re-aiming at the target the moment the
+    // feet leave the rung drifts us off the landing strip — the staggered rungs
+    // only overlap by 30-40px — and drops us right back where we started.
+    driveX(a.input, a.x, m.climbAim, 6);
+    return true;
+  }
+  m.climbing = false;
+
+  // No ledge underfoot means the floor, which spans the whole arena.
+  const stand = footing(a);
+  const [sx, sy, sw] = stand ?? [0, GROUND_Y, W, 0];
+
+  let best: [number, number, number, number] | null = null;
+  for (const p of PLATFORMS) {
+    const [px, py, pw] = p;
+    if (pw >= W * 0.9) continue;
+    if (py >= sy) continue; // not above us
+    if (sy - py > MAX_RISE) continue; // out of reach in one hop
+    if (py + 8 < targetY) continue; // would carry us past the target
+    const lo = Math.max(px, sx);
+    const hi = Math.min(px + pw, sx + sw);
+    // Landing needs the bodies to overlap, not a whole body's width of ledge.
+    // Rungs are staggered, so most useful overlaps are only 30-40px.
+    if (hi - lo < 16) continue;
+    if (best && py < best[1]) continue; // prefer the lowest qualifying rung
+    if (best && py === best[1] && rungGap(best, targetX) <= rungGap(p, targetX)) continue;
+    best = p;
+  }
+  if (!best) return false;
+  // The rung has to belong to the ladder that leads to the target. Without this
+  // a bot heading for an outer gem will happily climb the centre stack, which
+  // tops out overlapping nothing, and then fall back down it forever.
+  if (rungGap(best, targetX) > 120) return false;
+
+  const [bx, , bw] = best;
+  const lo = Math.max(bx, sx);
+  const hi = Math.min(bx + bw, sx + sw);
+  // Stand in from the edges where there is room, so the hop is not a knife edge.
+  const inset = Math.min(12, Math.max(0, (hi - lo) / 2 - 1));
+  const aim = clamp(targetX, lo + inset, hi - inset);
+
+  // Hop only once lined up under the rung, so the jump has somewhere to land.
+  if (!driveX(a.input, a.x, aim, 8) && jumpThrottled(a, m, time, 380)) {
+    m.climbing = true;
+    m.climbAim = aim;
+  }
   return true;
 }
 
@@ -411,10 +517,9 @@ function shouldEscortCow(a: BotActorView, world: BotWorld): boolean {
 }
 
 function goToWyrm(a: BotActorView, world: BotWorld, m: BotMemory) {
-  // Mounting only needs contact, so close on the cow — but tuck in behind the
-  // head, which is the side that stomps.
-  const face = world.wyrmFace ?? 1;
-  const targetX = world.wyrmX - face * 26;
+  // Line up on the cow's centre. That is directly under the gap in the centre
+  // stack, and it is out of the head's stomp arc, which starts further forward.
+  const targetX = world.wyrmX;
 
   // The cow only ever walks the floor, so an escort up the ladder has to come
   // down. Pacing to the cow's x two storeys above it reaches nothing.
@@ -427,6 +532,14 @@ function goToWyrm(a: BotActorView, world: BotWorld, m: BotMemory) {
   // it has arrived is not stuck, and breaking out of it hops the bot back onto
   // the scenery it just climbed down from.
   const moving = driveX(a.input, a.x, targetX, 8);
+
+  // Boarding means landing on the back, so the last move is a hop. Skip it
+  // where a ledge overhead would catch us instead, which just bounces the bot
+  // up and down on the scenery.
+  const claimable = !world.cowTeam || world.cowTeam === a.team;
+  if (a.onGround && !moving && claimable && ceilingAbove(a) === null) {
+    jumpThrottled(a, m, world.time, 700);
+  }
 
   if (moving && isStuck(m, world.time, 800)) breakout(a, m, world.time);
 }
@@ -485,11 +598,22 @@ function goGetGem(
   // because it keeps re-picking the same unreachable gem every frame.
   const key = gemKey(gem);
   if (m.gemKey !== key) {
+    // A new target gets a fresh stall budget, or a stale one cancels it at once.
     m.gemKey = key;
-    m.gemSince = world.time;
-  } else if (world.time - m.gemSince > GEM_GIVEUP_MS) {
+    m.anchorX = a.x;
+    m.anchorY = a.y;
+    m.movedAt = world.time;
+  } else if (isStuck(m, world.time, GEM_GIVEUP_MS)) {
     m.avoid.set(key, world.time + GEM_AVOID_MS);
     m.gemKey = "";
+    return;
+  }
+
+  // Mid hop up the ladder: see it through. At the top of the arc the gem often
+  // looks like it is within a single hop, and reconsidering there steers off the
+  // rung and drops us back on the ledge we started from, over and over.
+  if (m.climbing && !a.onGround) {
+    climbToward(a, m, world.time, gem.x, gem.y);
     return;
   }
 
@@ -501,11 +625,26 @@ function goGetGem(
     return;
   }
 
+  // Above us. A gem within one hop of the ledge we are stood on only needs us
+  // lined up underneath — many float in open air with no ledge at all. Anything
+  // higher, or out past our ledge, needs the ladder a rung at a time. Staying
+  // put for a rung on the far side of the map is not progress either, so only
+  // climb once we are roughly beneath the thing.
+  const stand = footing(a);
+  const overLedge =
+    !stand || (gem.x > stand[0] - 10 && gem.x < stand[0] + stand[2] + 10);
+  const needsLadder = dy < -MAX_RISE || !overLedge;
+  const overhead = Math.abs(gem.x - a.x) < 300;
+  if (dy < -30 && needsLadder && overhead && climbToward(a, m, world.time, gem.x, gem.y)) {
+    if (a.onGround && isStuck(m, world.time, 1200)) breakout(a, m, world.time);
+    return;
+  }
+
   const moving = driveX(a.input, a.x, gem.x, 10);
 
-  // Ledges are one-way from below, so a hop while aligned pops us through.
-  const climbing = dy < -30 && Math.abs(gem.x - a.x) < 60;
-  if (a.onGround && climbing) {
+  // Lined up under a gem within reach: hop. Ledges are one-way from below, so
+  // this pops through anything in the way too.
+  if (a.onGround && dy < -30 && Math.abs(gem.x - a.x) < 60) {
     jumpThrottled(a, m, world.time, 380);
   }
 

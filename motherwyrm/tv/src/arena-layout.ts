@@ -113,8 +113,12 @@ export const PLATFORMS: [number, number, number, number][] = [
   [900, 310, 170, 16],
   [80, 225, 170, 16],
   [1030, 225, 170, 16],
-  // Center stack (mirrors onto itself).
-  [500, 570, 280, 16],
+  // Center stack. The lowest rung is split, leaving a shaft of clear air over
+  // the cow's start position — one unbroken 280px ledge here roofed the cow in,
+  // and a hop from under it lands on the ledge instead of in the saddle, so the
+  // cow could not be boarded at all until it had already been pushed clear.
+  [500, 570, 90, 16],
+  [690, 570, 90, 16],
   [520, 450, 240, 16],
   [560, 330, 160, 16],
 ];

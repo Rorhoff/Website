@@ -83,6 +83,13 @@ export class Game extends Phaser.Scene {
   private cowStompStart = 0;
   private cowStompHit = false;
   private cowStompCooldownUntil = 0;
+  /**
+   * The cow answers to one team at a time. Letting both aboard meant their
+   * steering summed to zero and the cow simply parked, so a push looked broken
+   * rather than contested. Taking it off a team means knocking them off.
+   */
+  private cowTeam: Team | null = null;
+  private cowTakenCueAt = new Map<number, number>();
 
   constructor() { super('Game'); }
 
@@ -323,6 +330,7 @@ export class Game extends Phaser.Scene {
       time,
       wyrmX: this.wyrm.x,
       wyrmFace: this.cowFace(),
+      cowTeam: this.cowTeam,
       slotsFilled: { blue: slotCount('blue'), red: slotCount('red') },
       openSlots: { blue: openSlotXs('blue'), red: openSlotXs('red') },
       gems,
@@ -566,15 +574,9 @@ export class Game extends Phaser.Scene {
     return this.cowFacing;
   }
 
-  /** Team currently driving the cow. Its own herders never get stomped. */
+  /** Team holding the cow. Its own herders never get stomped. */
   private cowPushTeam(): Team | null {
-    const pull: Record<Team, number> = { blue: 0, red: 0 };
-    for (const r of this.actors) {
-      if (!r.riding) continue;
-      pull[r.team] += Math.abs(r.input.x);
-    }
-    if (pull.blue < 0.1 && pull.red < 0.1) return null;
-    return pull.blue >= pull.red ? 'blue' : 'red';
+    return this.cowTeam;
   }
 
   private whelpInFrontOfCow(a: Actor): boolean {
@@ -640,9 +642,11 @@ export class Game extends Phaser.Scene {
     const stomping = this.cowStompStart > 0;
     const riders = this.actors.filter((r) => r.riding);
 
+    // An empty saddle releases the cow, so the next team can claim it.
+    if (riders.length === 0) this.cowTeam = null;
+
     if (!stomping) {
-      // Whoever is aboard steers. Two teams pulling opposite ways cancel out,
-      // so a contested wyrm just sits there and the fight decides it.
+      // Only the holding team is aboard, so their steering never cancels.
       const pull = riders.reduce((s, r) => s + r.input.x, 0);
       const vx = Phaser.Math.Clamp(pull, -1, 1) * TUNING.wyrmSpeed;
       this.wyrm.setVelocityX(vx);
@@ -653,17 +657,32 @@ export class Game extends Phaser.Scene {
     this.wyrm.x = Phaser.Math.Clamp(this.wyrm.x, 40, W - 40);
     this.wyrm.y = this.wyrm.y + (this.cowFeetY() - COW_HALF_H - this.wyrm.y) * 0.35;
 
-    // Mount by landing on the cow's back.
+    // Mount by landing on the cow's back. Walking into it deliberately does
+    // not count — a herder crossing the arena would be grabbed on the way past.
     const backY = this.cowBackY();
     for (const a of this.actors) {
       if (a.riding || a.role === 'mother' || a.stunUntil > this.time.now) continue;
+      if (a.deadUntil > this.time.now) continue;
       const body = a.sprite.body as Phaser.Physics.Arcade.Body;
       if (body.velocity.y < 0) continue;
-      if (Math.abs(a.sprite.x - this.wyrm.x) < 46 &&
-          Math.abs(a.sprite.y - backY) < 28) {
-        a.riding = true;
+      if (Math.abs(a.sprite.x - this.wyrm.x) >= 46) continue;
+      if (Math.abs(a.sprite.y - backY) >= 28) continue;
+
+      if (this.cowTeam && this.cowTeam !== a.team) {
+        this.cueCowTaken(a);
+        continue;
       }
+      this.cowTeam = a.team;
+      a.riding = true;
     }
+  }
+
+  /** Throttled, because the refusal is tested on every frame of contact. */
+  private cueCowTaken(a: Actor) {
+    const now = this.time.now;
+    if (now - (this.cowTakenCueAt.get(a.pid) ?? -Infinity) < 1500) return;
+    this.cowTakenCueAt.set(a.pid, now);
+    this.net.cue(a.pid, 'The cow is taken — knock them off it first.');
   }
 
   // --------------------------------------------------------------- gems

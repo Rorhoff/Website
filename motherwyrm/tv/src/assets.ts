@@ -163,7 +163,11 @@ export function tryPlayAnim(
 ) {
   if (!isAtlasLoaded(atlasKey)) return;
   const animKey = `${atlasKey}_${tagSuffix}`;
-  if (!sprite.anims.exists(animKey)) return;
+  // createFromAseprite registers tags on the scene's animation manager.
+  // sprite.anims.exists only reports animations created on that one sprite, so
+  // it answered false for every tag and no animation ever played — every actor
+  // sat on frame 0 for the whole match.
+  if (!sprite.scene.anims.exists(animKey)) return;
   if (ignoreIfPlaying && sprite.anims.currentAnim?.key === animKey) return;
   sprite.play(animKey, true);
 }
