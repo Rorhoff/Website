@@ -2,6 +2,7 @@ import {
   HOARD_SHELF_Y,
   HOARD_WIDTH,
   HOARD_X,
+  PLATFORMS,
   TUNING,
   W,
 } from "./arena-layout";
@@ -38,19 +39,36 @@ export type BotWorld = {
 
 const OTHER: Record<NetTeam, NetTeam> = { blue: "red", red: "blue" };
 const GROUND_Y = TUNING.cowGroundY ?? 690;
-/** Center platform stack — whelps under it must walk out the sides. */
+/** Center platform stack — gems tucked under it are awkward to reach. */
 const CENTER_LEDGE = { xMin: 500, xMax: 780, yTop: 570 };
+/** Half a whelp body: 24px art at 2x, matching the sprites Game.ts builds. */
+const WHELP_HALF = 24;
+/** How far below the shelf lip a whelp's centre sits when stood on it. */
+const SHELF_STAND_Y = HOARD_SHELF_Y - WHELP_HALF;
+/** Time chasing one gem before we accept it needs a route we cannot find. */
+const GEM_GIVEUP_MS = 2200;
+const GEM_AVOID_MS = 6000;
+/** Distance that counts as having got somewhere, for the wedged check. */
+const PROGRESS_PX = 45;
 
 /** Per-bot scratch state: throttles taps and detects when a bot is wedged. */
 type BotMemory = {
   lastFlap: number;
   lastJump: number;
   lastAction: number;
-  lastX: number;
-  lastY: number;
+  /** Where we were when we last made real headway, not where we were last frame. */
+  anchorX: number;
+  anchorY: number;
   movedAt: number;
   breakoutUntil: number;
   breakoutDir: 1 | -1;
+  /** The gem we committed to, so we can notice we are getting nowhere with it. */
+  gemKey: string;
+  gemSince: number;
+  /** Gems that beat us recently, keyed as above, mapped to when to retry. */
+  avoid: Map<string, number>;
+  /** Committed to stepping off a ledge, so the fall is not steered back onto it. */
+  dropping: boolean;
 };
 
 const memory = new Map<number, BotMemory>();
@@ -66,23 +84,36 @@ function memoryFor(a: BotActorView, time: number): BotMemory {
       lastFlap: 0,
       lastJump: 0,
       lastAction: 0,
-      lastX: a.x,
-      lastY: a.y,
+      anchorX: a.x,
+      anchorY: a.y,
       movedAt: time,
       breakoutUntil: 0,
       breakoutDir: 1,
+      gemKey: "",
+      gemSince: time,
+      avoid: new Map(),
+      dropping: false,
     };
     memory.set(a.pid, m);
   }
   return m;
 }
 
+/**
+ * Progress means leaving where we were, not merely moving. Comparing against
+ * the previous frame let a bot jitter on the spot or hop in place forever and
+ * still read as busy, so the wedged check never fired.
+ */
 function trackMovement(a: BotActorView, m: BotMemory, time: number) {
-  if (Math.abs(a.x - m.lastX) > 2.5 || Math.abs(a.y - m.lastY) > 2.5) {
+  const travelled = Math.abs(a.x - m.anchorX) > PROGRESS_PX;
+  // Height only counts with the feet down: a hop peaks 137px up and comes
+  // straight back, so mid-air y would always look like progress.
+  const newFooting = a.onGround && Math.abs(a.y - m.anchorY) > PROGRESS_PX;
+  if (travelled || newFooting) {
+    m.anchorX = a.x;
+    m.anchorY = a.y;
     m.movedAt = time;
   }
-  m.lastX = a.x;
-  m.lastY = a.y;
 }
 
 function isStuck(m: BotMemory, time: number, ms: number): boolean {
@@ -118,6 +149,11 @@ function hoardCenterX(team: NetTeam): number {
   return HOARD_X[team] + HOARD_WIDTH / 2;
 }
 
+/** Horizontal reach of the shelf the slots stand on, hoard width plus its lip. */
+function shelfSpan(team: NetTeam): [number, number] {
+  return [HOARD_X[team] - 14, HOARD_X[team] + HOARD_WIDTH + 14];
+}
+
 function loseLineX(team: NetTeam): number {
   return team === "blue" ? TUNING.wyrmWin.red : TUNING.wyrmWin.blue;
 }
@@ -133,6 +169,49 @@ function driveX(input: InputState, fromX: number, toX: number, tol = 12): boolea
   return true;
 }
 
+/** The ledge a whelp is stood on, or null when airborne or on the floor. */
+function footing(a: BotActorView): [number, number, number, number] | null {
+  if (!a.onGround) return null;
+  for (const p of PLATFORMS) {
+    const [px, py, pw] = p;
+    if (pw >= W * 0.9) continue; // the floor — nothing below it
+    if (Math.abs(a.y + WHELP_HALF - py) > 8) continue;
+    if (a.x + WHELP_HALF <= px || a.x - WHELP_HALF >= px + pw) continue;
+    return p;
+  }
+  return null;
+}
+
+/**
+ * Ledges are one-way from below and there is no drop input, so the only way
+ * down is to walk off an end. Head for whichever end points at the target.
+ * Without this a bot could only ever climb, which is why carriers stranded up
+ * the ladder jittered on the spot instead of returning to the shelf.
+ */
+function descendToward(a: BotActorView, m: BotMemory, targetX: number): boolean {
+  if (!a.onGround) {
+    if (!m.dropping) return false;
+    // Coast the rest of the fall. Re-aiming at the target the instant the feet
+    // clear the lip steers straight back onto the ledge, and the bot stalls on
+    // the edge stepping on and off it.
+    a.input.x = 0;
+    return true;
+  }
+
+  m.dropping = false;
+  const ledge = footing(a);
+  if (!ledge) return false;
+
+  const [px, , pw] = ledge;
+  const offLeft = px - WHELP_HALF - 8;
+  const offRight = px + pw + WHELP_HALF + 8;
+  const exit =
+    Math.abs(targetX - offLeft) <= Math.abs(targetX - offRight) ? offLeft : offRight;
+  m.dropping = true;
+  driveX(a.input, a.x, exit, 4);
+  return true;
+}
+
 /** Alternate escape directions with a hop when a bot has stopped moving. */
 function breakout(a: BotActorView, m: BotMemory, time: number) {
   if (time > m.breakoutUntil) {
@@ -140,8 +219,8 @@ function breakout(a: BotActorView, m: BotMemory, time: number) {
     m.breakoutUntil = time + 600;
   }
   a.input.x = m.breakoutDir;
-  tapJump(a.input);
-  m.lastJump = time;
+  // Throttled: tapping every frame reads as a bot vibrating on the spot.
+  jumpThrottled(a, m, time, 300);
   // Give the escape a fresh window before it counts as stuck again.
   m.movedAt = time - 200;
 }
@@ -153,12 +232,14 @@ function breakout(a: BotActorView, m: BotMemory, time: number) {
 export function pickBestGem(
   gems: Array<{ x: number; y: number }>,
   x: number,
-  y: number
+  y: number,
+  accept?: (gem: { x: number; y: number }) => boolean
 ): { x: number; y: number } | null {
   let best: { x: number; y: number } | null = null;
   let bestScore = Infinity;
 
   for (const g of gems) {
+    if (accept && !accept(g)) continue;
     const dx = Math.abs(g.x - x);
     const dy = g.y - y;
     const climb = dy < 0 ? -dy : 0;
@@ -205,15 +286,6 @@ function nearestGemDistance(world: BotWorld, x: number, y: number): number {
     if (d < best) best = d;
   }
   return best;
-}
-
-/** Walk out from under the center stack before crossing to the cow. */
-function unstuckFromCenterLedge(a: BotActorView): boolean {
-  if (!a.onGround || a.y < 610) return false;
-  if (a.x <= CENTER_LEDGE.xMin || a.x >= CENTER_LEDGE.xMax) return false;
-  const escapeX = a.x < W / 2 ? CENTER_LEDGE.xMin - 50 : CENTER_LEDGE.xMax + 50;
-  driveX(a.input, a.x, escapeX, 10);
-  return true;
 }
 
 export function updateBotBrains(world: BotWorld) {
@@ -339,14 +411,24 @@ function shouldEscortCow(a: BotActorView, world: BotWorld): boolean {
 }
 
 function goToWyrm(a: BotActorView, world: BotWorld, m: BotMemory) {
-  if (unstuckFromCenterLedge(a)) return;
-
   // Mounting only needs contact, so close on the cow — but tuck in behind the
   // head, which is the side that stomps.
   const face = world.wyrmFace ?? 1;
-  driveX(a.input, a.x, world.wyrmX - face * 26, 8);
+  const targetX = world.wyrmX - face * 26;
 
-  if (isStuck(m, world.time, 800)) breakout(a, m, world.time);
+  // The cow only ever walks the floor, so an escort up the ladder has to come
+  // down. Pacing to the cow's x two storeys above it reaches nothing.
+  if (a.y < GROUND_Y - WHELP_HALF - PROGRESS_PX && descendToward(a, m, targetX)) {
+    if (a.onGround && isStuck(m, world.time, 900)) breakout(a, m, world.time);
+    return;
+  }
+
+  // Only a bot that is trying to travel can be wedged. Standing still because
+  // it has arrived is not stuck, and breaking out of it hops the bot back onto
+  // the scenery it just climbed down from.
+  const moving = driveX(a.input, a.x, targetX, 8);
+
+  if (moving && isStuck(m, world.time, 800)) breakout(a, m, world.time);
 }
 
 function goDeposit(a: BotActorView, world: BotWorld, m: BotMemory) {
@@ -358,19 +440,38 @@ function goDeposit(a: BotActorView, world: BotWorld, m: BotMemory) {
     ? open.reduce((best, x) => (Math.abs(x - a.x) < Math.abs(best - a.x) ? x : best))
     : hoardCenterX(a.team);
 
+  // Height before aim. The slots sit on the shelf, so a carrier up the ladder
+  // has to come down first — walking to the slot's x two storeys above it just
+  // parks the bot in mid-air with its gem.
+  if (a.y < SHELF_STAND_Y - PROGRESS_PX && descendToward(a, m, targetX)) {
+    if (a.onGround && isStuck(m, world.time, 900)) breakout(a, m, world.time);
+    return;
+  }
+
   const moving = driveX(a.input, a.x, targetX, 6);
 
-  // Standing on the ground below the shelf — hop up onto it.
-  if (a.onGround && a.y > HOARD_SHELF_Y + 20) {
+  // On the floor under the shelf — hop up once we are actually beneath it.
+  const [shelfL, shelfR] = shelfSpan(a.team);
+  const belowShelf = a.y > SHELF_STAND_Y + 20;
+  if (a.onGround && belowShelf && a.x > shelfL && a.x < shelfR) {
     jumpThrottled(a, m, world.time, 420);
   }
 
-  // On the mark but nothing registered: sweep the shelf instead of dithering.
-  if (!moving && a.onGround) {
-    a.input.x = Math.floor(world.time / 500) % 2 === 0 ? 1 : -1;
+  if ((moving || belowShelf) && isStuck(m, world.time, 700)) {
+    breakout(a, m, world.time);
   }
+}
 
-  if (isStuck(m, world.time, 700)) breakout(a, m, world.time);
+function gemKey(gem: { x: number; y: number }): string {
+  return `${Math.round(gem.x)}:${Math.round(gem.y)}`;
+}
+
+function isAvoided(m: BotMemory, gem: { x: number; y: number }, time: number): boolean {
+  const until = m.avoid.get(gemKey(gem));
+  if (until === undefined) return false;
+  if (until > time) return true;
+  m.avoid.delete(gemKey(gem));
+  return false;
 }
 
 function goGetGem(
@@ -379,17 +480,36 @@ function goGetGem(
   m: BotMemory,
   gem: { x: number; y: number }
 ) {
-  driveX(a.input, a.x, gem.x, 10);
+  // Give up on a gem we have been failing to reach. Without this a bot that is
+  // aligned under something it cannot climb to hops in place indefinitely,
+  // because it keeps re-picking the same unreachable gem every frame.
+  const key = gemKey(gem);
+  if (m.gemKey !== key) {
+    m.gemKey = key;
+    m.gemSince = world.time;
+  } else if (world.time - m.gemSince > GEM_GIVEUP_MS) {
+    m.avoid.set(key, world.time + GEM_AVOID_MS);
+    m.gemKey = "";
+    return;
+  }
 
   const dy = gem.y - a.y;
-  const aligned = Math.abs(gem.x - a.x) < 60;
+
+  // Below us: step off the ledge rather than pacing along it out of reach.
+  if (dy > PROGRESS_PX && descendToward(a, m, gem.x)) {
+    if (a.onGround && isStuck(m, world.time, 900)) breakout(a, m, world.time);
+    return;
+  }
+
+  const moving = driveX(a.input, a.x, gem.x, 10);
 
   // Ledges are one-way from below, so a hop while aligned pops us through.
-  if (a.onGround && dy < -30 && aligned) {
+  const climbing = dy < -30 && Math.abs(gem.x - a.x) < 60;
+  if (a.onGround && climbing) {
     jumpThrottled(a, m, world.time, 380);
   }
 
-  if (isStuck(m, world.time, 700)) breakout(a, m, world.time);
+  if (moving && isStuck(m, world.time, 700)) breakout(a, m, world.time);
 }
 
 function updateWhelpBot(a: BotActorView, world: BotWorld, m: BotMemory) {
@@ -408,7 +528,7 @@ function updateWhelpBot(a: BotActorView, world: BotWorld, m: BotMemory) {
     return;
   }
 
-  const gem = pickBestGem(world.gems, a.x, a.y);
+  const gem = pickBestGem(world.gems, a.x, a.y, (g) => !isAvoided(m, g, world.time));
   if (gem) {
     goGetGem(a, world, m, gem);
     return;
