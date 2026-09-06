@@ -140,6 +140,20 @@ export function BoardTemplate({
 
   const planFeatureFills = bakedFeatureFills ? undefined : featureFills;
 
+  /**
+   * Resolve the fill URLs here, on the server. MaterialsPlanPreview is a client
+   * component and a function prop cannot cross that boundary.
+   */
+  const planFeatureFillUrls =
+    planFeatureFills && featureFillImageUrl
+      ? Object.fromEntries(
+          Object.values(planFeatureFills)
+            .map((entry) => entry.imageFilename)
+            .filter((filename): filename is string => Boolean(filename))
+            .map((filename) => [filename, featureFillImageUrl(filename)])
+        )
+      : undefined;
+
   return (
     <div
       className={styles.sheet}
@@ -256,7 +270,7 @@ export function BoardTemplate({
                   pixelsPerFoot={pixelsPerFoot}
                   georefContext={georefContext}
                   featureFills={planFeatureFills}
-                  featureFillImageUrl={featureFillImageUrl}
+                  featureFillUrls={planFeatureFillUrls}
                 />
               ) : null}
             </div>

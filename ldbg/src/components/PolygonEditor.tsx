@@ -414,10 +414,27 @@ export default function PolygonEditor({
     };
   }, []);
 
-  const maxH = typeof window !== "undefined" ? window.innerHeight * 0.62 : 520;
-  const fitScale = Math.min(containerW / coordW, maxH / coordH, 1);
+  /**
+   * The stage is the viewport, not the picture. It claims the full width of the
+   * container and a tall slice of the window, and the fitted image is centred
+   * inside it. Sizing the stage to the image instead meant a portrait plan got a
+   * narrow stage, so zooming in only ever revealed a sliver of the drawing.
+   */
+  const stageH =
+    typeof window !== "undefined"
+      ? Math.max(380, Math.round(window.innerHeight * 0.72))
+      : 520;
+  const stageW = Math.max(280, Math.round(containerW));
+  const fitScale = Math.min(stageW / coordW, stageH / coordH, 1);
   const displayW = Math.round(coordW * fitScale);
   const displayH = Math.round(coordH * fitScale);
+  const contentOrigin = useMemo(
+    () => ({
+      x: Math.round((stageW - displayW) / 2),
+      y: Math.round((stageH - displayH) / 2),
+    }),
+    [stageW, stageH, displayW, displayH]
+  );
 
   const snapTargets = useMemo(
     () =>
@@ -700,7 +717,7 @@ export default function PolygonEditor({
   }, [undo, redo, selectedId, commitFeatures, tool, georefContext, displayW, displayH, drawPoints.length]);
 
   function contentNormFromStage(stage: Konva.Stage) {
-    const content = viewport.pointerToContent(stage);
+    const content = viewport.pointerToContent(stage, contentOrigin);
     if (!content) return null;
     return pxToNorm(content, displayW, displayH);
   }
@@ -764,10 +781,10 @@ export default function PolygonEditor({
   function handlePointerMove(e: Konva.KonvaEventObject<MouseEvent | TouchEvent>) {
     const stage = e.target.getStage();
     if (activePlant && plantPickerMode !== "none" && stage) {
-      const content = viewport.pointerToContent(stage);
+      const content = viewport.pointerToContent(stage, contentOrigin);
       setPlacementHoverPx(content);
     } else if (activeObject && objectPickerMode && stage) {
-      const content = viewport.pointerToContent(stage);
+      const content = viewport.pointerToContent(stage, contentOrigin);
       setPlacementHoverPx(content);
     } else if (placementHoverPx) {
       setPlacementHoverPx(null);
@@ -809,6 +826,10 @@ export default function PolygonEditor({
   }
 
   function handleStageClick(e: Konva.KonvaEventObject<MouseEvent | TouchEvent>) {
+    // Konva synthesises a click for every button, so without this the middle and
+    // right buttons — which are pan gestures — would also drop a vertex.
+    if ("button" in e.evt && e.evt.button !== 0) return;
+    if (viewport.spacePan) return;
     if (Date.now() - lastWheelAtRef.current < WHEEL_CLICK_GUARD_MS) return;
     if (shapeDrag) return;
     if (tool === "select") {
@@ -1058,7 +1079,7 @@ export default function PolygonEditor({
     if (tool !== "smoothEdge") return;
     const stage = e.target.getStage();
     if (!stage) return;
-    const content = viewport.pointerToContent(stage);
+    const content = viewport.pointerToContent(stage, contentOrigin);
     if (!content) return;
     smoothStrokeRef.current = true;
     smoothStrokePointsRef.current = [content];
@@ -1069,7 +1090,7 @@ export default function PolygonEditor({
     if (!smoothStrokeRef.current || tool !== "smoothEdge") return;
     const stage = e.target.getStage();
     if (!stage) return;
-    const content = viewport.pointerToContent(stage);
+    const content = viewport.pointerToContent(stage, contentOrigin);
     if (!content) return;
     smoothStrokePointsRef.current = appendStrokePoint(smoothStrokePointsRef.current, content);
     setSmoothStroke(smoothStrokePointsRef.current);
@@ -1461,8 +1482,8 @@ export default function PolygonEditor({
           className="min-w-0 w-full max-w-full overflow-hidden rounded-lg border border-stone-200 bg-stone-800"
         >
           <Stage
-            width={displayW}
-            height={displayH}
+            width={stageW}
+            height={stageH}
             onClick={handleStageClick}
             onMouseDown={(e) => {
               if (
@@ -1527,7 +1548,7 @@ export default function PolygonEditor({
             onMouseLeave={() => setPlacementHoverPx(null)}
             onWheel={(e) => {
               lastWheelAtRef.current = Date.now();
-              viewport.onWheel(e);
+              viewport.onWheel(e, contentOrigin);
             }}
             style={{
               cursor: viewport.isPanning
@@ -1545,7 +1566,12 @@ export default function PolygonEditor({
             }}
           >
             <Layer>
-              <Group x={viewport.pan.x} y={viewport.pan.y} scaleX={viewport.zoom} scaleY={viewport.zoom}>
+              <Group
+                x={contentOrigin.x + viewport.pan.x}
+                y={contentOrigin.y + viewport.pan.y}
+                scaleX={viewport.zoom}
+                scaleY={viewport.zoom}
+              >
                 {image ? (
                   <KonvaImage image={image} width={displayW} height={displayH} listening={false} />
                 ) : null}
@@ -1916,6 +1942,13 @@ export default function PolygonEditor({
                   }}
                 />
 
+                {/*
+                  Hit-blockers so a draw stroke cannot select the feature beneath
+                  it. Mouse events deliberately carry no handlers here: they bubble
+                  to the Stage, which already routes them. Duplicating them landed
+                  two vertices on every click. Touch is the exception — the Stage
+                  has no onTap, and its touch handlers do not know about smoothing.
+                */}
                 {drawing ? (
                   <Rect
                     x={0}
@@ -1923,11 +1956,7 @@ export default function PolygonEditor({
                     width={displayW}
                     height={displayH}
                     fill="rgba(0,0,0,0)"
-                    onClick={handleStageClick}
                     onTap={handleStageClick}
-                    onMouseDown={handlePointerDown}
-                    onMouseMove={handlePointerMove}
-                    onMouseUp={handlePointerUp}
                   />
                 ) : null}
 
@@ -1938,9 +1967,6 @@ export default function PolygonEditor({
                     width={displayW}
                     height={displayH}
                     fill="rgba(0,0,0,0)"
-                    onMouseDown={handleSmoothPointerDown}
-                    onMouseMove={handleSmoothPointerMove}
-                    onMouseUp={handleSmoothPointerUp}
                     onTouchStart={handleSmoothPointerDown}
                     onTouchMove={handleSmoothPointerMove}
                     onTouchEnd={handleSmoothPointerUp}

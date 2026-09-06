@@ -21,7 +21,12 @@ type Props = {
   pixelsPerFoot?: number;
   georefContext?: GeorefDisplayContext;
   featureFills?: Record<string, FeatureFillEntry>;
-  featureFillImageUrl?: (filename: string) => string;
+  /**
+   * Fill filename → resolved URL. This is a client component, so it cannot be
+   * handed the server's URL builder — React refuses to serialise a function
+   * across the boundary and the whole board render fails.
+   */
+  featureFillUrls?: Record<string, string>;
 };
 
 /** Same composite as the Plan drawing panel — cropped to design features. */
@@ -38,9 +43,13 @@ export function MaterialsPlanPreview({
   pixelsPerFoot,
   georefContext,
   featureFills,
-  featureFillImageUrl,
+  featureFillUrls,
 }: Props) {
   if (!baseImageUrl || features.length === 0) return null;
+
+  const featureFillImageUrl = featureFillUrls
+    ? (filename: string) => featureFillUrls[filename] ?? filename
+    : undefined;
 
   return (
     <div className={styles.materialsPlanPreview}>

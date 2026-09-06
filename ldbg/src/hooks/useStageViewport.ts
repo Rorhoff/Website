@@ -3,6 +3,15 @@ import type Konva from "konva";
 
 type Pan = { x: number; y: number };
 
+/**
+ * Where the content sits inside the stage. The stage is the viewport and is
+ * larger than the fitted content, so pointer maths has to discount the gap
+ * before it can talk in content coordinates.
+ */
+type Origin = { x: number; y: number };
+
+const NO_ORIGIN: Origin = { x: 0, y: 0 };
+
 function isEditableTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   const tag = target.tagName;
@@ -110,7 +119,7 @@ export function useStageViewport() {
 
   const wasTouchPanning = useCallback(() => touchPanningRef.current, []);
 
-  const onWheel = useCallback((e: Konva.KonvaEventObject<WheelEvent>) => {
+  const onWheel = useCallback((e: Konva.KonvaEventObject<WheelEvent>, origin: Origin = NO_ORIGIN) => {
     e.evt.preventDefault();
     const scaleBy = 1.08;
     const stage = e.target.getStage();
@@ -121,13 +130,13 @@ export function useStageViewport() {
     const dir = e.evt.deltaY > 0 ? 1 / scaleBy : scaleBy;
     const next = Math.min(5, Math.max(0.5, oldScale * dir));
     const mousePointTo = {
-      x: (pointer.x - pan.x) / oldScale,
-      y: (pointer.y - pan.y) / oldScale,
+      x: (pointer.x - origin.x - pan.x) / oldScale,
+      y: (pointer.y - origin.y - pan.y) / oldScale,
     };
     setZoom(next);
     setPan({
-      x: pointer.x - mousePointTo.x * next,
-      y: pointer.y - mousePointTo.y * next,
+      x: pointer.x - origin.x - mousePointTo.x * next,
+      y: pointer.y - origin.y - mousePointTo.y * next,
     });
   }, [zoom, pan.x, pan.y]);
 
@@ -206,12 +215,15 @@ export function useStageViewport() {
     [endMousePan]
   );
 
-  function pointerToContent(stage: Konva.Stage): { x: number; y: number } | null {
+  function pointerToContent(
+    stage: Konva.Stage,
+    origin: Origin = NO_ORIGIN
+  ): { x: number; y: number } | null {
     const pos = stage.getPointerPosition();
     if (!pos) return null;
     return {
-      x: (pos.x - pan.x) / zoom,
-      y: (pos.y - pan.y) / zoom,
+      x: (pos.x - origin.x - pan.x) / zoom,
+      y: (pos.y - origin.y - pan.y) / zoom,
     };
   }
 
