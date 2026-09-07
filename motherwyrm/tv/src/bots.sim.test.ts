@@ -66,6 +66,16 @@ class Sim {
   private lastDir = new Map<number, number>();
   private lastFlipAt = new Map<number, number>();
 
+  /**
+   * The longest run of jumps a bot took without going anywhere. Hopping on the
+   * spot leaves the stick centred, so rapidFlips is completely blind to it —
+   * which is why "a wyrm is just jumping here" kept getting reported while
+   * every jitter assertion passed.
+   */
+  hopsInPlace = new Map<number, number>();
+  private hopAnchor = new Map<number, { x: number; y: number }>();
+  private hopRun = new Map<number, number>();
+
   /** Mirrors Game.ts: the cow is claimed by one team until the saddle empties. */
   cowTeam: Team | null = null;
   cowX = W / 2;
@@ -125,6 +135,23 @@ class Sim {
         this.lastFlipAt.set(w.pid, this.time);
       }
       if (dir !== 0) this.lastDir.set(w.pid, dir);
+
+      // A rung is ~90px up and a route runs much further sideways, so real
+      // travel clears this radius and resets the run. Anything that keeps
+      // jumping inside it is going nowhere.
+      let anchor = this.hopAnchor.get(w.pid);
+      if (!anchor) {
+        anchor = { x: w.x, y: w.y };
+        this.hopAnchor.set(w.pid, anchor);
+      }
+      if (Math.abs(w.x - anchor.x) > 50 || Math.abs(w.y - anchor.y) > 50) {
+        this.hopAnchor.set(w.pid, { x: w.x, y: w.y });
+        this.hopRun.set(w.pid, 0);
+      } else if (w.input.jumpEdge && w.onGround) {
+        const run = (this.hopRun.get(w.pid) ?? 0) + 1;
+        this.hopRun.set(w.pid, run);
+        this.hopsInPlace.set(w.pid, Math.max(this.hopsInPlace.get(w.pid) ?? 0, run));
+      }
 
       // Riders are carried, not self-propelled, and a jump drops them off.
       if (w.riding) {
@@ -239,6 +266,12 @@ function standingY(platformTop: number) {
 /** Slack for "is it down on the floor", allowing for a hop in progress. */
 const PROGRESS_SLACK = 60;
 
+/**
+ * Climbing a ladder or lining up under a gem takes a few hops from roughly one
+ * spot, so a small run is normal. A run this long is the bot pogoing.
+ */
+const HOP_LIMIT = 8;
+
 beforeEach(() => resetBotMemory());
 
 describe("carrier reaches the hoard", () => {
@@ -342,6 +375,7 @@ describe("escort reaches the cow", () => {
     const sim = new Sim([w], []);
     sim.run(10000);
     expect(sim.rapidFlips.get(1) ?? 0).toBeLessThan(5);
+    expect(sim.hopsInPlace.get(1) ?? 0).toBeLessThan(HOP_LIMIT);
   });
 
   it("actually gets aboard rather than standing beside it", () => {
@@ -387,10 +421,12 @@ describe("no bot idles anywhere on the map", () => {
           const picked = sim.collected.get(1) ?? 0;
           const travelled = Math.abs(w.x - startX) > 80 || Math.abs(w.y - startY) > 80;
           const jittering = (sim.rapidFlips.get(1) ?? 0) >= 5;
+          const pogoing = (sim.hopsInPlace.get(1) ?? 0) >= HOP_LIMIT;
 
-          if (jittering || (banked === 0 && picked === 0 && !travelled)) {
+          if (jittering || pogoing || (banked === 0 && picked === 0 && !travelled)) {
             stalled.push(
-              `${team} at ${x},${top} banked=${banked} picked=${picked} jitter=${sim.rapidFlips.get(1) ?? 0}`
+              `${team} at ${x},${top} banked=${banked} picked=${picked} ` +
+                `jitter=${sim.rapidFlips.get(1) ?? 0} hops=${sim.hopsInPlace.get(1) ?? 0}`
             );
           }
         }
@@ -453,8 +489,11 @@ describe("every gem is reachable", () => {
         // fine answer. Hopping on the spot is not.
         const busy =
           (sim.collected.get(1) ?? 0) > 0 || w.riding || Math.abs(w.x - s[0]) > 300;
-        if (!busy || (sim.rapidFlips.get(1) ?? 0) >= 5) {
-          stalled.push(`from ${s[0]},${s[1]} to gem ${g[0]},${g[1]}`);
+        const pogoing = (sim.hopsInPlace.get(1) ?? 0) >= HOP_LIMIT;
+        if (!busy || pogoing || (sim.rapidFlips.get(1) ?? 0) >= 5) {
+          stalled.push(
+            `from ${s[0]},${s[1]} to gem ${g[0]},${g[1]} hops=${sim.hopsInPlace.get(1) ?? 0}`
+          );
         }
       }
     }

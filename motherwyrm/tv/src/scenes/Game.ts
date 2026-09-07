@@ -56,6 +56,8 @@ const COW_BACK_DY = -22;
 /** Head in the charge pose, relative to centre and before facing is applied. */
 const COW_HEAD_DX = 44;
 const COW_HEAD_DY = 20;
+/** How close a whelp on foot has to be to get a shoulder into the cow. */
+const COW_PUSH_REACH = 46;
 
 const OTHER: Record<Team, Team> = { blue: 'red', red: 'blue' };
 const HEX: Record<Team, string> = { blue: '#4aa3d8', red: '#e0663f' };
@@ -287,8 +289,12 @@ export class Game extends Phaser.Scene {
   update(time: number, delta: number) {
     if (this.over) return;
 
-    // Hand each banked phone press its own frame so none are lost to a burst.
+    // Hand each banked phone press its own frame so none are lost to a burst,
+    // but only on a frame the actor can read it. Spending a press while it is
+    // dead, stunned or away throws it away silently, and the player is left
+    // jabbing a button that looks broken.
     for (const a of this.actors) {
+      if (!this.canReadInput(a, time)) continue;
       if (a.input.jumpPresses > 0) { a.input.jumpPresses--; a.input.jumpEdge = true; }
       if (a.input.actionPresses > 0) { a.input.actionPresses--; a.input.actionEdge = true; }
     }
@@ -353,6 +359,11 @@ export class Game extends Phaser.Scene {
         };
       }),
     };
+  }
+
+  /** A frame on which this actor's update will actually reach its input. */
+  private canReadInput(a: Actor, time: number): boolean {
+    return !a.disconnected && a.deadUntil <= time && a.stunUntil <= time;
   }
 
   private updateActor(a: Actor, time: number, _delta: number) {
@@ -449,12 +460,18 @@ export class Game extends Phaser.Scene {
 
   private updateMother(a: Actor, time: number, body: Phaser.Physics.Arcade.Body) {
     if (a.diving) {
-      // The dive ends on the timer, on its distance cap, or the instant she
-      // touches down. Landing must drop the pose immediately or she reads as
-      // frozen mid-attack.
+      // The dive ends on the timer, on its distance cap, the instant she
+      // touches down — or on a fly tap. Landing must drop the pose immediately
+      // or she reads as frozen mid-attack.
+      //
+      // The bail matters as much as the rest: a dive used to hold the controls
+      // for its whole duration, so a fly tap during one went nowhere and the
+      // button itself got the blame. Falling through from here spends that same
+      // press on thrust below, which is what the player was asking for.
+      const bail = a.input.jumpEdge;
       const landed = body.blocked.down && body.velocity.y >= 0;
       const dropped = a.sprite.y - a.diveFromY;
-      if (time < a.attackUntil && !landed && dropped < TUNING.motherDiveMaxDrop) {
+      if (!bail && time < a.attackUntil && !landed && dropped < TUNING.motherDiveMaxDrop) {
         tryPlayAnim(a.sprite, a.atlasKey, 'dive');
         return;
       }
@@ -597,6 +614,11 @@ export class Game extends Phaser.Scene {
     const downMs = TUNING.cowStompDownMs;
     const upMs = TUNING.cowStompUpMs;
 
+    // A loose cow does not stomp. Whoever reaches it first is there to push it
+    // (see cowPushers), and trampling that herder made an unclaimed cow lethal
+    // to approach for both teams at once — so nobody could ever start moving it.
+    if (this.cowTeam === null && this.cowStompStart === 0) return;
+
     if (this.cowStompStart > 0) {
       const elapsed = time - this.cowStompStart;
       if (elapsed >= downMs && elapsed < downMs + upMs) {
@@ -638,16 +660,53 @@ export class Game extends Phaser.Scene {
     this.cameras.main.shake(90, 0.004);
   }
 
+  /**
+   * Whelps driving the cow on foot. Shoving it along the ground is the plain
+   * way to move a loose cow, and it needs no climbing — walk into it and it
+   * goes. Without this the only way to move the cow was to land in the saddle,
+   * which is a fiddly hop that most players never found.
+   */
+  private cowPushers(): Actor[] {
+    const now = this.time.now;
+    const shoulderY = this.cowFeetY() - 22;
+    const out: Actor[] = [];
+
+    for (const a of this.actors) {
+      if (a.role !== 'whelp' || a.riding) continue;
+      if (a.deadUntil > now || a.stunUntil > now || a.disconnected) continue;
+      const body = a.sprite.body as Phaser.Physics.Arcade.Body;
+      if (!body.blocked.down && !body.touching.down) continue;
+      const dx = this.wyrm.x - a.sprite.x;
+      if (Math.abs(dx) > COW_PUSH_REACH) continue;
+      if (Math.abs(a.sprite.y - shoulderY) > 34) continue;
+      // Leaning into it, not merely standing next to it.
+      if (Math.abs(a.input.x) < 0.3) continue;
+      if (Math.sign(a.input.x) !== Math.sign(dx)) continue;
+      out.push(a);
+    }
+    return out;
+  }
+
   private updateWyrm() {
     const stomping = this.cowStompStart > 0;
     const riders = this.actors.filter((r) => r.riding);
+    const pushers = stomping ? [] : this.cowPushers();
 
-    // An empty saddle releases the cow, so the next team can claim it.
-    if (riders.length === 0) this.cowTeam = null;
+    // Nothing in the saddle and nobody leaning on it: the cow is loose, and the
+    // next team to get hold of it takes it.
+    if (riders.length === 0 && pushers.length === 0) this.cowTeam = null;
+    if (this.cowTeam === null && pushers.length > 0) this.cowTeam = pushers[0].team;
 
-    if (!stomping) {
-      // Only the holding team is aboard, so their steering never cancels.
-      const pull = riders.reduce((s, r) => s + r.input.x, 0);
+    for (const p of pushers) {
+      if (p.team !== this.cowTeam) this.cueCowTaken(p);
+    }
+
+    // Only the holding team drives, so a contested cow does not cancel itself
+    // out and sit still while both sides shove.
+    const crew = [...riders, ...pushers].filter((a) => a.team === this.cowTeam);
+
+    if (!stomping && crew.length > 0) {
+      const pull = crew.reduce((s, r) => s + r.input.x, 0);
       const vx = Phaser.Math.Clamp(pull, -1, 1) * TUNING.wyrmSpeed;
       this.wyrm.setVelocityX(vx);
       if (Math.abs(vx) > 1) this.cowFacing = vx > 0 ? 1 : -1;
