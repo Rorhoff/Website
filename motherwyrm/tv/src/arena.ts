@@ -135,23 +135,23 @@ function drawGem(g: Phaser.GameObjects.Graphics) {
   g.fillStyle(COLORS.gem, 1);
   g.fillPoints(
     [
-      new Phaser.Geom.Point(9, 0),
-      new Phaser.Geom.Point(18, 8),
-      new Phaser.Geom.Point(9, 22),
-      new Phaser.Geom.Point(0, 8),
+      new Phaser.Geom.Point(6, 0),
+      new Phaser.Geom.Point(12, 6),
+      new Phaser.Geom.Point(6, 15),
+      new Phaser.Geom.Point(0, 6),
     ],
     true
   );
-  g.fillStyle(COLORS.gemLit, 0.6);
+  g.fillStyle(COLORS.gemLit, 0.65);
   g.fillPoints(
     [
-      new Phaser.Geom.Point(9, 0),
-      new Phaser.Geom.Point(13, 8),
-      new Phaser.Geom.Point(9, 22),
+      new Phaser.Geom.Point(6, 0),
+      new Phaser.Geom.Point(9, 6),
+      new Phaser.Geom.Point(6, 15),
     ],
     true
   );
-  g.generateTexture("gem", 18, 22);
+  g.generateTexture("gem", 12, 15);
 }
 
 function drawWyrmSeg(g: Phaser.GameObjects.Graphics) {

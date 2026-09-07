@@ -9,18 +9,26 @@ export const CENTER_X = W / 2;
 export const DEFAULT_GRID = 8;
 
 /** Hoard slot grid — mirrors arena-layout slot constants. */
-export const SLOT_SIZE = 22;
-export const SLOT_GAP = 8;
-export const SLOT_ROW_GAP = 10;
+export const SLOT_SIZE = 16;
+export const SLOT_GAP = 6;
+export const SLOT_ROW_GAP = 8;
 export const SLOT_COLS = 8;
 export const SLOT_ROWS = 2;
+export const SLOTS_TO_WIN = 15;
 export const HOARD_WIDTH = SLOT_COLS * (SLOT_SIZE + SLOT_GAP) - SLOT_GAP;
 export const HOARD_HEIGHT = SLOT_ROWS * SLOT_SIZE + (SLOT_ROWS - 1) * SLOT_ROW_GAP;
+
+export const GEM_RADIUS = 6;
+
+/** Ruby gem colors — match game COLORS.gem / gemLit. */
+export const GEM_RUBY = "#c41e3a";
+export const GEM_RUBY_LIT = "#ff6b81";
 
 export const DEFAULT_WYRM_PATH = {
   left: 60,
   right: W - 60,
   y: 690,
+  finishHeight: 110,
 };
 
 /** Game soil colors — default platform skin preset. */

@@ -1,32 +1,42 @@
 import { blankMap, defaultArenaMap } from "./default-map";
-import { DEFAULT_GRID, HOARD_WIDTH, SKIN_PRESETS, W } from "./constants";
+import { DEFAULT_GRID, SKIN_PRESETS, W } from "./constants";
 import {
   addGem,
   addPlatform,
   createEditorState,
   deleteSelection,
+  findHoardSlot,
   findPlatform,
+  gemBlockReason,
+  gemHoverBlocked,
+  hitTestCow,
+  hitTestFinishTop,
   hitTestGem,
-  hitTestHoard,
+  hitTestHoardSlot,
   hitTestPlatform,
   moveGem,
+  moveHoardSlot,
   movePlatform,
   resizePlatform,
-  setHoardAnchor,
+  setCowGroundY,
+  setFinishHeight,
   setPlatformPalette,
   setPlatformSkin,
   syncDocGrid,
   type EditorState,
 } from "./editor/state";
-import { defaultTransform, renderArena, screenToWorld, type ViewTransform } from "./editor/render";
-import { exportMap, parseMap, serializeMap, snap, validateMap } from "./schema";
+import { defaultTransform, renderArena, screenToWorld, type DrawPreview, type ViewTransform } from "./editor/render";
+import { createHistory } from "./editor/history";
+import { exportMap, parseMap, serializeMap, snap, snapGem, validateMap } from "./schema";
 import { loadRecentMaps, rememberMap } from "./storage";
 import type { MapDocument, PlatformPalette, Selection } from "./types";
 import "./style.css";
 
 type DragMode =
   | { kind: "pan"; sx: number; sy: number; ox: number; oy: number }
-  | { kind: "move"; id: string; kindObj: "platform" | "gem"; ox: number; oy: number; startX: number; startY: number }
+  | { kind: "move"; id: string; kindObj: "platform" | "gem" | "hoardSlot"; ox: number; oy: number }
+  | { kind: "cow"; startY: number }
+  | { kind: "finishTop"; startHeight: number; startY: number }
   | { kind: "draw"; x0: number; y0: number }
   | null;
 
@@ -39,6 +49,7 @@ function mountApp(root: HTMLElement): void {
         <button type="button" data-act="default">Load default arena</button>
         <button type="button" data-act="open">Open JSON…</button>
         <button type="button" data-act="export">Export JSON</button>
+        <button type="button" data-act="undo" id="undoBtn" disabled>Undo</button>
         <label class="mirror-toggle">
           <input type="checkbox" id="mirrorLock" checked> Mirror lock
         </label>
@@ -77,12 +88,55 @@ function mountApp(root: HTMLElement): void {
   const fileInput = root.querySelector("#fileInput") as HTMLInputElement;
   const mirrorLockEl = root.querySelector("#mirrorLock") as HTMLInputElement;
   const gridSizeEl = root.querySelector("#gridSize") as HTMLInputElement;
+  const undoBtn = root.querySelector("#undoBtn") as HTMLButtonElement;
 
   let state = createEditorState(blankMap());
+  const history = createHistory();
   let view = defaultTransform(canvas.width, canvas.height);
   let drag: DragMode = null;
   let hover: { x: number; y: number } | null = null;
+  let drawPreview: DrawPreview = null;
   let spacePan = false;
+
+  function updateUndoButton(): void {
+    undoBtn.disabled = !history.canUndo();
+  }
+
+  function recordHistory(): void {
+    history.record(state.doc);
+    updateUndoButton();
+  }
+
+  function restoreDoc(doc: MapDocument): void {
+    const sel = state.selection;
+    state.doc = doc;
+    state.dirty = true;
+    if (sel?.kind === "platform" && !state.doc.platforms.some((p) => p.id === sel.id)) {
+      state.selection = null;
+    } else if (sel?.kind === "gem" && !state.doc.gemSeams.some((g) => g.id === sel.id)) {
+      state.selection = null;
+    } else if (sel?.kind === "hoardSlot") {
+      const still = state.doc.hoardSlots.blue.some((s) => s.id === sel.id)
+        || state.doc.hoardSlots.red.some((s) => s.id === sel.id);
+      if (!still) state.selection = null;
+    }
+    renderProps();
+    redraw();
+    updateUndoButton();
+  }
+
+  function doUndo(): void {
+    const prev = history.undo(state.doc);
+    if (!prev) return;
+    restoreDoc(prev);
+    setStatus("Undid last edit");
+  }
+
+  function gemPlacementMessage(reason: "occupied" | "mirror_occupied"): string {
+    return reason === "mirror_occupied"
+      ? "Mirror slot occupied — a gem already exists at the mirrored position."
+      : "Gem already exists here.";
+  }
 
   function setStatus(msg: string, isError = false): void {
     statusBar.textContent = msg;
@@ -143,29 +197,33 @@ function mountApp(root: HTMLElement): void {
         <p><strong>Gem seam</strong></p>
         <label>X <input type="number" id="gX" value="${g.x}"></label>
         <label>Y <input type="number" id="gY" value="${g.y}"></label>
+        <p class="muted">Pixel coords — not snapped to the platform grid.</p>
         <button type="button" id="delBtn" class="danger">Delete gem</button>`;
       bindGemProps(g.id);
       return;
     }
 
-    if (sel.kind === "hoard") {
-      const a = state.doc.hoardSlots[sel.team][0];
-      if (!a) return;
+    if (sel.kind === "hoardSlot") {
+      const found = findHoardSlot(state.doc, sel.id);
+      if (!found) return;
+      const { slot, team } = found;
       propsBody.innerHTML = `
-        <p><strong>${sel.team.toUpperCase()} hoard anchor</strong></p>
-        <label>X <input type="number" id="hX" value="${a.x}"></label>
-        <label>Y <input type="number" id="hY" value="${a.y}"></label>`;
-      bindHoardProps(sel.team);
+        <p><strong>${team.toUpperCase()} hoard slot #${slot.index + 1}</strong></p>
+        <label>X <input type="number" id="hX" value="${slot.x}"></label>
+        <label>Y <input type="number" id="hY" value="${slot.y}"></label>`;
+      bindHoardSlotProps(slot.id);
       return;
     }
 
-    if (sel.kind === "wyrm") {
+    if (sel.kind === "wyrmCow" || sel.kind === "wyrmFinish") {
       const wp = state.doc.wyrmPath;
       propsBody.innerHTML = `
-        <p><strong>Wyrm path</strong></p>
+        <p><strong>Wyrm path & finish lines</strong></p>
         <label>Blue finish (left x) <input type="number" id="wLeft" value="${wp.left}"></label>
         <label>Red finish (right x) <input type="number" id="wRight" value="${wp.right}"></label>
-        <label>Ground y <input type="number" id="wY" value="${wp.y}"></label>`;
+        <label>Cow ground y <input type="number" id="wY" value="${wp.y}"></label>
+        <label>Finish height <input type="number" id="wH" value="${wp.finishHeight}"></label>
+        <p class="muted">Drag the cow to move ground y; drag finish line tops to resize height.</p>`;
       bindWyrmProps();
     }
   }
@@ -197,6 +255,7 @@ function mountApp(root: HTMLElement): void {
   function bindPlatformProps(p: ReturnType<typeof findPlatform>): void {
     if (!p) return;
     const apply = () => {
+      recordHistory();
       movePlatform(state, p.id, Number((propsBody.querySelector("#pX") as HTMLInputElement).value), Number((propsBody.querySelector("#pY") as HTMLInputElement).value));
       resizePlatform(state, p.id, Number((propsBody.querySelector("#pW") as HTMLInputElement).value), Number((propsBody.querySelector("#pH") as HTMLInputElement).value));
       redraw();
@@ -204,6 +263,7 @@ function mountApp(root: HTMLElement): void {
     ["pX", "pY", "pW", "pH"].forEach((id) => propsBody.querySelector(`#${id}`)?.addEventListener("change", apply));
 
     propsBody.querySelector("#pSkin")?.addEventListener("change", (e) => {
+      recordHistory();
       setPlatformSkin(state, p.id, (e.target as HTMLSelectElement).value);
       renderProps();
       redraw();
@@ -211,6 +271,7 @@ function mountApp(root: HTMLElement): void {
 
     for (const k of ["base", "shadow", "highlight", "trim"] as const) {
       propsBody.querySelector(`#pal_${k}`)?.addEventListener("input", (e) => {
+        recordHistory();
         const cur = p.palette ?? { ...SKIN_PRESETS[p.skin ?? "soil_default"]! };
         setPlatformPalette(state, p.id, { ...cur, [k]: (e.target as HTMLInputElement).value });
         redraw();
@@ -218,6 +279,7 @@ function mountApp(root: HTMLElement): void {
     }
 
     propsBody.querySelector("#delBtn")?.addEventListener("click", () => {
+      recordHistory();
       deleteSelection(state);
       renderProps();
       redraw();
@@ -226,20 +288,33 @@ function mountApp(root: HTMLElement): void {
 
   function bindGemProps(id: string): void {
     const apply = () => {
-      moveGem(state, id, Number((propsBody.querySelector("#gX") as HTMLInputElement).value), Number((propsBody.querySelector("#gY") as HTMLInputElement).value));
+      recordHistory();
+      const ok = moveGem(
+        state,
+        id,
+        Number((propsBody.querySelector("#gX") as HTMLInputElement).value),
+        Number((propsBody.querySelector("#gY") as HTMLInputElement).value)
+      );
+      if (!ok) {
+        doUndo();
+        setStatus("Cannot move gem — position or mirror slot is occupied.", true);
+        renderProps();
+      }
       redraw();
     };
     ["gX", "gY"].forEach((i) => propsBody.querySelector(`#${i}`)?.addEventListener("change", apply));
     propsBody.querySelector("#delBtn")?.addEventListener("click", () => {
+      recordHistory();
       deleteSelection(state);
       renderProps();
       redraw();
     });
   }
 
-  function bindHoardProps(team: "blue" | "red"): void {
+  function bindHoardSlotProps(id: string): void {
     const apply = () => {
-      setHoardAnchor(state, team, Number((propsBody.querySelector("#hX") as HTMLInputElement).value), Number((propsBody.querySelector("#hY") as HTMLInputElement).value));
+      recordHistory();
+      moveHoardSlot(state, id, Number((propsBody.querySelector("#hX") as HTMLInputElement).value), Number((propsBody.querySelector("#hY") as HTMLInputElement).value));
       redraw();
     };
     ["hX", "hY"].forEach((i) => propsBody.querySelector(`#${i}`)?.addEventListener("change", apply));
@@ -247,13 +322,14 @@ function mountApp(root: HTMLElement): void {
 
   function bindWyrmProps(): void {
     const apply = () => {
+      recordHistory();
       state.doc.wyrmPath.left = Number((propsBody.querySelector("#wLeft") as HTMLInputElement).value);
       state.doc.wyrmPath.right = Number((propsBody.querySelector("#wRight") as HTMLInputElement).value);
-      state.doc.wyrmPath.y = Number((propsBody.querySelector("#wY") as HTMLInputElement).value);
-      state.dirty = true;
+      setCowGroundY(state, Number((propsBody.querySelector("#wY") as HTMLInputElement).value));
+      setFinishHeight(state, Number((propsBody.querySelector("#wH") as HTMLInputElement).value));
       redraw();
     };
-    ["wLeft", "wRight", "wY"].forEach((i) => propsBody.querySelector(`#${i}`)?.addEventListener("change", apply));
+    ["wLeft", "wRight", "wY", "wH"].forEach((i) => propsBody.querySelector(`#${i}`)?.addEventListener("change", apply));
   }
 
   function esc(s: string): string {
@@ -261,7 +337,7 @@ function mountApp(root: HTMLElement): void {
   }
 
   function redraw(): void {
-    renderArena(ctx, state, view, canvas.width, canvas.height, state.selection, hover);
+    renderArena(ctx, state, view, canvas.width, canvas.height, state.selection, hover, drawPreview);
     refreshValidation();
   }
 
@@ -270,6 +346,8 @@ function mountApp(root: HTMLElement): void {
     state.mirrorLock = mirrorLockEl.checked;
     state.grid = Number(gridSizeEl.value) || DEFAULT_GRID;
     syncDocGrid(state);
+    history.clear();
+    updateUndoButton();
     renderProps();
     refreshRecent();
     redraw();
@@ -325,6 +403,7 @@ function mountApp(root: HTMLElement): void {
   });
   root.querySelector('[data-act="open"]')?.addEventListener("click", () => fileInput.click());
   root.querySelector('[data-act="export"]')?.addEventListener("click", doExport);
+  root.querySelector('[data-act="undo"]')?.addEventListener("click", doUndo);
 
   fileInput.addEventListener("change", async () => {
     const file = fileInput.files?.[0];
@@ -374,8 +453,15 @@ function mountApp(root: HTMLElement): void {
 
   window.addEventListener("keydown", (e) => {
     if (e.code === "Space") spacePan = true;
+    if ((e.ctrlKey || e.metaKey) && e.key === "z" && !e.shiftKey) {
+      if ((e.target as HTMLElement).tagName === "INPUT") return;
+      e.preventDefault();
+      doUndo();
+      return;
+    }
     if (e.key === "Delete" || e.key === "Backspace") {
       if ((e.target as HTMLElement).tagName === "INPUT") return;
+      recordHistory();
       deleteSelection(state);
       renderProps();
       redraw();
@@ -384,6 +470,10 @@ function mountApp(root: HTMLElement): void {
   window.addEventListener("keyup", (e) => {
     if (e.code === "Space") spacePan = false;
   });
+
+  function beginEdit(): void {
+    recordHistory();
+  }
 
   canvas.addEventListener("mousedown", (e) => {
     const rect = canvas.getBoundingClientRect();
@@ -401,39 +491,77 @@ function mountApp(root: HTMLElement): void {
     if (state.tool === "select") {
       const plat = hitTestPlatform(state.doc, world.x, world.y);
       if (plat) {
+        beginEdit();
         state.selection = { kind: "platform", id: plat.id };
-        drag = { kind: "move", id: plat.id, kindObj: "platform", ox: world.x - plat.x, oy: world.y - plat.y, startX: plat.x, startY: plat.y };
+        drag = { kind: "move", id: plat.id, kindObj: "platform", ox: world.x - plat.x, oy: world.y - plat.y };
+        renderProps();
+        redraw();
+        return;
+      }
+      const slot = hitTestHoardSlot(state.doc, world.x, world.y);
+      if (slot) {
+        beginEdit();
+        state.selection = { kind: "hoardSlot", id: slot.id };
+        drag = { kind: "move", id: slot.id, kindObj: "hoardSlot", ox: world.x - slot.x, oy: world.y - slot.y };
         renderProps();
         redraw();
         return;
       }
       const gem = hitTestGem(state.doc, world.x, world.y);
       if (gem) {
+        beginEdit();
         state.selection = { kind: "gem", id: gem.id };
-        drag = { kind: "move", id: gem.id, kindObj: "gem", ox: world.x - gem.x, oy: world.y - gem.y, startX: gem.x, startY: gem.y };
+        drag = { kind: "move", id: gem.id, kindObj: "gem", ox: world.x - gem.x, oy: world.y - gem.y };
         renderProps();
         redraw();
         return;
       }
-      const hoard = hitTestHoard(state.doc, world.x, world.y);
-      if (hoard) {
-        state.selection = { kind: "hoard", team: hoard };
+      if (hitTestFinishTop(state.doc, world.x, world.y)) {
+        beginEdit();
+        state.selection = { kind: "wyrmFinish" };
+        drag = {
+          kind: "finishTop",
+          startHeight: state.doc.wyrmPath.finishHeight,
+          startY: world.y,
+        };
         renderProps();
         redraw();
         return;
       }
-      state.selection = { kind: "wyrm" };
+      if (hitTestCow(state.doc, world.x, world.y)) {
+        beginEdit();
+        state.selection = { kind: "wyrmCow" };
+        drag = { kind: "cow", startY: world.y };
+        renderProps();
+        redraw();
+        return;
+      }
+      state.selection = null;
       renderProps();
       redraw();
       return;
     }
 
     if (state.tool === "platform") {
+      beginEdit();
       drag = { kind: "draw", x0: snap(world.x, state.grid), y0: snap(world.y, state.grid) };
       return;
     }
 
     if (state.tool === "gem") {
+      const existing = hitTestGem(state.doc, world.x, world.y);
+      if (existing) {
+        state.selection = { kind: "gem", id: existing.id };
+        renderProps();
+        redraw();
+        return;
+      }
+      const blocked = gemBlockReason(state, world.x, world.y);
+      if (blocked) {
+        setStatus(gemPlacementMessage(blocked), true);
+        return;
+      }
+      beginEdit();
       addGem(state, world.x, world.y);
       renderProps();
       redraw();
@@ -441,16 +569,27 @@ function mountApp(root: HTMLElement): void {
     }
 
     if (state.tool === "hoard") {
-      const team = world.x < W / 2 ? "blue" : "red";
-      setHoardAnchor(state, team, world.x - HOARD_WIDTH / 2, world.y - 40);
-      state.selection = { kind: "hoard", team };
+      const slot = hitTestHoardSlot(state.doc, world.x, world.y);
+      if (slot) {
+        beginEdit();
+        state.selection = { kind: "hoardSlot", id: slot.id };
+        drag = { kind: "move", id: slot.id, kindObj: "hoardSlot", ox: world.x - slot.x, oy: world.y - slot.y };
+      }
       renderProps();
       redraw();
       return;
     }
 
     if (state.tool === "wyrm") {
-      state.selection = { kind: "wyrm" };
+      if (hitTestCow(state.doc, world.x, world.y)) {
+        beginEdit();
+        state.selection = { kind: "wyrmCow" };
+        drag = { kind: "cow", startY: world.y };
+      } else if (hitTestFinishTop(state.doc, world.x, world.y)) {
+        beginEdit();
+        state.selection = { kind: "wyrmFinish" };
+        drag = { kind: "finishTop", startHeight: state.doc.wyrmPath.finishHeight, startY: world.y };
+      }
       renderProps();
       redraw();
     }
@@ -461,7 +600,10 @@ function mountApp(root: HTMLElement): void {
     const sx = e.clientX - rect.left;
     const sy = e.clientY - rect.top;
     const world = screenToWorld(view, sx, sy);
-    hover = { x: snap(world.x, state.grid), y: snap(world.y, state.grid) };
+    hover =
+      state.tool === "gem"
+        ? { x: snapGem(world.x), y: snapGem(world.y) }
+        : { x: snap(world.x, state.grid), y: snap(world.y, state.grid) };
 
     if (drag?.kind === "pan") {
       view.offsetX = drag.ox + (sx - drag.sx);
@@ -473,30 +615,42 @@ function mountApp(root: HTMLElement): void {
     if (drag?.kind === "move") {
       if (drag.kindObj === "platform") {
         movePlatform(state, drag.id, world.x - drag.ox, world.y - drag.oy);
-        renderProps();
+      } else if (drag.kindObj === "hoardSlot") {
+        moveHoardSlot(state, drag.id, world.x - drag.ox, world.y - drag.oy);
       } else {
         moveGem(state, drag.id, world.x - drag.ox, world.y - drag.oy);
-        renderProps();
       }
+      renderProps();
+      redraw();
+      return;
+    }
+
+    if (drag?.kind === "cow") {
+      setCowGroundY(state, world.y);
+      renderProps();
+      redraw();
+      return;
+    }
+
+    if (drag?.kind === "finishTop") {
+      const delta = drag.startY - world.y;
+      setFinishHeight(state, drag.startHeight + delta);
+      renderProps();
       redraw();
       return;
     }
 
     if (drag?.kind === "draw") {
-      redraw();
       const x = Math.min(drag.x0, snap(world.x, state.grid));
       const y = Math.min(drag.y0, snap(world.y, state.grid));
       const w = Math.abs(snap(world.x, state.grid) - drag.x0) || 96;
       const h = Math.abs(snap(world.y, state.grid) - drag.y0) || 16;
-      ctx.save();
-      ctx.translate(view.offsetX, view.offsetY);
-      ctx.scale(view.scale, view.scale);
-      ctx.strokeStyle = "rgba(242,192,99,0.9)";
-      ctx.strokeRect(x, y, w, h);
-      ctx.restore();
+      drawPreview = { kind: "platform", x, y, w, h };
+      redraw();
       return;
     }
 
+    drawPreview = null;
     redraw();
   });
 
@@ -512,13 +666,15 @@ function mountApp(root: HTMLElement): void {
       if (h < 4) h = 16;
       addPlatform(state, x, y, w, h);
       renderProps();
-      redraw();
     }
+    drawPreview = null;
     drag = null;
+    redraw();
   });
 
   canvas.addEventListener("mouseleave", () => {
     hover = null;
+    drawPreview = null;
     drag = null;
     redraw();
   });

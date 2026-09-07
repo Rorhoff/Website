@@ -13,13 +13,9 @@ export type MapPlatform = {
   y: number;
   w: number;
   h: number;
-  /** Named preset from SKIN_PRESETS, or omit to use palette inline. */
   skin?: string;
-  /** Per-platform palette override — exported when skin is custom. */
   palette?: PlatformPalette;
-  /** Links mirrored halves when symmetry is enforced. */
   pairId?: string;
-  /** Full-width ground row — only one per map, not mirrored. */
   ground?: boolean;
 };
 
@@ -30,10 +26,13 @@ export type MapGemSeam = {
   pairId?: string;
 };
 
-export type MapHoardAnchor = {
-  /** Top-left of the slot grid (HOARD_X / HOARD_Y in the game). */
+export type MapHoardSlot = {
+  id: string;
   x: number;
   y: number;
+  /** Slot index 0–14 (matches game hoard grid). */
+  index: number;
+  pairId?: string;
 };
 
 export type MapWyrmPath = {
@@ -41,8 +40,10 @@ export type MapWyrmPath = {
   left: number;
   /** Red finish line x. */
   right: number;
-  /** Cow ground y (feet line). */
+  /** Cow ground y — bottom of finish lines. */
   y: number;
+  /** Finish line height above ground y. */
+  finishHeight: number;
 };
 
 export type MapSpawns = {
@@ -60,8 +61,8 @@ export type MapDocument = {
   platforms: MapPlatform[];
   gemSeams: MapGemSeam[];
   hoardSlots: {
-    blue: MapHoardAnchor[];
-    red: MapHoardAnchor[];
+    blue: MapHoardSlot[];
+    red: MapHoardSlot[];
   };
   wyrmPath: MapWyrmPath;
   spawns?: MapSpawns;
@@ -69,11 +70,21 @@ export type MapDocument = {
 
 export type EditorTool = "select" | "platform" | "gem" | "hoard" | "wyrm";
 
+export type EditorState = {
+  doc: MapDocument;
+  mirrorLock: boolean;
+  tool: EditorTool;
+  selection: Selection;
+  grid: number;
+  dirty: boolean;
+};
+
 export type Selection =
   | { kind: "platform"; id: string }
   | { kind: "gem"; id: string }
-  | { kind: "hoard"; team: "blue" | "red" }
-  | { kind: "wyrm" }
+  | { kind: "hoardSlot"; id: string }
+  | { kind: "wyrmCow" }
+  | { kind: "wyrmFinish" }
   | null;
 
 export type ValidationIssue = {

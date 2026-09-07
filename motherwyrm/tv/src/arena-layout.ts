@@ -9,8 +9,8 @@ export const COLORS = {
   soilLip: 0x3d2e22,
   blue: 0x4aa3d8,
   red: 0xe0663f,
-  gem: 0xf2c063,
-  gemLit: 0xfff0c4,
+  gem: 0xc41e3a,
+  gemLit: 0xff6b81,
   wyrm: 0xc9a25e,
   bone: 0xefe4d2,
   dim: 0x8b7a66,
@@ -80,9 +80,9 @@ export const TUNING = {
 
 export type Team = "blue" | "red";
 
-export const SLOT_SIZE = 22;
-export const SLOT_GAP = 8;
-export const SLOT_ROW_GAP = 10;
+export const SLOT_SIZE = 16;
+export const SLOT_GAP = 6;
+export const SLOT_ROW_GAP = 8;
 export const SLOT_COLS = 8;
 export const SLOT_ROWS = 2;
 export const HOARD_WIDTH = SLOT_COLS * (SLOT_SIZE + SLOT_GAP) - SLOT_GAP;

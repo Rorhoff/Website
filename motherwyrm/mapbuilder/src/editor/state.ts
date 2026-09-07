@@ -1,23 +1,22 @@
-import { CENTER_X, DEFAULT_SKIN_NAME, HOARD_HEIGHT, HOARD_WIDTH, SLOT_COLS, SLOT_GAP, SLOT_ROW_GAP, SLOT_SIZE, W } from "../constants";
+import {
+  CENTER_X,
+  DEFAULT_SKIN_NAME,
+  SLOT_SIZE,
+  W,
+} from "../constants";
+import { mirrorHoardSlot, slotRect } from "../hoard";
 import {
   isOnCenterline,
   mirrorGemSeam,
-  mirrorHoard,
   mirrorPlatformX,
   mirrorPointX,
   newId,
   snap,
+  snapGem,
 } from "../schema";
-import type { EditorTool, MapDocument, MapGemSeam, MapPlatform, Selection } from "../types";
+import type { EditorState, MapDocument, MapGemSeam, MapHoardSlot, MapPlatform, Selection } from "../types";
 
-export type EditorState = {
-  doc: MapDocument;
-  mirrorLock: boolean;
-  tool: EditorTool;
-  selection: Selection;
-  grid: number;
-  dirty: boolean;
-};
+export type { EditorState, Selection };
 
 export function createEditorState(doc: MapDocument): EditorState {
   return {
@@ -38,6 +37,14 @@ export function findGem(doc: MapDocument, id: string): MapGemSeam | undefined {
   return doc.gemSeams.find((g) => g.id === id);
 }
 
+export function findHoardSlot(doc: MapDocument, id: string): { slot: MapHoardSlot; team: "blue" | "red" } | undefined {
+  for (const team of ["blue", "red"] as const) {
+    const slot = doc.hoardSlots[team].find((s) => s.id === id);
+    if (slot) return { slot, team };
+  }
+  return undefined;
+}
+
 export function partnerPlatform(doc: MapDocument, p: MapPlatform): MapPlatform | undefined {
   if (!p.pairId) return undefined;
   return doc.platforms.find((o) => o.pairId === p.pairId && o.id !== p.id);
@@ -46,6 +53,11 @@ export function partnerPlatform(doc: MapDocument, p: MapPlatform): MapPlatform |
 export function partnerGem(doc: MapDocument, g: MapGemSeam): MapGemSeam | undefined {
   if (!g.pairId) return undefined;
   return doc.gemSeams.find((o) => o.pairId === g.pairId && o.id !== g.id);
+}
+
+export function partnerHoardSlot(doc: MapDocument, s: MapHoardSlot, team: "blue" | "red"): MapHoardSlot | undefined {
+  const other = team === "blue" ? "red" : "blue";
+  return doc.hoardSlots[other].find((o) => o.index === s.index);
 }
 
 export function addPlatform(state: EditorState, x: number, y: number, w = 96, h = 16): MapPlatform {
@@ -82,9 +94,8 @@ export function movePlatform(state: EditorState, id: string, x: number, y: numbe
   const p = findPlatform(state.doc, id);
   if (!p || p.ground) return;
 
-  const grid = state.grid;
-  p.x = snap(x, grid);
-  p.y = snap(y, grid);
+  p.x = snap(x, state.grid);
+  p.y = snap(y, state.grid);
 
   if (state.mirrorLock && p.pairId) {
     const mate = partnerPlatform(state.doc, p);
@@ -143,14 +154,44 @@ export function deleteSelection(state: EditorState): void {
   state.dirty = true;
 }
 
-export function addGem(state: EditorState, x: number, y: number): MapGemSeam {
+export function findGemAt(
+  doc: MapDocument,
+  x: number,
+  y: number,
+  tol = 6,
+  exceptId?: string
+): MapGemSeam | undefined {
+  for (let i = doc.gemSeams.length - 1; i >= 0; i--) {
+    const g = doc.gemSeams[i]!;
+    if (exceptId && g.id === exceptId) continue;
+    if (Math.hypot(g.x - x, g.y - y) <= tol) return g;
+  }
+  return undefined;
+}
+
+export type AddGemResult =
+  | { ok: true; gem: MapGemSeam }
+  | { ok: false; reason: "occupied" | "mirror_occupied" };
+
+export function addGem(state: EditorState, x: number, y: number): AddGemResult {
+  const gx = snapGem(x);
+  const gy = snapGem(y);
+
+  if (findGemAt(state.doc, gx, gy)) {
+    return { ok: false, reason: "occupied" };
+  }
+
   const gem: MapGemSeam = {
     id: newId("gem"),
-    x: snap(x, state.grid),
-    y: snap(y, state.grid),
+    x: gx,
+    y: gy,
   };
 
   if (state.mirrorLock && gem.x !== mirrorPointX(gem.x)) {
+    const mx = mirrorPointX(gem.x);
+    if (findGemAt(state.doc, mx, gy)) {
+      return { ok: false, reason: "mirror_occupied" };
+    }
     const pairId = newId("pair");
     gem.pairId = pairId;
     const mirror = mirrorGemSeam(gem);
@@ -162,15 +203,28 @@ export function addGem(state: EditorState, x: number, y: number): MapGemSeam {
 
   state.dirty = true;
   state.selection = { kind: "gem", id: gem.id };
-  return gem;
+  return { ok: true, gem };
 }
 
-export function moveGem(state: EditorState, id: string, x: number, y: number): void {
+export function moveGem(state: EditorState, id: string, x: number, y: number): boolean {
   const g = findGem(state.doc, id);
-  if (!g) return;
+  if (!g) return false;
 
-  g.x = snap(x, state.grid);
-  g.y = snap(y, state.grid);
+  const gx = snapGem(x);
+  const gy = snapGem(y);
+
+  if (findGemAt(state.doc, gx, gy, 6, g.id)) return false;
+
+  if (state.mirrorLock && g.pairId) {
+    const mate = partnerGem(state.doc, g);
+    if (mate) {
+      const mx = mirrorPointX(gx);
+      if (findGemAt(state.doc, mx, gy, 6, mate.id)) return false;
+    }
+  }
+
+  g.x = gx;
+  g.y = gy;
 
   if (state.mirrorLock && g.pairId) {
     const mate = partnerGem(state.doc, g);
@@ -181,19 +235,55 @@ export function moveGem(state: EditorState, id: string, x: number, y: number): v
   }
 
   state.dirty = true;
+  return true;
 }
 
-export function setHoardAnchor(state: EditorState, team: "blue" | "red", x: number, y: number): void {
-  const anchor = { x: snap(x, state.grid), y: snap(y, state.grid) };
-  state.doc.hoardSlots[team] = [anchor];
+export function gemBlockReason(
+  state: EditorState,
+  x: number,
+  y: number
+): AddGemResult["reason"] | null {
+  const gx = snapGem(x);
+  const gy = snapGem(y);
+  if (findGemAt(state.doc, gx, gy)) return "occupied";
+  if (state.mirrorLock && gx !== mirrorPointX(gx)) {
+    if (findGemAt(state.doc, mirrorPointX(gx), gy)) return "mirror_occupied";
+  }
+  return null;
+}
+
+export function gemHoverBlocked(state: EditorState, x: number, y: number): boolean {
+  return gemBlockReason(state, x, y) !== null;
+}
+
+export function moveHoardSlot(state: EditorState, id: string, x: number, y: number): void {
+  const found = findHoardSlot(state.doc, id);
+  if (!found) return;
+  const { slot, team } = found;
+
+  slot.x = snap(x, state.grid);
+  slot.y = snap(y, state.grid);
 
   if (state.mirrorLock) {
-    const other = team === "blue" ? "red" : "blue";
-    state.doc.hoardSlots[other] = [mirrorHoard(anchor)];
+    const mate = partnerHoardSlot(state.doc, slot, team);
+    if (mate) {
+      const mirrored = mirrorHoardSlot(slot);
+      mate.x = mirrored.x;
+      mate.y = mirrored.y;
+    }
   }
 
   state.dirty = true;
-  state.selection = { kind: "hoard", team };
+}
+
+export function setCowGroundY(state: EditorState, y: number): void {
+  state.doc.wyrmPath.y = snap(y, state.grid);
+  state.dirty = true;
+}
+
+export function setFinishHeight(state: EditorState, height: number): void {
+  state.doc.wyrmPath.finishHeight = Math.max(40, snap(height, state.grid));
+  state.dirty = true;
 }
 
 export function setPlatformSkin(state: EditorState, id: string, skin: string): void {
@@ -212,22 +302,12 @@ export function setPlatformPalette(state: EditorState, id: string, palette: MapP
   state.dirty = true;
 }
 
-/** Hoard slot grid rects for drawing. */
-export function hoardSlotRects(team: "blue" | "red", doc: MapDocument) {
-  const anchor = doc.hoardSlots[team][0];
-  if (!anchor) return [];
-  const rects: Array<{ x: number; y: number; w: number; h: number }> = [];
-  for (let i = 0; i < 16; i++) {
-    const col = i % SLOT_COLS;
-    const row = Math.floor(i / SLOT_COLS);
-    rects.push({
-      x: anchor.x + col * (SLOT_SIZE + SLOT_GAP),
-      y: anchor.y + row * (SLOT_ROW_GAP + SLOT_SIZE),
-      w: SLOT_SIZE,
-      h: SLOT_SIZE,
-    });
+export function allHoardSlots(doc: MapDocument): Array<{ slot: MapHoardSlot; team: "blue" | "red" }> {
+  const out: Array<{ slot: MapHoardSlot; team: "blue" | "red" }> = [];
+  for (const team of ["blue", "red"] as const) {
+    for (const slot of doc.hoardSlots[team]) out.push({ slot, team });
   }
-  return rects;
+  return out;
 }
 
 export function hitTestPlatform(doc: MapDocument, x: number, y: number): MapPlatform | undefined {
@@ -238,7 +318,7 @@ export function hitTestPlatform(doc: MapDocument, x: number, y: number): MapPlat
   return undefined;
 }
 
-export function hitTestGem(doc: MapDocument, x: number, y: number, r = 12): MapGemSeam | undefined {
+export function hitTestGem(doc: MapDocument, x: number, y: number, r = 8): MapGemSeam | undefined {
   for (let i = doc.gemSeams.length - 1; i >= 0; i--) {
     const g = doc.gemSeams[i];
     if (Math.hypot(g.x - x, g.y - y) <= r) return g;
@@ -246,25 +326,28 @@ export function hitTestGem(doc: MapDocument, x: number, y: number, r = 12): MapG
   return undefined;
 }
 
-export function hitTestHoard(doc: MapDocument, x: number, y: number): "blue" | "red" | undefined {
-  for (const team of ["blue", "red"] as const) {
-    const anchor = doc.hoardSlots[team][0];
-    if (!anchor) continue;
-    if (
-      x >= anchor.x &&
-      x <= anchor.x + HOARD_WIDTH &&
-      y >= anchor.y &&
-      y <= anchor.y + HOARD_HEIGHT
-    ) {
-      return team;
-    }
+export function hitTestHoardSlot(doc: MapDocument, x: number, y: number): MapHoardSlot | undefined {
+  for (const { slot } of allHoardSlots(doc)) {
+    const r = slotRect(slot);
+    if (x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) return slot;
   }
   return undefined;
+}
+
+export function hitTestCow(doc: MapDocument, x: number, y: number): boolean {
+  const wp = doc.wyrmPath;
+  return Math.hypot(x - W / 2, y - (wp.y - 22)) <= 18;
+}
+
+export function hitTestFinishTop(doc: MapDocument, x: number, y: number): boolean {
+  const wp = doc.wyrmPath;
+  const top = wp.y - wp.finishHeight;
+  const onLine = Math.abs(x - wp.left) < 12 || Math.abs(x - wp.right) < 12;
+  return onLine && Math.abs(y - top) < 14;
 }
 
 export function syncDocGrid(state: EditorState): void {
   state.doc.grid = state.grid;
 }
 
-/** Centerline guide x. */
 export { CENTER_X, W };

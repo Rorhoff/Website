@@ -245,7 +245,7 @@ export class Game extends Phaser.Scene {
       const spawn = SPAWN[p.team];
       const sprite = this.physics.add.sprite(spawn.x, spawn.y, key);
       applySpriteScale(sprite);
-      sprite.setCollideWorldBounds(true);
+      sprite.setCollideWorldBounds(p.role !== 'mother');
       const body = sprite.body as Phaser.Physics.Arcade.Body;
       body.setGravityY(
         p.role === 'mother' ? TUNING.motherGravity - TUNING.gravity : 0
@@ -581,6 +581,14 @@ export class Game extends Phaser.Scene {
         tryPlayAnim(a.sprite, a.atlasKey, 'claw');
       }
     }
+
+    this.wrapSpriteX(a.sprite);
+  }
+
+  /** No side walls for mothers or the cow — they re-enter from the opposite edge. */
+  private wrapSpriteX(sprite: Phaser.Physics.Arcade.Sprite) {
+    if (sprite.x < 0) sprite.x += W;
+    else if (sprite.x > W) sprite.x -= W;
   }
 
   private dismount(a: Actor, vy: number) {
@@ -737,7 +745,7 @@ export class Game extends Phaser.Scene {
     } else {
       this.wyrm.setVelocityX(0);
     }
-    this.wyrm.x = Phaser.Math.Clamp(this.wyrm.x, 40, W - 40);
+    this.wrapSpriteX(this.wyrm);
     this.wyrm.y = this.wyrm.y + (this.cowFeetY() - COW_HALF_H - this.wyrm.y) * 0.35;
   }
 

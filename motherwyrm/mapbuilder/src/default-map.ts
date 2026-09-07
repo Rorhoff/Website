@@ -4,22 +4,21 @@ import {
   DEFAULT_WYRM_PATH,
   H,
   HOARD_HEIGHT,
-  HOARD_WIDTH,
   W,
 } from "./constants";
+import { hoardGridFromAnchor, mirrorHoardTeam } from "./hoard";
 import { newId, resetIdCounter } from "./schema";
 import type { MapDocument, MapPlatform } from "./types";
 
-/** HOARD_SHELF_Y and HOARD_X from arena-layout.ts (duplicated — not imported from game). */
 const HOARD_SHELF_Y = 592;
 const HOARD_Y = HOARD_SHELF_Y - HOARD_HEIGHT;
 const HOARD_X_BLUE = 70;
-const HOARD_X_RED = W - 70 - HOARD_WIDTH;
 
-/** Blank symmetric template: ground floor + hoard anchors + wyrm path. */
+/** Blank symmetric template: ground floor + hoard slots + wyrm path. */
 export function blankMap(): MapDocument {
   resetIdCounter();
   const pair = newId("pair");
+  const blueSlots = hoardGridFromAnchor(HOARD_X_BLUE, HOARD_Y);
   return {
     version: 1,
     id: "new_map",
@@ -58,8 +57,8 @@ export function blankMap(): MapDocument {
     ],
     gemSeams: [],
     hoardSlots: {
-      blue: [{ x: HOARD_X_BLUE, y: HOARD_Y }],
-      red: [{ x: HOARD_X_RED, y: HOARD_Y }],
+      blue: blueSlots,
+      red: mirrorHoardTeam(blueSlots),
     },
     wyrmPath: { ...DEFAULT_WYRM_PATH },
     spawns: {

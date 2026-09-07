@@ -1,7 +1,9 @@
-import { CENTER_X, H, W } from "../constants";
+import { CENTER_X, GEM_RADIUS, GEM_RUBY, GEM_RUBY_LIT, H, SLOT_SIZE, W } from "../constants";
+import { drawJumpArc } from "../jump-arc";
+import { mirrorPointX } from "../schema";
 import { resolvePalette } from "../schema";
 import { drawPlatformCap } from "../platform-tile";
-import { hoardSlotRects, type EditorState } from "./state";
+import { allHoardSlots, gemHoverBlocked, type EditorState } from "./state";
 import type { Selection } from "../types";
 
 export type ViewTransform = {
@@ -27,6 +29,10 @@ export function screenToWorld(v: ViewTransform, sx: number, sy: number): { x: nu
   };
 }
 
+export type DrawPreview =
+  | { kind: "platform"; x: number; y: number; w: number; h: number }
+  | null;
+
 export function renderArena(
   ctx: CanvasRenderingContext2D,
   state: EditorState,
@@ -34,7 +40,8 @@ export function renderArena(
   canvasW: number,
   canvasH: number,
   selection: Selection,
-  hover: { x: number; y: number } | null
+  hover: { x: number; y: number } | null,
+  preview: DrawPreview
 ): void {
   ctx.save();
   ctx.fillStyle = "#121018";
@@ -43,14 +50,11 @@ export function renderArena(
   ctx.translate(v.offsetX, v.offsetY);
   ctx.scale(v.scale, v.scale);
 
-  // Sky
   ctx.fillStyle = "#171016";
   ctx.fillRect(0, 0, W, H);
 
-  // Grid
   drawGrid(ctx, state.doc.grid);
 
-  // Mirror centerline
   ctx.strokeStyle = "rgba(255,255,255,0.12)";
   ctx.lineWidth = 1;
   ctx.setLineDash([6, 6]);
@@ -60,7 +64,6 @@ export function renderArena(
   ctx.stroke();
   ctx.setLineDash([]);
 
-  // Platforms
   for (const p of state.doc.platforms) {
     const pal = resolvePalette(p);
     const sel = selection?.kind === "platform" && selection.id === p.id;
@@ -72,41 +75,25 @@ export function renderArena(
     }
   }
 
-  // Hoard slots
-  for (const team of ["blue", "red"] as const) {
+  for (const { slot, team } of allHoardSlots(state.doc)) {
     const color = team === "blue" ? "#4aa3d8" : "#e0663f";
-    const sel = selection?.kind === "hoard" && selection.team === team;
-    for (const r of hoardSlotRects(team, state.doc)) {
-      ctx.fillStyle = sel ? color : `${color}55`;
-      ctx.fillRect(r.x, r.y, r.w, r.h);
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 1;
-      ctx.strokeRect(r.x, r.y, r.w, r.h);
-    }
-    const anchor = state.doc.hoardSlots[team][0];
-    if (anchor) {
-      ctx.fillStyle = color;
-      ctx.font = "11px system-ui";
-      ctx.fillText(`${team.toUpperCase()} hoard`, anchor.x, anchor.y - 6);
-    }
+    const sel = selection?.kind === "hoardSlot" && selection.id === slot.id;
+    ctx.fillStyle = sel ? color : `${color}44`;
+    ctx.fillRect(slot.x, slot.y, SLOT_SIZE, SLOT_SIZE);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = sel ? 2 : 1;
+    ctx.strokeRect(slot.x, slot.y, SLOT_SIZE, SLOT_SIZE);
   }
 
-  // Gem seams
   for (const g of state.doc.gemSeams) {
     const sel = selection?.kind === "gem" && selection.id === g.id;
-    ctx.beginPath();
-    ctx.arc(g.x, g.y, sel ? 10 : 8, 0, Math.PI * 2);
-    ctx.fillStyle = sel ? "#fff0c4" : "#f2c063";
-    ctx.fill();
-    ctx.strokeStyle = "#c9a25e";
-    ctx.lineWidth = 2;
-    ctx.stroke();
+    drawRubyGem(ctx, g.x, g.y, sel);
   }
 
-  // Wyrm path / finish lines
   const wp = state.doc.wyrmPath;
-  const top = wp.y - 110;
+  const top = wp.y - wp.finishHeight;
   const bottom = wp.y;
+
   ctx.lineWidth = 3;
   ctx.strokeStyle = "#4aa3d8";
   ctx.beginPath();
@@ -119,34 +106,87 @@ export function renderArena(
   ctx.lineTo(wp.right, bottom);
   ctx.stroke();
 
+  if (selection?.kind === "wyrmFinish") {
+    ctx.fillStyle = "#f2c063";
+    ctx.fillRect(wp.left - 6, top - 6, 12, 12);
+    ctx.fillRect(wp.right - 6, top - 6, 12, 12);
+  }
+
+  const cowSel = selection?.kind === "wyrmCow";
   ctx.fillStyle = "#c9a25e";
   ctx.beginPath();
   ctx.arc(W / 2, wp.y - 22, 14, 0, Math.PI * 2);
   ctx.fill();
-  ctx.fillStyle = "#8b7a66";
-  ctx.font = "12px system-ui";
-  ctx.fillText("cow path", W / 2 - 28, wp.y + 24);
-
-  if (selection?.kind === "wyrm") {
+  if (cowSel) {
     ctx.strokeStyle = "#f2c063";
     ctx.lineWidth = 2;
-    ctx.strokeRect(wp.left - 4, top - 4, 8, bottom - top + 8);
-    ctx.strokeRect(wp.right - 4, top - 4, 8, bottom - top + 8);
-  }
-
-  // Tool preview
-  if (hover && state.tool === "platform") {
-    ctx.strokeStyle = "rgba(242,192,99,0.7)";
-    ctx.lineWidth = 1;
-    ctx.strokeRect(hover.x, hover.y, 96, 16);
-  }
-  if (hover && state.tool === "gem") {
-    ctx.beginPath();
-    ctx.arc(hover.x, hover.y, 8, 0, Math.PI * 2);
-    ctx.strokeStyle = "rgba(242,192,99,0.7)";
     ctx.stroke();
   }
 
+  ctx.fillStyle = "#8b7a66";
+  ctx.font = "11px system-ui";
+  ctx.fillText("cow — drag vertically", W / 2 - 52, wp.y + 20);
+  ctx.fillText("finish top — drag blue/red line tops", wp.left + 8, top - 8);
+
+  const showArc =
+    state.tool === "platform" &&
+    (preview?.kind === "platform" || (hover && !preview));
+  if (showArc) {
+    const plat = preview?.kind === "platform" ? preview : { x: hover!.x, y: hover!.y, w: 96, h: 16 };
+    const fromX = plat.x + plat.w / 2;
+    drawJumpArc(ctx, fromX, plat.y);
+  }
+
+  if (preview?.kind === "platform") {
+    ctx.strokeStyle = "rgba(242,192,99,0.85)";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(preview.x, preview.y, preview.w, preview.h);
+  } else if (hover && state.tool === "platform") {
+    ctx.strokeStyle = "rgba(242,192,99,0.5)";
+    ctx.strokeRect(hover.x, hover.y, 96, 16);
+  }
+
+  if (hover && state.tool === "gem") {
+    const gx = Math.round(hover.x);
+    const gy = Math.round(hover.y);
+    const blocked = gemHoverBlocked(state, gx, gy);
+    drawRubyGem(ctx, gx, gy, false, true, blocked ? "blocked" : "ok");
+    if (state.mirrorLock && gx !== mirrorPointX(gx)) {
+      drawRubyGem(ctx, mirrorPointX(gx), gy, false, true, blocked ? "blocked" : "mirror");
+    }
+  }
+
+  ctx.restore();
+}
+
+function drawRubyGem(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  sel: boolean,
+  ghost = false,
+  ghostKind: "ok" | "mirror" | "blocked" = "ok"
+): void {
+  const r = GEM_RADIUS;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.globalAlpha = ghost ? (ghostKind === "mirror" ? 0.35 : 0.55) : 1;
+  ctx.beginPath();
+  ctx.moveTo(0, -r);
+  ctx.lineTo(r * 0.85, 0);
+  ctx.lineTo(0, r * 1.1);
+  ctx.lineTo(-r * 0.85, 0);
+  ctx.closePath();
+  if (ghost && ghostKind === "blocked") {
+    ctx.fillStyle = "rgba(180,60,60,0.5)";
+    ctx.strokeStyle = "#e0663f";
+  } else {
+    ctx.fillStyle = sel ? GEM_RUBY_LIT : GEM_RUBY;
+    ctx.strokeStyle = sel ? "#fff" : "#8b1538";
+  }
+  ctx.fill();
+  ctx.lineWidth = sel ? 2 : 1;
+  ctx.stroke();
   ctx.restore();
 }
 

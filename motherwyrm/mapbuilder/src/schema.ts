@@ -4,11 +4,12 @@ import {
   DEFAULT_SKIN_NAME,
   DEFAULT_WYRM_PATH,
   H,
-  HOARD_WIDTH,
+  SLOT_SIZE,
   SKIN_PRESETS,
   W,
 } from "./constants";
-import type { MapDocument, MapGemSeam, MapHoardAnchor, MapPlatform, PlatformPalette, ValidationIssue } from "./types";
+import { hoardGridFromAnchor, mirrorHoardTeam } from "./hoard";
+import type { MapDocument, MapGemSeam, MapPlatform, PlatformPalette, ValidationIssue } from "./types";
 
 let idCounter = 0;
 export function newId(prefix: string): string {
@@ -23,6 +24,11 @@ export function resetIdCounter(n = 0): void {
 export function snap(v: number, grid: number): number {
   if (grid <= 0) return v;
   return Math.round(v / grid) * grid;
+}
+
+/** Gems use pixel coordinates (arena spawns are not on the platform grid). */
+export function snapGem(v: number): number {
+  return Math.round(v);
 }
 
 export function mirrorPlatformX(x: number, w: number): number {
@@ -44,13 +50,6 @@ export function mirrorGemSeam(g: MapGemSeam): MapGemSeam {
     id: newId("gem"),
     x: mirrorPointX(g.x),
     pairId: g.pairId,
-  };
-}
-
-export function mirrorHoard(h: MapHoardAnchor): MapHoardAnchor {
-  return {
-    x: W - h.x - HOARD_WIDTH,
-    y: h.y,
   };
 }
 
@@ -129,14 +128,13 @@ function validateSymmetry(doc: MapDocument, issues: ValidationIssue[]): void {
     }
   }
 
-  if (doc.hoardSlots.blue.length && doc.hoardSlots.red.length) {
-    const b = doc.hoardSlots.blue[0];
-    const r = doc.hoardSlots.red[0];
-    const expectedRedX = W - b.x - HOARD_WIDTH;
-    if (Math.abs(r.x - expectedRedX) > 0.5 || r.y !== b.y) {
+  for (const b of doc.hoardSlots.blue) {
+    const mx = W - b.x - SLOT_SIZE;
+    const pair = doc.hoardSlots.red.find((r) => r.index === b.index);
+    if (!pair || Math.abs(pair.x - mx) > 0.5 || pair.y !== b.y) {
       issues.push({
         level: "error",
-        message: `Hoard anchors not mirrored (blue ${b.x},${b.y} → expected red ${expectedRedX},${b.y}).`,
+        message: `Hoard slot ${b.index} (blue) missing mirror at (${mx},${b.y}).`,
       });
     }
   }
@@ -156,7 +154,26 @@ export function parseMap(json: string): MapDocument {
   return normalizeMap(raw);
 }
 
+function normalizeHoard(raw: MapDocument["hoardSlots"]): MapDocument["hoardSlots"] {
+  const blue = raw.blue ?? [];
+  const red = raw.red ?? [];
+  if (blue.length === 1 && (blue[0] as { index?: number }).index === undefined) {
+    const anchor = blue[0]!;
+    const grid = hoardGridFromAnchor(anchor.x, anchor.y);
+    return { blue: grid, red: mirrorHoardTeam(grid) };
+  }
+  return {
+    blue: blue.map((s, i) => ({ ...s, index: s.index ?? i, id: s.id ?? newId("slot") })),
+    red: red.map((s, i) => ({ ...s, index: s.index ?? i, id: s.id ?? newId("slot") })),
+  };
+}
+
 function normalizeMap(raw: MapDocument): MapDocument {
+  const wyrmPath = {
+    ...DEFAULT_WYRM_PATH,
+    ...raw.wyrmPath,
+    finishHeight: raw.wyrmPath?.finishHeight ?? DEFAULT_WYRM_PATH.finishHeight,
+  };
   return {
     version: 1,
     id: raw.id ?? "untitled",
@@ -166,8 +183,8 @@ function normalizeMap(raw: MapDocument): MapDocument {
     grid: raw.grid ?? DEFAULT_GRID,
     platforms: raw.platforms ?? [],
     gemSeams: raw.gemSeams ?? [],
-    hoardSlots: raw.hoardSlots ?? { blue: [], red: [] },
-    wyrmPath: raw.wyrmPath ?? { ...DEFAULT_WYRM_PATH },
+    hoardSlots: normalizeHoard(raw.hoardSlots ?? { blue: [], red: [] }),
+    wyrmPath,
     spawns: raw.spawns,
   };
 }
