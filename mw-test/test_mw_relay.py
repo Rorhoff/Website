@@ -93,6 +93,16 @@ def test_pad_deep_link_serves_join_page(client):
     assert "joinBtn" in res.text
 
 
+def test_mapbuilder_served(client):
+    res = client.get("/mw/mapbuilder/", follow_redirects=False)
+    assert res.status_code == 200
+    assert "MotherWyrm Map Builder" in res.text
+
+    bare = client.get("/mw/mapbuilder", follow_redirects=False)
+    assert bare.status_code == 301
+    assert bare.headers["location"] == "/mw/mapbuilder/"
+
+
 def test_join_rejects_unknown_code(client):
     with client.websocket_connect("/api/mw/ws") as phone:
         phone.send_json({"t": "join", "code": "ZZZZ", "name": "Lost"})

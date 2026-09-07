@@ -7,14 +7,16 @@ Ten-player couch brawler — TV runs the game in the browser, phones are control
 | Path | Role |
 |------|------|
 | `motherwyrm/tv/` | Phaser 3 TV client (Vite + TypeScript) |
+| `motherwyrm/mapbuilder/` | Arena map editor (Vite + TypeScript) → JSON export |
 | `motherwyrm/art/` | Aseprite sources, export scripts, built sheets |
-| `static/mw/` | Built TV client + phone controller (`pad/`) |
+| `static/mw/` | Built TV client + phone controller (`pad/`) + map builder |
 | `motherwyrm_routes.py` | FastAPI WebSocket relay at `/api/mw/ws` |
 
 ## URLs (portfolio deploy)
 
 - **TV:** `/mw/`
 - **Phone controller:** `/mw/pad/` (deep link `/mw/pad/c/ABCD`)
+- **Map builder:** `/mw/mapbuilder/`
 
 ## Dev
 
@@ -24,12 +26,21 @@ uvicorn main:app --reload
 
 # Terminal 2 — TV client (optional; or use built static/mw)
 cd motherwyrm/tv && npm run dev
+
+# Map builder dev server
+cd motherwyrm/mapbuilder && npm run dev
 ```
 
 Rebuild TV after source changes:
 
 ```bash
 cd motherwyrm/tv && npm run build
+```
+
+Rebuild map builder:
+
+```bash
+cd motherwyrm/mapbuilder && npm run build
 ```
 
 ## Carry rules

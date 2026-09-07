@@ -988,6 +988,10 @@ else:
     def mw_pad_no_slash() -> RedirectResponse:
         return RedirectResponse(url="/mw/pad/", status_code=301)
 
+    @app.get("/mw/mapbuilder", include_in_schema=False)
+    def mw_mapbuilder_no_slash() -> RedirectResponse:
+        return RedirectResponse(url="/mw/mapbuilder/", status_code=301)
+
     app.mount(
         "/mw/pad",
         StaticFiles(directory=str(STATIC_DIR / "mw" / "pad"), html=True),
