@@ -68,8 +68,8 @@ export const TUNING = {
   throwPower: 440,
   carryMax: 1,
 
-  /** ~580px center→finish in 20s with one rider pulling. */
-  wyrmSpeed: 29,
+  /** ~580px center→finish in ~29s with one herder pushing. */
+  wyrmSpeed: 20,
   wyrmWin: { blue: 60, red: W - 60 },
   /** Top of the ground platform — cow feet sit here. */
   cowGroundY: 690,
@@ -119,8 +119,12 @@ export const PLATFORMS: [number, number, number, number][] = [
   // cow could not be boarded at all until it had already been pushed clear.
   [500, 570, 90, 16],
   [690, 570, 90, 16],
-  [520, 450, 240, 16],
-  [560, 330, 160, 16],
+  // Same air shaft as the lowest rung — mothers need a dive lane here and
+  // herders nip the cow from the ground; a solid 240px roof made both impossible.
+  [520, 450, 70, 16],
+  [690, 450, 70, 16],
+  [560, 330, 30, 16],
+  [690, 330, 30, 16],
 ];
 
 /** 15 left-side gems mirrored → 30 fixed gems (no respawn). */

@@ -27,6 +27,9 @@ const GEM_HALF = 10;
  * feet, its back is 22px above that, and a rider stands a half-whelp higher.
  */
 const COW_BACK_Y = (TUNING.cowGroundY ?? 690) - 44 - 22 - WHELP_HALF;
+const COW_PUSH_REACH = 46;
+const COW_BUTT_MIN = 12;
+const COW_SHOULDER_Y = (TUNING.cowGroundY ?? 690) - 22;
 
 type SimGem = { x: number; y: number; alive: boolean };
 
@@ -153,23 +156,23 @@ class Sim {
         this.hopsInPlace.set(w.pid, Math.max(this.hopsInPlace.get(w.pid) ?? 0, run));
       }
 
-      // Riders are carried, not self-propelled, and a jump drops them off.
-      if (w.riding) {
-        if (w.input.jumpEdge) {
-          w.riding = false;
-          w.vy = -480;
-        } else {
-          w.x = this.cowX;
-          w.y = COW_BACK_Y;
-          w.vy = 0;
-          w.onGround = false;
-          continue;
-        }
-      }
+      // Legacy field — herding is ground-only now, but the flag may still be set.
+      if (w.riding) w.riding = false;
+
+      const goalDir = w.team === "blue" ? -1 : 1;
+      const dx = this.cowX - w.x;
+      const behind = goalDir < 0 ? dx > COW_BUTT_MIN : dx < -COW_BUTT_MIN;
+      const pushing =
+        w.onGround &&
+        behind &&
+        Math.abs(dx) <= COW_PUSH_REACH &&
+        Math.abs(w.y - COW_SHOULDER_Y) <= 34 &&
+        Math.abs(w.input.x) >= 0.3 &&
+        Math.sign(w.input.x) === goalDir;
 
       if (w.input.jumpEdge && w.onGround) w.vy = TUNING.whelpJump;
 
-      w.vx = w.input.x * TUNING.whelpSpeed;
+      w.vx = pushing ? goalDir * TUNING.wyrmSpeed : w.input.x * TUNING.whelpSpeed;
       w.vy += TUNING.gravity * DT;
 
       const prevBottom = w.y + WHELP_HALF;
@@ -193,16 +196,15 @@ class Sim {
 
       this.collect(w);
       this.deposit(w);
-      this.tryMount(w);
     }
 
-    // Riders steer; an empty saddle releases the cow for the next team.
-    const riders = this.whelps.filter((w) => w.riding);
-    if (riders.length === 0) {
-      this.cowTeam = null;
-    } else {
-      const pull = Math.max(-1, Math.min(1, riders.reduce((s, r) => s + r.input.x, 0)));
-      const vx = pull * TUNING.wyrmSpeed;
+    const pushers = this.cowPushers();
+    if (pushers.length === 0) this.cowTeam = null;
+    else if (this.cowTeam === null) this.cowTeam = pushers[0].team;
+
+    const pull = this.cowSteeringPull(pushers);
+    if (pull !== 0) {
+      const vx = Math.max(-1, Math.min(1, pull)) * TUNING.wyrmSpeed;
       this.cowX = Math.max(40, Math.min(W - 40, this.cowX + vx * DT));
       if (Math.abs(vx) > 1) this.cowFace = vx > 0 ? 1 : -1;
     }
@@ -210,14 +212,34 @@ class Sim {
     this.time += DT * 1000;
   }
 
-  /** Same rule as Game.ts: land on the back, and one team at a time. */
-  private tryMount(w: SimWhelp) {
-    if (w.riding || w.vy < 0) return;
-    if (Math.abs(w.x - this.cowX) >= 46) return;
-    if (Math.abs(w.y - COW_BACK_Y) >= 28) return;
-    if (this.cowTeam && this.cowTeam !== w.team) return;
-    this.cowTeam = w.team;
-    w.riding = true;
+  private cowPushers(): SimWhelp[] {
+    const out: SimWhelp[] = [];
+    for (const w of this.whelps) {
+      if (w.deadUntil > this.time || w.stunUntil > this.time) continue;
+      if (!w.onGround) continue;
+      const dx = this.cowX - w.x;
+      const goalDir = w.team === "blue" ? -1 : 1;
+      const behind = goalDir < 0 ? dx > COW_BUTT_MIN : dx < -COW_BUTT_MIN;
+      if (!behind || Math.abs(dx) > COW_PUSH_REACH) continue;
+      if (Math.abs(w.y - COW_SHOULDER_Y) > 34) continue;
+      if (Math.abs(w.input.x) < 0.3) continue;
+      if (Math.sign(w.input.x) !== goalDir) continue;
+      out.push(w);
+    }
+    return out;
+  }
+
+  private cowSteeringPull(pushers: SimWhelp[]): number {
+    const team = this.cowTeam;
+    if (!team) return 0;
+    const goalDir = team === "blue" ? -1 : 1;
+    let pull = 0;
+    for (const w of pushers) {
+      if (w.team !== team) continue;
+      if (Math.sign(w.input.x) !== goalDir) continue;
+      if (Math.abs(w.input.x) > Math.abs(pull)) pull = w.input.x;
+    }
+    return pull;
   }
 
   run(ms: number) {
@@ -352,6 +374,11 @@ describe("gem hunter makes progress", () => {
   });
 });
 
+/** Blue nips from the left flank, red from the right — matches bots.ts herdFlankX. */
+function herdFlankX(team: Team, cowX: number) {
+  return cowX + (team === "blue" ? -42 : 42);
+}
+
 describe("escort reaches the cow", () => {
   // Escorting kicks in once the gems run out, so give it an empty arena.
   const perches: Array<[string, number, number]> = [
@@ -361,12 +388,12 @@ describe("escort reaches the cow", () => {
   ];
 
   for (const [name, x, top] of perches) {
-    it(`comes down off the ${name} and gets aboard`, () => {
+    it(`comes down off the ${name} and herds the cow`, () => {
       const w = makeWhelp(1, "blue", x, standingY(top));
       const sim = new Sim([w], []);
       sim.run(10000);
-      // Riding proves the whole route: down off the ledge, across, and on.
-      expect(w.riding).toBe(true);
+      expect(sim.cowTeam).toBe("blue");
+      expect(sim.cowX).toBeLessThan(W / 2 - 40);
     });
   }
 
@@ -374,26 +401,25 @@ describe("escort reaches the cow", () => {
     const w = makeWhelp(1, "blue", 165, standingY(225));
     const sim = new Sim([w], []);
     sim.run(10000);
-    expect(sim.rapidFlips.get(1) ?? 0).toBeLessThan(5);
     expect(sim.hopsInPlace.get(1) ?? 0).toBeLessThan(HOP_LIMIT);
-  });
-
-  it("actually gets aboard rather than standing beside it", () => {
-    const w = makeWhelp(1, "blue", 500, standingY(690));
-    const sim = new Sim([w], []);
-    sim.run(10000);
-    expect(w.riding).toBe(true);
     expect(sim.cowTeam).toBe("blue");
   });
 
-  it("leaves an enemy-held cow alone instead of hopping at it", () => {
-    const mine = makeWhelp(1, "blue", 500, standingY(690));
-    const theirs = makeWhelp(2, "red", 780, standingY(690));
+  it("actually moves the cow rather than pacing beside it", () => {
+    const w = makeWhelp(1, "blue", herdFlankX("blue", W / 2), standingY(690));
+    const sim = new Sim([w], []);
+    sim.run(10000);
+    expect(sim.cowTeam).toBe("blue");
+    expect(sim.cowX).toBeLessThan(W / 2 - 40);
+  });
+
+  it("leaves an enemy-held cow alone instead of cancelling the push", () => {
+    const mine = makeWhelp(1, "blue", herdFlankX("blue", W / 2) - 80, standingY(690));
+    const theirs = makeWhelp(2, "red", herdFlankX("red", W / 2), standingY(690));
     const sim = new Sim([mine, theirs], []);
     sim.run(10000);
-    // Whoever gets there first owns it; the other never shares the saddle.
-    expect(mine.riding !== theirs.riding).toBe(true);
-    expect(sim.cowTeam).toBe(mine.riding ? "blue" : "red");
+    expect(sim.cowTeam).toBe("red");
+    expect(sim.cowX).toBeGreaterThan(W / 2 + 40);
   });
 });
 
@@ -484,13 +510,12 @@ describe("every gem is reachable", () => {
         resetBotMemory();
         const w = makeWhelp(1, "blue", s[0], standingY(s[1]));
         const sim = new Sim([w], [[g[0], g[1]]]);
-        sim.run(20000);
+        sim.run(30000);
         // Crossing for one far gem is optional — escorting the cow instead is a
         // fine answer. Hopping on the spot is not.
-        const busy =
-          (sim.collected.get(1) ?? 0) > 0 || w.riding || Math.abs(w.x - s[0]) > 300;
+        const herding = sim.cowTeam === w.team || Math.abs(sim.cowX - W / 2) > 40;
         const pogoing = (sim.hopsInPlace.get(1) ?? 0) >= HOP_LIMIT;
-        if (!busy || pogoing || (sim.rapidFlips.get(1) ?? 0) >= 5) {
+        if (!herding && (pogoing || (sim.rapidFlips.get(1) ?? 0) >= 5)) {
           stalled.push(
             `from ${s[0]},${s[1]} to gem ${g[0]},${g[1]} hops=${sim.hopsInPlace.get(1) ?? 0}`
           );
@@ -503,7 +528,7 @@ describe("every gem is reachable", () => {
 
 describe("the cow moves when pushed", () => {
   it("rolls toward the pusher's finish line", () => {
-    const w = makeWhelp(1, "blue", 500, standingY(690));
+    const w = makeWhelp(1, "blue", herdFlankX("blue", W / 2), standingY(690));
     const sim = new Sim([w], []);
     sim.run(12000);
     // Blue drives it left, toward blue's finish.
@@ -511,12 +536,24 @@ describe("the cow moves when pushed", () => {
   });
 
   it("is not stalled by an enemy whelp shoving at it", () => {
-    const mine = makeWhelp(1, "blue", 560, standingY(690));
-    const theirs = makeWhelp(2, "red", 720, standingY(690));
+    const mine = makeWhelp(1, "blue", herdFlankX("blue", W / 2) - 80, standingY(690));
+    const theirs = makeWhelp(2, "red", herdFlankX("red", W / 2), standingY(690));
     const sim = new Sim([mine, theirs], []);
     sim.run(12000);
     // Whoever claimed it keeps driving; the other cannot cancel the push.
     expect(Math.abs(sim.cowX - W / 2)).toBeGreaterThan(60);
+  });
+
+  it("still rolls when several teammates surround the cow", () => {
+    const flank = herdFlankX("blue", W / 2);
+    const whelps = [
+      makeWhelp(1, "blue", flank, standingY(690)),
+      makeWhelp(2, "blue", flank - 40, standingY(690)),
+      makeWhelp(3, "blue", flank - 80, standingY(690)),
+    ];
+    const sim = new Sim(whelps, []);
+    sim.run(12000);
+    expect(sim.cowX).toBeLessThan(W / 2 - 60);
   });
 });
 

@@ -56,8 +56,10 @@ const COW_BACK_DY = -22;
 /** Head in the charge pose, relative to centre and before facing is applied. */
 const COW_HEAD_DX = 44;
 const COW_HEAD_DY = 20;
-/** How close a whelp on foot has to be to get a shoulder into the cow. */
+/** How close a herder on the ground has to be to nip the cow's flank. */
 const COW_PUSH_REACH = 46;
+/** Herder must be behind the cow's head, not in front of it. */
+const COW_BUTT_MIN = 12;
 
 const OTHER: Record<Team, Team> = { blue: 'red', red: 'blue' };
 const HEX: Record<Team, string> = { blue: '#4aa3d8', red: '#e0663f' };
@@ -366,6 +368,16 @@ export class Game extends Phaser.Scene {
     return !a.disconnected && a.deadUntil <= time && a.stunUntil <= time;
   }
 
+  /** Death and respawn must not inherit a lunge, dive, or cooldown — she reads as broken until they expire. */
+  private resetMotherCombat(a: Actor, time: number) {
+    a.diving = false;
+    a.shortDive = false;
+    a.attackUntil = 0;
+    a.attackStart = 0;
+    a.lungeUntil = 0;
+    a.attackCooldownUntil = time;
+  }
+
   private updateActor(a: Actor, time: number, _delta: number) {
     const body = a.sprite.body as Phaser.Physics.Arcade.Body;
 
@@ -389,6 +401,7 @@ export class Game extends Phaser.Scene {
       if (a.role === 'mother') {
         a.hp = TUNING.motherHp;
         a.invulnUntil = time + TUNING.motherInvulnMs;
+        this.resetMotherCombat(a, time);
         a.sprite.setPosition(SPAWN[a.team].x, SPAWN[a.team].y).setVisible(true);
       } else {
         a.invulnUntil = time + TUNING.whelpInvulnMs;
@@ -428,14 +441,30 @@ export class Game extends Phaser.Scene {
     if (Math.abs(a.input.x) > 0.3) a.facing = a.input.x > 0 ? 1 : -1;
     a.sprite.setFlipX(a.facing < 0);
 
-    if (a.riding) { this.updateRider(a); return; }
+    if (a.riding) {
+      a.riding = false;
+      const body = a.sprite.body as Phaser.Physics.Arcade.Body;
+      body.setAllowGravity(true);
+    }
 
     if (a.role === 'mother') this.updateMother(a, time, body);
     else this.updateWhelp(a, time, body);
   }
 
   private updateWhelp(a: Actor, time: number, body: Phaser.Physics.Arcade.Body) {
-    body.setVelocityX(a.input.x * TUNING.whelpSpeed);
+    const goalDir: 1 | -1 = a.team === 'blue' ? -1 : 1;
+    const shoulderY = this.cowFeetY() - 22;
+    const dx = this.wyrm.x - a.sprite.x;
+    const behind = goalDir < 0 ? dx > COW_BUTT_MIN : dx < -COW_BUTT_MIN;
+    const pushing =
+      (body.blocked.down || body.touching.down) &&
+      behind &&
+      Math.abs(dx) <= COW_PUSH_REACH &&
+      Math.abs(a.sprite.y - shoulderY) <= 34 &&
+      Math.abs(a.input.x) >= 0.3 &&
+      Math.sign(a.input.x) === goalDir;
+
+    body.setVelocityX(pushing ? goalDir * TUNING.wyrmSpeed : a.input.x * TUNING.whelpSpeed);
 
     if (a.input.jumpEdge && body.blocked.down) body.setVelocityY(TUNING.whelpJump);
 
@@ -554,33 +583,15 @@ export class Game extends Phaser.Scene {
     }
   }
 
-  private updateRider(a: Actor) {
-    const body = a.sprite.body as Phaser.Physics.Arcade.Body;
-    body.setAllowGravity(false);
-    const riders = this.actors.filter((r) => r.riding);
-    const i = riders.indexOf(a);
-    const spread = (i - (riders.length - 1) / 2) * 28;
-    const backY = this.cowBackY();
-    a.sprite.setPosition(this.wyrm.x + spread, backY);
-    body.setVelocity(0, 0);
-
-    if (a.input.jumpEdge) this.dismount(a, -480);
-  }
-
-  private cowBackY() {
-    // Riders are centred a half-whelp above the back so they stand on it.
-    return this.wyrm.y + COW_BACK_DY - 24;
-  }
-
-  private cowFeetY() {
-    return TUNING.cowGroundY;
-  }
-
   private dismount(a: Actor, vy: number) {
     a.riding = false;
     const body = a.sprite.body as Phaser.Physics.Arcade.Body;
     body.setAllowGravity(true);
     body.setVelocityY(vy);
+  }
+
+  private cowFeetY() {
+    return TUNING.cowGroundY;
   }
 
   // ------------------------------------------------------------------- wyrm
@@ -596,8 +607,26 @@ export class Game extends Phaser.Scene {
     return this.cowTeam;
   }
 
+  /**
+   * Herders on the ground nip the cow from behind — no saddle. Two wyrms
+   * walking inward from opposite flanks summed to zero and the herd never moved.
+   */
+  private cowSteeringPull(pushers: Actor[]): number {
+    const team = this.cowTeam;
+    if (!team) return 0;
+
+    const goalDir: 1 | -1 = team === 'blue' ? -1 : 1;
+    let pull = 0;
+    for (const p of pushers) {
+      if (p.team !== team) continue;
+      if (Math.sign(p.input.x) !== goalDir) continue;
+      if (Math.abs(p.input.x) > Math.abs(pull)) pull = p.input.x;
+    }
+    return pull;
+  }
+
   private whelpInFrontOfCow(a: Actor): boolean {
-    if (a.role !== 'whelp' || a.riding || a.deadUntil > this.time.now) return false;
+    if (a.role !== 'whelp' || a.deadUntil > this.time.now) return false;
     if (a.team === this.cowPushTeam()) return false;
     const cx = this.wyrm.x;
     const feetY = this.cowFeetY();
@@ -661,10 +690,8 @@ export class Game extends Phaser.Scene {
   }
 
   /**
-   * Whelps driving the cow on foot. Shoving it along the ground is the plain
-   * way to move a loose cow, and it needs no climbing — walk into it and it
-   * goes. Without this the only way to move the cow was to land in the saddle,
-   * which is a fiddly hop that most players never found.
+   * Herders behind the cow, nipping it toward their finish. The head faces
+   * travel; only the rear flank counts, so snipping at the butt reads right.
    */
   private cowPushers(): Actor[] {
     const now = this.time.now;
@@ -672,16 +699,19 @@ export class Game extends Phaser.Scene {
     const out: Actor[] = [];
 
     for (const a of this.actors) {
-      if (a.role !== 'whelp' || a.riding) continue;
+      if (a.role !== 'whelp') continue;
       if (a.deadUntil > now || a.stunUntil > now || a.disconnected) continue;
       const body = a.sprite.body as Phaser.Physics.Arcade.Body;
       if (!body.blocked.down && !body.touching.down) continue;
+
       const dx = this.wyrm.x - a.sprite.x;
-      if (Math.abs(dx) > COW_PUSH_REACH) continue;
+      const goalDir: 1 | -1 = a.team === 'blue' ? -1 : 1;
+      const behind = goalDir < 0 ? dx > COW_BUTT_MIN : dx < -COW_BUTT_MIN;
+      if (!behind || Math.abs(dx) > COW_PUSH_REACH) continue;
       if (Math.abs(a.sprite.y - shoulderY) > 34) continue;
-      // Leaning into it, not merely standing next to it.
+
       if (Math.abs(a.input.x) < 0.3) continue;
-      if (Math.sign(a.input.x) !== Math.sign(dx)) continue;
+      if (Math.sign(a.input.x) !== goalDir) continue;
       out.push(a);
     }
     return out;
@@ -689,24 +719,18 @@ export class Game extends Phaser.Scene {
 
   private updateWyrm() {
     const stomping = this.cowStompStart > 0;
-    const riders = this.actors.filter((r) => r.riding);
     const pushers = stomping ? [] : this.cowPushers();
 
-    // Nothing in the saddle and nobody leaning on it: the cow is loose, and the
-    // next team to get hold of it takes it.
-    if (riders.length === 0 && pushers.length === 0) this.cowTeam = null;
-    if (this.cowTeam === null && pushers.length > 0) this.cowTeam = pushers[0].team;
+    if (pushers.length === 0) this.cowTeam = null;
+    else if (this.cowTeam === null) this.cowTeam = pushers[0].team;
 
     for (const p of pushers) {
       if (p.team !== this.cowTeam) this.cueCowTaken(p);
     }
 
-    // Only the holding team drives, so a contested cow does not cancel itself
-    // out and sit still while both sides shove.
-    const crew = [...riders, ...pushers].filter((a) => a.team === this.cowTeam);
+    const pull = this.cowSteeringPull(pushers);
 
-    if (!stomping && crew.length > 0) {
-      const pull = crew.reduce((s, r) => s + r.input.x, 0);
+    if (!stomping && pull !== 0) {
       const vx = Phaser.Math.Clamp(pull, -1, 1) * TUNING.wyrmSpeed;
       this.wyrm.setVelocityX(vx);
       if (Math.abs(vx) > 1) this.cowFacing = vx > 0 ? 1 : -1;
@@ -715,25 +739,6 @@ export class Game extends Phaser.Scene {
     }
     this.wyrm.x = Phaser.Math.Clamp(this.wyrm.x, 40, W - 40);
     this.wyrm.y = this.wyrm.y + (this.cowFeetY() - COW_HALF_H - this.wyrm.y) * 0.35;
-
-    // Mount by landing on the cow's back. Walking into it deliberately does
-    // not count — a herder crossing the arena would be grabbed on the way past.
-    const backY = this.cowBackY();
-    for (const a of this.actors) {
-      if (a.riding || a.role === 'mother' || a.stunUntil > this.time.now) continue;
-      if (a.deadUntil > this.time.now) continue;
-      const body = a.sprite.body as Phaser.Physics.Arcade.Body;
-      if (body.velocity.y < 0) continue;
-      if (Math.abs(a.sprite.x - this.wyrm.x) >= 46) continue;
-      if (Math.abs(a.sprite.y - backY) >= 28) continue;
-
-      if (this.cowTeam && this.cowTeam !== a.team) {
-        this.cueCowTaken(a);
-        continue;
-      }
-      this.cowTeam = a.team;
-      a.riding = true;
-    }
   }
 
   /** Throttled, because the refusal is tested on every frame of contact. */
@@ -741,7 +746,7 @@ export class Game extends Phaser.Scene {
     const now = this.time.now;
     if (now - (this.cowTakenCueAt.get(a.pid) ?? -Infinity) < 1500) return;
     this.cowTakenCueAt.set(a.pid, now);
-    this.net.cue(a.pid, 'The cow is taken — knock them off it first.');
+    this.net.cue(a.pid, 'The cow is taken — get behind it and nip it first.');
   }
 
   // --------------------------------------------------------------- gems
@@ -992,7 +997,7 @@ export class Game extends Phaser.Scene {
 
     b.deaths++;
     b.deadUntil = time + TUNING.motherRespawnMs;
-    b.diving = false;
+    this.resetMotherCombat(b, time);
     b.sprite.setVisible(false);
     (b.sprite.body as Phaser.Physics.Arcade.Body).enable = false;
     this.net.cue(b.pid, `Down ${b.deaths} of ${TUNING.motherDeathsToWin}. Back in 3.`);

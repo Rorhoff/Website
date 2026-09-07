@@ -41,6 +41,8 @@ export type BotWorld = {
 
 const OTHER: Record<NetTeam, NetTeam> = { blue: "red", red: "blue" };
 const GROUND_Y = TUNING.cowGroundY ?? 690;
+const COW_SHOULDER_Y = GROUND_Y - 22;
+const COW_PUSH_REACH = 46;
 /** Center platform stack — gems tucked under it are awkward to reach. */
 const CENTER_LEDGE = { xMin: 500, xMax: 780, yTop: 570 };
 /** Half a whelp body: 24px art at 2x, matching the sprites Game.ts builds. */
@@ -424,16 +426,20 @@ export function updateBotBrains(world: BotWorld) {
 type MotherTarget = { x: number; y: number; press: boolean };
 
 /**
- * Defend first: a rider is one push from a loss, a carrier is one step from a
- * filled slot. Only pick a fight with the other mother when nothing is at risk.
+ * Defend first: enemy herders nipping the cow toward our finish are the highest
+ * priority, then gem carriers, then the rival mother.
  */
 function pickMotherTarget(a: BotActorView, world: BotWorld): MotherTarget {
   const enemies = livingEnemyWhelps(world, a.team);
-
-  const rider = enemies.find((w) => w.riding);
-  if (rider) return { x: rider.x, y: rider.y, press: true };
-
   const cowY = GROUND_Y - 60;
+
+  if (
+    world.cowTeam === OTHER[a.team] &&
+    Math.abs(world.wyrmX - loseLineX(a.team)) < 320
+  ) {
+    return { x: world.wyrmX, y: cowY, press: true };
+  }
+
   if (Math.abs(world.wyrmX - loseLineX(a.team)) < 300) {
     return { x: world.wyrmX, y: cowY, press: true };
   }
@@ -516,30 +522,33 @@ function shouldEscortCow(a: BotActorView, world: BotWorld): boolean {
   return false;
 }
 
+function herdFlankX(team: NetTeam, cowX: number) {
+  // Stand on the rear flank toward your finish — blue nips from the left, red from the right.
+  return cowX + (team === "blue" ? -42 : 42);
+}
+
 function goToWyrm(a: BotActorView, world: BotWorld, m: BotMemory) {
-  // Line up on the cow's centre. That is directly under the gap in the centre
-  // stack, and it is out of the head's stomp arc, which starts further forward.
-  const targetX = world.wyrmX;
+  const claimable = !world.cowTeam || world.cowTeam === a.team;
+  const flankX = herdFlankX(a.team, world.wyrmX);
+  const inPushContact =
+    a.onGround &&
+    Math.abs(a.x - flankX) < 24 &&
+    Math.abs(a.y - (GROUND_Y - WHELP_HALF)) < 40;
 
   // The cow only ever walks the floor, so an escort up the ladder has to come
   // down. Pacing to the cow's x two storeys above it reaches nothing.
-  if (a.y < GROUND_Y - WHELP_HALF - PROGRESS_PX && descendToward(a, m, targetX)) {
+  if (a.y < GROUND_Y - WHELP_HALF - PROGRESS_PX && descendToward(a, m, flankX)) {
     if (a.onGround && isStuck(m, world.time, 900)) breakout(a, m, world.time);
     return;
   }
 
-  // Only a bot that is trying to travel can be wedged. Standing still because
-  // it has arrived is not stuck, and breaking out of it hops the bot back onto
-  // the scenery it just climbed down from.
-  const moving = driveX(a.input, a.x, targetX, 8);
-
-  // Boarding means landing on the back, so the last move is a hop. Skip it
-  // where a ledge overhead would catch us instead, which just bounces the bot
-  // up and down on the scenery.
-  const claimable = !world.cowTeam || world.cowTeam === a.team;
-  if (a.onGround && !moving && claimable && ceilingAbove(a) === null) {
-    jumpThrottled(a, m, world.time, 700);
+  if (inPushContact && claimable) {
+    // Stay on the flank and nip — do not sprint for the finish or push contact breaks.
+    a.input.x = a.team === "blue" ? -1 : 1;
+    return;
   }
+
+  const moving = driveX(a.input, a.x, flankX, 8);
 
   if (moving && isStuck(m, world.time, 800)) breakout(a, m, world.time);
 }
@@ -652,11 +661,6 @@ function goGetGem(
 }
 
 function updateWhelpBot(a: BotActorView, world: BotWorld, m: BotMemory) {
-  if (a.riding) {
-    setStick(a.input, a.team === "blue" ? -1 : 1, 0);
-    return;
-  }
-
   if (a.carrying > 0) {
     goDeposit(a, world, m);
     return;
@@ -667,7 +671,13 @@ function updateWhelpBot(a: BotActorView, world: BotWorld, m: BotMemory) {
     return;
   }
 
-  const gem = pickBestGem(world.gems, a.x, a.y, (g) => !isAvoided(m, g, world.time));
+  const gem = pickBestGem(world.gems, a.x, a.y, (g) => {
+    if (isAvoided(m, g, world.time)) return false;
+    const botSide = a.x - W / 2;
+    const gemSide = g.x - W / 2;
+    if (Math.abs(botSide) < 80) return true;
+    return Math.sign(gemSide) === Math.sign(botSide);
+  });
   if (gem) {
     goGetGem(a, world, m, gem);
     return;
