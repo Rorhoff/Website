@@ -1,0 +1,636 @@
+{
+  "version": 1,
+  "id": "default_arena",
+  "name": "Default Arena",
+  "width": 1280,
+  "height": 720,
+  "grid": 8,
+  "platforms": [
+    {
+      "id": "plat_34_s05z2",
+      "x": 0,
+      "y": 690,
+      "w": 1280,
+      "h": 30,
+      "skin": "soil_default",
+      "ground": true
+    },
+    {
+      "id": "plat_35_iueds",
+      "x": 56,
+      "y": 592,
+      "w": 260,
+      "h": 16,
+      "skin": "soil_default",
+      "pairId": "pair_1_c0y5t"
+    },
+    {
+      "id": "plat_36_hkwnl",
+      "x": 964,
+      "y": 592,
+      "w": 260,
+      "h": 16,
+      "skin": "soil_default",
+      "pairId": "pair_1_c0y5t"
+    },
+    {
+      "id": "plat_54_ewzj9",
+      "x": 200,
+      "y": 490,
+      "w": 150,
+      "h": 16,
+      "skin": "soil_default",
+      "pairId": "pair_53_alovo"
+    },
+    {
+      "id": "plat_55_d3cbg",
+      "x": 930,
+      "y": 490,
+      "w": 150,
+      "h": 16,
+      "skin": "soil_default",
+      "pairId": "pair_53_alovo"
+    },
+    {
+      "id": "plat_57_ziyxv",
+      "x": 70,
+      "y": 400,
+      "w": 170,
+      "h": 16,
+      "skin": "soil_default",
+      "pairId": "pair_56_h86tt"
+    },
+    {
+      "id": "plat_58_31hn5",
+      "x": 1040,
+      "y": 400,
+      "w": 170,
+      "h": 16,
+      "skin": "soil_default",
+      "pairId": "pair_56_h86tt"
+    },
+    {
+      "id": "plat_60_fp6t0",
+      "x": 210,
+      "y": 310,
+      "w": 170,
+      "h": 16,
+      "skin": "soil_default",
+      "pairId": "pair_59_4yra1"
+    },
+    {
+      "id": "plat_61_bl211",
+      "x": 900,
+      "y": 310,
+      "w": 170,
+      "h": 16,
+      "skin": "soil_default",
+      "pairId": "pair_59_4yra1"
+    },
+    {
+      "id": "plat_63_ejoo0",
+      "x": 80,
+      "y": 225,
+      "w": 170,
+      "h": 16,
+      "skin": "soil_default",
+      "pairId": "pair_62_ll3rf"
+    },
+    {
+      "id": "plat_64_ofhp1",
+      "x": 1030,
+      "y": 225,
+      "w": 170,
+      "h": 16,
+      "skin": "soil_default",
+      "pairId": "pair_62_ll3rf"
+    },
+    {
+      "id": "plat_66_rehi4",
+      "x": 500,
+      "y": 570,
+      "w": 90,
+      "h": 16,
+      "skin": "soil_default",
+      "pairId": "pair_65_5y4qh"
+    },
+    {
+      "id": "plat_67_zrc4y",
+      "x": 690,
+      "y": 570,
+      "w": 90,
+      "h": 16,
+      "skin": "soil_default",
+      "pairId": "pair_65_5y4qh"
+    },
+    {
+      "id": "plat_69_n0lpj",
+      "x": 520,
+      "y": 450,
+      "w": 70,
+      "h": 16,
+      "skin": "soil_default",
+      "pairId": "pair_68_jwin3"
+    },
+    {
+      "id": "plat_70_3kb5l",
+      "x": 690,
+      "y": 450,
+      "w": 70,
+      "h": 16,
+      "skin": "soil_default",
+      "pairId": "pair_68_jwin3"
+    },
+    {
+      "id": "plat_72_04iq8",
+      "x": 560,
+      "y": 330,
+      "w": 30,
+      "h": 16,
+      "skin": "soil_default",
+      "pairId": "pair_71_8puhg"
+    },
+    {
+      "id": "plat_73_jsl65",
+      "x": 690,
+      "y": 330,
+      "w": 30,
+      "h": 16,
+      "skin": "soil_default",
+      "pairId": "pair_71_8puhg"
+    }
+  ],
+  "walls": [],
+  "gemSeams": [
+    {
+      "id": "gem_75_138m1",
+      "x": 184,
+      "y": 648,
+      "pairId": "pair_74_u0db2"
+    },
+    {
+      "id": "gem_76_yemk5",
+      "x": 1096,
+      "y": 648,
+      "pairId": "pair_74_u0db2"
+    },
+    {
+      "id": "gem_78_sk3pn",
+      "x": 280,
+      "y": 648,
+      "pairId": "pair_77_2imxg"
+    },
+    {
+      "id": "gem_79_d3oar",
+      "x": 1000,
+      "y": 648,
+      "pairId": "pair_77_2imxg"
+    },
+    {
+      "id": "gem_81_pz5do",
+      "x": 384,
+      "y": 648,
+      "pairId": "pair_80_cnxbs"
+    },
+    {
+      "id": "gem_82_3nmhs",
+      "x": 896,
+      "y": 648,
+      "pairId": "pair_80_cnxbs"
+    },
+    {
+      "id": "gem_84_oj4dc",
+      "x": 464,
+      "y": 648,
+      "pairId": "pair_83_w50ba"
+    },
+    {
+      "id": "gem_85_vmx1b",
+      "x": 816,
+      "y": 648,
+      "pairId": "pair_83_w50ba"
+    },
+    {
+      "id": "gem_87_ch3au",
+      "x": 232,
+      "y": 464,
+      "pairId": "pair_86_orng5"
+    },
+    {
+      "id": "gem_88_tp6kw",
+      "x": 1048,
+      "y": 464,
+      "pairId": "pair_86_orng5"
+    },
+    {
+      "id": "gem_90_dwxua",
+      "x": 272,
+      "y": 464,
+      "pairId": "pair_89_jly2i"
+    },
+    {
+      "id": "gem_91_5awal",
+      "x": 1008,
+      "y": 464,
+      "pairId": "pair_89_jly2i"
+    },
+    {
+      "id": "gem_93_5ms7g",
+      "x": 320,
+      "y": 464,
+      "pairId": "pair_92_5xo67"
+    },
+    {
+      "id": "gem_94_v9hlb",
+      "x": 960,
+      "y": 464,
+      "pairId": "pair_92_5xo67"
+    },
+    {
+      "id": "gem_96_t6bar",
+      "x": 112,
+      "y": 376,
+      "pairId": "pair_95_kudhp"
+    },
+    {
+      "id": "gem_97_sju5j",
+      "x": 1168,
+      "y": 376,
+      "pairId": "pair_95_kudhp"
+    },
+    {
+      "id": "gem_99_p52hy",
+      "x": 152,
+      "y": 376,
+      "pairId": "pair_98_mc7rv"
+    },
+    {
+      "id": "gem_100_64qf9",
+      "x": 1128,
+      "y": 376,
+      "pairId": "pair_98_mc7rv"
+    },
+    {
+      "id": "gem_102_hya2g",
+      "x": 200,
+      "y": 376,
+      "pairId": "pair_101_i8mf8"
+    },
+    {
+      "id": "gem_103_66fv4",
+      "x": 1080,
+      "y": 376,
+      "pairId": "pair_101_i8mf8"
+    },
+    {
+      "id": "gem_105_kiso6",
+      "x": 248,
+      "y": 288,
+      "pairId": "pair_104_xl1kn"
+    },
+    {
+      "id": "gem_106_edprs",
+      "x": 1032,
+      "y": 288,
+      "pairId": "pair_104_xl1kn"
+    },
+    {
+      "id": "gem_108_e36ng",
+      "x": 304,
+      "y": 288,
+      "pairId": "pair_107_ewi0j"
+    },
+    {
+      "id": "gem_109_sa9w7",
+      "x": 976,
+      "y": 288,
+      "pairId": "pair_107_ewi0j"
+    },
+    {
+      "id": "gem_111_comb8",
+      "x": 120,
+      "y": 200,
+      "pairId": "pair_110_ektrw"
+    },
+    {
+      "id": "gem_112_4a5zd",
+      "x": 1160,
+      "y": 200,
+      "pairId": "pair_110_ektrw"
+    },
+    {
+      "id": "gem_114_vcfre",
+      "x": 168,
+      "y": 200,
+      "pairId": "pair_113_d0xlo"
+    },
+    {
+      "id": "gem_115_cjso6",
+      "x": 1112,
+      "y": 200,
+      "pairId": "pair_113_d0xlo"
+    },
+    {
+      "id": "gem_117_y6bfw",
+      "x": 560,
+      "y": 544,
+      "pairId": "pair_116_7wijm"
+    },
+    {
+      "id": "gem_118_aiaso",
+      "x": 720,
+      "y": 544,
+      "pairId": "pair_116_7wijm"
+    },
+    {
+      "id": "gem_120_a3zth",
+      "x": 632,
+      "y": 544,
+      "pairId": "pair_119_2y8e0"
+    },
+    {
+      "id": "gem_121_wsa2l",
+      "x": 648,
+      "y": 544,
+      "pairId": "pair_119_2y8e0"
+    }
+  ],
+  "hoardSlots": {
+    "blue": [
+      {
+        "id": "slot_3_ud2nu",
+        "x": 70,
+        "y": 552,
+        "index": 0,
+        "pairId": "pair_2_uixpq"
+      },
+      {
+        "id": "slot_5_s15am",
+        "x": 92,
+        "y": 552,
+        "index": 1,
+        "pairId": "pair_4_p3x9u"
+      },
+      {
+        "id": "slot_7_h6pae",
+        "x": 114,
+        "y": 552,
+        "index": 2,
+        "pairId": "pair_6_jp30a"
+      },
+      {
+        "id": "slot_9_843ao",
+        "x": 136,
+        "y": 552,
+        "index": 3,
+        "pairId": "pair_8_t70vy"
+      },
+      {
+        "id": "slot_11_yhw9f",
+        "x": 158,
+        "y": 552,
+        "index": 4,
+        "pairId": "pair_10_cshat"
+      },
+      {
+        "id": "slot_13_937wy",
+        "x": 180,
+        "y": 552,
+        "index": 5,
+        "pairId": "pair_12_jtcgq"
+      },
+      {
+        "id": "slot_15_a5bkr",
+        "x": 202,
+        "y": 552,
+        "index": 6,
+        "pairId": "pair_14_slcif"
+      },
+      {
+        "id": "slot_17_nrwhw",
+        "x": 224,
+        "y": 552,
+        "index": 7,
+        "pairId": "pair_16_wc2nn"
+      },
+      {
+        "id": "slot_19_cnen1",
+        "x": 70,
+        "y": 576,
+        "index": 8,
+        "pairId": "pair_18_7ykwe"
+      },
+      {
+        "id": "slot_21_f59lv",
+        "x": 92,
+        "y": 576,
+        "index": 9,
+        "pairId": "pair_20_1oy36"
+      },
+      {
+        "id": "slot_23_bq6tw",
+        "x": 114,
+        "y": 576,
+        "index": 10,
+        "pairId": "pair_22_xo7jf"
+      },
+      {
+        "id": "slot_25_pjw7l",
+        "x": 136,
+        "y": 576,
+        "index": 11,
+        "pairId": "pair_24_cr0e4"
+      },
+      {
+        "id": "slot_27_9x2em",
+        "x": 158,
+        "y": 576,
+        "index": 12,
+        "pairId": "pair_26_jhca1"
+      },
+      {
+        "id": "slot_29_bcrpm",
+        "x": 180,
+        "y": 576,
+        "index": 13,
+        "pairId": "pair_28_jbszj"
+      },
+      {
+        "id": "slot_31_97hq9",
+        "x": 202,
+        "y": 576,
+        "index": 14,
+        "pairId": "pair_30_ix9v4"
+      },
+      {
+        "id": "slot_33_kauhl",
+        "x": 224,
+        "y": 576,
+        "index": 15,
+        "pairId": "pair_32_cbvi4"
+      }
+    ],
+    "red": [
+      {
+        "id": "slot_37_lz7sf",
+        "x": 1194,
+        "y": 552,
+        "index": 0,
+        "pairId": "pair_2_uixpq"
+      },
+      {
+        "id": "slot_38_plt5a",
+        "x": 1172,
+        "y": 552,
+        "index": 1,
+        "pairId": "pair_4_p3x9u"
+      },
+      {
+        "id": "slot_39_fso2w",
+        "x": 1150,
+        "y": 552,
+        "index": 2,
+        "pairId": "pair_6_jp30a"
+      },
+      {
+        "id": "slot_40_fsmii",
+        "x": 1128,
+        "y": 552,
+        "index": 3,
+        "pairId": "pair_8_t70vy"
+      },
+      {
+        "id": "slot_41_uqgo4",
+        "x": 1106,
+        "y": 552,
+        "index": 4,
+        "pairId": "pair_10_cshat"
+      },
+      {
+        "id": "slot_42_dpock",
+        "x": 1084,
+        "y": 552,
+        "index": 5,
+        "pairId": "pair_12_jtcgq"
+      },
+      {
+        "id": "slot_43_a7460",
+        "x": 1062,
+        "y": 552,
+        "index": 6,
+        "pairId": "pair_14_slcif"
+      },
+      {
+        "id": "slot_44_cbo3t",
+        "x": 1040,
+        "y": 552,
+        "index": 7,
+        "pairId": "pair_16_wc2nn"
+      },
+      {
+        "id": "slot_45_yyd2r",
+        "x": 1194,
+        "y": 576,
+        "index": 8,
+        "pairId": "pair_18_7ykwe"
+      },
+      {
+        "id": "slot_46_dlk3d",
+        "x": 1172,
+        "y": 576,
+        "index": 9,
+        "pairId": "pair_20_1oy36"
+      },
+      {
+        "id": "slot_47_hvb8q",
+        "x": 1150,
+        "y": 576,
+        "index": 10,
+        "pairId": "pair_22_xo7jf"
+      },
+      {
+        "id": "slot_48_ehqx5",
+        "x": 1128,
+        "y": 576,
+        "index": 11,
+        "pairId": "pair_24_cr0e4"
+      },
+      {
+        "id": "slot_49_ybpeg",
+        "x": 1106,
+        "y": 576,
+        "index": 12,
+        "pairId": "pair_26_jhca1"
+      },
+      {
+        "id": "slot_50_jmnej",
+        "x": 1084,
+        "y": 576,
+        "index": 13,
+        "pairId": "pair_28_jbszj"
+      },
+      {
+        "id": "slot_51_0wrme",
+        "x": 1062,
+        "y": 576,
+        "index": 14,
+        "pairId": "pair_30_ix9v4"
+      },
+      {
+        "id": "slot_52_j9h8a",
+        "x": 1040,
+        "y": 576,
+        "index": 15,
+        "pairId": "pair_32_cbvi4"
+      }
+    ]
+  },
+  "wyrmPath": {
+    "left": 60,
+    "right": 1220,
+    "y": 690,
+    "finishHeight": 110
+  },
+  "spawns": {
+    "blue": {
+      "main": {
+        "x": 110,
+        "y": 520
+      },
+      "backup": [
+        {
+          "x": 420,
+          "y": 620
+        },
+        {
+          "x": 275,
+          "y": 430
+        },
+        {
+          "x": 155,
+          "y": 340
+        }
+      ]
+    },
+    "red": {
+      "main": {
+        "x": 1170,
+        "y": 520
+      },
+      "backup": [
+        {
+          "x": 860,
+          "y": 620
+        },
+        {
+          "x": 1005,
+          "y": 430
+        },
+        {
+          "x": 1125,
+          "y": 340
+        }
+      ]
+    }
+  }
+}

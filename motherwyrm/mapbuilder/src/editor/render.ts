@@ -1,9 +1,9 @@
 import { CENTER_X, GEM_RADIUS, GEM_RUBY, GEM_RUBY_LIT, H, SLOT_SIZE, W } from "../constants";
 import { drawJumpArc } from "../jump-arc";
-import { mirrorPointX } from "../schema";
+import { mirrorPointX, snapGem } from "../schema";
 import { resolvePalette } from "../schema";
 import { drawPlatformCap } from "../platform-tile";
-import { allHoardSlots, gemHoverBlocked, type EditorState } from "./state";
+import { allHoardSlots, dropGemY, gemHoverBlocked, type EditorState } from "./state";
 import type { Selection } from "../types";
 
 export type ViewTransform = {
@@ -30,8 +30,21 @@ export function screenToWorld(v: ViewTransform, sx: number, sy: number): { x: nu
 }
 
 export type DrawPreview =
-  | { kind: "platform"; x: number; y: number; w: number; h: number }
+  | { kind: "platform" | "wall"; x: number; y: number; w: number; h: number }
+  | { kind: "boxSelect"; x0: number; y0: number; x1: number; y1: number }
   | null;
+
+function isSelected(selection: Selection, kind: "platform" | "gem" | "hoardSlot" | "wall", id: string): boolean {
+  if (!selection) return false;
+  if (selection.kind === "multi") {
+    if (kind === "platform") return selection.platforms.includes(id);
+    if (kind === "gem") return selection.gems.includes(id);
+    if (kind === "hoardSlot") return selection.hoardSlots.includes(id);
+    return selection.walls.includes(id);
+  }
+  if (selection.kind !== kind) return false;
+  return selection.ids.includes(id);
+}
 
 export function renderArena(
   ctx: CanvasRenderingContext2D,
@@ -66,18 +79,27 @@ export function renderArena(
 
   for (const p of state.doc.platforms) {
     const pal = resolvePalette(p);
-    const sel = selection?.kind === "platform" && selection.id === p.id;
-    drawPlatformCap(ctx, p.x, p.y, p.w, p.h, pal);
+    const sel = isSelected(selection, "platform", p.id);
+    drawWrappedPlatform(ctx, p.x, p.y, p.w, p.h, pal);
     if (sel) {
       ctx.strokeStyle = "#f2c063";
       ctx.lineWidth = 2;
-      ctx.strokeRect(p.x - 1, p.y - 1, p.w + 2, p.h + 2);
+      strokeWrappedRect(ctx, p.x, p.y, p.w, p.h);
     }
+  }
+
+  for (const wall of state.doc.walls) {
+    const sel = isSelected(selection, "wall", wall.id);
+    ctx.fillStyle = sel ? "#6b5a4a" : "#3d3228";
+    ctx.fillRect(wall.x, wall.y, wall.w, wall.h);
+    ctx.strokeStyle = sel ? "#f2c063" : "#8b7a66";
+    ctx.lineWidth = sel ? 2 : 1;
+    ctx.strokeRect(wall.x, wall.y, wall.w, wall.h);
   }
 
   for (const { slot, team } of allHoardSlots(state.doc)) {
     const color = team === "blue" ? "#4aa3d8" : "#e0663f";
-    const sel = selection?.kind === "hoardSlot" && selection.id === slot.id;
+    const sel = isSelected(selection, "hoardSlot", slot.id);
     ctx.fillStyle = sel ? color : `${color}44`;
     ctx.fillRect(slot.x, slot.y, SLOT_SIZE, SLOT_SIZE);
     ctx.strokeStyle = color;
@@ -86,9 +108,10 @@ export function renderArena(
   }
 
   for (const g of state.doc.gemSeams) {
-    const sel = selection?.kind === "gem" && selection.id === g.id;
-    drawRubyGem(ctx, g.x, g.y, sel);
+    drawRubyGem(ctx, g.x, g.y, isSelected(selection, "gem", g.id));
   }
+
+  drawSpawnMarkers(ctx, state, selection);
 
   const wp = state.doc.wyrmPath;
   const top = wp.y - wp.finishHeight;
@@ -123,33 +146,53 @@ export function renderArena(
     ctx.stroke();
   }
 
-  ctx.fillStyle = "#8b7a66";
-  ctx.font = "11px system-ui";
-  ctx.fillText("cow — drag vertically", W / 2 - 52, wp.y + 20);
-  ctx.fillText("finish top — drag blue/red line tops", wp.left + 8, top - 8);
-
   const showArc =
-    state.tool === "platform" &&
-    (preview?.kind === "platform" || (hover && !preview));
+    (state.tool === "platform" && (preview?.kind === "platform" || (hover && !preview)))
+    || (state.tool === "select" && selection?.kind === "platform" && selection.ids.length === 1);
   if (showArc) {
-    const plat = preview?.kind === "platform" ? preview : { x: hover!.x, y: hover!.y, w: 96, h: 16 };
-    const fromX = plat.x + plat.w / 2;
-    drawJumpArc(ctx, fromX, plat.y);
+    let plat: { x: number; y: number; w: number; h: number };
+    if (preview?.kind === "platform") {
+      plat = preview;
+    } else if (state.tool === "select" && selection?.kind === "platform") {
+      const sel = state.doc.platforms.find((p) => p.id === selection.ids[0]);
+      if (!sel) plat = { x: hover!.x, y: hover!.y, w: 96, h: 16 };
+      else plat = sel;
+    } else {
+      plat = { x: hover!.x, y: hover!.y, w: 96, h: 16 };
+    }
+    const platformRects = state.doc.platforms.map((p) => ({ x: p.x, y: p.y, w: p.w, h: p.h }));
+    drawJumpArc(ctx, plat, platformRects);
   }
 
-  if (preview?.kind === "platform") {
-    ctx.strokeStyle = "rgba(242,192,99,0.85)";
+  if (preview?.kind === "platform" || preview?.kind === "wall") {
+    ctx.strokeStyle = preview.kind === "wall" ? "rgba(139,122,102,0.9)" : "rgba(242,192,99,0.85)";
     ctx.lineWidth = 1;
     ctx.strokeRect(preview.x, preview.y, preview.w, preview.h);
   } else if (hover && state.tool === "platform") {
     ctx.strokeStyle = "rgba(242,192,99,0.5)";
     ctx.strokeRect(hover.x, hover.y, 96, 16);
+  } else if (hover && state.tool === "wall") {
+    ctx.strokeStyle = "rgba(139,122,102,0.55)";
+    ctx.strokeRect(hover.x, hover.y, 16, 120);
+  }
+
+  if (preview?.kind === "boxSelect") {
+    const x = Math.min(preview.x0, preview.x1);
+    const y = Math.min(preview.y0, preview.y1);
+    const w = Math.abs(preview.x1 - preview.x0);
+    const h = Math.abs(preview.y1 - preview.y0);
+    ctx.strokeStyle = "rgba(127,227,196,0.85)";
+    ctx.fillStyle = "rgba(127,227,196,0.08)";
+    ctx.lineWidth = 1;
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeRect(x, y, w, h);
   }
 
   if (hover && state.tool === "gem") {
-    const gx = Math.round(hover.x);
-    const gy = Math.round(hover.y);
-    const blocked = gemHoverBlocked(state, gx, gy);
+    const gx = snapGem(hover.x, state.doc.grid);
+    let gy = snapGem(hover.y, state.doc.grid);
+    if (state.gemGravity) gy = dropGemY(state.doc, gx, gy, state.doc.grid);
+    const blocked = gemHoverBlocked(state, hover.x, hover.y);
     drawRubyGem(ctx, gx, gy, false, true, blocked ? "blocked" : "ok");
     if (state.mirrorLock && gx !== mirrorPointX(gx)) {
       drawRubyGem(ctx, mirrorPointX(gx), gy, false, true, blocked ? "blocked" : "mirror");
@@ -157,6 +200,44 @@ export function renderArena(
   }
 
   ctx.restore();
+}
+
+function drawSpawnMarkers(ctx: CanvasRenderingContext2D, state: EditorState, selection: Selection): void {
+  for (const team of ["blue", "red"] as const) {
+    const color = team === "blue" ? "#4aa3d8" : "#e0663f";
+    const sp = state.doc.spawns[team];
+    const mainSel =
+      selection?.kind === "spawn" && selection.team === team && selection.role === "main";
+    drawSpawnDot(ctx, sp.main.x, sp.main.y, color, mainSel, "M");
+
+    sp.backup.forEach((pt, i) => {
+      const sel =
+        selection?.kind === "spawn" && selection.team === team && selection.role === "backup" && selection.index === i;
+      drawSpawnDot(ctx, pt.x, pt.y, color, sel, String(i + 1));
+    });
+  }
+}
+
+function drawSpawnDot(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  color: string,
+  sel: boolean,
+  label: string
+): void {
+  ctx.beginPath();
+  ctx.arc(x, y, sel ? 10 : 8, 0, Math.PI * 2);
+  ctx.fillStyle = sel ? color : `${color}88`;
+  ctx.fill();
+  ctx.strokeStyle = sel ? "#f2c063" : color;
+  ctx.lineWidth = sel ? 2 : 1;
+  ctx.stroke();
+  ctx.fillStyle = "#171016";
+  ctx.font = "bold 9px system-ui";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(label, x, y);
 }
 
 function drawRubyGem(
@@ -188,6 +269,32 @@ function drawRubyGem(
   ctx.lineWidth = sel ? 2 : 1;
   ctx.stroke();
   ctx.restore();
+}
+
+function wrappedPlatformXs(x: number, w: number): number[] {
+  const xs = [x];
+  if (x < 0) xs.push(x + W);
+  if (x + w > W) xs.push(x - W);
+  return xs;
+}
+
+function drawWrappedPlatform(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  pal: ReturnType<typeof resolvePalette>
+): void {
+  for (const px of wrappedPlatformXs(x, w)) {
+    drawPlatformCap(ctx, px, y, w, h, pal);
+  }
+}
+
+function strokeWrappedRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number): void {
+  for (const px of wrappedPlatformXs(x, w)) {
+    ctx.strokeRect(px - 1, y - 1, w + 2, h + 2);
+  }
 }
 
 function drawGrid(ctx: CanvasRenderingContext2D, grid: number): void {

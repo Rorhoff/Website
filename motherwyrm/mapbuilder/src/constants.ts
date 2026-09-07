@@ -14,7 +14,7 @@ export const SLOT_GAP = 6;
 export const SLOT_ROW_GAP = 8;
 export const SLOT_COLS = 8;
 export const SLOT_ROWS = 2;
-export const SLOTS_TO_WIN = 15;
+export const SLOTS_TO_WIN = 16;
 export const HOARD_WIDTH = SLOT_COLS * (SLOT_SIZE + SLOT_GAP) - SLOT_GAP;
 export const HOARD_HEIGHT = SLOT_ROWS * SLOT_SIZE + (SLOT_ROWS - 1) * SLOT_ROW_GAP;
 

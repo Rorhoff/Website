@@ -75,7 +75,7 @@ export const TUNING = {
   cowGroundY: 690,
   cowFinishHeight: 110,
 
-  slotsToWin: 15,
+  slotsToWin: 16,
 };
 
 export type Team = "blue" | "red";
@@ -127,7 +127,7 @@ export const PLATFORMS: [number, number, number, number][] = [
   [690, 330, 30, 16],
 ];
 
-/** 15 left-side gems mirrored → 30 fixed gems (no respawn). */
+/** 16 left-side gems mirrored → 32 fixed gems (no respawn). */
 export const GEM_SPAWNS: [number, number][] = (() => {
   const left: [number, number][] = [
     [180, 650], [280, 650], [380, 650], [460, 650],
@@ -135,7 +135,7 @@ export const GEM_SPAWNS: [number, number][] = (() => {
     [110, 378], [155, 378], [200, 378],
     [250, 288], [300, 288],
     [120, 203], [165, 203],
-    [560, 548],
+    [560, 548], [632, 544],
   ];
   return [...left, ...left.map(([x, y]) => [W - x, y] as [number, number])];
 })();

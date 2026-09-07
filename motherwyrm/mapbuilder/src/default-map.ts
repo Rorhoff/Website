@@ -8,11 +8,30 @@ import {
 } from "./constants";
 import { hoardGridFromAnchor, mirrorHoardTeam } from "./hoard";
 import { newId, resetIdCounter } from "./schema";
-import type { MapDocument, MapPlatform } from "./types";
+import type { MapDocument, MapPlatform, MapSpawns } from "./types";
 
 const HOARD_SHELF_Y = 592;
 const HOARD_Y = HOARD_SHELF_Y - HOARD_HEIGHT;
 const HOARD_X_BLUE = 70;
+
+export const DEFAULT_SPAWNS: MapSpawns = {
+  blue: {
+    main: { x: 110, y: 520 },
+    backup: [
+      { x: 420, y: 620 },
+      { x: 275, y: 430 },
+      { x: 155, y: 340 },
+    ],
+  },
+  red: {
+    main: { x: W - 110, y: 520 },
+    backup: [
+      { x: W - 420, y: 620 },
+      { x: W - 275, y: 430 },
+      { x: W - 155, y: 340 },
+    ],
+  },
+};
 
 /** Blank symmetric template: ground floor + hoard slots + wyrm path. */
 export function blankMap(): MapDocument {
@@ -55,16 +74,14 @@ export function blankMap(): MapDocument {
         pairId: pair,
       },
     ],
+    walls: [],
     gemSeams: [],
     hoardSlots: {
       blue: blueSlots,
       red: mirrorHoardTeam(blueSlots),
     },
     wyrmPath: { ...DEFAULT_WYRM_PATH },
-    spawns: {
-      blue: { x: 110, y: 520 },
-      red: { x: W - 110, y: 520 },
-    },
+    spawns: structuredClone(DEFAULT_SPAWNS),
   };
 }
 
@@ -93,12 +110,12 @@ export function defaultArenaMap(): MapDocument {
   ];
 
   const leftGems: [number, number][] = [
-    [180, 650], [280, 650], [380, 650], [460, 650],
-    [230, 468], [275, 468], [320, 468],
-    [110, 378], [155, 378], [200, 378],
-    [250, 288], [300, 288],
-    [120, 203], [165, 203],
-    [560, 548],
+    [184, 648], [280, 648], [384, 648], [464, 648],
+    [232, 464], [272, 464], [320, 464],
+    [112, 376], [152, 376], [200, 376],
+    [248, 288], [304, 288],
+    [120, 200], [168, 200],
+    [560, 544], [632, 544],
   ];
 
   for (const [x, y, w, h] of rawPlatforms) {

@@ -19,6 +19,15 @@ export type MapPlatform = {
   ground?: boolean;
 };
 
+export type MapWall = {
+  id: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  pairId?: string;
+};
+
 export type MapGemSeam = {
   id: string;
   x: number;
@@ -30,7 +39,7 @@ export type MapHoardSlot = {
   id: string;
   x: number;
   y: number;
-  /** Slot index 0–14 (matches game hoard grid). */
+  /** Slot index 0–15 (matches game hoard grid). */
   index: number;
   pairId?: string;
 };
@@ -46,9 +55,16 @@ export type MapWyrmPath = {
   finishHeight: number;
 };
 
+export type SpawnPoint = { x: number; y: number };
+
+export type TeamSpawns = {
+  main: SpawnPoint;
+  backup: SpawnPoint[];
+};
+
 export type MapSpawns = {
-  blue: { x: number; y: number };
-  red: { x: number; y: number };
+  blue: TeamSpawns;
+  red: TeamSpawns;
 };
 
 export type MapDocument = {
@@ -59,35 +75,74 @@ export type MapDocument = {
   height: number;
   grid: number;
   platforms: MapPlatform[];
+  walls: MapWall[];
   gemSeams: MapGemSeam[];
   hoardSlots: {
     blue: MapHoardSlot[];
     red: MapHoardSlot[];
   };
   wyrmPath: MapWyrmPath;
-  spawns?: MapSpawns;
+  spawns: MapSpawns;
+  /** Optional lobby thumbnail URL/path. */
+  thumbnail?: string;
+  /** When true, omitted from random map rotation. */
+  excludeFromRandom?: boolean;
 };
 
-export type EditorTool = "select" | "platform" | "gem" | "hoard" | "wyrm";
+export type EditorTool = "select" | "platform" | "wall" | "gem" | "hoard" | "wyrm" | "spawn";
+
+export type SelectKind = "platform" | "gem" | "hoardSlot" | "wall";
+
+export type Selection =
+  | {
+      kind: "multi";
+      platforms: string[];
+      gems: string[];
+      hoardSlots: string[];
+      walls: string[];
+    }
+  | { kind: SelectKind; ids: string[] }
+  | { kind: "spawn"; team: "blue" | "red"; role: "main" | "backup"; index: number }
+  | { kind: "wyrmCow" }
+  | { kind: "wyrmFinish" }
+  | null;
 
 export type EditorState = {
   doc: MapDocument;
   mirrorLock: boolean;
+  /** When true, new/moved gems fall to the nearest platform below. */
+  gemGravity: boolean;
   tool: EditorTool;
   selection: Selection;
   grid: number;
   dirty: boolean;
 };
 
-export type Selection =
-  | { kind: "platform"; id: string }
-  | { kind: "gem"; id: string }
-  | { kind: "hoardSlot"; id: string }
-  | { kind: "wyrmCow" }
-  | { kind: "wyrmFinish" }
-  | null;
-
 export type ValidationIssue = {
   level: "error" | "warn";
   message: string;
 };
+
+export function selectionIds(sel: Selection, kind?: SelectKind): string[] {
+  if (!sel) return [];
+  if (sel.kind === "multi") {
+    if (kind === "platform") return sel.platforms;
+    if (kind === "gem") return sel.gems;
+    if (kind === "hoardSlot") return sel.hoardSlots;
+    if (kind === "wall") return sel.walls;
+    return [...sel.platforms, ...sel.gems, ...sel.hoardSlots, ...sel.walls];
+  }
+  if (sel.kind === "wyrmCow" || sel.kind === "wyrmFinish" || sel.kind === "spawn") return [];
+  return kind && sel.kind !== kind ? [] : sel.ids;
+}
+
+export function singleSelectionId(sel: Selection): string | undefined {
+  if (!sel || sel.kind === "multi" || sel.kind === "wyrmCow" || sel.kind === "wyrmFinish" || sel.kind === "spawn") {
+    return undefined;
+  }
+  return sel.ids.length === 1 ? sel.ids[0] : undefined;
+}
+
+export function emptyMultiSelection(): Extract<Selection, { kind: "multi" }> {
+  return { kind: "multi", platforms: [], gems: [], hoardSlots: [], walls: [] };
+}

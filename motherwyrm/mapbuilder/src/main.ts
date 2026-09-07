@@ -1,23 +1,30 @@
 import { blankMap, defaultArenaMap } from "./default-map";
 import { DEFAULT_GRID, SKIN_PRESETS, W } from "./constants";
 import {
+  addBackupSpawn,
   addGem,
   addPlatform,
+  addWall,
   createEditorState,
   deleteSelection,
   findHoardSlot,
   findPlatform,
+  findWall,
   gemBlockReason,
-  gemHoverBlocked,
   hitTestCow,
   hitTestFinishTop,
   hitTestGem,
   hitTestHoardSlot,
   hitTestPlatform,
+  hitTestSpawn,
+  hitTestWall,
   moveGem,
   moveHoardSlot,
   movePlatform,
+  moveSpawn,
+  moveWall,
   resizePlatform,
+  selectInRect,
   setCowGroundY,
   setFinishHeight,
   setPlatformPalette,
@@ -28,16 +35,19 @@ import {
 import { defaultTransform, renderArena, screenToWorld, type DrawPreview, type ViewTransform } from "./editor/render";
 import { createHistory } from "./editor/history";
 import { exportMap, parseMap, serializeMap, snap, snapGem, validateMap } from "./schema";
+import { publishMap, saveMapDraft } from "./api";
 import { loadRecentMaps, rememberMap } from "./storage";
-import type { MapDocument, PlatformPalette, Selection } from "./types";
+import { singleSelectionId, type MapDocument, type PlatformPalette, type Selection } from "./types";
 import "./style.css";
 
 type DragMode =
   | { kind: "pan"; sx: number; sy: number; ox: number; oy: number }
-  | { kind: "move"; id: string; kindObj: "platform" | "gem" | "hoardSlot"; ox: number; oy: number }
+  | { kind: "move"; id: string; kindObj: "platform" | "gem" | "hoardSlot" | "wall"; ox: number; oy: number }
   | { kind: "cow"; startY: number }
   | { kind: "finishTop"; startHeight: number; startY: number }
-  | { kind: "draw"; x0: number; y0: number }
+  | { kind: "spawnMove"; team: "blue" | "red"; role: "main" | "backup"; index: number; ox: number; oy: number }
+  | { kind: "draw"; tool: "platform" | "wall"; x0: number; y0: number }
+  | { kind: "boxSelect"; x0: number; y0: number }
   | null;
 
 function mountApp(root: HTMLElement): void {
@@ -49,18 +59,27 @@ function mountApp(root: HTMLElement): void {
         <button type="button" data-act="default">Load default arena</button>
         <button type="button" data-act="open">Open JSON…</button>
         <button type="button" data-act="export">Export JSON</button>
+        <button type="button" data-act="save">Save</button>
+        <button type="button" data-act="publish" class="primary">Publish</button>
         <button type="button" data-act="undo" id="undoBtn" disabled>Undo</button>
         <label class="mirror-toggle">
           <input type="checkbox" id="mirrorLock" checked> Mirror lock
         </label>
-        <label class="grid-field">Grid <input type="number" id="gridSize" min="1" max="64" value="${DEFAULT_GRID}"></label>
+        <label class="mirror-toggle">
+          <input type="checkbox" id="gemGravity" checked> Gem gravity
+        </label>
+        <label class="grid-field" title="Snap size in pixels — 8 means positions snap to every 8px">
+          Snap <input type="number" id="gridSize" min="1" max="64" value="${DEFAULT_GRID}"> px
+        </label>
       </div>
     </header>
     <div class="tools" role="toolbar" aria-label="Tools">
       <button type="button" data-tool="select" class="active">Select</button>
       <button type="button" data-tool="platform">Platform</button>
+      <button type="button" data-tool="wall">Wall</button>
       <button type="button" data-tool="gem">Gem seam</button>
       <button type="button" data-tool="hoard">Hoard anchor</button>
+      <button type="button" data-tool="spawn">Spawns</button>
       <button type="button" data-tool="wyrm">Wyrm path</button>
     </div>
     <div class="main">
@@ -71,7 +90,7 @@ function mountApp(root: HTMLElement): void {
           <h3>Recent maps</h3>
           <ul id="recentList"></ul>
         </section>
-        <p class="note">Platform art uses indexed palette slots (base / shadow / highlight / trim). The game renderer does not load map JSON yet — export is for future use.</p>
+        <p class="note">Save stores a draft on the server. Publish adds the map to the TV lobby and random rotation.</p>
       </aside>
       <div class="canvas-wrap">
         <canvas id="arena" width="960" height="540"></canvas>
@@ -87,6 +106,7 @@ function mountApp(root: HTMLElement): void {
   const propsBody = root.querySelector("#propsBody") as HTMLElement;
   const fileInput = root.querySelector("#fileInput") as HTMLInputElement;
   const mirrorLockEl = root.querySelector("#mirrorLock") as HTMLInputElement;
+  const gemGravityEl = root.querySelector("#gemGravity") as HTMLInputElement;
   const gridSizeEl = root.querySelector("#gridSize") as HTMLInputElement;
   const undoBtn = root.querySelector("#undoBtn") as HTMLButtonElement;
 
@@ -108,16 +128,15 @@ function mountApp(root: HTMLElement): void {
   }
 
   function restoreDoc(doc: MapDocument): void {
-    const sel = state.selection;
+    const id = singleSelectionId(state.selection);
     state.doc = doc;
     state.dirty = true;
-    if (sel?.kind === "platform" && !state.doc.platforms.some((p) => p.id === sel.id)) {
-      state.selection = null;
-    } else if (sel?.kind === "gem" && !state.doc.gemSeams.some((g) => g.id === sel.id)) {
-      state.selection = null;
-    } else if (sel?.kind === "hoardSlot") {
-      const still = state.doc.hoardSlots.blue.some((s) => s.id === sel.id)
-        || state.doc.hoardSlots.red.some((s) => s.id === sel.id);
+    if (id && state.selection && state.selection.kind !== "multi" && state.selection.kind !== "wyrmCow" && state.selection.kind !== "wyrmFinish" && state.selection.kind !== "spawn") {
+      const still =
+        (state.selection.kind === "platform" && state.doc.platforms.some((p) => p.id === id))
+        || (state.selection.kind === "gem" && state.doc.gemSeams.some((g) => g.id === id))
+        || (state.selection.kind === "hoardSlot" && [...state.doc.hoardSlots.blue, ...state.doc.hoardSlots.red].some((s) => s.id === id))
+        || (state.selection.kind === "wall" && state.doc.walls.some((w) => w.id === id));
       if (!still) state.selection = null;
     }
     renderProps();
@@ -167,8 +186,23 @@ function mountApp(root: HTMLElement): void {
       return;
     }
 
-    if (sel.kind === "platform") {
-      const p = findPlatform(state.doc, sel.id);
+    if (sel.kind === "multi") {
+      const n = sel.platforms.length + sel.gems.length + sel.hoardSlots.length + sel.walls.length;
+      propsBody.innerHTML = `
+        <p><strong>${n} items selected</strong></p>
+        <p class="muted">${sel.platforms.length} platforms · ${sel.gems.length} gems · ${sel.hoardSlots.length} slots · ${sel.walls.length} walls</p>
+        <button type="button" id="delBtn" class="danger">Delete selected</button>`;
+      propsBody.querySelector("#delBtn")?.addEventListener("click", () => {
+        recordHistory();
+        deleteSelection(state);
+        renderProps();
+        redraw();
+      });
+      return;
+    }
+
+    if (sel.kind === "platform" && sel.ids.length === 1) {
+      const p = findPlatform(state.doc, sel.ids[0]!);
       if (!p) return;
       const skins = Object.keys(SKIN_PRESETS);
       const pal = p.palette ?? SKIN_PRESETS[p.skin ?? "soil_default"]!;
@@ -185,26 +219,53 @@ function mountApp(root: HTMLElement): void {
           <legend>Palette slots</legend>
           ${paletteFields("pal", pal)}
         </fieldset>
-        ${p.ground ? "" : `<button type="button" id="delBtn" class="danger">Delete platform</button>`}`;
+        <button type="button" id="delBtn" class="danger">${p.ground ? "Remove ground floor" : "Delete platform"}</button>`;
       bindPlatformProps(p);
       return;
     }
 
-    if (sel.kind === "gem") {
-      const g = state.doc.gemSeams.find((x) => x.id === sel.id);
+    if (sel.kind === "gem" && sel.ids.length === 1) {
+      const g = state.doc.gemSeams.find((x) => x.id === sel.ids[0]);
       if (!g) return;
       propsBody.innerHTML = `
         <p><strong>Gem seam</strong></p>
         <label>X <input type="number" id="gX" value="${g.x}"></label>
         <label>Y <input type="number" id="gY" value="${g.y}"></label>
-        <p class="muted">Pixel coords — not snapped to the platform grid.</p>
+        <p class="muted">${state.gemGravity ? "Gems drop to the nearest platform below." : `Snaps to ${state.doc.grid}px grid intersections.`}</p>
         <button type="button" id="delBtn" class="danger">Delete gem</button>`;
       bindGemProps(g.id);
       return;
     }
 
-    if (sel.kind === "hoardSlot") {
-      const found = findHoardSlot(state.doc, sel.id);
+    if (sel.kind === "wall" && sel.ids.length === 1) {
+      const w = findWall(state.doc, sel.ids[0]!);
+      if (!w) return;
+      propsBody.innerHTML = `
+        <p><strong>Wall</strong></p>
+        <label>X <input type="number" id="wX" value="${w.x}"></label>
+        <label>Y <input type="number" id="wY" value="${w.y}"></label>
+        <label>W <input type="number" id="wW" value="${w.w}"></label>
+        <label>H <input type="number" id="wH" value="${w.h}"></label>
+        <button type="button" id="delBtn" class="danger">Delete wall</button>`;
+      const apply = () => {
+        recordHistory();
+        moveWall(state, w.id, Number((propsBody.querySelector("#wX") as HTMLInputElement).value), Number((propsBody.querySelector("#wY") as HTMLInputElement).value));
+        w.w = Math.max(4, snap(Number((propsBody.querySelector("#wW") as HTMLInputElement).value), state.grid));
+        w.h = Math.max(4, snap(Number((propsBody.querySelector("#wH") as HTMLInputElement).value), state.grid));
+        redraw();
+      };
+      ["wX", "wY", "wW", "wH"].forEach((i) => propsBody.querySelector(`#${i}`)?.addEventListener("change", apply));
+      propsBody.querySelector("#delBtn")?.addEventListener("click", () => {
+        recordHistory();
+        deleteSelection(state);
+        renderProps();
+        redraw();
+      });
+      return;
+    }
+
+    if (sel.kind === "hoardSlot" && sel.ids.length === 1) {
+      const found = findHoardSlot(state.doc, sel.ids[0]!);
       if (!found) return;
       const { slot, team } = found;
       propsBody.innerHTML = `
@@ -212,6 +273,24 @@ function mountApp(root: HTMLElement): void {
         <label>X <input type="number" id="hX" value="${slot.x}"></label>
         <label>Y <input type="number" id="hY" value="${slot.y}"></label>`;
       bindHoardSlotProps(slot.id);
+      return;
+    }
+
+    if (sel.kind === "spawn") {
+      const pt = sel.role === "main"
+        ? state.doc.spawns[sel.team].main
+        : state.doc.spawns[sel.team].backup[sel.index]!;
+      propsBody.innerHTML = `
+        <p><strong>${sel.team.toUpperCase()} ${sel.role === "main" ? "main" : `backup #${sel.index + 1}`} spawn</strong></p>
+        <label>X <input type="number" id="sX" value="${pt.x}"></label>
+        <label>Y <input type="number" id="sY" value="${pt.y}"></label>`;
+      const apply = () => {
+        recordHistory();
+        moveSpawn(state, sel.team, sel.role, sel.index, Number((propsBody.querySelector("#sX") as HTMLInputElement).value), Number((propsBody.querySelector("#sY") as HTMLInputElement).value));
+        renderProps();
+        redraw();
+      };
+      ["sX", "sY"].forEach((i) => propsBody.querySelector(`#${i}`)?.addEventListener("change", apply));
       return;
     }
 
@@ -344,6 +423,7 @@ function mountApp(root: HTMLElement): void {
   function loadDoc(doc: MapDocument): void {
     state = createEditorState(doc);
     state.mirrorLock = mirrorLockEl.checked;
+    state.gemGravity = gemGravityEl.checked;
     state.grid = Number(gridSizeEl.value) || DEFAULT_GRID;
     syncDocGrid(state);
     history.clear();
@@ -370,6 +450,50 @@ function mountApp(root: HTMLElement): void {
     download(json, `${out.id || "map"}.json`);
     state.dirty = false;
     setStatus(`Exported ${out.name}`);
+  }
+
+  async function doSave(): Promise<void> {
+    syncDocGrid(state);
+    if (!state.doc.id.trim()) {
+      setStatus("Set a map id in Properties before saving.", true);
+      return;
+    }
+    const out = exportMap(state.doc);
+    const json = serializeMap(out);
+    const result = await saveMapDraft(out);
+    if (!result.ok) {
+      setStatus(`Save failed: ${result.error}`, true);
+      return;
+    }
+    rememberMap(out.id, out.name, json);
+    refreshRecent();
+    state.dirty = false;
+    setStatus(`Saved draft “${out.name}”`);
+  }
+
+  async function doPublish(): Promise<void> {
+    syncDocGrid(state);
+    const issues = validateMap(state.doc, state.mirrorLock);
+    const errors = issues.filter((i) => i.level === "error");
+    if (errors.length) {
+      setStatus(`Fix ${errors.length} error(s) before publishing: ${errors[0]!.message}`, true);
+      return;
+    }
+    if (!state.doc.id.trim()) {
+      setStatus("Set a map id in Properties before publishing.", true);
+      return;
+    }
+    const out = exportMap(state.doc);
+    const json = serializeMap(out);
+    const result = await publishMap(out);
+    if (!result.ok) {
+      setStatus(`Publish failed: ${result.error}`, true);
+      return;
+    }
+    rememberMap(out.id, out.name, json);
+    refreshRecent();
+    state.dirty = false;
+    setStatus(`Published “${result.name}” — now in TV map list and random pool`);
   }
 
   function refreshRecent(): void {
@@ -403,6 +527,8 @@ function mountApp(root: HTMLElement): void {
   });
   root.querySelector('[data-act="open"]')?.addEventListener("click", () => fileInput.click());
   root.querySelector('[data-act="export"]')?.addEventListener("click", doExport);
+  root.querySelector('[data-act="save"]')?.addEventListener("click", () => void doSave());
+  root.querySelector('[data-act="publish"]')?.addEventListener("click", () => void doPublish());
   root.querySelector('[data-act="undo"]')?.addEventListener("click", doUndo);
 
   fileInput.addEventListener("change", async () => {
@@ -421,6 +547,12 @@ function mountApp(root: HTMLElement): void {
   mirrorLockEl.addEventListener("change", () => {
     state.mirrorLock = mirrorLockEl.checked;
     refreshValidation();
+  });
+
+  gemGravityEl.addEventListener("change", () => {
+    state.gemGravity = gemGravityEl.checked;
+    renderProps();
+    redraw();
   });
 
   gridSizeEl.addEventListener("change", () => {
@@ -489,10 +621,19 @@ function mountApp(root: HTMLElement): void {
     if (e.button !== 0) return;
 
     if (state.tool === "select") {
+      const wall = hitTestWall(state.doc, world.x, world.y);
+      if (wall) {
+        beginEdit();
+        state.selection = { kind: "wall", ids: [wall.id] };
+        drag = { kind: "move", id: wall.id, kindObj: "wall", ox: world.x - wall.x, oy: world.y - wall.y };
+        renderProps();
+        redraw();
+        return;
+      }
       const plat = hitTestPlatform(state.doc, world.x, world.y);
       if (plat) {
         beginEdit();
-        state.selection = { kind: "platform", id: plat.id };
+        state.selection = { kind: "platform", ids: [plat.id] };
         drag = { kind: "move", id: plat.id, kindObj: "platform", ox: world.x - plat.x, oy: world.y - plat.y };
         renderProps();
         redraw();
@@ -501,7 +642,7 @@ function mountApp(root: HTMLElement): void {
       const slot = hitTestHoardSlot(state.doc, world.x, world.y);
       if (slot) {
         beginEdit();
-        state.selection = { kind: "hoardSlot", id: slot.id };
+        state.selection = { kind: "hoardSlot", ids: [slot.id] };
         drag = { kind: "move", id: slot.id, kindObj: "hoardSlot", ox: world.x - slot.x, oy: world.y - slot.y };
         renderProps();
         redraw();
@@ -510,8 +651,20 @@ function mountApp(root: HTMLElement): void {
       const gem = hitTestGem(state.doc, world.x, world.y);
       if (gem) {
         beginEdit();
-        state.selection = { kind: "gem", id: gem.id };
+        state.selection = { kind: "gem", ids: [gem.id] };
         drag = { kind: "move", id: gem.id, kindObj: "gem", ox: world.x - gem.x, oy: world.y - gem.y };
+        renderProps();
+        redraw();
+        return;
+      }
+      const spawn = hitTestSpawn(state.doc, world.x, world.y);
+      if (spawn) {
+        beginEdit();
+        state.selection = { kind: "spawn", ...spawn };
+        const pt = spawn.role === "main"
+          ? state.doc.spawns[spawn.team].main
+          : state.doc.spawns[spawn.team].backup[spawn.index]!;
+        drag = { kind: "spawnMove", ...spawn, ox: world.x - pt.x, oy: world.y - pt.y };
         renderProps();
         redraw();
         return;
@@ -536,22 +689,26 @@ function mountApp(root: HTMLElement): void {
         redraw();
         return;
       }
-      state.selection = null;
-      renderProps();
-      redraw();
+      drag = { kind: "boxSelect", x0: world.x, y0: world.y };
       return;
     }
 
     if (state.tool === "platform") {
       beginEdit();
-      drag = { kind: "draw", x0: snap(world.x, state.grid), y0: snap(world.y, state.grid) };
+      drag = { kind: "draw", tool: "platform", x0: snap(world.x, state.grid), y0: snap(world.y, state.grid) };
+      return;
+    }
+
+    if (state.tool === "wall") {
+      beginEdit();
+      drag = { kind: "draw", tool: "wall", x0: snap(world.x, state.grid), y0: snap(world.y, state.grid) };
       return;
     }
 
     if (state.tool === "gem") {
       const existing = hitTestGem(state.doc, world.x, world.y);
       if (existing) {
-        state.selection = { kind: "gem", id: existing.id };
+        state.selection = { kind: "gem", ids: [existing.id] };
         renderProps();
         redraw();
         return;
@@ -568,11 +725,32 @@ function mountApp(root: HTMLElement): void {
       return;
     }
 
+    if (state.tool === "spawn") {
+      const hit = hitTestSpawn(state.doc, world.x, world.y);
+      if (hit) {
+        beginEdit();
+        state.selection = { kind: "spawn", ...hit };
+        const pt = hit.role === "main" ? state.doc.spawns[hit.team].main : state.doc.spawns[hit.team].backup[hit.index]!;
+        drag = { kind: "spawnMove", ...hit, ox: world.x - pt.x, oy: world.y - pt.y };
+        renderProps();
+        redraw();
+        return;
+      }
+      const team = world.x < W / 2 ? "blue" : "red";
+      beginEdit();
+      addBackupSpawn(state, team, world.x, world.y);
+      const idx = state.doc.spawns[team].backup.length - 1;
+      state.selection = { kind: "spawn", team, role: "backup", index: idx };
+      renderProps();
+      redraw();
+      return;
+    }
+
     if (state.tool === "hoard") {
       const slot = hitTestHoardSlot(state.doc, world.x, world.y);
       if (slot) {
         beginEdit();
-        state.selection = { kind: "hoardSlot", id: slot.id };
+        state.selection = { kind: "hoardSlot", ids: [slot.id] };
         drag = { kind: "move", id: slot.id, kindObj: "hoardSlot", ox: world.x - slot.x, oy: world.y - slot.y };
       }
       renderProps();
@@ -602,7 +780,7 @@ function mountApp(root: HTMLElement): void {
     const world = screenToWorld(view, sx, sy);
     hover =
       state.tool === "gem"
-        ? { x: snapGem(world.x), y: snapGem(world.y) }
+        ? { x: snapGem(world.x, state.grid), y: snapGem(world.y, state.grid) }
         : { x: snap(world.x, state.grid), y: snap(world.y, state.grid) };
 
     if (drag?.kind === "pan") {
@@ -617,9 +795,18 @@ function mountApp(root: HTMLElement): void {
         movePlatform(state, drag.id, world.x - drag.ox, world.y - drag.oy);
       } else if (drag.kindObj === "hoardSlot") {
         moveHoardSlot(state, drag.id, world.x - drag.ox, world.y - drag.oy);
+      } else if (drag.kindObj === "wall") {
+        moveWall(state, drag.id, world.x - drag.ox, world.y - drag.oy);
       } else {
         moveGem(state, drag.id, world.x - drag.ox, world.y - drag.oy);
       }
+      renderProps();
+      redraw();
+      return;
+    }
+
+    if (drag?.kind === "spawnMove") {
+      moveSpawn(state, drag.team, drag.role, drag.index, world.x - drag.ox, world.y - drag.oy);
       renderProps();
       redraw();
       return;
@@ -643,9 +830,15 @@ function mountApp(root: HTMLElement): void {
     if (drag?.kind === "draw") {
       const x = Math.min(drag.x0, snap(world.x, state.grid));
       const y = Math.min(drag.y0, snap(world.y, state.grid));
-      const w = Math.abs(snap(world.x, state.grid) - drag.x0) || 96;
-      const h = Math.abs(snap(world.y, state.grid) - drag.y0) || 16;
-      drawPreview = { kind: "platform", x, y, w, h };
+      const w = Math.abs(snap(world.x, state.grid) - drag.x0) || (drag.tool === "wall" ? 16 : 96);
+      const h = Math.abs(snap(world.y, state.grid) - drag.y0) || (drag.tool === "wall" ? 120 : 16);
+      drawPreview = { kind: drag.tool, x, y, w, h };
+      redraw();
+      return;
+    }
+
+    if (drag?.kind === "boxSelect") {
+      drawPreview = { kind: "boxSelect", x0: drag.x0, y0: drag.y0, x1: world.x, y1: world.y };
       redraw();
       return;
     }
@@ -662,9 +855,22 @@ function mountApp(root: HTMLElement): void {
       const y = Math.min(drag.y0, snap(world.y, state.grid));
       let w = Math.abs(snap(world.x, state.grid) - drag.x0);
       let h = Math.abs(snap(world.y, state.grid) - drag.y0);
-      if (w < 8) w = 96;
-      if (h < 4) h = 16;
-      addPlatform(state, x, y, w, h);
+      if (drag.tool === "wall") {
+        if (w < 4) w = 16;
+        if (h < 4) h = 120;
+        addWall(state, x, y, w, h);
+      } else {
+        if (w < 8) w = 96;
+        if (h < 4) h = 16;
+        addPlatform(state, x, y, w, h);
+      }
+      renderProps();
+    } else if (drag?.kind === "boxSelect") {
+      const rect = canvas.getBoundingClientRect();
+      const world = screenToWorld(view, e.clientX - rect.left, e.clientY - rect.top);
+      const sel = selectInRect(state.doc, drag.x0, drag.y0, world.x, world.y);
+      const total = sel.platforms.length + sel.gems.length + sel.hoardSlots.length + sel.walls.length;
+      state.selection = total > 0 ? sel : null;
       renderProps();
     }
     drawPreview = null;

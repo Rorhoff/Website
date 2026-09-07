@@ -1,10 +1,10 @@
 /** Whelp respawn placement — no Phaser dependency (unit-testable). */
 
 import {
-  HOARD_HEIGHT,
-  HOARD_WIDTH,
   HOARD_X,
+  HOARD_WIDTH,
   HOARD_Y,
+  HOARD_HEIGHT,
   W,
   type Team,
 } from "./arena-layout";
@@ -56,7 +56,8 @@ export function enemyCampingHoard(
 export function pickWhelpRespawn(
   team: Team,
   enemyMother: { x: number; y: number } | null,
-  campRadius: number
+  campRadius: number,
+  altSpawns: { x: number; y: number }[] = WHELP_ALT_SPAWNS[team]
 ): { x: number; y: number } {
   const hoard = hoardSpawnPoint(team);
   if (
@@ -66,9 +67,9 @@ export function pickWhelpRespawn(
     return hoard;
   }
 
-  let best = WHELP_ALT_SPAWNS[team][0];
+  let best = altSpawns[0] ?? hoard;
   let bestD = -1;
-  for (const pt of WHELP_ALT_SPAWNS[team]) {
+  for (const pt of altSpawns) {
     const d = dist2(pt.x, pt.y, enemyMother.x, enemyMother.y);
     if (d > bestD) {
       bestD = d;

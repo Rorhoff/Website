@@ -1,6 +1,7 @@
 import {
   CENTER_X,
   DEFAULT_SKIN_NAME,
+  H,
   SLOT_SIZE,
   W,
 } from "../constants";
@@ -11,10 +12,12 @@ import {
   mirrorPlatformX,
   mirrorPointX,
   newId,
+  normalizePlatformX,
+  platformContainsX,
   snap,
   snapGem,
 } from "../schema";
-import type { EditorState, MapDocument, MapGemSeam, MapHoardSlot, MapPlatform, Selection } from "../types";
+import type { EditorState, MapDocument, MapGemSeam, MapHoardSlot, MapPlatform, MapWall, Selection, SpawnPoint } from "../types";
 
 export type { EditorState, Selection };
 
@@ -22,11 +25,36 @@ export function createEditorState(doc: MapDocument): EditorState {
   return {
     doc,
     mirrorLock: true,
+    gemGravity: true,
     tool: "select",
     selection: null,
     grid: doc.grid,
     dirty: false,
   };
+}
+
+/** Drop a gem to the nearest platform top at gx, at or below gy. */
+export function dropGemY(doc: MapDocument, gx: number, gy: number, grid: number): number {
+  let floor = H;
+  for (const p of doc.platforms) {
+    if (!platformContainsX(p, gx)) continue;
+    if (p.y >= gy && p.y < floor) floor = p.y;
+  }
+  return snapGem(floor, grid);
+}
+
+function finalizePlatformX(state: EditorState, p: MapPlatform): void {
+  p.x = normalizePlatformX(p.x, p.w, state.grid);
+}
+
+function syncMirrorPlatformPosition(state: EditorState, p: MapPlatform): void {
+  if (!state.mirrorLock || !p.pairId) return;
+  const mate = partnerPlatform(state.doc, p);
+  if (!mate) return;
+  mate.x = normalizePlatformX(mirrorPlatformX(p.x, p.w), mate.w, state.grid);
+  mate.y = p.y;
+  mate.w = p.w;
+  mate.h = p.h;
 }
 
 export function findPlatform(doc: MapDocument, id: string): MapPlatform | undefined {
@@ -43,6 +71,15 @@ export function findHoardSlot(doc: MapDocument, id: string): { slot: MapHoardSlo
     if (slot) return { slot, team };
   }
   return undefined;
+}
+
+export function findWall(doc: MapDocument, id: string): MapWall | undefined {
+  return doc.walls.find((w) => w.id === id);
+}
+
+export function partnerWall(doc: MapDocument, w: MapWall): MapWall | undefined {
+  if (!w.pairId) return undefined;
+  return doc.walls.find((o) => o.pairId === w.pairId && o.id !== w.id);
 }
 
 export function partnerPlatform(doc: MapDocument, p: MapPlatform): MapPlatform | undefined {
@@ -70,6 +107,7 @@ export function addPlatform(state: EditorState, x: number, y: number, w = 96, h 
     h: snap(h, grid),
     skin: DEFAULT_SKIN_NAME,
   };
+  finalizePlatformX(state, plat);
 
   if (state.mirrorLock && !isOnCenterline(plat.x, plat.w)) {
     const pairId = newId("pair");
@@ -77,7 +115,7 @@ export function addPlatform(state: EditorState, x: number, y: number, w = 96, h 
     const mirror: MapPlatform = {
       ...plat,
       id: newId("plat"),
-      x: mirrorPlatformX(plat.x, plat.w),
+      x: normalizePlatformX(mirrorPlatformX(plat.x, plat.w), plat.w, grid),
       pairId,
     };
     state.doc.platforms.push(plat, mirror);
@@ -86,46 +124,76 @@ export function addPlatform(state: EditorState, x: number, y: number, w = 96, h 
   }
 
   state.dirty = true;
-  state.selection = { kind: "platform", id: plat.id };
+  state.selection = { kind: "platform", ids: [plat.id] };
   return plat;
+}
+
+export function addWall(state: EditorState, x: number, y: number, w = 16, h = 120): MapWall {
+  const grid = state.grid;
+  const wall: MapWall = {
+    id: newId("wall"),
+    x: snap(x, grid),
+    y: snap(y, grid),
+    w: snap(w, grid),
+    h: snap(h, grid),
+  };
+
+  if (state.mirrorLock && !isOnCenterline(wall.x, wall.w)) {
+    const pairId = newId("pair");
+    wall.pairId = pairId;
+    const mirror: MapWall = {
+      ...wall,
+      id: newId("wall"),
+      x: mirrorPlatformX(wall.x, wall.w),
+      pairId,
+    };
+    state.doc.walls.push(wall, mirror);
+  } else {
+    state.doc.walls.push(wall);
+  }
+
+  state.dirty = true;
+  state.selection = { kind: "wall", ids: [wall.id] };
+  return wall;
+}
+
+export function moveWall(state: EditorState, id: string, x: number, y: number): void {
+  const w = findWall(state.doc, id);
+  if (!w) return;
+  w.x = snap(x, state.grid);
+  w.y = snap(y, state.grid);
+  if (state.mirrorLock && w.pairId) {
+    const mate = partnerWall(state.doc, w);
+    if (mate) {
+      mate.x = mirrorPlatformX(w.x, w.w);
+      mate.y = w.y;
+      mate.w = w.w;
+      mate.h = w.h;
+    }
+  }
+  state.dirty = true;
 }
 
 export function movePlatform(state: EditorState, id: string, x: number, y: number): void {
   const p = findPlatform(state.doc, id);
-  if (!p || p.ground) return;
+  if (!p) return;
 
   p.x = snap(x, state.grid);
   p.y = snap(y, state.grid);
-
-  if (state.mirrorLock && p.pairId) {
-    const mate = partnerPlatform(state.doc, p);
-    if (mate) {
-      mate.x = mirrorPlatformX(p.x, p.w);
-      mate.y = p.y;
-      mate.w = p.w;
-      mate.h = p.h;
-    }
-  }
+  finalizePlatformX(state, p);
+  syncMirrorPlatformPosition(state, p);
 
   state.dirty = true;
 }
 
 export function resizePlatform(state: EditorState, id: string, w: number, h: number): void {
   const p = findPlatform(state.doc, id);
-  if (!p || p.ground) return;
+  if (!p) return;
 
   p.w = Math.max(8, snap(w, state.grid));
   p.h = Math.max(4, snap(h, state.grid));
-
-  if (state.mirrorLock && p.pairId) {
-    const mate = partnerPlatform(state.doc, p);
-    if (mate) {
-      mate.w = p.w;
-      mate.h = p.h;
-      mate.x = mirrorPlatformX(p.x, p.w);
-      mate.y = p.y;
-    }
-  }
+  finalizePlatformX(state, p);
+  syncMirrorPlatformPosition(state, p);
 
   state.dirty = true;
 }
@@ -134,20 +202,52 @@ export function deleteSelection(state: EditorState): void {
   const sel = state.selection;
   if (!sel) return;
 
-  if (sel.kind === "platform") {
-    const p = findPlatform(state.doc, sel.id);
-    if (!p || p.ground) return;
-    const ids = new Set([p.id]);
-    const mate = partnerPlatform(state.doc, p);
-    if (mate) ids.add(mate.id);
-    state.doc.platforms = state.doc.platforms.filter((o) => !ids.has(o.id));
+  const dropPlatforms = (ids: string[]) => {
+    const drop = new Set<string>();
+    for (const id of ids) {
+      const p = findPlatform(state.doc, id);
+      if (!p) continue;
+      drop.add(p.id);
+      const mate = partnerPlatform(state.doc, p);
+      if (mate) drop.add(mate.id);
+    }
+    state.doc.platforms = state.doc.platforms.filter((o) => !drop.has(o.id));
+  };
+
+  const dropGems = (ids: string[]) => {
+    const drop = new Set<string>();
+    for (const id of ids) {
+      const g = findGem(state.doc, id);
+      if (!g) continue;
+      drop.add(g.id);
+      const mate = partnerGem(state.doc, g);
+      if (mate) drop.add(mate.id);
+    }
+    state.doc.gemSeams = state.doc.gemSeams.filter((o) => !drop.has(o.id));
+  };
+
+  const dropWalls = (ids: string[]) => {
+    const drop = new Set<string>();
+    for (const id of ids) {
+      const w = findWall(state.doc, id);
+      if (!w) continue;
+      drop.add(w.id);
+      const mate = partnerWall(state.doc, w);
+      if (mate) drop.add(mate.id);
+    }
+    state.doc.walls = state.doc.walls.filter((o) => !drop.has(o.id));
+  };
+
+  if (sel.kind === "multi") {
+    dropPlatforms(sel.platforms);
+    dropGems(sel.gems);
+    dropWalls(sel.walls);
+  } else if (sel.kind === "platform") {
+    dropPlatforms(sel.ids);
   } else if (sel.kind === "gem") {
-    const g = findGem(state.doc, sel.id);
-    if (!g) return;
-    const ids = new Set([g.id]);
-    const mate = partnerGem(state.doc, g);
-    if (mate) ids.add(mate.id);
-    state.doc.gemSeams = state.doc.gemSeams.filter((o) => !ids.has(o.id));
+    dropGems(sel.ids);
+  } else if (sel.kind === "wall") {
+    dropWalls(sel.ids);
   }
 
   state.selection = null;
@@ -174,8 +274,9 @@ export type AddGemResult =
   | { ok: false; reason: "occupied" | "mirror_occupied" };
 
 export function addGem(state: EditorState, x: number, y: number): AddGemResult {
-  const gx = snapGem(x);
-  const gy = snapGem(y);
+  const gx = snapGem(x, state.grid);
+  let gy = snapGem(y, state.grid);
+  if (state.gemGravity) gy = dropGemY(state.doc, gx, gy, state.grid);
 
   if (findGemAt(state.doc, gx, gy)) {
     return { ok: false, reason: "occupied" };
@@ -202,7 +303,7 @@ export function addGem(state: EditorState, x: number, y: number): AddGemResult {
   }
 
   state.dirty = true;
-  state.selection = { kind: "gem", id: gem.id };
+  state.selection = { kind: "gem", ids: [gem.id] };
   return { ok: true, gem };
 }
 
@@ -210,8 +311,9 @@ export function moveGem(state: EditorState, id: string, x: number, y: number): b
   const g = findGem(state.doc, id);
   if (!g) return false;
 
-  const gx = snapGem(x);
-  const gy = snapGem(y);
+  const gx = snapGem(x, state.grid);
+  let gy = snapGem(y, state.grid);
+  if (state.gemGravity) gy = dropGemY(state.doc, gx, gy, state.grid);
 
   if (findGemAt(state.doc, gx, gy, 6, g.id)) return false;
 
@@ -243,8 +345,9 @@ export function gemBlockReason(
   x: number,
   y: number
 ): AddGemResult["reason"] | null {
-  const gx = snapGem(x);
-  const gy = snapGem(y);
+  const gx = snapGem(x, state.grid);
+  let gy = snapGem(y, state.grid);
+  if (state.gemGravity) gy = dropGemY(state.doc, gx, gy, state.grid);
   if (findGemAt(state.doc, gx, gy)) return "occupied";
   if (state.mirrorLock && gx !== mirrorPointX(gx)) {
     if (findGemAt(state.doc, mirrorPointX(gx), gy)) return "mirror_occupied";
@@ -286,11 +389,21 @@ export function setFinishHeight(state: EditorState, height: number): void {
   state.dirty = true;
 }
 
+function syncMirrorPlatform(state: EditorState, p: MapPlatform, apply: (mate: MapPlatform) => void): void {
+  if (!state.mirrorLock || !p.pairId) return;
+  const mate = partnerPlatform(state.doc, p);
+  if (mate) apply(mate);
+}
+
 export function setPlatformSkin(state: EditorState, id: string, skin: string): void {
   const p = findPlatform(state.doc, id);
   if (!p) return;
   p.skin = skin;
   delete p.palette;
+  syncMirrorPlatform(state, p, (mate) => {
+    mate.skin = skin;
+    delete mate.palette;
+  });
   state.dirty = true;
 }
 
@@ -299,6 +412,10 @@ export function setPlatformPalette(state: EditorState, id: string, palette: MapP
   if (!p || !palette) return;
   p.palette = { ...palette };
   p.skin = undefined;
+  syncMirrorPlatform(state, p, (mate) => {
+    mate.palette = { ...palette };
+    mate.skin = undefined;
+  });
   state.dirty = true;
 }
 
@@ -332,6 +449,95 @@ export function hitTestHoardSlot(doc: MapDocument, x: number, y: number): MapHoa
     if (x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) return slot;
   }
   return undefined;
+}
+
+export function hitTestWall(doc: MapDocument, x: number, y: number): MapWall | undefined {
+  for (let i = doc.walls.length - 1; i >= 0; i--) {
+    const w = doc.walls[i]!;
+    if (x >= w.x && x <= w.x + w.w && y >= w.y && y <= w.y + w.h) return w;
+  }
+  return undefined;
+}
+
+export function hitTestSpawn(
+  doc: MapDocument,
+  x: number,
+  y: number
+): { team: "blue" | "red"; role: "main" | "backup"; index: number } | undefined {
+  const r = 12;
+  for (const team of ["blue", "red"] as const) {
+    const sp = doc.spawns[team];
+    if (Math.hypot(sp.main.x - x, sp.main.y - y) <= r) {
+      return { team, role: "main", index: 0 };
+    }
+    for (let i = 0; i < sp.backup.length; i++) {
+      const pt = sp.backup[i]!;
+      if (Math.hypot(pt.x - x, pt.y - y) <= r) return { team, role: "backup", index: i };
+    }
+  }
+  return undefined;
+}
+
+export function moveSpawn(
+  state: EditorState,
+  team: "blue" | "red",
+  role: "main" | "backup",
+  index: number,
+  x: number,
+  y: number
+): void {
+  const gx = snap(x, state.grid);
+  const gy = snap(y, state.grid);
+  const pt: SpawnPoint = { x: gx, y: gy };
+  if (role === "main") {
+    state.doc.spawns[team].main = pt;
+    if (state.mirrorLock) {
+      const other = team === "blue" ? "red" : "blue";
+      state.doc.spawns[other].main = { x: mirrorPointX(gx), y: gy };
+    }
+  } else {
+    state.doc.spawns[team].backup[index] = pt;
+    if (state.mirrorLock) {
+      const other = team === "blue" ? "red" : "blue";
+      state.doc.spawns[other].backup[index] = { x: mirrorPointX(gx), y: gy };
+    }
+  }
+  state.dirty = true;
+}
+
+export function addBackupSpawn(state: EditorState, team: "blue" | "red", x: number, y: number): void {
+  const pt = { x: snap(x, state.grid), y: snap(y, state.grid) };
+  state.doc.spawns[team].backup.push(pt);
+  if (state.mirrorLock) {
+    const other = team === "blue" ? "red" : "blue";
+    state.doc.spawns[other].backup.push({ x: mirrorPointX(pt.x), y: pt.y });
+  }
+  state.dirty = true;
+}
+
+export function selectInRect(
+  doc: MapDocument,
+  x0: number,
+  y0: number,
+  x1: number,
+  y1: number
+): Extract<Selection, { kind: "multi" }> {
+  const left = Math.min(x0, x1);
+  const right = Math.max(x0, x1);
+  const top = Math.min(y0, y1);
+  const bottom = Math.max(y0, y1);
+  const inRect = (px: number, py: number) => px >= left && px <= right && py >= top && py <= bottom;
+  const overlaps = (rx: number, ry: number, rw: number, rh: number) =>
+    rx < right && rx + rw > left && ry < bottom && ry + rh > top;
+
+  const platforms = doc.platforms.filter((p) => !p.ground && overlaps(p.x, p.y, p.w, p.h)).map((p) => p.id);
+  const walls = doc.walls.filter((w) => overlaps(w.x, w.y, w.w, w.h)).map((w) => w.id);
+  const gems = doc.gemSeams.filter((g) => inRect(g.x, g.y)).map((g) => g.id);
+  const hoardSlots = allHoardSlots(doc)
+    .filter(({ slot }) => overlaps(slot.x, slot.y, SLOT_SIZE, SLOT_SIZE))
+    .map(({ slot }) => slot.id);
+
+  return { kind: "multi", platforms, gems, hoardSlots, walls };
 }
 
 export function hitTestCow(doc: MapDocument, x: number, y: number): boolean {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { PALETTE_MARKERS, applyPaletteSwap } from "./palette";
 import { defaultArenaMap } from "./default-map";
-import { mirrorPlatformX, mirrorPointX, snapGem, validateMap } from "./schema";
+import { mirrorPlatformX, mirrorPointX, snapGem, validateMap, wrapPlatformHorizontal } from "./schema";
 import { W } from "./constants";
 
 describe("map symmetry validation", () => {
@@ -20,9 +20,17 @@ describe("map symmetry validation", () => {
     expect(mirrorPointX(180)).toBe(W - 180);
   });
 
-  it("snapGem keeps pixel coords used by arena gem spawns", () => {
-    expect(snapGem(165.4)).toBe(165);
-    expect(snapGem(203.6)).toBe(204);
+  it("snapGem aligns to editor grid intersections", () => {
+    expect(snapGem(165.4, 8)).toBe(168);
+    expect(snapGem(203.6, 8)).toBe(200);
+  });
+
+  it("wrapPlatformHorizontal moves past-right platforms to the left seam", () => {
+    expect(wrapPlatformHorizontal(1272, 96)).toBe(-8);
+  });
+
+  it("wrapPlatformHorizontal keeps left-straddling platforms", () => {
+    expect(wrapPlatformHorizontal(-88, 96)).toBe(-88);
   });
 });
 

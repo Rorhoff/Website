@@ -43,6 +43,7 @@ from airevolution_routes import router as airevolution_router
 from classifieds_routes import router as classifieds_router
 from ldbg_proxy import router as ldbg_proxy_router
 from motherwyrm_routes import router as motherwyrm_router
+from motherwyrm_maps import router as motherwyrm_maps_router
 from sss_routes import router as sss_router
 from t1prod_routes import router as t1prod_router
 from t1referrall_routes import router as referr_all_router
@@ -195,6 +196,7 @@ elif not _CLASSIFIEDS_ONLY:
     app.include_router(airevolution_router)
     app.include_router(sss_router)
     app.include_router(motherwyrm_router)
+    app.include_router(motherwyrm_maps_router)
     app.include_router(t1prod_router)
     app.include_router(referr_all_router)
     app.include_router(in_the_wild_router)

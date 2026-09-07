@@ -9,7 +9,8 @@ import {
   W,
 } from "./constants";
 import { hoardGridFromAnchor, mirrorHoardTeam } from "./hoard";
-import type { MapDocument, MapGemSeam, MapPlatform, PlatformPalette, ValidationIssue } from "./types";
+import { DEFAULT_SPAWNS } from "./default-map";
+import type { MapDocument, MapGemSeam, MapPlatform, MapSpawns, PlatformPalette, ValidationIssue } from "./types";
 
 let idCounter = 0;
 export function newId(prefix: string): string {
@@ -26,9 +27,9 @@ export function snap(v: number, grid: number): number {
   return Math.round(v / grid) * grid;
 }
 
-/** Gems use pixel coordinates (arena spawns are not on the platform grid). */
-export function snapGem(v: number): number {
-  return Math.round(v);
+/** Gems snap to the editor grid (grid-line intersections). */
+export function snapGem(v: number, grid: number): number {
+  return snap(v, grid);
 }
 
 export function mirrorPlatformX(x: number, w: number): number {
@@ -42,6 +43,33 @@ export function mirrorPointX(x: number): number {
 export function isOnCenterline(x: number, w = 0): boolean {
   const cx = x + w / 2;
   return Math.abs(cx - CENTER_X) < 0.5;
+}
+
+/** True when gx lies over platform p, including toroidal wrap copies. */
+export function platformContainsX(p: MapPlatform, gx: number): boolean {
+  if (gx >= p.x && gx <= p.x + p.w) return true;
+  if (p.x < 0 && gx >= p.x + W && gx <= p.x + p.w + W) return true;
+  if (p.x + p.w > W) {
+    const wx = p.x - W;
+    if (gx >= wx && gx <= wx + p.w) return true;
+  }
+  return false;
+}
+
+/**
+ * Wrap a platform horizontally when dragged past a side — matches in-game x wrap.
+ * Allows straddling the seam (e.g. x=-8 with w=96 spans the left edge).
+ */
+export function wrapPlatformHorizontal(x: number, w: number): number {
+  let nx = x;
+  if (nx + w > W && nx > 0) nx -= W;
+  if (nx + w <= 0) nx += W;
+  else if (nx >= W) nx -= W;
+  return nx;
+}
+
+export function normalizePlatformX(x: number, w: number, grid: number): number {
+  return snap(wrapPlatformHorizontal(x, w), grid);
 }
 
 export function mirrorGemSeam(g: MapGemSeam): MapGemSeam {
@@ -67,7 +95,7 @@ export function validateMap(doc: MapDocument, mirrorLock: boolean): ValidationIs
 
   const grounds = doc.platforms.filter((p) => p.ground);
   if (grounds.length === 0) {
-    issues.push({ level: "warn", message: "No ground platform — add a full-width floor row." });
+    issues.push({ level: "warn", message: "No ground platform — wyrms/mothers fall through and wrap to the top." });
   } else if (grounds.length > 1) {
     issues.push({ level: "warn", message: "Multiple ground platforms defined." });
   }
@@ -76,8 +104,8 @@ export function validateMap(doc: MapDocument, mirrorLock: boolean): ValidationIs
     if (p.w < 8 || p.h < 4) {
       issues.push({ level: "error", message: `Platform ${p.id} is too small (${p.w}×${p.h}).` });
     }
-    if (p.x < 0 || p.y < 0 || p.x + p.w > W || p.y + p.h > H) {
-      issues.push({ level: "error", message: `Platform ${p.id} extends outside the arena.` });
+    if (p.y < 0 || p.y + p.h > H) {
+      issues.push({ level: "error", message: `Platform ${p.id} extends outside the arena vertically.` });
     }
     if (p.skin && !SKIN_PRESETS[p.skin] && !p.palette) {
       issues.push({ level: "warn", message: `Platform ${p.id} references unknown skin "${p.skin}".` });
@@ -139,7 +167,22 @@ function validateSymmetry(doc: MapDocument, issues: ValidationIssue[]): void {
     }
   }
 
-  if (doc.spawns && doc.spawns.blue.x !== mirrorPointX(doc.spawns.red.x)) {
+  for (let i = 0; i < doc.walls.length; i++) {
+    const w = doc.walls[i]!;
+    if (isOnCenterline(w.x, w.w)) continue;
+    const mx = mirrorPlatformX(w.x, w.w);
+    const pair = doc.walls.find(
+      (o, j) => j !== i && o.x === mx && o.y === w.y && o.w === w.w && o.h === w.h
+    );
+    if (!pair) {
+      issues.push({
+        level: "error",
+        message: `Wall at (${w.x},${w.y}) has no mirror at x=${mx}.`,
+      });
+    }
+  }
+
+  if (doc.spawns.blue.main.x !== mirrorPointX(doc.spawns.red.main.x)) {
     issues.push({ level: "error", message: "Team spawns are not mirrored on x." });
   }
 }
@@ -168,6 +211,29 @@ function normalizeHoard(raw: MapDocument["hoardSlots"]): MapDocument["hoardSlots
   };
 }
 
+function normalizeSpawns(raw: MapDocument["spawns"] | undefined): MapSpawns {
+  if (!raw) return structuredClone(DEFAULT_SPAWNS);
+  const legacy = raw as MapSpawns & { blue?: { x?: number; main?: unknown } };
+  if (legacy.blue && "x" in legacy.blue && !("main" in legacy.blue)) {
+    const oldBlue = legacy.blue as { x: number; y: number };
+    const oldRed = (raw as { red: { x: number; y: number } }).red;
+    return {
+      blue: { main: oldBlue, backup: [...DEFAULT_SPAWNS.blue.backup] },
+      red: { main: oldRed, backup: [...DEFAULT_SPAWNS.red.backup] },
+    };
+  }
+  return {
+    blue: {
+      main: legacy.blue.main,
+      backup: [...(legacy.blue.backup ?? [])],
+    },
+    red: {
+      main: legacy.red.main,
+      backup: [...(legacy.red.backup ?? [])],
+    },
+  };
+}
+
 function normalizeMap(raw: MapDocument): MapDocument {
   const wyrmPath = {
     ...DEFAULT_WYRM_PATH,
@@ -182,10 +248,13 @@ function normalizeMap(raw: MapDocument): MapDocument {
     height: raw.height ?? H,
     grid: raw.grid ?? DEFAULT_GRID,
     platforms: raw.platforms ?? [],
+    walls: raw.walls ?? [],
     gemSeams: raw.gemSeams ?? [],
     hoardSlots: normalizeHoard(raw.hoardSlots ?? { blue: [], red: [] }),
     wyrmPath,
-    spawns: raw.spawns,
+    spawns: normalizeSpawns(raw.spawns),
+    thumbnail: raw.thumbnail,
+    excludeFromRandom: raw.excludeFromRandom,
   };
 }
 

@@ -1,5 +1,6 @@
 import Phaser from "phaser";
 import { Net } from "../net";
+import { allMaps, loadPublishedMaps, pickRandomMap, type LoadedMapEntry } from "../maps/load";
 import { W, H, COLORS } from "../arena";
 import { addLocalPlayer, addOneBot, ensureMinimumPlayers, formatPlayerLabel, MIN_PLAYERS } from "../roster";
 import { padJoinUrl, qrDataUrl } from "../qr";
@@ -14,6 +15,10 @@ export class Lobby extends Phaser.Scene {
   private countdownSub?: Phaser.GameObjects.Text;
   private qrImage?: Phaser.GameObjects.Image;
   private qrCaption?: Phaser.GameObjects.Text;
+
+  private mapLabels: Phaser.GameObjects.Text[] = [];
+  private selectedMap: LoadedMapEntry | null = null;
+  private mapHint!: Phaser.GameObjects.Text;
 
   constructor() {
     super("Lobby");
@@ -97,6 +102,9 @@ export class Lobby extends Phaser.Scene {
       color: "#8b7a66",
     }).setOrigin(0.5);
 
+    this.selectedMap = pickRandomMap() ?? allMaps()[0] ?? null;
+    this.buildMapSelect();
+
     this.net.onCode = (code) => {
       this.codeText.setText(code);
       void this.refreshQr(code);
@@ -116,6 +124,66 @@ export class Lobby extends Phaser.Scene {
     this.input.keyboard?.on("keydown-R", () => this.addRobots());
     this.input.keyboard?.on("keydown-P", () => this.addHuman());
     this.input.keyboard?.on("keydown-SPACE", () => this.tryStart());
+  }
+
+  private buildMapSelect() {
+    this.add.text(24, 220, "Map", {
+      fontFamily: "system-ui, sans-serif",
+      fontSize: "18px",
+      fontStyle: "bold",
+      color: "#efe4d2",
+    });
+
+    this.mapHint = this.add.text(24, 248, "", {
+      fontFamily: "system-ui, sans-serif",
+      fontSize: "13px",
+      color: "#8b7a66",
+    });
+
+    let y = 276;
+    const randomLabel = this.add.text(24, y, "🎲 Random map", {
+      fontFamily: "system-ui, sans-serif",
+      fontSize: "16px",
+      color: "#7fe3c4",
+    }).setInteractive({ useHandCursor: true });
+    randomLabel.on("pointerdown", () => {
+      this.selectedMap = null;
+      this.refreshMapSelect();
+    });
+    this.mapLabels.push(randomLabel);
+    y += 30;
+
+    for (const entry of allMaps()) {
+      const label = this.add.text(24, y, entry.map.name, {
+        fontFamily: "system-ui, sans-serif",
+        fontSize: "15px",
+        color: "#8b7a66",
+      }).setInteractive({ useHandCursor: true });
+      label.on("pointerdown", () => {
+        this.selectedMap = entry;
+        this.refreshMapSelect();
+      });
+      this.mapLabels.push(label);
+      y += 24;
+    }
+    this.refreshMapSelect();
+  }
+
+  private refreshMapSelect() {
+    const name = this.selectedMap?.map.name ?? "Random";
+    this.mapHint.setText(`Selected: ${name}`);
+    for (const label of this.mapLabels) {
+      const isRandom = label.text.startsWith("🎲");
+      const selected =
+        (isRandom && !this.selectedMap)
+        || (!isRandom && this.selectedMap && label.text === this.selectedMap.map.name);
+      label.setColor(selected ? "#7fe3c4" : isRandom ? "#7fe3c4" : "#8b7a66");
+      label.setAlpha(selected || isRandom ? 1 : 0.75);
+    }
+  }
+
+  private resolveArena() {
+    return this.selectedMap?.arena ?? pickRandomMap()?.arena;
   }
 
   private refreshQr(code: string) {
@@ -264,7 +332,7 @@ export class Lobby extends Phaser.Scene {
         this.countdownOverlay?.destroy();
         this.countdownSub?.destroy();
         this.net.notifyGameStart();
-        this.scene.start("Game", { net: this.net });
+        this.scene.start("Game", { net: this.net, arena: this.resolveArena() });
         return;
       }
       const n = steps[i++];

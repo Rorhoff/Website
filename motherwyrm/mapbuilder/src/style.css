@@ -59,6 +59,16 @@ body {
   background: #3d2e22;
 }
 
+.toolbar button.primary {
+  background: #2a4a38;
+  border-color: #7fe3c4;
+  color: #7fe3c4;
+}
+
+.toolbar button.primary:hover {
+  background: #355a48;
+}
+
 .mirror-toggle,
 .grid-field {
   display: flex;

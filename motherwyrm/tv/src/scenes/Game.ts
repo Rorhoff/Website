@@ -14,8 +14,9 @@ import {
 } from '../assets';
 import { drawCollisionOverlay } from '../collision-overlay';
 import { mothersClash, pickWhelpRespawn } from '../spawn';
+import { builtinArena, hasGroundPlatform, hasLeftWall, hasRightWall, type LoadedArena } from '../maps/apply';
 import {
-  W, H, COLORS, TUNING, PLATFORMS, GEM_SPAWNS, SPAWN, slotRect,
+  W, H, COLORS, TUNING, SLOT_SIZE, slotRect as layoutSlotRect,
 } from '../arena';
 
 type Sprite = Phaser.Physics.Arcade.Sprite;
@@ -95,9 +96,16 @@ export class Game extends Phaser.Scene {
   private cowTeam: Team | null = null;
   private cowTakenCueAt = new Map<number, number>();
 
+  private arena!: LoadedArena;
+  private slotCount = TUNING.slotsToWin;
+
   constructor() { super('Game'); }
 
-  init(data: { net: Net }) { this.net = data.net; }
+  init(data: { net: Net; arena?: LoadedArena }) {
+    this.net = data.net;
+    this.arena = data.arena ?? builtinArena();
+    this.slotCount = this.arena.slotsToWin;
+  }
 
   // ------------------------------------------------------------------ setup
 
@@ -105,7 +113,7 @@ export class Game extends Phaser.Scene {
     this.over = false;
     this.actors = [];
     resetBotMemory();
-    this.slots = { blue: new Array(TUNING.slotsToWin).fill(false), red: new Array(TUNING.slotsToWin).fill(false) };
+    this.slots = { blue: new Array(this.slotCount).fill(false), red: new Array(this.slotCount).fill(false) };
     this.cameras.main.setBackgroundColor(COLORS.sky);
     this.physics.world.setBounds(0, 0, W, H);
 
@@ -118,7 +126,7 @@ export class Game extends Phaser.Scene {
 
     this.gems = this.physics.add.group({ bounceX: 0.35, bounceY: 0.3, dragX: 140 });
     this.physics.add.collider(this.gems, this.platforms);
-    GEM_SPAWNS.forEach((_, i) => this.spawnGem(i));
+    this.arena.gemSpawns.forEach((_, i) => this.spawnGem(i));
 
     this.buildWyrm();
     this.drawFinishLines();
@@ -172,28 +180,38 @@ export class Game extends Phaser.Scene {
     });
   }
 
+  private mapSlotRect(team: Team, i: number) {
+    const slots = this.arena.hoardSlots[team];
+    const s = slots.find((x) => x.index === i) ?? slots[i];
+    if (s) return new Phaser.Geom.Rectangle(s.x, s.y, SLOT_SIZE, SLOT_SIZE);
+    return layoutSlotRect(team, i);
+  }
+
   private buildPlatforms() {
     this.platforms = this.physics.add.staticGroup();
-    PLATFORMS.forEach(([x, y, w, h], idx) => {
+    this.arena.platforms.forEach(([x, y, w, h], idx) => {
       const r = this.add.rectangle(x + w / 2, y + h / 2, w, h, COLORS.soil)
         .setStrokeStyle(2, COLORS.soilLip);
       this.platforms.add(r);
       const body = r.body as Phaser.Physics.Arcade.StaticBody;
       body.updateFromGameObject();
-      // Everything except the ground is a drop-through ledge, so a whelp
-      // can pop up from below instead of bonking its cap.
       if (idx > 0) {
         body.checkCollision.down = false;
         body.checkCollision.left = false;
         body.checkCollision.right = false;
       }
     });
+    for (const [x, y, w, h] of this.arena.walls) {
+      const r = this.add.rectangle(x + w / 2, y + h / 2, w, h, 0x3d3228).setStrokeStyle(1, 0x8b7a66);
+      this.platforms.add(r);
+      (r.body as Phaser.Physics.Arcade.StaticBody).updateFromGameObject();
+    }
   }
 
   private buildWyrm() {
     this.finishGfx = this.add.graphics().setDepth(11);
     const key = wyrmTextureKey();
-    const feetY = TUNING.cowGroundY;
+    const feetY = this.arena.cowGroundY;
     this.wyrm = this.physics.add
       .sprite(W / 2, feetY - COW_HALF_H, key)
       .setDepth(12);
@@ -208,30 +226,30 @@ export class Game extends Phaser.Scene {
   private drawFinishLines() {
     const g = this.finishGfx;
     g.clear();
-    const top = TUNING.cowGroundY - TUNING.cowFinishHeight;
-    const bottom = TUNING.cowGroundY;
+    const top = this.arena.cowGroundY - this.arena.cowFinishHeight;
+    const bottom = this.arena.cowGroundY;
 
     g.lineStyle(5, COLORS.blue, 0.9);
-    g.lineBetween(TUNING.wyrmWin.blue, top, TUNING.wyrmWin.blue, bottom);
+    g.lineBetween(this.arena.wyrmWin.blue, top, this.arena.wyrmWin.blue, bottom);
     g.lineStyle(3, COLORS.blue, 0.45);
-    g.strokeRect(TUNING.wyrmWin.blue - 2, top, 4, bottom - top);
+    g.strokeRect(this.arena.wyrmWin.blue - 2, top, 4, bottom - top);
 
     g.lineStyle(5, COLORS.red, 0.9);
-    g.lineBetween(TUNING.wyrmWin.red, top, TUNING.wyrmWin.red, bottom);
+    g.lineBetween(this.arena.wyrmWin.red, top, this.arena.wyrmWin.red, bottom);
     g.lineStyle(3, COLORS.red, 0.45);
-    g.strokeRect(TUNING.wyrmWin.red - 2, top, 4, bottom - top);
+    g.strokeRect(this.arena.wyrmWin.red - 2, top, 4, bottom - top);
 
     const labelStyle = {
       fontFamily: 'system-ui, sans-serif',
       fontSize: '15px',
       fontStyle: 'bold' as const,
     };
-    this.add.text(TUNING.wyrmWin.blue + 8, top - 10, 'BLUE\nFINISH', {
+    this.add.text(this.arena.wyrmWin.blue + 8, top - 10, 'BLUE\nFINISH', {
       ...labelStyle,
       color: HEX.blue,
       align: 'left',
     }).setOrigin(0, 1).setDepth(12);
-    this.add.text(TUNING.wyrmWin.red - 8, top - 10, 'RED\nFINISH', {
+    this.add.text(this.arena.wyrmWin.red - 8, top - 10, 'RED\nFINISH', {
       ...labelStyle,
       color: HEX.red,
       align: 'right',
@@ -242,7 +260,7 @@ export class Game extends Phaser.Scene {
     for (const p of this.net.players.values()) {
       const atlasKey = actorAtlasKey(p.role, p.team);
       const key = actorTextureKey(p.role, p.team);
-      const spawn = SPAWN[p.team];
+      const spawn = this.arena.spawns[p.team].main;
       const sprite = this.physics.add.sprite(spawn.x, spawn.y, key);
       applySpriteScale(sprite);
       sprite.setCollideWorldBounds(p.role !== 'mother');
@@ -278,7 +296,7 @@ export class Game extends Phaser.Scene {
   }
 
   private spawnGem(index: number) {
-    const [x, y] = GEM_SPAWNS[index];
+    const [x, y] = this.arena.gemSpawns[index]!;
     const key = gemTextureKey();
     const c = this.gems.create(x, y, key) as Sprite;
     if (key === 'props') c.setFrame(0);
@@ -322,9 +340,9 @@ export class Game extends Phaser.Scene {
     const slotCount = (t: Team) => this.slots[t].filter(Boolean).length;
     const openSlotXs = (t: Team) => {
       const xs: number[] = [];
-      for (let i = 0; i < TUNING.slotsToWin; i++) {
+      for (let i = 0; i < this.slotCount; i++) {
         if (this.slots[t][i]) continue;
-        const r = slotRect(t, i);
+        const r = this.mapSlotRect(t, i);
         xs.push(r.x + r.width / 2);
       }
       return xs;
@@ -402,11 +420,11 @@ export class Game extends Phaser.Scene {
         a.hp = TUNING.motherHp;
         a.invulnUntil = time + TUNING.motherInvulnMs;
         this.resetMotherCombat(a, time);
-        a.sprite.setPosition(SPAWN[a.team].x, SPAWN[a.team].y).setVisible(true);
+        a.sprite.setPosition(this.arena.spawns[a.team].main.x, this.arena.spawns[a.team].main.y).setVisible(true);
       } else {
         a.invulnUntil = time + TUNING.whelpInvulnMs;
         const enemy = this.enemyMotherPos(a.team, time);
-        const pt = pickWhelpRespawn(a.team, enemy, TUNING.spawnCampRadius);
+        const pt = pickWhelpRespawn(a.team, enemy, TUNING.spawnCampRadius, this.arena.spawns[a.team].backup);
         a.sprite.setPosition(pt.x, pt.y).setVisible(true);
       }
     }
@@ -475,7 +493,7 @@ export class Game extends Phaser.Scene {
         const key = gemTextureKey();
         const c = this.gems.create(a.sprite.x + a.facing * 20, a.sprite.y - 10, key) as Sprite;
         if (key === 'props') c.setFrame(0);
-        c.setData('spawn', Phaser.Math.Between(0, GEM_SPAWNS.length - 1));
+        c.setData('spawn', Phaser.Math.Between(0, this.arena.gemSpawns.length - 1));
         c.setCollideWorldBounds(true);
         c.setVelocity(a.facing * TUNING.throwPower, -320);
         this.syncCarriedGem(a);
@@ -583,12 +601,23 @@ export class Game extends Phaser.Scene {
     }
 
     this.wrapSpriteX(a.sprite);
+    this.wrapSpriteY(a.sprite);
   }
 
-  /** No side walls for mothers or the cow — they re-enter from the opposite edge. */
+  private wrapSpriteY(sprite: Phaser.Physics.Arcade.Sprite) {
+    if (hasGroundPlatform(this.arena)) return;
+    if (sprite.y > H + 24) {
+      sprite.y = -24;
+      const body = sprite.body as Phaser.Physics.Arcade.Body;
+      body.setVelocityY(Math.min(body.velocity.y, 0));
+    }
+  }
+
   private wrapSpriteX(sprite: Phaser.Physics.Arcade.Sprite) {
-    if (sprite.x < 0) sprite.x += W;
-    else if (sprite.x > W) sprite.x -= W;
+    const blockLeft = hasLeftWall(this.arena);
+    const blockRight = hasRightWall(this.arena, W);
+    if (!blockLeft && sprite.x < 0) sprite.x += W;
+    else if (!blockRight && sprite.x > W) sprite.x -= W;
   }
 
   private dismount(a: Actor, vy: number) {
@@ -599,7 +628,7 @@ export class Game extends Phaser.Scene {
   }
 
   private cowFeetY() {
-    return TUNING.cowGroundY;
+    return this.arena.cowGroundY;
   }
 
   // ------------------------------------------------------------------- wyrm
@@ -767,9 +796,9 @@ export class Game extends Phaser.Scene {
       // A gem that lands in an empty slot fills it, whoever threw it.
       let consumed = false;
       for (const team of ['blue', 'red'] as Team[]) {
-        for (let i = 0; i < TUNING.slotsToWin; i++) {
+        for (let i = 0; i < this.slotCount; i++) {
           if (this.slots[team][i]) continue;
-          if (Phaser.Geom.Intersects.RectangleToRectangle(bounds, slotRect(team, i))) {
+          if (Phaser.Geom.Intersects.RectangleToRectangle(bounds, this.mapSlotRect(team, i))) {
             this.slots[team][i] = true;
             this.consumeGem(obj);
             this.drawSlots();
@@ -797,9 +826,9 @@ export class Game extends Phaser.Scene {
     // Running across your own empty slot deposits one without any aiming.
     for (const a of this.actors) {
       if (a.role === 'mother' || a.carrying === 0) continue;
-      for (let i = 0; i < TUNING.slotsToWin; i++) {
+      for (let i = 0; i < this.slotCount; i++) {
         if (this.slots[a.team][i]) continue;
-        if (Phaser.Geom.Intersects.RectangleToRectangle(a.sprite.getBounds(), slotRect(a.team, i))) {
+        if (Phaser.Geom.Intersects.RectangleToRectangle(a.sprite.getBounds(), this.mapSlotRect(a.team, i))) {
           this.slots[a.team][i] = true;
           a.carrying--;
           this.drawSlots();
@@ -820,7 +849,7 @@ export class Game extends Phaser.Scene {
     const key = gemTextureKey();
     const c = this.gems.create(a.sprite.x, a.sprite.y - 12, key) as Sprite;
     if (key === 'props') c.setFrame(0);
-    c.setData('spawn', Phaser.Math.Between(0, GEM_SPAWNS.length - 1));
+    c.setData('spawn', Phaser.Math.Between(0, this.arena.gemSpawns.length - 1));
     c.setCollideWorldBounds(true);
     c.setVelocity(Phaser.Math.Between(-260, 260), -340);
     this.syncCarriedGem(a);
@@ -1016,17 +1045,17 @@ export class Game extends Phaser.Scene {
     this.cameras.main.shake(140, 0.006);
 
     // Landing on the enemy hoard pops a gem back out of a filled slot.
-    for (let i = 0; i < TUNING.slotsToWin; i++) {
+    for (let i = 0; i < this.slotCount; i++) {
       const enemy = OTHER[a.team];
       if (!this.slots[enemy][i]) continue;
-      const r = slotRect(enemy, i);
+      const r = this.mapSlotRect(enemy, i);
       if (Math.abs(a.sprite.x - (r.x + r.width / 2)) > 90) continue;
       if (Math.abs(a.sprite.y - (r.y + r.height / 2)) > 120) continue;
       this.slots[enemy][i] = false;
       const key = gemTextureKey();
       const c = this.gems.create(r.x + r.width / 2, r.y - 20, key) as Sprite;
       if (key === 'props') c.setFrame(0);
-      c.setData('spawn', Phaser.Math.Between(0, GEM_SPAWNS.length - 1));
+      c.setData('spawn', Phaser.Math.Between(0, this.arena.gemSpawns.length - 1));
       c.setCollideWorldBounds(true);
       c.setVelocity(Phaser.Math.Between(-300, 300), -420);
       this.drawSlots();
@@ -1047,8 +1076,8 @@ export class Game extends Phaser.Scene {
   private drawSlots() {
     this.slotGfx.clear();
     for (const team of ['blue', 'red'] as Team[]) {
-      for (let i = 0; i < TUNING.slotsToWin; i++) {
-        const r = slotRect(team, i);
+      for (let i = 0; i < this.slotCount; i++) {
+        const r = this.mapSlotRect(team, i);
         if (this.slots[team][i]) {
           this.slotGfx.fillStyle(COLORS.gem, 1);
           this.slotGfx.fillRect(r.x + 3, r.y + 3, r.width - 6, r.height - 6);
@@ -1085,17 +1114,17 @@ export class Game extends Phaser.Scene {
       return '●'.repeat(d) + '○'.repeat(Math.max(0, TUNING.motherDeathsToWin - d));
     };
     const line = (t: Team) => [
-      `Gems ${count(t)}/${TUNING.slotsToWin}`,
+      `Gems ${count(t)}/${this.slotCount}`,
       `Mother down ${pips(t)}`,
     ];
 
     this.hudBlue.setText(line('blue'));
     this.hudRed.setText(line('red'));
 
-    const distBlue = Math.max(0, this.wyrm.x - TUNING.wyrmWin.blue);
-    const distRed = Math.max(0, TUNING.wyrmWin.red - this.wyrm.x);
-    const span = TUNING.wyrmWin.red - TUNING.wyrmWin.blue;
-    const pct = Phaser.Math.Clamp((this.wyrm.x - TUNING.wyrmWin.blue) / span, 0, 1);
+    const distBlue = Math.max(0, this.wyrm.x - this.arena.wyrmWin.blue);
+    const distRed = Math.max(0, this.arena.wyrmWin.red - this.wyrm.x);
+    const span = this.arena.wyrmWin.red - this.arena.wyrmWin.blue;
+    const pct = Phaser.Math.Clamp((this.wyrm.x - this.arena.wyrmWin.blue) / span, 0, 1);
     const cells = 21;
     const at = Math.round(pct * (cells - 1));
     this.hudWyrm.setText([
@@ -1139,10 +1168,10 @@ export class Game extends Phaser.Scene {
     }
 
     for (const team of ['blue', 'red'] as Team[]) {
-      if (this.slots[team].every(Boolean)) return finish(team, 'All fifteen gems hoarded.');
+      if (this.slots[team].every(Boolean)) return finish(team, `All ${this.slotCount} gems hoarded.`);
     }
 
-    if (this.wyrm.x <= TUNING.wyrmWin.blue) return finish('blue', 'Cow reached the blue finish line.');
-    if (this.wyrm.x >= TUNING.wyrmWin.red) return finish('red', 'Cow reached the red finish line.');
+    if (this.wyrm.x <= this.arena.wyrmWin.blue) return finish('blue', 'Cow reached the blue finish line.');
+    if (this.wyrm.x >= this.arena.wyrmWin.red) return finish('red', 'Cow reached the red finish line.');
   }
 }

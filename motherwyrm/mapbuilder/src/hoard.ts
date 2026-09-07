@@ -9,7 +9,7 @@ import {
 import { newId } from "./schema";
 import type { MapHoardSlot } from "./types";
 
-/** Build the default 15-slot grid from a top-left anchor. */
+/** Build the default 16-slot grid from a top-left anchor. */
 export function hoardGridFromAnchor(anchorX: number, anchorY: number): MapHoardSlot[] {
   const slots: MapHoardSlot[] = [];
   for (let i = 0; i < SLOTS_TO_WIN; i++) {

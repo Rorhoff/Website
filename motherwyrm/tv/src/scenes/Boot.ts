@@ -1,6 +1,7 @@
 import Phaser from "phaser";
 import { finalizeAssets, queueAssetLoads } from "../assets";
 import { Net } from "../net";
+import { loadPublishedMaps } from "../maps/load";
 
 /** Loads atlases with procedural fallbacks, then routes to Lobby or a debug scene. */
 export class Boot extends Phaser.Scene {
@@ -31,6 +32,8 @@ export class Boot extends Phaser.Scene {
       return;
     }
 
-    this.scene.start("Lobby", { net });
+    void loadPublishedMaps().finally(() => {
+      this.scene.start("Lobby", { net });
+    });
   }
 }

@@ -5,7 +5,7 @@ vi.mock("./arena", () => ({
   W: 1280,
   TUNING: {
     wyrmWin: { blue: 60, red: 1220 },
-    slotsToWin: 15,
+    slotsToWin: 16,
   },
   HOARD_X: { blue: 70, red: 900 },
   HOARD_WIDTH: 240,
