@@ -62,6 +62,79 @@ export function queueAssetLoads(load: Phaser.Loader.LoaderPlugin) {
   });
 }
 
+type AsepriteFrameEntry = {
+  filename?: string;
+  duration?: number;
+};
+
+type AsepriteTag = {
+  name: string;
+  from?: number;
+  to?: number;
+  direction?: string;
+};
+
+/**
+ * Phaser's createFromAseprite wires tag frames by index ("0", "1", …). JSON-array
+ * atlases name texture frames by filename instead, so every tag silently fell
+ * back to frame 0 — idle/flap on the mother, crawl on the cow, etc.
+ */
+export function registerAsepriteAnims(scene: Phaser.Scene, atlasKey: string): string[] {
+  const data = scene.cache.json.get(atlasKey) as
+    | {
+        frames?: AsepriteFrameEntry[] | Record<string, AsepriteFrameEntry>;
+        meta?: { frameTags?: AsepriteTag[] };
+      }
+    | undefined;
+
+  if (!data?.frames || !data.meta?.frameTags?.length) return [];
+
+  const raw = data.frames;
+  const isArray = Array.isArray(raw);
+  const created: string[] = [];
+
+  for (const tag of data.meta.frameTags) {
+    if (!tag.name) continue;
+
+    const from = tag.from ?? 0;
+    const to = tag.to ?? from;
+    const animFrames: Phaser.Types.Animations.AnimationFrame[] = [];
+
+    for (let i = from; i <= to; i++) {
+      if (isArray) {
+        const entry = raw[i];
+        if (!entry?.filename) continue;
+        animFrames.push({
+          key: atlasKey,
+          frame: entry.filename,
+          duration: entry.duration ?? 100,
+        });
+      } else {
+        const entry = raw[String(i)];
+        if (!entry) continue;
+        animFrames.push({
+          key: atlasKey,
+          frame: String(i),
+          duration: entry.duration ?? 100,
+        });
+      }
+    }
+
+    if (!animFrames.length) continue;
+
+    if (scene.anims.exists(tag.name)) scene.anims.remove(tag.name);
+
+    scene.anims.create({
+      key: tag.name,
+      frames: animFrames,
+      yoyo: tag.direction === "pingpong",
+    });
+    created.push(tag.name);
+  }
+
+  return created;
+}
+
 export function finalizeAssets(scene: Phaser.Scene) {
   for (const entry of ATLAS_MANIFEST) {
     if (failedKeys.has(entry.key) || !scene.textures.exists(entry.key)) {
@@ -76,7 +149,7 @@ export function finalizeAssets(scene: Phaser.Scene) {
       continue;
     }
 
-    scene.anims.createFromAseprite(entry.key);
+    registerAsepriteAnims(scene, entry.key);
     const foundTags = collectTags(scene, entry);
     const missingTags = entry.expectedTags.filter((t) => !foundTags.includes(t));
     atlasStatus.set(entry.key, {
@@ -163,7 +236,7 @@ export function tryPlayAnim(
 ) {
   if (!isAtlasLoaded(atlasKey)) return;
   const animKey = `${atlasKey}_${tagSuffix}`;
-  // createFromAseprite registers tags on the scene's animation manager.
+  // registerAsepriteAnims registers tags on the scene's animation manager.
   // sprite.anims.exists only reports animations created on that one sprite, so
   // it answered false for every tag and no animation ever played — every actor
   // sat on frame 0 for the whole match.

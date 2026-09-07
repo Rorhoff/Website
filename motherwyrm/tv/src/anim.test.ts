@@ -1,6 +1,6 @@
 /**
  * tryPlayAnim has to consult the scene's animation manager. Aseprite tags land
- * there via createFromAseprite; sprite.anims.exists only ever reports
+ * there via registerAsepriteAnims; sprite.anims.exists only ever reports
  * animations created on that single sprite, and guarding on it silently
  * swallowed every play call, freezing every actor on frame 0.
  */
@@ -21,9 +21,13 @@ function fakeScene(tags: string[], texturesExist = true) {
       exists: () => texturesExist,
       get: () => ({ customData: {} }),
     },
+    cache: {
+      json: { get: () => undefined },
+    },
     anims: {
-      createFromAseprite: vi.fn(),
       exists: (k: string) => tags.includes(k),
+      remove: vi.fn(),
+      create: vi.fn(),
     },
   };
 }
