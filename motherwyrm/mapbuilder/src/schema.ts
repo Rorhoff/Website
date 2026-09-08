@@ -253,6 +253,7 @@ function normalizeMap(raw: MapDocument): MapDocument {
     hoardSlots: normalizeHoard(raw.hoardSlots ?? { blue: [], red: [] }),
     wyrmPath,
     spawns: normalizeSpawns(raw.spawns),
+    sprites: raw.sprites,
     thumbnail: raw.thumbnail,
     excludeFromRandom: raw.excludeFromRandom,
   };

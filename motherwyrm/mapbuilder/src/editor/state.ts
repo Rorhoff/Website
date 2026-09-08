@@ -17,7 +17,7 @@ import {
   snap,
   snapGem,
 } from "../schema";
-import type { EditorState, MapDocument, MapGemSeam, MapHoardSlot, MapPlatform, MapWall, Selection, SpawnPoint } from "../types";
+import type { EditorState, MapDocument, MapGemSeam, MapHoardSlot, MapPlatform, MapSpriteSlot, MapWall, Selection, SpawnPoint } from "../types";
 
 export type { EditorState, Selection };
 
@@ -26,6 +26,8 @@ export function createEditorState(doc: MapDocument): EditorState {
     doc,
     mirrorLock: true,
     gemGravity: true,
+    spritePreviews: {},
+    pendingSprites: {},
     tool: "select",
     selection: null,
     grid: doc.grid,

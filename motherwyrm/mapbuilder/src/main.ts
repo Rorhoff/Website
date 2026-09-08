@@ -35,9 +35,10 @@ import {
 import { defaultTransform, renderArena, screenToWorld, type DrawPreview, type ViewTransform } from "./editor/render";
 import { createHistory } from "./editor/history";
 import { exportMap, parseMap, serializeMap, snap, snapGem, validateMap } from "./schema";
-import { publishMap, saveMapDraft } from "./api";
+import { deleteSprite, flushPendingSprites, publishMap, saveMapDraft, uploadSprite } from "./api";
 import { loadRecentMaps, rememberMap } from "./storage";
-import { singleSelectionId, type MapDocument, type PlatformPalette, type Selection } from "./types";
+import { invalidateSpriteCache, preloadMapSprites, resolveSpriteUrl, SPRITE_LABELS, SPRITE_SLOTS } from "./sprites";
+import { singleSelectionId, type MapDocument, type MapSpriteSlot, type PlatformPalette, type Selection } from "./types";
 import "./style.css";
 
 type DragMode =
@@ -181,8 +182,14 @@ function mountApp(root: HTMLElement): void {
       propsBody.innerHTML = `
         <label>Map id <input id="mapId" value="${esc(state.doc.id)}"></label>
         <label>Map name <input id="mapName" value="${esc(state.doc.name)}"></label>
+        <section class="sprites-panel">
+          <h3>Character art</h3>
+          <p class="muted">Upload PNGs to replace mothers, whelps, and the wyrm on the canvas. Uses game art until you upload custom PNGs.</p>
+          ${spriteRowsHtml()}
+        </section>
         <p class="muted">Select an object to edit it, or edit map metadata above.</p>`;
       bindMapMeta();
+      bindSpriteArt();
       return;
     }
 
@@ -416,8 +423,128 @@ function mountApp(root: HTMLElement): void {
   }
 
   function redraw(): void {
-    renderArena(ctx, state, view, canvas.width, canvas.height, state.selection, hover, drawPreview);
+    renderArena(
+      ctx,
+      state,
+      view,
+      canvas.width,
+      canvas.height,
+      state.selection,
+      hover,
+      drawPreview,
+      () => redraw()
+    );
     refreshValidation();
+  }
+
+  function spriteRowsHtml(): string {
+    return SPRITE_SLOTS.map((slot) => {
+      const url = resolveSpriteUrl(state.doc, slot, state.spritePreviews);
+      const custom = Boolean(state.doc.sprites?.[slot] || state.pendingSprites[slot]);
+      return `
+        <div class="sprite-row">
+          <img class="sprite-thumb" src="${esc(url)}" alt="" width="40" height="40">
+          <div class="sprite-meta">
+            <span class="sprite-label">${SPRITE_LABELS[slot]}</span>
+            <label class="sprite-upload">
+              <input type="file" accept="image/png" data-sprite="${slot}" hidden>
+              Choose PNG…
+            </label>
+          </div>
+          ${custom ? `<button type="button" class="sprite-clear" data-clear-sprite="${slot}">Reset</button>` : ""}
+        </div>`;
+    }).join("");
+  }
+
+  function bindSpriteArt(): void {
+    propsBody.querySelectorAll<HTMLInputElement>("input[data-sprite]").forEach((input) => {
+      input.addEventListener("change", () => {
+        const slot = input.dataset.sprite as MapSpriteSlot;
+        const file = input.files?.[0];
+        input.value = "";
+        if (!file) return;
+        void applySpriteUpload(slot, file);
+      });
+    });
+    propsBody.querySelectorAll("[data-clear-sprite]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const slot = (btn as HTMLElement).dataset.clearSprite as MapSpriteSlot;
+        void clearSprite(slot);
+      });
+    });
+  }
+
+  async function applySpriteUpload(slot: MapSpriteSlot, file: File): Promise<void> {
+    if (!file.type.includes("png")) {
+      setStatus("Sprite must be a PNG file.", true);
+      return;
+    }
+    const prev = state.spritePreviews[slot];
+    if (prev?.startsWith("blob:")) URL.revokeObjectURL(prev);
+    state.spritePreviews[slot] = URL.createObjectURL(file);
+    state.pendingSprites[slot] = file;
+    state.dirty = true;
+
+    if (state.doc.id.trim()) {
+      const result = await uploadSprite(state.doc.id, slot, file);
+      if (!result.ok) {
+        setStatus(`Upload failed: ${result.error}`, true);
+        renderProps();
+        redraw();
+        return;
+      }
+      invalidateSpriteCache(state.doc.sprites?.[slot]);
+      state.doc.sprites = { ...(state.doc.sprites ?? {}), [slot]: result.url };
+      delete state.pendingSprites[slot];
+      if (state.spritePreviews[slot]?.startsWith("blob:")) {
+        URL.revokeObjectURL(state.spritePreviews[slot]!);
+      }
+      delete state.spritePreviews[slot];
+      setStatus(`Updated ${SPRITE_LABELS[slot]}`);
+    } else {
+      setStatus(`Previewing ${SPRITE_LABELS[slot]} — set map id and Save to keep it.`);
+    }
+    renderProps();
+    redraw();
+  }
+
+  async function clearSprite(slot: MapSpriteSlot): Promise<void> {
+    recordHistory();
+    if (state.doc.id.trim() && state.doc.sprites?.[slot]) {
+      await deleteSprite(state.doc.id, slot);
+    }
+    invalidateSpriteCache(state.doc.sprites?.[slot]);
+    if (state.spritePreviews[slot]?.startsWith("blob:")) {
+      URL.revokeObjectURL(state.spritePreviews[slot]!);
+    }
+    delete state.spritePreviews[slot];
+    delete state.pendingSprites[slot];
+    if (state.doc.sprites) {
+      const next = { ...state.doc.sprites };
+      delete next[slot];
+      state.doc.sprites = Object.keys(next).length ? next : undefined;
+    }
+    state.dirty = true;
+    renderProps();
+    redraw();
+  }
+
+  async function prepareDocForSave(): Promise<MapDocument | null> {
+    syncDocGrid(state);
+    if (Object.keys(state.pendingSprites).length) {
+      const flushed = await flushPendingSprites(state.doc, state.pendingSprites);
+      if (!flushed.ok) {
+        setStatus(`Sprite upload failed: ${flushed.error}`, true);
+        return null;
+      }
+      state.doc = flushed.doc;
+      state.pendingSprites = {};
+      for (const url of Object.values(state.spritePreviews)) {
+        if (url?.startsWith("blob:")) URL.revokeObjectURL(url);
+      }
+      state.spritePreviews = {};
+    }
+    return exportMap(state.doc);
   }
 
   function loadDoc(doc: MapDocument): void {
@@ -430,6 +557,7 @@ function mountApp(root: HTMLElement): void {
     updateUndoButton();
     renderProps();
     refreshRecent();
+    preloadMapSprites(state.doc, () => redraw(), state.spritePreviews);
     redraw();
   }
 
@@ -453,12 +581,12 @@ function mountApp(root: HTMLElement): void {
   }
 
   async function doSave(): Promise<void> {
-    syncDocGrid(state);
     if (!state.doc.id.trim()) {
       setStatus("Set a map id in Properties before saving.", true);
       return;
     }
-    const out = exportMap(state.doc);
+    const out = await prepareDocForSave();
+    if (!out) return;
     const json = serializeMap(out);
     const result = await saveMapDraft(out);
     if (!result.ok) {
@@ -472,7 +600,6 @@ function mountApp(root: HTMLElement): void {
   }
 
   async function doPublish(): Promise<void> {
-    syncDocGrid(state);
     const issues = validateMap(state.doc, state.mirrorLock);
     const errors = issues.filter((i) => i.level === "error");
     if (errors.length) {
@@ -483,7 +610,8 @@ function mountApp(root: HTMLElement): void {
       setStatus("Set a map id in Properties before publishing.", true);
       return;
     }
-    const out = exportMap(state.doc);
+    const out = await prepareDocForSave();
+    if (!out) return;
     const json = serializeMap(out);
     const result = await publishMap(out);
     if (!result.ok) {

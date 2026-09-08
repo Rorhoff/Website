@@ -4,7 +4,13 @@ import { mirrorPointX, snapGem } from "../schema";
 import { resolvePalette } from "../schema";
 import { drawPlatformCap } from "../platform-tile";
 import { allHoardSlots, dropGemY, gemHoverBlocked, type EditorState } from "./state";
-import type { Selection } from "../types";
+import type { MapSpriteSlot, Selection } from "../types";
+import {
+  drawSpriteAtFeet,
+  ensureSpriteLoaded,
+  getCachedSprite,
+  resolveSpriteUrl,
+} from "../sprites";
 
 export type ViewTransform = {
   scale: number;
@@ -54,7 +60,8 @@ export function renderArena(
   canvasH: number,
   selection: Selection,
   hover: { x: number; y: number } | null,
-  preview: DrawPreview
+  preview: DrawPreview,
+  onSpriteLoad?: () => void
 ): void {
   ctx.save();
   ctx.fillStyle = "#121018";
@@ -111,7 +118,7 @@ export function renderArena(
     drawRubyGem(ctx, g.x, g.y, isSelected(selection, "gem", g.id));
   }
 
-  drawSpawnMarkers(ctx, state, selection);
+  drawSpawnMarkers(ctx, state, selection, onSpriteLoad);
 
   const wp = state.doc.wyrmPath;
   const top = wp.y - wp.finishHeight;
@@ -136,13 +143,12 @@ export function renderArena(
   }
 
   const cowSel = selection?.kind === "wyrmCow";
-  ctx.fillStyle = "#c9a25e";
-  ctx.beginPath();
-  ctx.arc(W / 2, wp.y - 22, 14, 0, Math.PI * 2);
-  ctx.fill();
+  drawMapSprite(ctx, state, "wyrm", W / 2, wp.y - 22, onSpriteLoad, cowSel ? 56 : 48);
   if (cowSel) {
     ctx.strokeStyle = "#f2c063";
     ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(W / 2, wp.y - 22, 22, 0, Math.PI * 2);
     ctx.stroke();
   }
 
@@ -202,20 +208,77 @@ export function renderArena(
   ctx.restore();
 }
 
-function drawSpawnMarkers(ctx: CanvasRenderingContext2D, state: EditorState, selection: Selection): void {
+function drawSpawnMarkers(
+  ctx: CanvasRenderingContext2D,
+  state: EditorState,
+  selection: Selection,
+  onSpriteLoad?: () => void
+): void {
   for (const team of ["blue", "red"] as const) {
     const color = team === "blue" ? "#4aa3d8" : "#e0663f";
     const sp = state.doc.spawns[team];
+    const motherSlot: MapSpriteSlot = team === "blue" ? "mother_blue" : "mother_red";
+    const whelpSlot: MapSpriteSlot = team === "blue" ? "whelp_blue" : "whelp_red";
     const mainSel =
       selection?.kind === "spawn" && selection.team === team && selection.role === "main";
-    drawSpawnDot(ctx, sp.main.x, sp.main.y, color, mainSel, "M");
+    drawSpawnCharacter(ctx, state, motherSlot, sp.main.x, sp.main.y, color, mainSel, "M", onSpriteLoad);
 
     sp.backup.forEach((pt, i) => {
       const sel =
         selection?.kind === "spawn" && selection.team === team && selection.role === "backup" && selection.index === i;
-      drawSpawnDot(ctx, pt.x, pt.y, color, sel, String(i + 1));
+      drawSpawnCharacter(ctx, state, whelpSlot, pt.x, pt.y, color, sel, String(i + 1), onSpriteLoad, 36);
     });
   }
+}
+
+function drawMapSprite(
+  ctx: CanvasRenderingContext2D,
+  state: EditorState,
+  slot: MapSpriteSlot,
+  x: number,
+  y: number,
+  onSpriteLoad?: () => void,
+  targetH = 48
+): boolean {
+  const url = resolveSpriteUrl(state.doc, slot, state.spritePreviews);
+  let img = getCachedSprite(url);
+  if (!img) {
+    ensureSpriteLoaded(url, () => onSpriteLoad?.());
+    return false;
+  }
+  drawSpriteAtFeet(ctx, img, x, y, targetH);
+  return true;
+}
+
+function drawSpawnCharacter(
+  ctx: CanvasRenderingContext2D,
+  state: EditorState,
+  slot: MapSpriteSlot,
+  x: number,
+  y: number,
+  color: string,
+  sel: boolean,
+  label: string,
+  onSpriteLoad?: () => void,
+  targetH = 48
+): void {
+  const drew = drawMapSprite(ctx, state, slot, x, y, onSpriteLoad, sel ? targetH + 4 : targetH);
+  if (!drew) {
+    drawSpawnDot(ctx, x, y, color, sel, label);
+    return;
+  }
+  if (sel) {
+    ctx.strokeStyle = "#f2c063";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(x, y, 12, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  ctx.fillStyle = "#171016";
+  ctx.font = "bold 9px system-ui";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(label, x, y + 14);
 }
 
 function drawSpawnDot(

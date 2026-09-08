@@ -217,6 +217,72 @@ body {
   color: #e0663f;
 }
 
+.sprites-panel {
+  margin: 12px 0;
+  padding-top: 8px;
+  border-top: 1px solid #3d2e22;
+}
+
+.sprites-panel h3 {
+  color: #f2c063;
+}
+
+.sprite-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.sprite-thumb {
+  flex: 0 0 40px;
+  width: 40px;
+  height: 40px;
+  object-fit: contain;
+  background: #0d0a08;
+  border: 1px solid #3d2e22;
+  border-radius: 4px;
+}
+
+.sprite-meta {
+  flex: 1;
+  min-width: 0;
+}
+
+.sprite-label {
+  display: block;
+  font-size: 0.85rem;
+  color: #efe4d2;
+  margin-bottom: 4px;
+}
+
+.sprite-upload {
+  display: inline-block;
+  padding: 4px 8px;
+  background: #2c2119;
+  border: 1px solid #4a3828;
+  border-radius: 4px;
+  color: #8b7a66;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.sprite-upload:hover {
+  background: #3d2e22;
+  color: #efe4d2;
+}
+
+.sprite-clear {
+  flex: 0 0 auto;
+  padding: 4px 8px;
+  background: transparent;
+  border: 1px solid #5a2018;
+  border-radius: 4px;
+  color: #e0663f;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
 @media (max-width: 800px) {
   .main {
     flex-direction: column;

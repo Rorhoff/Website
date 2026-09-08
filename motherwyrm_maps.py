@@ -6,13 +6,17 @@ import re
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 
 router = APIRouter(tags=["motherwyrm-maps"])
 
 MAPS_ROOT = Path(__file__).resolve().parent / "data" / "mw" / "maps"
 DRAFTS_DIR = MAPS_ROOT / "drafts"
 PUBLISHED_DIR = MAPS_ROOT / "published"
+ASSETS_DIR = MAPS_ROOT / "assets"
+
+SPRITE_SLOTS = frozenset({"mother_blue", "mother_red", "whelp_blue", "whelp_red", "wyrm"})
 
 _ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$", re.IGNORECASE)
 
@@ -20,6 +24,25 @@ _ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$", re.IGNORECASE)
 def _ensure_dirs() -> None:
     DRAFTS_DIR.mkdir(parents=True, exist_ok=True)
     PUBLISHED_DIR.mkdir(parents=True, exist_ok=True)
+    ASSETS_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _safe_sprite_slot(slot: str) -> str:
+    if slot not in SPRITE_SLOTS:
+        raise HTTPException(status_code=400, detail=f"Unknown sprite slot '{slot}'.")
+    return slot
+
+
+def _sprite_dir(map_id: str) -> Path:
+    return ASSETS_DIR / _safe_id(map_id)
+
+
+def _sprite_path(map_id: str, slot: str) -> Path:
+    return _sprite_dir(map_id) / f"{_safe_sprite_slot(slot)}.png"
+
+
+def _sprite_public_url(map_id: str, slot: str) -> str:
+    return f"/api/mw/maps/{_safe_id(map_id)}/sprites/{_safe_sprite_slot(slot)}.png"
 
 
 def _safe_id(map_id: str) -> str:
@@ -125,3 +148,44 @@ def publish_map(map_id: str, body: dict[str, Any] | None = None) -> dict[str, An
     data["id"] = mid
     _write_json(PUBLISHED_DIR / f"{mid}.json", data)
     return {"ok": True, "id": mid, "status": "published", "name": data.get("name", mid)}
+
+
+@router.get("/api/mw/maps/{map_id}/sprites/{slot}.png")
+def get_sprite_png(map_id: str, slot: str) -> FileResponse:
+    """Serve a custom character PNG uploaded for this map."""
+    _ensure_dirs()
+    path = _sprite_path(map_id, slot.replace(".png", ""))
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Sprite not found.")
+    return FileResponse(path, media_type="image/png")
+
+
+@router.post("/api/mw/maps/{map_id}/sprites/{slot}")
+async def upload_sprite(map_id: str, slot: str, file: UploadFile = File(...)) -> dict[str, Any]:
+    """Upload a PNG to replace a mother, whelp, or wyrm preview for this map."""
+    _ensure_dirs()
+    mid = _safe_id(map_id)
+    slot_name = _safe_sprite_slot(slot)
+    if file.content_type not in ("image/png", "application/octet-stream"):
+        raise HTTPException(status_code=400, detail="Sprite must be a PNG file.")
+    data = await file.read()
+    if not data.startswith(b"\x89PNG\r\n\x1a\n"):
+        raise HTTPException(status_code=400, detail="Sprite must be a PNG file.")
+    if len(data) > 4 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Sprite PNG must be under 4 MB.")
+    dest_dir = _sprite_dir(mid)
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / f"{slot_name}.png"
+    dest.write_bytes(data)
+    url = _sprite_public_url(mid, slot_name)
+    return {"ok": True, "slot": slot_name, "url": url}
+
+
+@router.delete("/api/mw/maps/{map_id}/sprites/{slot}")
+def delete_sprite(map_id: str, slot: str) -> dict[str, bool]:
+    """Remove a custom sprite PNG for this map."""
+    _ensure_dirs()
+    path = _sprite_path(map_id, slot)
+    if path.exists():
+        path.unlink()
+    return {"ok": True}

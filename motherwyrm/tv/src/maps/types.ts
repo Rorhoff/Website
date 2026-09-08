@@ -41,6 +41,7 @@ export type MapData = {
   };
   thumbnail?: string;
   excludeFromRandom?: boolean;
+  sprites?: Partial<Record<"mother_blue" | "mother_red" | "whelp_blue" | "whelp_red" | "wyrm", string>>;
 };
 
 export type LoadedArena = {

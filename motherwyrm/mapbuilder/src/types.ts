@@ -67,6 +67,11 @@ export type MapSpawns = {
   red: TeamSpawns;
 };
 
+/** Custom PNG art per character slot (API URL or blob preview while editing). */
+export type MapSpriteSlot = "mother_blue" | "mother_red" | "whelp_blue" | "whelp_red" | "wyrm";
+
+export type MapSprites = Partial<Record<MapSpriteSlot, string>>;
+
 export type MapDocument = {
   version: 1;
   id: string;
@@ -83,6 +88,8 @@ export type MapDocument = {
   };
   wyrmPath: MapWyrmPath;
   spawns: MapSpawns;
+  /** Custom character PNGs — keys are MapSpriteSlot, values are URLs. */
+  sprites?: MapSprites;
   /** Optional lobby thumbnail URL/path. */
   thumbnail?: string;
   /** When true, omitted from random map rotation. */
@@ -112,6 +119,10 @@ export type EditorState = {
   mirrorLock: boolean;
   /** When true, new/moved gems fall to the nearest platform below. */
   gemGravity: boolean;
+  /** Local blob URLs for sprite previews before upload completes. */
+  spritePreviews: MapSprites;
+  /** PNG files waiting to upload on save (map id required). */
+  pendingSprites: Partial<Record<MapSpriteSlot, File>>;
   tool: EditorTool;
   selection: Selection;
   grid: number;

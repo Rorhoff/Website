@@ -54,6 +54,7 @@ export function validateMapData(raw: unknown, file: string): MapData {
     spawns: m.spawns as MapData["spawns"],
     thumbnail: typeof m.thumbnail === "string" ? m.thumbnail : undefined,
     excludeFromRandom: m.excludeFromRandom === true,
+    sprites: typeof m.sprites === "object" && m.sprites !== null ? (m.sprites as MapData["sprites"]) : undefined,
   };
 }
 
