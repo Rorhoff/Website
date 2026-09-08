@@ -227,6 +227,13 @@ body {
   color: #f2c063;
 }
 
+.sprite-group-title {
+  margin: 12px 0 6px;
+  font-size: 0.85rem;
+  color: #8b7a66;
+  font-weight: 600;
+}
+
 .sprite-row {
   display: flex;
   align-items: center;

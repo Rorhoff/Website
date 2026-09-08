@@ -5,6 +5,7 @@ import {
   addGem,
   addPlatform,
   addWall,
+  captureMultiSnapshot,
   createEditorState,
   deleteSelection,
   findHoardSlot,
@@ -15,11 +16,13 @@ import {
   hitTestFinishTop,
   hitTestGem,
   hitTestHoardSlot,
+  hitTestMultiSelection,
   hitTestPlatform,
   hitTestSpawn,
   hitTestWall,
   moveGem,
   moveHoardSlot,
+  moveMultiSelection,
   movePlatform,
   moveSpawn,
   moveWall,
@@ -37,7 +40,7 @@ import { createHistory } from "./editor/history";
 import { exportMap, parseMap, serializeMap, snap, snapGem, validateMap } from "./schema";
 import { deleteSprite, flushPendingSprites, publishMap, saveMapDraft, uploadSprite } from "./api";
 import { loadRecentMaps, rememberMap } from "./storage";
-import { invalidateSpriteCache, preloadMapSprites, resolveSpriteUrl, SPRITE_LABELS, SPRITE_SLOTS } from "./sprites";
+import { invalidateSpriteCache, preloadMapSprites, resolveSpriteUrl, SPRITE_GROUPS, SPRITE_LABELS } from "./sprites";
 import { singleSelectionId, type MapDocument, type MapSpriteSlot, type PlatformPalette, type Selection } from "./types";
 import "./style.css";
 
@@ -49,6 +52,7 @@ type DragMode =
   | { kind: "spawnMove"; team: "blue" | "red"; role: "main" | "backup"; index: number; ox: number; oy: number }
   | { kind: "draw"; tool: "platform" | "wall"; x0: number; y0: number }
   | { kind: "boxSelect"; x0: number; y0: number }
+  | { kind: "multiMove"; startX: number; startY: number; snapshot: ReturnType<typeof captureMultiSnapshot> }
   | null;
 
 function mountApp(root: HTMLElement): void {
@@ -184,7 +188,7 @@ function mountApp(root: HTMLElement): void {
         <label>Map name <input id="mapName" value="${esc(state.doc.name)}"></label>
         <section class="sprites-panel">
           <h3>Character art</h3>
-          <p class="muted">Upload PNGs to replace mothers, whelps, and the wyrm on the canvas. Uses game art until you upload custom PNGs.</p>
+          <p class="muted">Upload PNGs per mother frame (idle, dive, claw). Map preview uses idle at spawns. Wyrm feet align to the ground line.</p>
           ${spriteRowsHtml()}
         </section>
         <p class="muted">Select an object to edit it, or edit map metadata above.</p>`;
@@ -438,10 +442,12 @@ function mountApp(root: HTMLElement): void {
   }
 
   function spriteRowsHtml(): string {
-    return SPRITE_SLOTS.map((slot) => {
-      const url = resolveSpriteUrl(state.doc, slot, state.spritePreviews);
-      const custom = Boolean(state.doc.sprites?.[slot] || state.pendingSprites[slot]);
-      return `
+    return SPRITE_GROUPS.map((group) => {
+      const rows = group.slots
+        .map((slot) => {
+          const url = resolveSpriteUrl(state.doc, slot, state.spritePreviews);
+          const custom = Boolean(state.doc.sprites?.[slot] || state.pendingSprites[slot]);
+          return `
         <div class="sprite-row">
           <img class="sprite-thumb" src="${esc(url)}" alt="" width="40" height="40">
           <div class="sprite-meta">
@@ -453,6 +459,9 @@ function mountApp(root: HTMLElement): void {
           </div>
           ${custom ? `<button type="button" class="sprite-clear" data-clear-sprite="${slot}">Reset</button>` : ""}
         </div>`;
+        })
+        .join("");
+      return `<h4 class="sprite-group-title">${group.title}</h4>${rows}`;
     }).join("");
   }
 
@@ -749,6 +758,18 @@ function mountApp(root: HTMLElement): void {
     if (e.button !== 0) return;
 
     if (state.tool === "select") {
+      if (state.selection?.kind === "multi" && hitTestMultiSelection(state.doc, state.selection, world.x, world.y)) {
+        beginEdit();
+        drag = {
+          kind: "multiMove",
+          startX: world.x,
+          startY: world.y,
+          snapshot: captureMultiSnapshot(state.doc, state.selection),
+        };
+        renderProps();
+        redraw();
+        return;
+      }
       const wall = hitTestWall(state.doc, world.x, world.y);
       if (wall) {
         beginEdit();
@@ -914,6 +935,15 @@ function mountApp(root: HTMLElement): void {
     if (drag?.kind === "pan") {
       view.offsetX = drag.ox + (sx - drag.sx);
       view.offsetY = drag.oy + (sy - drag.sy);
+      redraw();
+      return;
+    }
+
+    if (drag?.kind === "multiMove") {
+      const dx = snap(world.x, state.grid) - snap(drag.startX, state.grid);
+      const dy = snap(world.y, state.grid) - snap(drag.startY, state.grid);
+      moveMultiSelection(state, drag.snapshot, dx, dy);
+      renderProps();
       redraw();
       return;
     }

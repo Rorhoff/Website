@@ -9,7 +9,8 @@ import {
   drawSpriteAtFeet,
   ensureSpriteLoaded,
   getCachedSprite,
-  resolveSpriteUrl,
+  MOTHER_PREVIEW_SLOT,
+  resolveSpriteDrawSpec,
 } from "../sprites";
 
 export type ViewTransform = {
@@ -143,12 +144,14 @@ export function renderArena(
   }
 
   const cowSel = selection?.kind === "wyrmCow";
-  drawMapSprite(ctx, state, "wyrm", W / 2, wp.y - 22, onSpriteLoad, cowSel ? 56 : 48);
+  const cowH = cowSel ? 56 : 48;
+  const cowFeetY = wp.y;
+  drawMapSprite(ctx, state, "wyrm", W / 2, cowFeetY, onSpriteLoad, cowH);
   if (cowSel) {
     ctx.strokeStyle = "#f2c063";
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.arc(W / 2, wp.y - 22, 22, 0, Math.PI * 2);
+    ctx.arc(W / 2, cowFeetY - cowH / 2, cowH / 2 + 2, 0, Math.PI * 2);
     ctx.stroke();
   }
 
@@ -217,7 +220,7 @@ function drawSpawnMarkers(
   for (const team of ["blue", "red"] as const) {
     const color = team === "blue" ? "#4aa3d8" : "#e0663f";
     const sp = state.doc.spawns[team];
-    const motherSlot: MapSpriteSlot = team === "blue" ? "mother_blue" : "mother_red";
+    const motherSlot = MOTHER_PREVIEW_SLOT[team];
     const whelpSlot: MapSpriteSlot = team === "blue" ? "whelp_blue" : "whelp_red";
     const mainSel =
       selection?.kind === "spawn" && selection.team === team && selection.role === "main";
@@ -240,13 +243,13 @@ function drawMapSprite(
   onSpriteLoad?: () => void,
   targetH = 48
 ): boolean {
-  const url = resolveSpriteUrl(state.doc, slot, state.spritePreviews);
-  let img = getCachedSprite(url);
+  const spec = resolveSpriteDrawSpec(state.doc, slot, state.spritePreviews);
+  let img = getCachedSprite(spec);
   if (!img) {
-    ensureSpriteLoaded(url, () => onSpriteLoad?.());
+    ensureSpriteLoaded(spec, () => onSpriteLoad?.());
     return false;
   }
-  drawSpriteAtFeet(ctx, img, x, y, targetH);
+  drawSpriteAtFeet(ctx, spec, img, x, y, targetH);
   return true;
 }
 

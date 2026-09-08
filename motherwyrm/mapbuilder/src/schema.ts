@@ -10,7 +10,7 @@ import {
 } from "./constants";
 import { hoardGridFromAnchor, mirrorHoardTeam } from "./hoard";
 import { DEFAULT_SPAWNS } from "./default-map";
-import type { MapDocument, MapGemSeam, MapPlatform, MapSpawns, PlatformPalette, ValidationIssue } from "./types";
+import type { MapDocument, MapGemSeam, MapHoardSlot, MapPlatform, MapSpawns, MapSprites, PlatformPalette, ValidationIssue } from "./types";
 
 let idCounter = 0;
 export function newId(prefix: string): string {
@@ -234,6 +234,21 @@ function normalizeSpawns(raw: MapDocument["spawns"] | undefined): MapSpawns {
   };
 }
 
+function normalizeSprites(raw: MapSprites | undefined): MapSprites | undefined {
+  if (!raw) return undefined;
+  const s = { ...raw } as Record<string, string>;
+  if (s.mother_blue && !s.mother_blue_idle) {
+    s.mother_blue_idle = s.mother_blue;
+    delete s.mother_blue;
+  }
+  if (s.mother_red && !s.mother_red_idle) {
+    s.mother_red_idle = s.mother_red;
+    delete s.mother_red;
+  }
+  const out = s as MapSprites;
+  return Object.values(out).some(Boolean) ? out : undefined;
+}
+
 function normalizeMap(raw: MapDocument): MapDocument {
   const wyrmPath = {
     ...DEFAULT_WYRM_PATH,
@@ -253,7 +268,7 @@ function normalizeMap(raw: MapDocument): MapDocument {
     hoardSlots: normalizeHoard(raw.hoardSlots ?? { blue: [], red: [] }),
     wyrmPath,
     spawns: normalizeSpawns(raw.spawns),
-    sprites: raw.sprites,
+    sprites: normalizeSprites(raw.sprites),
     thumbnail: raw.thumbnail,
     excludeFromRandom: raw.excludeFromRandom,
   };

@@ -542,9 +542,89 @@ export function selectInRect(
   return { kind: "multi", platforms, gems, hoardSlots, walls };
 }
 
+export type MultiSnapshot = {
+  platforms: Map<string, { x: number; y: number }>;
+  gems: Map<string, { x: number; y: number }>;
+  hoardSlots: Map<string, { x: number; y: number }>;
+  walls: Map<string, { x: number; y: number }>;
+};
+
+export function captureMultiSnapshot(
+  doc: MapDocument,
+  sel: Extract<Selection, { kind: "multi" }>
+): MultiSnapshot {
+  const platforms = new Map<string, { x: number; y: number }>();
+  const gems = new Map<string, { x: number; y: number }>();
+  const hoardSlots = new Map<string, { x: number; y: number }>();
+  const walls = new Map<string, { x: number; y: number }>();
+  for (const id of sel.platforms) {
+    const p = findPlatform(doc, id);
+    if (p) platforms.set(id, { x: p.x, y: p.y });
+  }
+  for (const id of sel.gems) {
+    const g = findGem(doc, id);
+    if (g) gems.set(id, { x: g.x, y: g.y });
+  }
+  for (const id of sel.hoardSlots) {
+    const found = findHoardSlot(doc, id);
+    if (found) hoardSlots.set(id, { x: found.slot.x, y: found.slot.y });
+  }
+  for (const id of sel.walls) {
+    const w = findWall(doc, id);
+    if (w) walls.set(id, { x: w.x, y: w.y });
+  }
+  return { platforms, gems, hoardSlots, walls };
+}
+
+export function hitTestMultiSelection(
+  doc: MapDocument,
+  sel: Extract<Selection, { kind: "multi" }>,
+  x: number,
+  y: number
+): boolean {
+  for (const id of sel.platforms) {
+    const p = findPlatform(doc, id);
+    if (p && x >= p.x && x <= p.x + p.w && y >= p.y && y <= p.y + p.h) return true;
+  }
+  for (const id of sel.gems) {
+    const g = findGem(doc, id);
+    if (g && Math.hypot(g.x - x, g.y - y) <= 8) return true;
+  }
+  for (const id of sel.hoardSlots) {
+    const found = findHoardSlot(doc, id);
+    if (found) {
+      const s = found.slot;
+      if (x >= s.x && x <= s.x + SLOT_SIZE && y >= s.y && y <= s.y + SLOT_SIZE) return true;
+    }
+  }
+  for (const id of sel.walls) {
+    const w = findWall(doc, id);
+    if (w && x >= w.x && x <= w.x + w.w && y >= w.y && y <= w.y + w.h) return true;
+  }
+  return false;
+}
+
+export function moveMultiSelection(state: EditorState, snapshot: MultiSnapshot, dx: number, dy: number): void {
+  for (const [id, orig] of snapshot.platforms) {
+    movePlatform(state, id, orig.x + dx, orig.y + dy);
+  }
+  for (const [id, orig] of snapshot.gems) {
+    moveGem(state, id, orig.x + dx, orig.y + dy);
+  }
+  for (const [id, orig] of snapshot.hoardSlots) {
+    moveHoardSlot(state, id, orig.x + dx, orig.y + dy);
+  }
+  for (const [id, orig] of snapshot.walls) {
+    moveWall(state, id, orig.x + dx, orig.y + dy);
+  }
+  state.dirty = true;
+}
+
 export function hitTestCow(doc: MapDocument, x: number, y: number): boolean {
   const wp = doc.wyrmPath;
-  return Math.hypot(x - W / 2, y - (wp.y - 22)) <= 18;
+  const feetY = wp.y;
+  const centerY = feetY - 24;
+  return Math.hypot(x - W / 2, y - centerY) <= 28;
 }
 
 export function hitTestFinishTop(doc: MapDocument, x: number, y: number): boolean {

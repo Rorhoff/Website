@@ -41,7 +41,20 @@ export type MapData = {
   };
   thumbnail?: string;
   excludeFromRandom?: boolean;
-  sprites?: Partial<Record<"mother_blue" | "mother_red" | "whelp_blue" | "whelp_red" | "wyrm", string>>;
+  sprites?: Partial<
+    Record<
+      | "mother_blue_idle"
+      | "mother_blue_dive"
+      | "mother_blue_claw"
+      | "mother_red_idle"
+      | "mother_red_dive"
+      | "mother_red_claw"
+      | "whelp_blue"
+      | "whelp_red"
+      | "wyrm",
+      string
+    >
+  >;
 };
 
 export type LoadedArena = {

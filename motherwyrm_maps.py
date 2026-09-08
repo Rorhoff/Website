@@ -16,7 +16,17 @@ DRAFTS_DIR = MAPS_ROOT / "drafts"
 PUBLISHED_DIR = MAPS_ROOT / "published"
 ASSETS_DIR = MAPS_ROOT / "assets"
 
-SPRITE_SLOTS = frozenset({"mother_blue", "mother_red", "whelp_blue", "whelp_red", "wyrm"})
+SPRITE_SLOTS = frozenset({
+    "mother_blue_idle",
+    "mother_blue_dive",
+    "mother_blue_claw",
+    "mother_red_idle",
+    "mother_red_dive",
+    "mother_red_claw",
+    "whelp_blue",
+    "whelp_red",
+    "wyrm",
+})
 
 _ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$", re.IGNORECASE)
 

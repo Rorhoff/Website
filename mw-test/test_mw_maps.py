@@ -1,9 +1,10 @@
 
 def test_map_save_and_publish(client):
+    map_id = "test_arena_ci"
     payload = {
         "version": 1,
-        "id": "test_arena",
-        "name": "Test Arena",
+        "id": map_id,
+        "name": "Test Arena CI",
         "width": 1280,
         "height": 720,
         "grid": 8,
@@ -26,16 +27,16 @@ def test_map_save_and_publish(client):
     assert listed.status_code == 200
     assert listed.json()["maps"] == []
 
-    pub = client.post("/api/mw/maps/test_arena/publish", json=payload)
+    pub = client.post(f"/api/mw/maps/{map_id}/publish", json=payload)
     assert pub.status_code == 200
     assert pub.json()["status"] == "published"
 
     listed2 = client.get("/api/mw/maps")
-    assert any(m["id"] == "test_arena" for m in listed2.json()["maps"])
+    assert any(m["id"] == map_id for m in listed2.json()["maps"])
 
-    got = client.get("/api/mw/maps/test_arena")
+    got = client.get(f"/api/mw/maps/{map_id}")
     assert got.status_code == 200
-    assert got.json()["name"] == "Test Arena"
+    assert got.json()["name"] == "Test Arena CI"
 
 
 def test_sprite_upload_and_serve(client):
@@ -46,17 +47,17 @@ def test_sprite_upload_and_serve(client):
         b"\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82"
     )
     up = client.post(
-        "/api/mw/maps/sprite_test/sprites/mother_blue",
-        files={"file": ("mother_blue.png", png, "image/png")},
+        "/api/mw/maps/sprite_test/sprites/mother_blue_idle",
+        files={"file": ("mother_blue_idle.png", png, "image/png")},
     )
     assert up.status_code == 200
     body = up.json()
-    assert body["slot"] == "mother_blue"
-    assert body["url"].endswith("/sprites/mother_blue.png")
+    assert body["slot"] == "mother_blue_idle"
+    assert body["url"].endswith("/sprites/mother_blue_idle.png")
 
-    got = client.get("/api/mw/maps/sprite_test/sprites/mother_blue.png")
+    got = client.get("/api/mw/maps/sprite_test/sprites/mother_blue_idle.png")
     assert got.status_code == 200
     assert got.content.startswith(b"\x89PNG")
 
-    deleted = client.delete("/api/mw/maps/sprite_test/sprites/mother_blue")
+    deleted = client.delete("/api/mw/maps/sprite_test/sprites/mother_blue_idle")
     assert deleted.status_code == 200

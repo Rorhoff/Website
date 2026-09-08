@@ -68,7 +68,16 @@ export type MapSpawns = {
 };
 
 /** Custom PNG art per character slot (API URL or blob preview while editing). */
-export type MapSpriteSlot = "mother_blue" | "mother_red" | "whelp_blue" | "whelp_red" | "wyrm";
+export type MapSpriteSlot =
+  | "mother_blue_idle"
+  | "mother_blue_dive"
+  | "mother_blue_claw"
+  | "mother_red_idle"
+  | "mother_red_dive"
+  | "mother_red_claw"
+  | "whelp_blue"
+  | "whelp_red"
+  | "wyrm";
 
 export type MapSprites = Partial<Record<MapSpriteSlot, string>>;
 
