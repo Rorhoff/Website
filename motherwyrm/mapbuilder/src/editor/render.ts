@@ -19,14 +19,29 @@ export type ViewTransform = {
   offsetY: number;
 };
 
-export function defaultTransform(canvasW: number, canvasH: number): ViewTransform {
-  const pad = 40;
-  const scale = Math.min((canvasW - pad * 2) / W, (canvasH - pad * 2) / H, 1);
+export function fitTransform(
+  canvasW: number,
+  canvasH: number,
+  worldW: number,
+  worldH: number,
+  options?: { pad?: number; maxScale?: number }
+): ViewTransform {
+  const pad = options?.pad ?? 40;
+  const maxScale = options?.maxScale ?? Infinity;
+  const scale = Math.min(
+    (canvasW - pad * 2) / worldW,
+    (canvasH - pad * 2) / worldH,
+    maxScale
+  );
   return {
     scale,
-    offsetX: (canvasW - W * scale) / 2,
-    offsetY: (canvasH - H * scale) / 2,
+    offsetX: (canvasW - worldW * scale) / 2,
+    offsetY: (canvasH - worldH * scale) / 2,
   };
+}
+
+export function defaultTransform(canvasW: number, canvasH: number): ViewTransform {
+  return fitTransform(canvasW, canvasH, W, H, { maxScale: 1 });
 }
 
 export function screenToWorld(v: ViewTransform, sx: number, sy: number): { x: number; y: number } {

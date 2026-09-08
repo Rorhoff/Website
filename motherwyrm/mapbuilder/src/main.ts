@@ -35,7 +35,7 @@ import {
   syncDocGrid,
   type EditorState,
 } from "./editor/state";
-import { defaultTransform, renderArena, screenToWorld, type DrawPreview, type ViewTransform } from "./editor/render";
+import { defaultTransform, fitTransform, renderArena, screenToWorld, type DrawPreview, type ViewTransform } from "./editor/render";
 import { createHistory } from "./editor/history";
 import { exportMap, parseMap, serializeMap, snap, snapGem, validateMap } from "./schema";
 import { deleteSprite, flushPendingSprites, publishMap, saveMapDraft, uploadSprite } from "./api";
@@ -96,8 +96,12 @@ function mountApp(root: HTMLElement): void {
           <ul id="recentList"></ul>
         </section>
         <p class="note">Save stores a draft on the server. Publish adds the map to the TV lobby and random rotation.</p>
+        <p class="note arena-size">Arena is fixed at 1280×720 (16:9 HD). The TV game scales this to fit any monitor — design at this size.</p>
       </aside>
       <div class="canvas-wrap">
+        <div class="canvas-toolbar">
+          <button type="button" id="fitBtn" title="Reset zoom and center the arena in the view">Fit to screen</button>
+        </div>
         <canvas id="arena" width="960" height="540"></canvas>
         <div id="statusBar" class="status"></div>
       </div>
@@ -122,6 +126,11 @@ function mountApp(root: HTMLElement): void {
   let hover: { x: number; y: number } | null = null;
   let drawPreview: DrawPreview = null;
   let spacePan = false;
+
+  function fitToScreen(): void {
+    view = fitTransform(canvas.width, canvas.height, state.doc.width, state.doc.height);
+    redraw();
+  }
 
   function updateUndoButton(): void {
     undoBtn.disabled = !history.canUndo();
@@ -176,7 +185,10 @@ function mountApp(root: HTMLElement): void {
     } else if (warns.length) {
       setStatus(`⚠ ${warns[0]!.message}`);
     } else {
-      setStatus(`${state.doc.name} · ${state.doc.platforms.length} platforms · ${state.doc.gemSeams.length} gems`);
+      const zoom = Math.round(view.scale * 100);
+      setStatus(
+        `${state.doc.name} · ${state.doc.width}×${state.doc.height} · ${zoom}% · ${state.doc.platforms.length} platforms · ${state.doc.gemSeams.length} gems`
+      );
     }
   }
 
@@ -567,7 +579,7 @@ function mountApp(root: HTMLElement): void {
     renderProps();
     refreshRecent();
     preloadMapSprites(state.doc, () => redraw(), state.spritePreviews);
-    redraw();
+    fitToScreen();
   }
 
   function doExport(): void {
@@ -705,6 +717,8 @@ function mountApp(root: HTMLElement): void {
       state.tool = (btn as HTMLElement).dataset.tool as EditorState["tool"];
     });
   });
+
+  root.querySelector("#fitBtn")!.addEventListener("click", () => fitToScreen());
 
   // Canvas interaction
   canvas.addEventListener("wheel", (e) => {

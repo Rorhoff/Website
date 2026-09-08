@@ -196,6 +196,36 @@ body {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  position: relative;
+}
+
+.canvas-toolbar {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 2;
+  display: flex;
+  gap: 8px;
+}
+
+.canvas-toolbar button {
+  padding: 6px 12px;
+  border: 1px solid #3a2e25;
+  border-radius: 8px;
+  background: rgba(33, 26, 21, 0.92);
+  color: #efe4d2;
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.canvas-toolbar button:hover {
+  background: #2c2119;
+  border-color: #4aa3d8;
+}
+
+.note.arena-size {
+  margin-top: 8px;
 }
 
 #arena {
