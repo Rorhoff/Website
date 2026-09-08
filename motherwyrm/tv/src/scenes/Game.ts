@@ -40,6 +40,7 @@ interface Actor extends Lobbyist {
   shortDive: boolean;
   diveFromY: number;
   lungeUntil: number;
+  flapUntil: number;
   puntUntil: number;
   riding: boolean;
   disconnected: boolean;
@@ -289,7 +290,7 @@ export class Game extends Phaser.Scene {
         attackUntil: 0, attackStart: 0, attackCooldownUntil: 0,
         attackDir: new Phaser.Math.Vector2(1, 0),
         diving: false, shortDive: false, diveFromY: 0,
-        lungeUntil: 0, puntUntil: 0, riding: false,
+        lungeUntil: 0, flapUntil: 0, puntUntil: 0, riding: false,
         disconnected: Boolean(p.disconnected),
       });
     }
@@ -393,6 +394,7 @@ export class Game extends Phaser.Scene {
     a.attackUntil = 0;
     a.attackStart = 0;
     a.lungeUntil = 0;
+    a.flapUntil = 0;
     a.attackCooldownUntil = time;
   }
 
@@ -541,17 +543,20 @@ export class Game extends Phaser.Scene {
       return;
     }
 
-    if (!body.blocked.down) {
-      tryPlayAnim(a.sprite, a.atlasKey, 'flap');
-    } else {
-      tryPlayAnim(a.sprite, a.atlasKey, 'idle');
-    }
-
     body.setVelocityX(a.input.x * TUNING.motherSpeed);
 
     if (a.input.jumpEdge) {
       body.setVelocityY(Math.max(body.velocity.y + TUNING.motherThrust, TUNING.motherThrustCap));
+      a.flapUntil = time + TUNING.motherFlapMs;
       this.puff(a.sprite.x, a.sprite.y + 22);
+    }
+
+    if (a.flapUntil > time) {
+      tryPlayAnim(a.sprite, a.atlasKey, 'flap_down', false);
+    } else if (!body.blocked.down) {
+      tryPlayAnim(a.sprite, a.atlasKey, 'flap');
+    } else {
+      tryPlayAnim(a.sprite, a.atlasKey, 'idle');
     }
 
     if (a.input.actionEdge && time >= a.attackCooldownUntil) {

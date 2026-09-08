@@ -8,9 +8,11 @@ export type SpriteDrawSpec =
 /** Built-in game art sheets when no custom PNG is uploaded for a slot. */
 export const DEFAULT_SPRITE_PATHS: Record<MapSpriteSlot, string> = {
   mother_blue_idle: "/mw/assets/mother_blue.png",
+  mother_blue_fly: "/mw/assets/mother_blue_fly.png",
   mother_blue_dive: "/mw/assets/mother_blue.png",
   mother_blue_claw: "/mw/assets/mother_blue.png",
   mother_red_idle: "/mw/assets/mother_red.png",
+  mother_red_fly: "/mw/assets/mother_red_fly.png",
   mother_red_dive: "/mw/assets/mother_red.png",
   mother_red_claw: "/mw/assets/mother_red.png",
   whelp_blue: "/mw/assets/whelp_blue.png",
@@ -20,9 +22,11 @@ export const DEFAULT_SPRITE_PATHS: Record<MapSpriteSlot, string> = {
 
 export const SPRITE_SLOTS: MapSpriteSlot[] = [
   "mother_blue_idle",
+  "mother_blue_fly",
   "mother_blue_dive",
   "mother_blue_claw",
   "mother_red_idle",
+  "mother_red_fly",
   "mother_red_dive",
   "mother_red_claw",
   "whelp_blue",
@@ -32,9 +36,11 @@ export const SPRITE_SLOTS: MapSpriteSlot[] = [
 
 export const SPRITE_LABELS: Record<MapSpriteSlot, string> = {
   mother_blue_idle: "Idle",
+  mother_blue_fly: "Fly",
   mother_blue_dive: "Dive",
   mother_blue_claw: "Claw",
   mother_red_idle: "Idle",
+  mother_red_fly: "Fly",
   mother_red_dive: "Dive",
   mother_red_claw: "Claw",
   whelp_blue: "Whelp (blue)",
@@ -43,8 +49,8 @@ export const SPRITE_LABELS: Record<MapSpriteSlot, string> = {
 };
 
 export const SPRITE_GROUPS: Array<{ title: string; slots: MapSpriteSlot[] }> = [
-  { title: "Mother (blue)", slots: ["mother_blue_idle", "mother_blue_dive", "mother_blue_claw"] },
-  { title: "Mother (red)", slots: ["mother_red_idle", "mother_red_dive", "mother_red_claw"] },
+  { title: "Mother (blue)", slots: ["mother_blue_idle", "mother_blue_fly", "mother_blue_dive", "mother_blue_claw"] },
+  { title: "Mother (red)", slots: ["mother_red_idle", "mother_red_fly", "mother_red_dive", "mother_red_claw"] },
   { title: "Whelps", slots: ["whelp_blue", "whelp_red"] },
   { title: "Wyrm", slots: ["wyrm"] },
 ];

@@ -44,9 +44,11 @@ export type MapData = {
   sprites?: Partial<
     Record<
       | "mother_blue_idle"
+      | "mother_blue_fly"
       | "mother_blue_dive"
       | "mother_blue_claw"
       | "mother_red_idle"
+      | "mother_red_fly"
       | "mother_red_dive"
       | "mother_red_claw"
       | "whelp_blue"

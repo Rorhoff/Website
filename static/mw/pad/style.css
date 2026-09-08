@@ -347,7 +347,7 @@ input:focus-visible { outline: 2px solid var(--action-red); outline-offset: 2px;
   font-size: 0;
   color: transparent;
   padding: 0;
-  touch-action: none;
+  touch-action: manipulation;
 }
 .pad-btn.jump { background: var(--fly-blue); }
 .pad-btn.action { background: var(--action-red); }

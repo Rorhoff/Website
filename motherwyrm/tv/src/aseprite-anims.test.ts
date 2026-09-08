@@ -47,11 +47,20 @@ describe("registerAsepriteAnims", () => {
     expect(dive?.frames[0].frame).not.toBe("1");
   });
 
+  it("points the flap_down tag at the fly frame filename", () => {
+    const { scene, created } = fakeScene(motherJson);
+    registerAsepriteAnims(scene as never, "mother_blue");
+
+    const flap = created.get("mother_blue_flap_down");
+    expect(flap?.frames).toHaveLength(1);
+    expect(flap?.frames[0].frame).toBe("mother_blue_fly");
+  });
+
   it("registers every mother tag the game plays", () => {
     const { scene, created } = fakeScene(motherJson);
     registerAsepriteAnims(scene as never, "mother_blue");
 
-    for (const tag of ["idle", "flap", "dive", "claw", "hurt", "death"]) {
+    for (const tag of ["idle", "flap", "flap_down", "dive", "claw", "hurt", "death"]) {
       expect(created.has(`mother_blue_${tag}`), tag).toBe(true);
     }
   });

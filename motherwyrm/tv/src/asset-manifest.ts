@@ -49,7 +49,7 @@ export const ATLAS_MANIFEST: AtlasManifestEntry[] = [
     png: "mother_blue.png",
     json: "mother_blue.json",
     proceduralKey: "mother-blue",
-    expectedTags: ["idle", "flap", "dive", "claw", "hurt", "death"].map(
+    expectedTags: ["idle", "flap", "flap_down", "dive", "claw", "hurt", "death"].map(
       (t) => `mother_blue_${t}`
     ),
   },
@@ -58,7 +58,7 @@ export const ATLAS_MANIFEST: AtlasManifestEntry[] = [
     png: "mother_red.png",
     json: "mother_red.json",
     proceduralKey: "mother-red",
-    expectedTags: ["idle", "flap", "dive", "claw", "hurt", "death"].map(
+    expectedTags: ["idle", "flap", "flap_down", "dive", "claw", "hurt", "death"].map(
       (t) => `mother_red_${t}`
     ),
   },
@@ -83,4 +83,4 @@ export const IMAGE_MANIFEST: ImageManifestEntry[] = [
 ];
 
 export const WHELP_TAGS = ["idle", "run", "jump", "fall", "punt", "stun", "death"] as const;
-export const MOTHER_TAGS = ["idle", "flap", "dive", "claw", "hurt", "death"] as const;
+export const MOTHER_TAGS = ["idle", "flap", "flap_down", "dive", "claw", "hurt", "death"] as const;

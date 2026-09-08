@@ -16,6 +16,7 @@ PUBLIC = ROOT / ".." / "tv" / "public" / "assets"
 MOTHER_TAGS: list[tuple[str, str]] = [
     ("idle", "idle"),
     ("flap", "idle"),
+    ("flap_down", "fly"),
     ("dive", "dive"),
     ("claw", "bite"),
     ("hurt", "idle"),
@@ -101,6 +102,10 @@ def pack_atlas(
     BUILD.mkdir(parents=True, exist_ok=True)
     sheet.save(BUILD / f"{atlas_key}.png")
 
+    fly_src = FRAMES / folder / "fly_source.png"
+    if fly_src.exists():
+        (BUILD / f"{atlas_key}_fly.png").write_bytes(fly_src.read_bytes())
+
     meta = {
         "frames": frames_json,
         "meta": {
@@ -129,6 +134,8 @@ def main() -> None:
             if path.stem in {
                 "mother_blue",
                 "mother_red",
+                "mother_blue_fly",
+                "mother_red_fly",
                 "whelp_blue",
                 "whelp_red",
                 "wyrm",

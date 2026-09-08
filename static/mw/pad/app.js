@@ -399,45 +399,91 @@ function startStickLoop() {
 
 // ---------------------------------------------------------------- buttons
 
+const DEBUG_TOUCH = new URLSearchParams(location.search).has('debugTouch');
+
 function wireButton(node, key) {
-  // Every finger that lands is its own press — thumbs alternating on one button
-  // are normal play, so a second pointer must not be swallowed. Capturing keeps
-  // the release on this node when a thumb rolls off the edge mid-tap.
-  const activePointers = new Set();
+  // Edge-triggered presses: each touch/pointer id is tracked independently.
+  // iOS Safari often fires touchcancel instead of touchend under rapid taps
+  // (gesture recognizer); treat cancel identical to end. If a new touch lands
+  // before the previous id resolved, drop stale ids so the button cannot wedged.
+  const activeIds = new Set();
   let seq = 0;
 
-  const down = (e) => {
-    activePointers.add(e.pointerId);
-    try { node.setPointerCapture(e.pointerId); } catch { /* not fatal */ }
+  const logTouch = (kind, id, detail) => {
+    if (!DEBUG_TOUCH) return;
+    console.log(`[pad ${key}] ${kind} id=${id}${detail ? ` ${detail}` : ''}`);
+  };
+
+  const releaseAll = () => {
+    if (activeIds.size === 0) return;
+    logTouch('releaseAll', [...activeIds].join(','));
+    activeIds.clear();
+    node.classList.remove('pressed');
+    send({ t: 'b', k: key, d: 0, n: seq });
+  };
+
+  const releaseOne = (id, kind) => {
+    if (!activeIds.delete(id)) return;
+    logTouch(kind, id);
+    if (activeIds.size > 0) return;
+    node.classList.remove('pressed');
+    send({ t: 'b', k: key, d: 0, n: seq });
+  };
+
+  const clearStale = (incomingId) => {
+    if (activeIds.size === 0 || activeIds.has(incomingId)) return;
+    logTouch('stale-clear', [...activeIds].join(','), `new=${incomingId}`);
+    activeIds.clear();
+    node.classList.remove('pressed');
+    send({ t: 'b', k: key, d: 0, n: seq });
+  };
+
+  const pressOne = (id, kind) => {
+    if (activeIds.has(id)) {
+      logTouch('re-touch', id, 'release before re-press');
+      releaseOne(id, `${kind}-recover`);
+    }
+    clearStale(id);
+    if (activeIds.has(id)) return;
+    activeIds.add(id);
     node.classList.add('pressed');
     seq++;
+    logTouch(kind, id, `seq=${seq}`);
     send({ t: 'b', k: key, d: 1, n: seq });
     if (navigator.vibrate) navigator.vibrate(12);
-    e.preventDefault();
   };
 
-  const up = (e) => {
-    if (!activePointers.delete(e.pointerId)) return;
-    if (activePointers.size > 0) return;
-    node.classList.remove('pressed');
-    // The release carries the same count, so a dropped press is recovered.
-    send({ t: 'b', k: key, d: 0, n: seq });
-    if (e.preventDefault) e.preventDefault();
-  };
+  if ('ontouchstart' in window) {
+    node.addEventListener('touchstart', (e) => {
+      for (const t of e.changedTouches) pressOne(t.identifier, 'touchstart');
+      e.preventDefault();
+    }, { passive: false });
 
-  node.addEventListener('pointerdown', down);
-  node.addEventListener('pointerup', up);
-  node.addEventListener('pointercancel', up);
-  node.addEventListener('lostpointercapture', up);
+    const touchEnd = (e, kind) => {
+      for (const t of e.changedTouches) releaseOne(t.identifier, kind);
+      e.preventDefault();
+    };
+    node.addEventListener('touchend', (e) => touchEnd(e, 'touchend'), { passive: false });
+    node.addEventListener('touchcancel', (e) => touchEnd(e, 'touchcancel'), { passive: false });
+  } else {
+    const down = (e) => {
+      pressOne(e.pointerId, 'pointerdown');
+      try { node.setPointerCapture(e.pointerId); } catch { /* not fatal */ }
+      e.preventDefault();
+    };
+
+    const up = (e) => {
+      releaseOne(e.pointerId, e.type);
+      if (e.preventDefault) e.preventDefault();
+    };
+
+    node.addEventListener('pointerdown', down);
+    node.addEventListener('pointerup', (e) => up(e));
+    node.addEventListener('pointercancel', (e) => up(e));
+    node.addEventListener('lostpointercapture', (e) => up(e));
+  }
+
   node.addEventListener('contextmenu', (e) => e.preventDefault());
-
-  // Backstop: if the page is hidden mid-press the release never arrives.
-  const releaseAll = () => {
-    if (activePointers.size === 0) return;
-    activePointers.clear();
-    node.classList.remove('pressed');
-    send({ t: 'b', k: key, d: 0, n: seq });
-  };
   window.addEventListener('blur', releaseAll);
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) releaseAll();

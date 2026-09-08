@@ -26,6 +26,8 @@ export const TUNING = {
   motherSpeed: 210,
   motherThrust: -300,
   motherThrustCap: -430,
+  /** How long the wing-down pose holds after a fly tap (placeholder uses idle frame). */
+  motherFlapMs: 140,
   motherHp: 1,
   motherDeathsToWin: 4,
   motherRespawnMs: 3000,
