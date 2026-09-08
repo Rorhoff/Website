@@ -253,6 +253,44 @@ input:focus-visible { outline: 2px solid var(--action-red); outline-offset: 2px;
   margin: 0 auto;
 }
 
+.host-map-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  max-width: 22rem;
+  margin: 0 auto;
+}
+
+.host-map-selected {
+  margin: 0;
+  text-align: center;
+  font-size: 0.92rem;
+  color: var(--fly-blue);
+}
+
+.host-map-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+}
+
+.host-map-btn {
+  border: 1px solid rgba(255,255,255,0.12);
+  background: rgba(255,255,255,0.04);
+  color: var(--soil);
+  border-radius: 999px;
+  padding: 8px 12px;
+  font: inherit;
+  font-size: 0.82rem;
+}
+
+.host-map-btn.active {
+  border-color: var(--fly-blue);
+  color: var(--fly-blue);
+}
+
 .host-btn {
   width: 100%;
   min-height: 48px;

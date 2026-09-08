@@ -67,6 +67,7 @@ export class Net {
   onRejoin: (pid: number) => void = () => {};
   onHostStart: () => void = () => {};
   onHostFillBots: () => void = () => {};
+  onHostMap: (mapId: string | null) => void = () => {};
 
   private ws!: WebSocket;
   private localPid = 1000;
@@ -168,6 +169,14 @@ export class Net {
           break;
         }
 
+        case "host_map": {
+          if (m.pid === this.hostPid) {
+            const id = m.id;
+            this.onHostMap(typeof id === "string" && id.length ? id : null);
+          }
+          break;
+        }
+
         case "i": {
           const p = this.players.get(m.pid);
           if (p) {
@@ -219,6 +228,11 @@ export class Net {
         this.send({ t: "game_end", pid: p.pid, winner, reason });
       }
     }
+  }
+
+  /** Tell phones which map the host picked (null = random). */
+  broadcastMapPick(mapId: string | null, name: string) {
+    this.send({ t: "map_selected", id: mapId, name });
   }
 
   handlePhoneJoin(pid: number, name: string) {

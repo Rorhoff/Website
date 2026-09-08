@@ -25,7 +25,7 @@ export function createEditorState(doc: MapDocument): EditorState {
   return {
     doc,
     mirrorLock: true,
-    gemGravity: true,
+    gemGravity: false,
     spritePreviews: {},
     pendingSprites: {},
     tool: "select",
@@ -277,8 +277,7 @@ export type AddGemResult =
 
 export function addGem(state: EditorState, x: number, y: number): AddGemResult {
   const gx = snapGem(x, state.grid);
-  let gy = snapGem(y, state.grid);
-  if (state.gemGravity) gy = dropGemY(state.doc, gx, gy, state.grid);
+  const gy = snapGem(y, state.grid);
 
   if (findGemAt(state.doc, gx, gy)) {
     return { ok: false, reason: "occupied" };
@@ -314,10 +313,7 @@ export function moveGem(state: EditorState, id: string, x: number, y: number): b
   if (!g) return false;
 
   const gx = snapGem(x, state.grid);
-  let gy = snapGem(y, state.grid);
-  if (state.gemGravity) gy = dropGemY(state.doc, gx, gy, state.grid);
-
-  if (findGemAt(state.doc, gx, gy, 6, g.id)) return false;
+  const gy = snapGem(y, state.grid);
 
   if (state.mirrorLock && g.pairId) {
     const mate = partnerGem(state.doc, g);
@@ -348,8 +344,7 @@ export function gemBlockReason(
   y: number
 ): AddGemResult["reason"] | null {
   const gx = snapGem(x, state.grid);
-  let gy = snapGem(y, state.grid);
-  if (state.gemGravity) gy = dropGemY(state.doc, gx, gy, state.grid);
+  const gy = snapGem(y, state.grid);
   if (findGemAt(state.doc, gx, gy)) return "occupied";
   if (state.mirrorLock && gx !== mirrorPointX(gx)) {
     if (findGemAt(state.doc, mirrorPointX(gx), gy)) return "mirror_occupied";
@@ -466,18 +461,22 @@ export function hitTestSpawn(
   x: number,
   y: number
 ): { team: "blue" | "red"; role: "main" | "backup"; index: number } | undefined {
-  const r = 12;
   for (const team of ["blue", "red"] as const) {
     const sp = doc.spawns[team];
-    if (Math.hypot(sp.main.x - x, sp.main.y - y) <= r) {
+    if (pointInSpawn(x, y, sp.main.x, sp.main.y, 52)) {
       return { team, role: "main", index: 0 };
     }
     for (let i = 0; i < sp.backup.length; i++) {
       const pt = sp.backup[i]!;
-      if (Math.hypot(pt.x - x, pt.y - y) <= r) return { team, role: "backup", index: i };
+      if (pointInSpawn(x, y, pt.x, pt.y, 44)) return { team, role: "backup", index: i };
     }
   }
   return undefined;
+}
+
+function pointInSpawn(x: number, y: number, px: number, py: number, height: number): boolean {
+  const halfW = 22;
+  return x >= px - halfW && x <= px + halfW && y >= py - height && y <= py + 6;
 }
 
 export function moveSpawn(

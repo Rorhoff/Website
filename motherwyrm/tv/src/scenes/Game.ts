@@ -96,6 +96,12 @@ export class Game extends Phaser.Scene {
    */
   private cowTeam: Team | null = null;
   private cowTakenCueAt = new Map<number, number>();
+  /** Only one herder nips the cow at a time; others use normal whelp speed. */
+  private activeCowPusherPid: number | null = null;
+
+  private static readonly COW_DEPTH = 12;
+  private static readonly COW_PUSHER_DEPTH = 10;
+  private static readonly COW_FRONT_DEPTH = 14;
 
   private arena!: LoadedArena;
   private slotCount = TUNING.slotsToWin;
@@ -323,12 +329,14 @@ export class Game extends Phaser.Scene {
     applyLocalKeyboard(this.net, this.input.keyboard);
     updateBotBrains(this.buildBotWorld(time));
 
+    this.refreshCowPushState();
     for (const a of this.actors) this.updateActor(a, time, delta);
 
     this.updateWyrm();
     this.updateCowStomp(time);
     this.updateGems(time);
     this.resolveCombat(time);
+    this.updateActorDepths();
     this.drawCow();
     this.drawHud();
     this.checkWin();
@@ -482,7 +490,8 @@ export class Game extends Phaser.Scene {
       Math.abs(dx) <= COW_PUSH_REACH &&
       Math.abs(a.sprite.y - shoulderY) <= 34 &&
       Math.abs(a.input.x) >= 0.3 &&
-      Math.sign(a.input.x) === goalDir;
+      Math.sign(a.input.x) === goalDir &&
+      a.pid === this.activeCowPusherPid;
 
     body.setVelocityX(pushing ? goalDir * TUNING.wyrmSpeed : a.input.x * TUNING.whelpSpeed);
 
@@ -653,20 +662,6 @@ export class Game extends Phaser.Scene {
    * Herders on the ground nip the cow from behind — no saddle. Two wyrms
    * walking inward from opposite flanks summed to zero and the herd never moved.
    */
-  private cowSteeringPull(pushers: Actor[]): number {
-    const team = this.cowTeam;
-    if (!team) return 0;
-
-    const goalDir: 1 | -1 = team === 'blue' ? -1 : 1;
-    let pull = 0;
-    for (const p of pushers) {
-      if (p.team !== team) continue;
-      if (Math.sign(p.input.x) !== goalDir) continue;
-      if (Math.abs(p.input.x) > Math.abs(pull)) pull = p.input.x;
-    }
-    return pull;
-  }
-
   private whelpInFrontOfCow(a: Actor): boolean {
     if (a.role !== 'whelp' || a.deadUntil > this.time.now) return false;
     if (a.team === this.cowPushTeam()) return false;
@@ -679,6 +674,74 @@ export class Game extends Phaser.Scene {
     if (Math.abs(a.sprite.y - (feetY - 22)) > 34) return false;
     const body = a.sprite.body as Phaser.Physics.Arcade.Body;
     return body.blocked.down || body.touching.down || a.sprite.y >= feetY - 40;
+  }
+
+  /** Herder at the cow's rear flank — draw behind the cow so the head can stomp. */
+  private whelpBehindCow(a: Actor): boolean {
+    if (a.role !== 'whelp' || a.deadUntil > this.time.now) return false;
+    const shoulderY = this.cowFeetY() - 22;
+    const dx = this.wyrm.x - a.sprite.x;
+    const goalDir: 1 | -1 = a.team === 'blue' ? -1 : 1;
+    const behind = goalDir < 0 ? dx > COW_BUTT_MIN : dx < -COW_BUTT_MIN;
+    if (!behind || Math.abs(dx) > COW_PUSH_REACH) return false;
+    if (Math.abs(a.sprite.y - shoulderY) > 34) return false;
+    const body = a.sprite.body as Phaser.Physics.Arcade.Body;
+    return body.blocked.down || body.touching.down;
+  }
+
+  private updateActorDepths() {
+    for (const a of this.actors) {
+      if (a.role !== 'whelp') continue;
+      if (this.whelpBehindCow(a)) {
+        a.sprite.setDepth(Game.COW_PUSHER_DEPTH);
+        a.label.setDepth(Game.COW_PUSHER_DEPTH + 1);
+      } else if (this.whelpInFrontOfCow(a)) {
+        a.sprite.setDepth(Game.COW_FRONT_DEPTH);
+        a.label.setDepth(Game.COW_FRONT_DEPTH + 1);
+      } else {
+        a.sprite.setDepth(0);
+        a.label.setDepth(40);
+      }
+    }
+  }
+
+  /**
+   * One team owns the cow; one herder on that team nips it. Opposite-flank
+   * herders get a cue instead of wyrm speed, so two wyrms never cancel out.
+   */
+  private refreshCowPushState() {
+    const stomping = this.cowStompStart > 0;
+    const candidates = stomping ? [] : this.cowPushers();
+
+    if (candidates.length === 0) {
+      this.cowTeam = null;
+      this.activeCowPusherPid = null;
+      return;
+    }
+
+    if (this.cowTeam === null) this.cowTeam = candidates[0].team;
+
+    for (const p of candidates) {
+      if (p.team !== this.cowTeam) this.cueCowTaken(p);
+    }
+
+    const teamPushers = candidates.filter((p) => p.team === this.cowTeam);
+    if (teamPushers.length === 0) {
+      this.cowTeam = null;
+      this.activeCowPusherPid = null;
+      return;
+    }
+
+    let best = teamPushers[0];
+    let bestDx = Math.abs(this.wyrm.x - best.sprite.x);
+    for (const p of teamPushers.slice(1)) {
+      const dx = Math.abs(this.wyrm.x - p.sprite.x);
+      if (dx < bestDx) {
+        best = p;
+        bestDx = dx;
+      }
+    }
+    this.activeCowPusherPid = best.pid;
   }
 
   private updateCowStomp(time: number) {
@@ -761,18 +824,13 @@ export class Game extends Phaser.Scene {
 
   private updateWyrm() {
     const stomping = this.cowStompStart > 0;
-    const pushers = stomping ? [] : this.cowPushers();
+    const pusher =
+      !stomping && this.activeCowPusherPid !== null
+        ? this.actors.find((a) => a.pid === this.activeCowPusherPid)
+        : undefined;
 
-    if (pushers.length === 0) this.cowTeam = null;
-    else if (this.cowTeam === null) this.cowTeam = pushers[0].team;
-
-    for (const p of pushers) {
-      if (p.team !== this.cowTeam) this.cueCowTaken(p);
-    }
-
-    const pull = this.cowSteeringPull(pushers);
-
-    if (!stomping && pull !== 0) {
+    if (pusher) {
+      const pull = pusher.input.x;
       const vx = Phaser.Math.Clamp(pull, -1, 1) * TUNING.wyrmSpeed;
       this.wyrm.setVelocityX(vx);
       if (Math.abs(vx) > 1) this.cowFacing = vx > 0 ? 1 : -1;
@@ -781,6 +839,7 @@ export class Game extends Phaser.Scene {
     }
     this.wrapSpriteX(this.wyrm);
     this.wyrm.y = this.wyrm.y + (this.cowFeetY() - COW_HALF_H - this.wyrm.y) * 0.35;
+    this.wyrm.setDepth(Game.COW_DEPTH);
   }
 
   /** Throttled, because the refusal is tested on every frame of contact. */

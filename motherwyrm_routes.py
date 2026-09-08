@@ -209,6 +209,24 @@ async def motherwyrm_ws(ws: WebSocket) -> None:
             if meta.get("kind") == "phone" and t in ("host_start", "host_fill_bots"):
                 msg["pid"] = meta["pid"]
                 await _send(room.tv, msg)
+                continue
+
+            if meta.get("kind") == "phone" and t == "host_map":
+                msg["pid"] = meta["pid"]
+                await _send(room.tv, msg)
+                continue
+
+            if meta.get("kind") == "tv" and t == "map_selected":
+                for player in room.players.values():
+                    await _send(
+                        player.ws,
+                        {
+                            "t": "map_selected",
+                            "id": msg.get("id"),
+                            "name": msg.get("name"),
+                        },
+                    )
+                continue
 
     except WebSocketDisconnect:
         pass

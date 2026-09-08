@@ -1,6 +1,6 @@
 import Phaser from "phaser";
 import { Net } from "../net";
-import { allMaps, loadPublishedMaps, pickRandomMap, type LoadedMapEntry } from "../maps/load";
+import { allMaps, loadPublishedMaps, pickRandomMap, findMapById, type LoadedMapEntry } from "../maps/load";
 import { W, H, COLORS } from "../arena";
 import { addLocalPlayer, addOneBot, ensureMinimumPlayers, formatPlayerLabel, MIN_PLAYERS } from "../roster";
 import { padJoinUrl, qrDataUrl } from "../qr";
@@ -19,6 +19,7 @@ export class Lobby extends Phaser.Scene {
   private mapLabels: Phaser.GameObjects.Text[] = [];
   private selectedMap: LoadedMapEntry | null = null;
   private mapHint!: Phaser.GameObjects.Text;
+  private mapTitle!: Phaser.GameObjects.Text;
 
   constructor() {
     super("Lobby");
@@ -102,7 +103,7 @@ export class Lobby extends Phaser.Scene {
       color: "#8b7a66",
     }).setOrigin(0.5);
 
-    this.selectedMap = pickRandomMap() ?? allMaps()[0] ?? null;
+    this.selectedMap = null;
     this.buildMapSelect();
 
     this.net.onCode = (code) => {
@@ -115,6 +116,9 @@ export class Lobby extends Phaser.Scene {
     this.net.onRejoin = () => this.redraw();
     this.net.onHostStart = () => this.tryStart();
     this.net.onHostFillBots = () => this.addRobots();
+    this.net.onHostMap = (id) => {
+      this.applyMapChoice(id === null ? null : findMapById(id) ?? null, false);
+    };
     if (this.net.code) {
       this.codeText.setText(this.net.code);
       void this.refreshQr(this.net.code);
@@ -127,51 +131,61 @@ export class Lobby extends Phaser.Scene {
   }
 
   private buildMapSelect() {
-    this.add.text(24, 220, "Map", {
+    this.mapTitle = this.add.text(W / 2, 608, "Map", {
       fontFamily: "system-ui, sans-serif",
-      fontSize: "18px",
+      fontSize: "26px",
       fontStyle: "bold",
       color: "#efe4d2",
-    });
+    }).setOrigin(0.5);
 
-    this.mapHint = this.add.text(24, 248, "", {
-      fontFamily: "system-ui, sans-serif",
-      fontSize: "13px",
-      color: "#8b7a66",
-    });
-
-    let y = 276;
-    const randomLabel = this.add.text(24, y, "🎲 Random map", {
+    this.mapHint = this.add.text(W / 2, 642, "", {
       fontFamily: "system-ui, sans-serif",
       fontSize: "16px",
       color: "#7fe3c4",
-    }).setInteractive({ useHandCursor: true });
-    randomLabel.on("pointerdown", () => {
-      this.selectedMap = null;
-      this.refreshMapSelect();
-    });
-    this.mapLabels.push(randomLabel);
-    y += 30;
+    }).setOrigin(0.5);
 
-    for (const entry of allMaps()) {
-      const label = this.add.text(24, y, entry.map.name, {
+    const maps = allMaps();
+    const cols = Math.min(maps.length + 1, 4);
+    const startX = W / 2 - ((cols - 1) * 140) / 2;
+    let x = startX;
+    const y = 678;
+
+    const randomLabel = this.add.text(x, y, "🎲 Random", {
+      fontFamily: "system-ui, sans-serif",
+      fontSize: "17px",
+      color: "#7fe3c4",
+    }).setOrigin(0.5, 0).setInteractive({ useHandCursor: true });
+    randomLabel.on("pointerdown", () => this.applyMapChoice(null, true));
+    this.mapLabels.push(randomLabel);
+    x += 140;
+
+    for (const entry of maps) {
+      const label = this.add.text(x, y, entry.map.name, {
         fontFamily: "system-ui, sans-serif",
-        fontSize: "15px",
+        fontSize: "16px",
         color: "#8b7a66",
-      }).setInteractive({ useHandCursor: true });
-      label.on("pointerdown", () => {
-        this.selectedMap = entry;
-        this.refreshMapSelect();
-      });
+        wordWrap: { width: 120 },
+        align: "center",
+      }).setOrigin(0.5, 0).setInteractive({ useHandCursor: true });
+      label.on("pointerdown", () => this.applyMapChoice(entry, true));
       this.mapLabels.push(label);
-      y += 24;
+      x += 140;
     }
     this.refreshMapSelect();
   }
 
+  private applyMapChoice(entry: LoadedMapEntry | null, broadcast: boolean) {
+    this.selectedMap = entry;
+    this.refreshMapSelect();
+    if (broadcast) {
+      this.net.broadcastMapPick(entry?.map.id ?? null, entry?.map.name ?? "Random");
+    }
+  }
+
   private refreshMapSelect() {
     const name = this.selectedMap?.map.name ?? "Random";
-    this.mapHint.setText(`Selected: ${name}`);
+    const mode = this.selectedMap ? "Fixed map for this match" : "Random from published pool";
+    this.mapHint.setText(`Selected: ${name} · ${mode}`);
     for (const label of this.mapLabels) {
       const isRandom = label.text.startsWith("🎲");
       const selected =
@@ -183,7 +197,8 @@ export class Lobby extends Phaser.Scene {
   }
 
   private resolveArena() {
-    return this.selectedMap?.arena ?? pickRandomMap()?.arena;
+    if (this.selectedMap) return this.selectedMap.arena;
+    return pickRandomMap()?.arena;
   }
 
   private refreshQr(code: string) {

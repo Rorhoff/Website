@@ -23,6 +23,9 @@ let myTeam = null;
 let isHost = false;
 let assigned = false;
 let inGame = false;
+let hostMapsLoaded = false;
+let selectedMapId = null;
+let selectedMapName = 'Random';
 
 function roleLabel(role) {
   return role === 'mother' ? '★ Mother Wyrm' : 'Whelp';
@@ -64,9 +67,49 @@ function showPad() {
 function updateLobbyUi() {
   el('hostPanel').classList.toggle('hidden', !isHost || inGame || !assigned);
   if (isHost && !inGame && assigned) {
-    el('lobbyCue').textContent = 'Add robots one at a time, or start — need 4 players (robots fill in).';
+    void loadHostMaps();
+    el('lobbyCue').textContent = 'Pick a map below, add robots, then start.';
   }
   scheduleFitScreens();
+}
+
+async function loadHostMaps() {
+  if (hostMapsLoaded) return;
+  hostMapsLoaded = true;
+  const list = el('hostMapList');
+  list.innerHTML = '';
+  const addBtn = (id, name) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'host-map-btn';
+    btn.textContent = name;
+    btn.addEventListener('click', () => pickHostMap(id, name, btn));
+    list.appendChild(btn);
+    return btn;
+  };
+  const randomBtn = addBtn(null, '🎲 Random');
+  randomBtn.classList.add('active');
+  try {
+    const res = await fetch('/api/mw/maps');
+    if (res.ok) {
+      const payload = await res.json();
+      for (const meta of payload.maps ?? []) {
+        const detail = await fetch(`/api/mw/maps/${encodeURIComponent(meta.id)}`);
+        if (!detail.ok) continue;
+        const map = await detail.json();
+        addBtn(map.id, map.name || meta.id);
+      }
+    }
+  } catch { /* offline */ }
+}
+
+function pickHostMap(id, name, btn) {
+  selectedMapId = id;
+  selectedMapName = name;
+  el('hostMapSelected').textContent = name;
+  document.querySelectorAll('.host-map-btn').forEach((b) => b.classList.remove('active'));
+  btn.classList.add('active');
+  send({ t: 'host_map', id });
 }
 
 function syncViewport() {
@@ -249,6 +292,23 @@ function connect(code, name) {
     if (msg.t === 'cue') {
       if (inGame) el('padCue').textContent = msg.cue;
       else el('lobbyCue').textContent = msg.cue;
+      return;
+    }
+
+    if (msg.t === 'map_selected') {
+      selectedMapId = msg.id ?? null;
+      selectedMapName = msg.name || 'Random';
+      if (isHost) {
+        el('hostMapSelected').textContent = selectedMapName;
+        document.querySelectorAll('.host-map-btn').forEach((btn) => {
+          const match = selectedMapId
+            ? btn.textContent === selectedMapName
+            : btn.textContent.startsWith('🎲');
+          btn.classList.toggle('active', match);
+        });
+      } else {
+        el('lobbyCue').textContent = `Map: ${selectedMapName}`;
+      }
       return;
     }
 

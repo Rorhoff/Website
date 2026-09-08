@@ -44,6 +44,19 @@ export function defaultTransform(canvasW: number, canvasH: number): ViewTransfor
   return fitTransform(canvasW, canvasH, W, H, { maxScale: 1 });
 }
 
+/** Map a DOM pointer to canvas backing-store pixels (handles CSS scaling). */
+export function canvasPointer(
+  canvas: HTMLCanvasElement,
+  clientX: number,
+  clientY: number
+): { sx: number; sy: number } {
+  const rect = canvas.getBoundingClientRect();
+  return {
+    sx: ((clientX - rect.left) / rect.width) * canvas.width,
+    sy: ((clientY - rect.top) / rect.height) * canvas.height,
+  };
+}
+
 export function screenToWorld(v: ViewTransform, sx: number, sy: number): { x: number; y: number } {
   return {
     x: (sx - v.offsetX) / v.scale,
@@ -185,7 +198,8 @@ export function renderArena(
       plat = { x: hover!.x, y: hover!.y, w: 96, h: 16 };
     }
     const platformRects = state.doc.platforms.map((p) => ({ x: p.x, y: p.y, w: p.w, h: p.h }));
-    drawJumpArc(ctx, plat, platformRects);
+    const groundFeetY = state.doc.wyrmPath.y - 24;
+    drawJumpArc(ctx, plat, platformRects, groundFeetY);
   }
 
   if (preview?.kind === "platform" || preview?.kind === "wall") {
@@ -214,10 +228,23 @@ export function renderArena(
 
   if (hover && state.tool === "gem") {
     const gx = snapGem(hover.x, state.doc.grid);
-    let gy = snapGem(hover.y, state.doc.grid);
-    if (state.gemGravity) gy = dropGemY(state.doc, gx, gy, state.doc.grid);
+    const gy = snapGem(hover.y, state.doc.grid);
     const blocked = gemHoverBlocked(state, hover.x, hover.y);
     drawRubyGem(ctx, gx, gy, false, true, blocked ? "blocked" : "ok");
+    if (state.gemGravity) {
+      const landY = dropGemY(state.doc, gx, gy, state.doc.grid);
+      if (landY !== gy) {
+        ctx.strokeStyle = "rgba(127,227,196,0.45)";
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.moveTo(gx, gy);
+        ctx.lineTo(gx, landY);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        drawRubyGem(ctx, gx, landY, false, true, blocked ? "blocked" : "mirror");
+      }
+    }
     if (state.mirrorLock && gx !== mirrorPointX(gx)) {
       drawRubyGem(ctx, mirrorPointX(gx), gy, false, true, blocked ? "blocked" : "mirror");
     }

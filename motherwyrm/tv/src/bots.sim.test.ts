@@ -83,6 +83,7 @@ class Sim {
   cowTeam: Team | null = null;
   cowX = W / 2;
   cowFace: 1 | -1 = 1;
+  activeCowPusherPid: number | null = null;
 
   constructor(public whelps: SimWhelp[], gems: Array<[number, number]> = GEM_SPAWNS) {
     this.gems = gems.map(([x, y]) => ({ x, y, alive: true }));
@@ -127,6 +128,8 @@ class Sim {
     }
     updateBotBrains(this.world());
 
+    this.refreshCowPushState();
+
     for (const w of this.whelps) {
       const dir = Math.sign(w.input.x);
       const prev = this.lastDir.get(w.pid) ?? 0;
@@ -168,7 +171,8 @@ class Sim {
         Math.abs(dx) <= COW_PUSH_REACH &&
         Math.abs(w.y - COW_SHOULDER_Y) <= 34 &&
         Math.abs(w.input.x) >= 0.3 &&
-        Math.sign(w.input.x) === goalDir;
+        Math.sign(w.input.x) === goalDir &&
+        w.pid === this.activeCowPusherPid;
 
       if (w.input.jumpEdge && w.onGround) w.vy = TUNING.whelpJump;
 
@@ -198,18 +202,43 @@ class Sim {
       this.deposit(w);
     }
 
-    const pushers = this.cowPushers();
-    if (pushers.length === 0) this.cowTeam = null;
-    else if (this.cowTeam === null) this.cowTeam = pushers[0].team;
-
-    const pull = this.cowSteeringPull(pushers);
-    if (pull !== 0) {
-      const vx = Math.max(-1, Math.min(1, pull)) * TUNING.wyrmSpeed;
+    const pusher =
+      this.activeCowPusherPid !== null
+        ? this.whelps.find((w) => w.pid === this.activeCowPusherPid)
+        : undefined;
+    if (pusher) {
+      const vx = Math.max(-1, Math.min(1, pusher.input.x)) * TUNING.wyrmSpeed;
       this.cowX = Math.max(40, Math.min(W - 40, this.cowX + vx * DT));
       if (Math.abs(vx) > 1) this.cowFace = vx > 0 ? 1 : -1;
     }
 
     this.time += DT * 1000;
+  }
+
+  private refreshCowPushState() {
+    const candidates = this.cowPushers();
+    if (candidates.length === 0) {
+      this.cowTeam = null;
+      this.activeCowPusherPid = null;
+      return;
+    }
+    if (this.cowTeam === null) this.cowTeam = candidates[0].team;
+    const teamPushers = candidates.filter((w) => w.team === this.cowTeam);
+    if (teamPushers.length === 0) {
+      this.cowTeam = null;
+      this.activeCowPusherPid = null;
+      return;
+    }
+    let best = teamPushers[0];
+    let bestDx = Math.abs(this.cowX - best.x);
+    for (const w of teamPushers.slice(1)) {
+      const dx = Math.abs(this.cowX - w.x);
+      if (dx < bestDx) {
+        best = w;
+        bestDx = dx;
+      }
+    }
+    this.activeCowPusherPid = best.pid;
   }
 
   private cowPushers(): SimWhelp[] {
@@ -227,19 +256,6 @@ class Sim {
       out.push(w);
     }
     return out;
-  }
-
-  private cowSteeringPull(pushers: SimWhelp[]): number {
-    const team = this.cowTeam;
-    if (!team) return 0;
-    const goalDir = team === "blue" ? -1 : 1;
-    let pull = 0;
-    for (const w of pushers) {
-      if (w.team !== team) continue;
-      if (Math.sign(w.input.x) !== goalDir) continue;
-      if (Math.abs(w.input.x) > Math.abs(pull)) pull = w.input.x;
-    }
-    return pull;
   }
 
   run(ms: number) {

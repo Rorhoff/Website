@@ -12,32 +12,65 @@ export function maxJumpRise(): number {
   return (v * v) / (2 * GRAVITY) - 8;
 }
 
-function landingOnPlatform(feetX: number, feetY: number, prevY: number, platforms: PlatformRect[]): boolean {
-  if (feetY <= prevY) return false;
+function landingOnPlatform(
+  feetX: number,
+  feetY: number,
+  prevY: number,
+  platforms: PlatformRect[]
+): PlatformRect | null {
+  if (feetY <= prevY) return null;
   for (const p of platforms) {
     const standY = p.y - WHELP_HALF;
-    if (feetX >= p.x && feetX <= p.x + p.w && prevY <= standY && feetY >= standY) return true;
+    if (feetX >= p.x && feetX <= p.x + p.w && prevY <= standY && feetY >= standY) return p;
   }
-  return false;
+  return null;
 }
 
-/** Horizontal jump arc from a platform lip toward the arena center. */
-export function jumpArcPoints(
-  plat: PlatformRect,
+function samePlatform(a: PlatformRect, b: PlatformRect): boolean {
+  return a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h;
+}
+
+/** Highest standable feet y at feetX on or below ceilingY (larger y = lower on screen). */
+export function sourceFeetY(
+  feetX: number,
+  ceilingY: number,
   platforms: PlatformRect[],
+  groundFeetY: number,
+  exclude?: PlatformRect
+): number {
+  let floorTop = Infinity;
+  for (const p of platforms) {
+    if (exclude && samePlatform(p, exclude)) continue;
+    if (feetX < p.x || feetX > p.x + p.w) continue;
+    if (p.y >= ceilingY && p.y < floorTop) floorTop = p.y;
+  }
+  if (floorTop === Infinity) return groundFeetY;
+  return floorTop - WHELP_HALF;
+}
+
+/** Jump arc from below toward a target platform; tail starts on the arena-center side. */
+export function jumpArcPoints(
+  targetPlat: PlatformRect,
+  platforms: PlatformRect[],
+  groundFeetY: number,
   arenaW = 1280,
   steps = 240
 ): Array<{ x: number; y: number }> {
-  const cx = plat.x + plat.w / 2;
-  const towardCenter = cx < arenaW / 2 ? 1 : -1;
-  const fromX = towardCenter > 0 ? plat.x + plat.w : plat.x;
-  const feetY = plat.y - WHELP_HALF;
-  let x = fromX;
-  let y = feetY;
+  const cx = targetPlat.x + targetPlat.w / 2;
+  const onRight = cx > arenaW / 2;
+  // Platform on the right → approach from the left (tail on left), and vice versa.
+  const tailOnLeft = onRight;
+  const landX = tailOnLeft ? targetPlat.x + targetPlat.w * 0.28 : targetPlat.x + targetPlat.w * 0.72;
+  const startX = tailOnLeft ? targetPlat.x - 4 : targetPlat.x + targetPlat.w + 4;
+  const startFeetY = sourceFeetY(startX, targetPlat.y, platforms, groundFeetY, targetPlat);
+
+  let x = startX;
+  let y = startFeetY;
   let vy = WHELP_JUMP;
-  const vx = towardCenter * WHELP_SPEED;
+  const vx = Math.sign(landX - startX) * WHELP_SPEED || WHELP_SPEED;
   const dt = 1 / 120;
   const out: Array<{ x: number; y: number }> = [{ x, y }];
+  let landedOn: PlatformRect | null = null;
 
   for (let i = 0; i < steps; i++) {
     const prevY = y;
@@ -45,23 +78,45 @@ export function jumpArcPoints(
     vy += GRAVITY * dt;
     y += vy * dt;
     out.push({ x, y });
-    if (landingOnPlatform(x, y, prevY, platforms)) break;
+    landedOn = landingOnPlatform(x, y, prevY, platforms);
+    if (landedOn) break;
     if (y > 820 || x < -40 || x > arenaW + 40) break;
-    if (vy > 0 && y >= feetY + 4 && i > 8) break;
+    if (vy > 0 && y >= startFeetY + 8 && i > 12) break;
   }
   return out;
+}
+
+export function jumpReachable(
+  targetPlat: PlatformRect,
+  platforms: PlatformRect[],
+  groundFeetY: number,
+  arenaW = 1280
+): boolean {
+  const cx = targetPlat.x + targetPlat.w / 2;
+  const onRight = cx > arenaW / 2;
+  const tailOnLeft = onRight;
+  const startX = tailOnLeft ? targetPlat.x - 4 : targetPlat.x + targetPlat.w + 4;
+  const startFeetY = sourceFeetY(startX, targetPlat.y, platforms, groundFeetY, targetPlat);
+  const landFeetY = targetPlat.y - WHELP_HALF;
+  return landFeetY >= startFeetY - maxJumpRise();
 }
 
 export function drawJumpArc(
   ctx: CanvasRenderingContext2D,
   plat: PlatformRect,
-  platforms: PlatformRect[]
+  platforms: PlatformRect[],
+  groundFeetY: number,
+  arenaW = 1280
 ): void {
-  const pts = jumpArcPoints(plat, platforms);
+  const reachable = jumpReachable(plat, platforms, groundFeetY, arenaW);
+  const pts = jumpArcPoints(plat, platforms, groundFeetY, arenaW);
   if (pts.length < 2) return;
 
+  const stroke = reachable ? "rgba(127, 227, 196, 0.9)" : "rgba(224, 102, 63, 0.85)";
+  const fill = reachable ? "rgba(127, 227, 196, 0.35)" : "rgba(224, 102, 63, 0.35)";
+
   ctx.save();
-  ctx.strokeStyle = "rgba(224, 102, 63, 0.85)";
+  ctx.strokeStyle = stroke;
   ctx.lineWidth = 3;
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
@@ -72,18 +127,19 @@ export function drawJumpArc(
   ctx.stroke();
 
   const start = pts[0]!;
-  ctx.fillStyle = "rgba(224, 102, 63, 0.35)";
+  ctx.fillStyle = fill;
   ctx.beginPath();
   ctx.arc(start.x, start.y, 10, 0, Math.PI * 2);
   ctx.fill();
-  ctx.strokeStyle = "rgba(224, 102, 63, 0.9)";
+  ctx.strokeStyle = stroke;
   ctx.lineWidth = 2;
   ctx.stroke();
 
   const peak = pts.reduce((best, p) => (p.y < best.y ? p : best), pts[0]!);
-  const rise = Math.round((Math.abs(WHELP_JUMP) ** 2) / (2 * GRAVITY));
-  ctx.fillStyle = "rgba(224, 102, 63, 0.92)";
+  const rise = Math.round(maxJumpRise());
+  ctx.fillStyle = stroke;
   ctx.font = "10px system-ui";
   ctx.fillText(`whelp peak ~${rise}px`, peak.x + 8, peak.y - 6);
+  ctx.fillText(reachable ? "reachable" : "too high", plat.x + plat.w / 2 - 24, plat.y - 10);
   ctx.restore();
 }

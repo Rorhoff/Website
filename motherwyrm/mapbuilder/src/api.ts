@@ -23,6 +23,16 @@ async function readError(res: Response): Promise<string> {
   return res.statusText || `HTTP ${res.status}`;
 }
 
+export async function fetchMapDraft(id: string): Promise<MapDocument | null> {
+  try {
+    const res = await fetch(`/api/mw/maps/${encodeURIComponent(id.trim())}`);
+    if (!res.ok) return null;
+    return (await res.json()) as MapDocument;
+  } catch {
+    return null;
+  }
+}
+
 export async function saveMapDraft(doc: MapDocument): Promise<SaveResult> {
   const body = exportMap(doc);
   try {

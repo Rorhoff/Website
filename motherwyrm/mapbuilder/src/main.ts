@@ -35,11 +35,11 @@ import {
   syncDocGrid,
   type EditorState,
 } from "./editor/state";
-import { defaultTransform, fitTransform, renderArena, screenToWorld, type DrawPreview, type ViewTransform } from "./editor/render";
+import { defaultTransform, fitTransform, renderArena, screenToWorld, canvasPointer, type DrawPreview, type ViewTransform } from "./editor/render";
 import { createHistory } from "./editor/history";
 import { exportMap, parseMap, serializeMap, snap, snapGem, validateMap } from "./schema";
-import { deleteSprite, flushPendingSprites, publishMap, saveMapDraft, uploadSprite } from "./api";
-import { loadRecentMaps, rememberMap } from "./storage";
+import { deleteSprite, fetchMapDraft, flushPendingSprites, publishMap, saveMapDraft, uploadSprite } from "./api";
+import { loadRecentMaps, loadEditorSession, rememberMap, saveEditorSession } from "./storage";
 import { invalidateSpriteCache, preloadMapSprites, resolveSpriteUrl, SPRITE_GROUPS, SPRITE_LABELS } from "./sprites";
 import { singleSelectionId, type MapDocument, type MapSpriteSlot, type PlatformPalette, type Selection } from "./types";
 import "./style.css";
@@ -71,7 +71,7 @@ function mountApp(root: HTMLElement): void {
           <input type="checkbox" id="mirrorLock" checked> Mirror lock
         </label>
         <label class="mirror-toggle">
-          <input type="checkbox" id="gemGravity" checked> Gem gravity
+          <input type="checkbox" id="gemGravity"> Gem gravity
         </label>
         <label class="grid-field" title="Snap size in pixels — 8 means positions snap to every 8px">
           Snap <input type="number" id="gridSize" min="1" max="64" value="${DEFAULT_GRID}"> px
@@ -136,9 +136,15 @@ function mountApp(root: HTMLElement): void {
     undoBtn.disabled = !history.canUndo();
   }
 
+  function persistSession(): void {
+    syncDocGrid(state);
+    saveEditorSession(serializeMap(exportMap(state.doc)));
+  }
+
   function recordHistory(): void {
     history.record(state.doc);
     updateUndoButton();
+    persistSession();
   }
 
   function restoreDoc(doc: MapDocument): void {
@@ -254,7 +260,7 @@ function mountApp(root: HTMLElement): void {
         <p><strong>Gem seam</strong></p>
         <label>X <input type="number" id="gX" value="${g.x}"></label>
         <label>Y <input type="number" id="gY" value="${g.y}"></label>
-        <p class="muted">${state.gemGravity ? "Gems drop to the nearest platform below." : `Snaps to ${state.doc.grid}px grid intersections.`}</p>
+        <p class="muted">${state.gemGravity ? "Gems stay where you click; dashed line shows where they land in-game." : `Snaps to ${state.doc.grid}px grid intersections.`}</p>
         <button type="button" id="delBtn" class="danger">Delete gem</button>`;
       bindGemProps(g.id);
       return;
@@ -522,11 +528,13 @@ function mountApp(root: HTMLElement): void {
       }
       delete state.spritePreviews[slot];
       setStatus(`Updated ${SPRITE_LABELS[slot]}`);
+      void autoSaveDraftQuiet();
     } else {
       setStatus(`Previewing ${SPRITE_LABELS[slot]} — set map id and Save to keep it.`);
     }
     renderProps();
     redraw();
+    persistSession();
   }
 
   async function clearSprite(slot: MapSpriteSlot): Promise<void> {
@@ -548,6 +556,7 @@ function mountApp(root: HTMLElement): void {
     state.dirty = true;
     renderProps();
     redraw();
+    void autoSaveDraftQuiet();
   }
 
   async function prepareDocForSave(): Promise<MapDocument | null> {
@@ -568,6 +577,17 @@ function mountApp(root: HTMLElement): void {
     return exportMap(state.doc);
   }
 
+  async function autoSaveDraftQuiet(): Promise<void> {
+    if (!state.doc.id.trim()) return;
+    const out = await prepareDocForSave();
+    if (!out) return;
+    const result = await saveMapDraft(out);
+    if (!result.ok) return;
+    rememberMap(out.id, out.name, serializeMap(out));
+    state.dirty = false;
+    persistSession();
+  }
+
   function loadDoc(doc: MapDocument): void {
     state = createEditorState(doc);
     state.mirrorLock = mirrorLockEl.checked;
@@ -580,6 +600,7 @@ function mountApp(root: HTMLElement): void {
     refreshRecent();
     preloadMapSprites(state.doc, () => redraw(), state.spritePreviews);
     fitToScreen();
+    persistSession();
   }
 
   function doExport(): void {
@@ -617,6 +638,7 @@ function mountApp(root: HTMLElement): void {
     rememberMap(out.id, out.name, json);
     refreshRecent();
     state.dirty = false;
+    persistSession();
     setStatus(`Saved draft “${out.name}”`);
   }
 
@@ -723,9 +745,7 @@ function mountApp(root: HTMLElement): void {
   // Canvas interaction
   canvas.addEventListener("wheel", (e) => {
     e.preventDefault();
-    const rect = canvas.getBoundingClientRect();
-    const sx = e.clientX - rect.left;
-    const sy = e.clientY - rect.top;
+    const { sx, sy } = canvasPointer(canvas, e.clientX, e.clientY);
     const before = screenToWorld(view, sx, sy);
     const factor = e.deltaY < 0 ? 1.1 : 0.9;
     view.scale = Math.min(3, Math.max(0.25, view.scale * factor));
@@ -759,9 +779,7 @@ function mountApp(root: HTMLElement): void {
   }
 
   canvas.addEventListener("mousedown", (e) => {
-    const rect = canvas.getBoundingClientRect();
-    const sx = e.clientX - rect.left;
-    const sy = e.clientY - rect.top;
+    const { sx, sy } = canvasPointer(canvas, e.clientX, e.clientY);
     const world = screenToWorld(view, sx, sy);
 
     if (e.button === 1 || spacePan || (e.button === 0 && e.altKey)) {
@@ -853,6 +871,8 @@ function mountApp(root: HTMLElement): void {
         return;
       }
       drag = { kind: "boxSelect", x0: world.x, y0: world.y };
+      drawPreview = { kind: "boxSelect", x0: world.x, y0: world.y, x1: world.x, y1: world.y };
+      redraw();
       return;
     }
 
@@ -937,9 +957,7 @@ function mountApp(root: HTMLElement): void {
   });
 
   canvas.addEventListener("mousemove", (e) => {
-    const rect = canvas.getBoundingClientRect();
-    const sx = e.clientX - rect.left;
-    const sy = e.clientY - rect.top;
+    const { sx, sy } = canvasPointer(canvas, e.clientX, e.clientY);
     const world = screenToWorld(view, sx, sy);
     hover =
       state.tool === "gem"
@@ -1021,8 +1039,8 @@ function mountApp(root: HTMLElement): void {
 
   canvas.addEventListener("mouseup", (e) => {
     if (drag?.kind === "draw") {
-      const rect = canvas.getBoundingClientRect();
-      const world = screenToWorld(view, e.clientX - rect.left, e.clientY - rect.top);
+      const { sx, sy } = canvasPointer(canvas, e.clientX, e.clientY);
+      const world = screenToWorld(view, sx, sy);
       const x = Math.min(drag.x0, snap(world.x, state.grid));
       const y = Math.min(drag.y0, snap(world.y, state.grid));
       let w = Math.abs(snap(world.x, state.grid) - drag.x0);
@@ -1038,8 +1056,8 @@ function mountApp(root: HTMLElement): void {
       }
       renderProps();
     } else if (drag?.kind === "boxSelect") {
-      const rect = canvas.getBoundingClientRect();
-      const world = screenToWorld(view, e.clientX - rect.left, e.clientY - rect.top);
+      const { sx, sy } = canvasPointer(canvas, e.clientX, e.clientY);
+      const world = screenToWorld(view, sx, sy);
       const sel = selectInRect(state.doc, drag.x0, drag.y0, world.x, world.y);
       const total = sel.platforms.length + sel.gems.length + sel.hoardSlots.length + sel.walls.length;
       state.selection = total > 0 ? sel : null;
@@ -1068,6 +1086,28 @@ function mountApp(root: HTMLElement): void {
   refreshRecent();
   renderProps();
   refreshValidation();
+
+  void (async () => {
+    const raw = loadEditorSession();
+    if (!raw) return;
+    try {
+      let doc = parseMap(raw);
+      if (doc.id.trim()) {
+        const server = await fetchMapDraft(doc.id);
+        if (server) {
+          doc = {
+            ...server,
+            ...doc,
+            sprites: { ...(server.sprites ?? {}), ...(doc.sprites ?? {}) },
+          };
+        }
+      }
+      loadDoc(doc);
+      setStatus(`Restored “${doc.name}”`);
+    } catch {
+      /* invalid session snapshot */
+    }
+  })();
 }
 
 function download(text: string, filename: string): void {
