@@ -33,6 +33,8 @@ export type BotWorld = {
   wyrmFace?: 1 | -1;
   /** Team holding the cow, or null when the saddle is free. */
   cowTeam?: NetTeam | null;
+  /** Whelp nipping the cow this frame (from the previous tick). */
+  activeCowPusherPid?: number | null;
   slotsFilled: Record<NetTeam, number>;
   /** Centre x of each still-empty hoard slot, so a carrier aims at a real gap. */
   openSlots?: Record<NetTeam, number[]>;
@@ -542,8 +544,21 @@ function goToWyrm(a: BotActorView, world: BotWorld, m: BotMemory) {
     return;
   }
 
+  if (inPushContact && !claimable && world.cowTeam === OTHER[a.team]) {
+    // Opponent owns the cow — back off instead of stacking on its flanks.
+    a.input.x = a.team === "blue" ? 1 : -1;
+    return;
+  }
+
   if (inPushContact && claimable) {
-    // Stay on the flank and nip — do not sprint for the finish or push contact breaks.
+    // Only the active nipper presses; others hold the flank so they do not stack.
+    if (
+      world.activeCowPusherPid != null &&
+      world.activeCowPusherPid !== a.pid
+    ) {
+      a.input.x = 0;
+      return;
+    }
     a.input.x = a.team === "blue" ? -1 : 1;
     return;
   }

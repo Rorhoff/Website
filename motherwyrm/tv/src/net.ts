@@ -68,6 +68,7 @@ export class Net {
   onHostStart: () => void = () => {};
   onHostFillBots: () => void = () => {};
   onHostMap: (mapId: string | null) => void = () => {};
+  onHostContinue: () => void = () => {};
 
   private ws!: WebSocket;
   private localPid = 1000;
@@ -177,6 +178,11 @@ export class Net {
           break;
         }
 
+        case "host_continue": {
+          if (m.pid === this.hostPid) this.onHostContinue();
+          break;
+        }
+
         case "i": {
           const p = this.players.get(m.pid);
           if (p) {
@@ -226,6 +232,14 @@ export class Net {
     for (const p of this.players.values()) {
       if (!p.bot && !p.local) {
         this.send({ t: "game_end", pid: p.pid, winner, reason });
+      }
+    }
+  }
+
+  notifyReturnLobby() {
+    for (const p of this.players.values()) {
+      if (!p.bot && !p.local) {
+        this.send({ t: "return_lobby", pid: p.pid });
       }
     }
   }

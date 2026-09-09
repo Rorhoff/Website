@@ -111,6 +111,7 @@ class Sim {
       wyrmX: this.cowX,
       wyrmFace: this.cowFace,
       cowTeam: this.cowTeam,
+      activeCowPusherPid: this.activeCowPusherPid,
       slotsFilled: {
         blue: this.slots.blue.filter(Boolean).length,
         red: this.slots.red.filter(Boolean).length,
@@ -165,18 +166,21 @@ class Sim {
       const goalDir = w.team === "blue" ? -1 : 1;
       const dx = this.cowX - w.x;
       const behind = goalDir < 0 ? dx > COW_BUTT_MIN : dx < -COW_BUTT_MIN;
-      const pushing =
+      const wouldPush =
         w.onGround &&
         behind &&
         Math.abs(dx) <= COW_PUSH_REACH &&
         Math.abs(w.y - COW_SHOULDER_Y) <= 34 &&
         Math.abs(w.input.x) >= 0.3 &&
-        Math.sign(w.input.x) === goalDir &&
-        w.pid === this.activeCowPusherPid;
+        Math.sign(w.input.x) === goalDir;
+      const pushing = wouldPush && w.pid === this.activeCowPusherPid;
 
       if (w.input.jumpEdge && w.onGround) w.vy = TUNING.whelpJump;
 
-      w.vx = pushing ? goalDir * TUNING.wyrmSpeed : w.input.x * TUNING.whelpSpeed;
+      let vx = w.input.x * TUNING.whelpSpeed;
+      if (wouldPush && !pushing) vx = 0;
+      else if (pushing) vx = goalDir * TUNING.wyrmSpeed;
+      w.vx = vx;
       w.vy += TUNING.gravity * DT;
 
       const prevBottom = w.y + WHELP_HALF;

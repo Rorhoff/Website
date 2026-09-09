@@ -18,8 +18,8 @@ export class Lobby extends Phaser.Scene {
 
   private mapLabels: Phaser.GameObjects.Text[] = [];
   private selectedMap: LoadedMapEntry | null = null;
-  private mapHint!: Phaser.GameObjects.Text;
-  private mapTitle!: Phaser.GameObjects.Text;
+  private mapHint?: Phaser.GameObjects.Text;
+  private mapTitle?: Phaser.GameObjects.Text;
 
   constructor() {
     super("Lobby");
@@ -30,6 +30,14 @@ export class Lobby extends Phaser.Scene {
   }
 
   create() {
+    this.destroyMapSelect();
+    this.countdownOverlay?.destroy();
+    this.countdownOverlay = undefined;
+    this.countdownSub?.destroy();
+    this.countdownSub = undefined;
+    this.qrImage?.destroy();
+    this.qrImage = undefined;
+
     this.cameras.main.setBackgroundColor(COLORS.sky);
     this.countingDown = false;
 
@@ -119,6 +127,7 @@ export class Lobby extends Phaser.Scene {
     this.net.onHostMap = (id) => {
       this.applyMapChoice(id === null ? null : findMapById(id) ?? null, false);
     };
+    this.net.onHostContinue = () => {};
     if (this.net.code) {
       this.codeText.setText(this.net.code);
       void this.refreshQr(this.net.code);
@@ -128,6 +137,15 @@ export class Lobby extends Phaser.Scene {
     this.input.keyboard?.on("keydown-R", () => this.addRobots());
     this.input.keyboard?.on("keydown-P", () => this.addHuman());
     this.input.keyboard?.on("keydown-SPACE", () => this.tryStart());
+  }
+
+  private destroyMapSelect() {
+    for (const label of this.mapLabels) label.destroy();
+    this.mapLabels = [];
+    this.mapTitle?.destroy();
+    this.mapTitle = undefined;
+    this.mapHint?.destroy();
+    this.mapHint = undefined;
   }
 
   private buildMapSelect() {
@@ -185,7 +203,7 @@ export class Lobby extends Phaser.Scene {
   private refreshMapSelect() {
     const name = this.selectedMap?.map.name ?? "Random";
     const mode = this.selectedMap ? "Fixed map for this match" : "Random from published pool";
-    this.mapHint.setText(`Selected: ${name} · ${mode}`);
+    this.mapHint?.setText(`Selected: ${name} · ${mode}`);
     for (const label of this.mapLabels) {
       const isRandom = label.text.startsWith("🎲");
       const selected =

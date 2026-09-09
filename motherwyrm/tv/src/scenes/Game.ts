@@ -13,6 +13,7 @@ import {
   wyrmTextureKey,
 } from '../assets';
 import { drawCollisionOverlay } from '../collision-overlay';
+import { formatPlayerLabel } from '../roster';
 import { mothersClash, pickWhelpRespawn } from '../spawn';
 import { builtinArena, hasGroundPlatform, hasLeftWall, hasRightWall, type LoadedArena } from '../maps/apply';
 import {
@@ -82,6 +83,8 @@ export class Game extends Phaser.Scene {
   private hudRed!: Phaser.GameObjects.Text;
   private hudWyrm!: Phaser.GameObjects.Text;
   private over = false;
+  private returningToLobby = false;
+  private continueKey?: Phaser.Input.Keyboard.Key;
   private showCollision = false;
   private collisionGfx!: Phaser.GameObjects.Graphics;
 
@@ -185,6 +188,9 @@ export class Game extends Phaser.Scene {
       this.collisionGfx.setVisible(this.showCollision);
       if (this.showCollision) drawCollisionOverlay(this.collisionGfx);
     });
+
+    this.continueKey = this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
+    this.net.onHostContinue = () => this.returnToLobby();
   }
 
   private mapSlotRect(team: Team, i: number) {
@@ -314,7 +320,10 @@ export class Game extends Phaser.Scene {
   // ----------------------------------------------------------------- update
 
   update(time: number, delta: number) {
-    if (this.over) return;
+    if (this.over) {
+      this.pollVictoryContinue();
+      return;
+    }
 
     // Hand each banked phone press its own frame so none are lost to a burst,
     // but only on a frame the actor can read it. Spending a press while it is
@@ -366,6 +375,7 @@ export class Game extends Phaser.Scene {
       wyrmX: this.wyrm.x,
       wyrmFace: this.cowFace(),
       cowTeam: this.cowTeam,
+      activeCowPusherPid: this.activeCowPusherPid,
       slotsFilled: { blue: slotCount('blue'), red: slotCount('red') },
       openSlots: { blue: openSlotXs('blue'), red: openSlotXs('red') },
       gems,
@@ -484,16 +494,19 @@ export class Game extends Phaser.Scene {
     const shoulderY = this.cowFeetY() - 22;
     const dx = this.wyrm.x - a.sprite.x;
     const behind = goalDir < 0 ? dx > COW_BUTT_MIN : dx < -COW_BUTT_MIN;
-    const pushing =
+    const wouldPush =
       (body.blocked.down || body.touching.down) &&
       behind &&
       Math.abs(dx) <= COW_PUSH_REACH &&
       Math.abs(a.sprite.y - shoulderY) <= 34 &&
       Math.abs(a.input.x) >= 0.3 &&
-      Math.sign(a.input.x) === goalDir &&
-      a.pid === this.activeCowPusherPid;
+      Math.sign(a.input.x) === goalDir;
+    const pushing = wouldPush && a.pid === this.activeCowPusherPid;
 
-    body.setVelocityX(pushing ? goalDir * TUNING.wyrmSpeed : a.input.x * TUNING.whelpSpeed);
+    let vx = a.input.x * TUNING.whelpSpeed;
+    if (wouldPush && !pushing) vx = 0;
+    else if (pushing) vx = goalDir * TUNING.wyrmSpeed;
+    body.setVelocityX(vx);
 
     if (a.input.jumpEdge && body.blocked.down) body.setVelocityY(TUNING.whelpJump);
 
@@ -1200,25 +1213,72 @@ export class Game extends Phaser.Scene {
 
   // ------------------------------------------------------------------- win
 
+  private victoryRosterLines(): string[] {
+    const host = this.net.hostPid;
+    const lines: string[] = [];
+    for (const team of ['blue', 'red'] as Team[]) {
+      const players = [...this.net.players.values()].filter((p) => p.team === team);
+      lines.push(team === 'blue' ? 'Blue team' : 'Red team');
+      if (players.length === 0) {
+        lines.push('  (empty)');
+      } else {
+        for (const p of players) {
+          const crown = p.pid === host ? ' 👑' : '';
+          lines.push(`  ${formatPlayerLabel(p)}${crown}`);
+        }
+      }
+      lines.push('');
+    }
+    return lines;
+  }
+
+  private canContinueFromTv(): boolean {
+    const host = this.net.hostPid;
+    if (host == null) return true;
+    const hostPlayer = this.net.players.get(host);
+    return Boolean(hostPlayer?.local);
+  }
+
+  private pollVictoryContinue() {
+    if (this.returningToLobby || !this.canContinueFromTv()) return;
+    if (this.continueKey && Phaser.Input.Keyboard.JustDown(this.continueKey)) {
+      this.returnToLobby();
+    }
+  }
+
+  private returnToLobby() {
+    if (!this.over || this.returningToLobby) return;
+    this.returningToLobby = true;
+    this.net.onHostContinue = () => {};
+    this.net.notifyReturnLobby();
+    this.scene.start('Lobby', { net: this.net });
+  }
+
   private checkWin() {
     const finish = (team: Team, why: string) => {
       this.over = true;
       this.physics.pause();
       this.add.rectangle(W / 2, H / 2, W, H, 0x000000, 0.72).setDepth(90);
-      this.add.text(W / 2, H / 2 - 40, `${team.toUpperCase()} WINS`, {
+      this.add.text(W / 2, H / 2 - 168, `${team.toUpperCase()} WINS`, {
         fontFamily: 'system-ui, sans-serif', fontSize: '84px', fontStyle: 'bold', color: HEX[team],
       }).setOrigin(0.5).setDepth(91);
-      this.add.text(W / 2, H / 2 + 40, why, {
+      this.add.text(W / 2, H / 2 - 72, why, {
         fontFamily: 'system-ui, sans-serif', fontSize: '26px', color: '#efe4d2',
       }).setOrigin(0.5).setDepth(91);
-      this.add.text(W / 2, H / 2 + 88, 'Returning to lobby…', {
-        fontFamily: 'system-ui, sans-serif', fontSize: '20px', color: '#8b7a66',
+      this.add.text(W / 2, H / 2 - 16, this.victoryRosterLines().join('\n'), {
+        fontFamily: 'system-ui, sans-serif', fontSize: '20px', color: '#efe4d2',
+        align: 'center', lineSpacing: 6,
+      }).setOrigin(0.5, 0).setDepth(91);
+      const hostHint = this.net.hostPid != null
+        ? 'Host 👑: tap Continue on phone · or Space on TV'
+        : 'Space to return to lobby';
+      this.add.text(W / 2, H - 56, hostHint, {
+        fontFamily: 'system-ui, sans-serif', fontSize: '20px', color: '#7fe3c4',
       }).setOrigin(0.5).setDepth(91);
       for (const a of this.actors) {
         this.net.cue(a.pid, a.team === team ? 'You won!' : `${team.toUpperCase()} wins.`);
       }
       this.net.notifyGameEnd(team, why);
-      this.time.delayedCall(5000, () => this.scene.start('Lobby', { net: this.net }));
     };
 
     for (const team of ['blue', 'red'] as Team[]) {

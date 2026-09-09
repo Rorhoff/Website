@@ -176,7 +176,19 @@ function mountApp(root: HTMLElement): void {
   let spacePan = false;
   let userAdjustedView = false;
 
+  /** Match backing-store pixels to the CSS layout box (avoids stretched / wrong fit). */
+  function syncCanvasSize(): boolean {
+    const rect = canvas.getBoundingClientRect();
+    const w = Math.max(1, Math.round(rect.width));
+    const h = Math.max(1, Math.round(rect.height));
+    const changed = w !== canvas.width || h !== canvas.height;
+    canvas.width = w;
+    canvas.height = h;
+    return changed;
+  }
+
   function fitToScreen(): void {
+    syncCanvasSize();
     view = fitTransform(canvas.width, canvas.height, state.doc.width, state.doc.height);
     userAdjustedView = false;
     redraw();
@@ -184,13 +196,8 @@ function mountApp(root: HTMLElement): void {
 
   /** Keep canvas backing store in sync with layout and fit the arena unless the user zoomed. */
   function resizeCanvas(forceFit = false): void {
-    const wrap = canvas.parentElement!;
-    const w = Math.max(1, wrap.clientWidth);
-    const h = Math.max(400, wrap.clientHeight - statusBar.offsetHeight);
-    const sizeChanged = w !== canvas.width || h !== canvas.height;
+    const sizeChanged = syncCanvasSize();
     if (!sizeChanged && !forceFit) return;
-    canvas.width = w;
-    canvas.height = h;
     if (forceFit || !userAdjustedView) {
       view = fitTransform(canvas.width, canvas.height, state.doc.width, state.doc.height);
     }

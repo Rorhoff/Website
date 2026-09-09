@@ -23,6 +23,7 @@ let myTeam = null;
 let isHost = false;
 let assigned = false;
 let inGame = false;
+let atVictory = false;
 let hostMapsLoaded = false;
 let selectedMapId = null;
 let selectedMapName = 'Random';
@@ -64,9 +65,39 @@ function showPad() {
   scheduleFitScreens();
 }
 
+function hideVictoryPanel() {
+  atVictory = false;
+  el('victoryPanel').classList.add('hidden');
+  el('btnContinue').classList.add('hidden');
+  el('victoryWait').classList.remove('hidden');
+}
+
+function showVictoryPanel(msg) {
+  atVictory = true;
+  inGame = false;
+  hideCountdown();
+  showLobby();
+  el('teamPick').classList.add('hidden');
+  el('hostPanel').classList.add('hidden');
+  el('lobbyCue').classList.add('hidden');
+  el('victoryPanel').classList.remove('hidden');
+  const won = msg.winner === myTeam;
+  const team = String(msg.winner || '').toUpperCase();
+  el('victoryHeadline').textContent = won ? 'You won!' : `${team} wins`;
+  el('victoryReason').textContent = msg.reason || '';
+  if (isHost) {
+    el('btnContinue').classList.remove('hidden');
+    el('victoryWait').classList.add('hidden');
+  } else {
+    el('btnContinue').classList.add('hidden');
+    el('victoryWait').classList.remove('hidden');
+  }
+  scheduleFitScreens();
+}
+
 function updateLobbyUi() {
-  el('hostPanel').classList.toggle('hidden', !isHost || inGame || !assigned);
-  if (isHost && !inGame && assigned) {
+  el('hostPanel').classList.toggle('hidden', !isHost || inGame || atVictory || !assigned);
+  if (isHost && !inGame && !atVictory && assigned) {
     void loadHostMaps();
     el('lobbyCue').textContent = 'Pick a map below, add robots, then start.';
   }
@@ -271,20 +302,27 @@ function connect(code, name) {
 
     if (msg.t === 'game_start') {
       hideCountdown();
+      hideVictoryPanel();
       inGame = true;
+      el('lobbyCue').classList.remove('hidden');
       showPad();
       startStickLoop();
       return;
     }
 
     if (msg.t === 'game_end') {
-      hideCountdown();
+      showVictoryPanel(msg);
+      el('padCue').textContent = 'Match over — waiting for host…';
+      return;
+    }
+
+    if (msg.t === 'return_lobby') {
+      hideVictoryPanel();
       inGame = false;
       showLobby();
-      const won = msg.winner === myTeam;
-      const headline = won ? 'You won!' : `${String(msg.winner || '').toUpperCase()} wins`;
-      el('lobbyCue').textContent = msg.reason || headline;
-      el('padCue').textContent = `${headline} — back in lobby`;
+      el('lobbyCue').classList.remove('hidden');
+      el('lobbyCue').textContent = 'Back in the lobby — ready for another match.';
+      el('padCue').textContent = 'Back in lobby';
       updateLobbyUi();
       return;
     }
@@ -384,6 +422,16 @@ el('btnStart').addEventListener('click', (e) => {
   if (countdownActive) return;
   send({ t: 'host_start' });
   el('lobbyCue').textContent = 'Get ready…';
+});
+
+el('btnContinue').addEventListener('click', (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  if (!isHost || !atVictory) return;
+  send({ t: 'host_continue' });
+  el('victoryWait').classList.remove('hidden');
+  el('victoryWait').textContent = 'Returning to lobby…';
+  el('btnContinue').classList.add('hidden');
 });
 
 // ---------------------------------------------------------------- stick

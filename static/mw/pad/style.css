@@ -310,6 +310,39 @@ input:focus-visible { outline: 2px solid var(--action-red); outline-offset: 2px;
 }
 .host-btn:active { transform: translateY(1px); }
 
+.victory-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  margin: 12px 0 4px;
+  padding: 16px 14px;
+  border: 1px solid var(--rim);
+  border-radius: 14px;
+  background: var(--soil-raised);
+  text-align: center;
+}
+
+.victory-headline {
+  margin: 0;
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: var(--fly-blue);
+}
+
+.victory-reason {
+  margin: 0;
+  font-size: 0.95rem;
+  color: var(--spore-dim);
+  line-height: 1.35;
+}
+
+.victory-wait {
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--spore-dim);
+}
+
 .controls-help {
   margin: 0;
   padding: 8px 20px 0;

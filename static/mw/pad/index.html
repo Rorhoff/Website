@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#14100d">
 <meta name="mobile-web-app-capable" content="yes">
 <title>MotherWyrm</title>
-<link rel="stylesheet" href="/mw/pad/style.css?v=4">
+<link rel="stylesheet" href="/mw/pad/style.css?v=5">
 </head>
 <body>
 
@@ -55,6 +55,13 @@
       </div>
     </div>
 
+    <div id="victoryPanel" class="victory-panel hidden">
+      <p id="victoryHeadline" class="victory-headline"></p>
+      <p id="victoryReason" class="victory-reason"></p>
+      <p id="victoryWait" class="victory-wait">Waiting for the host to continue…</p>
+      <button type="button" id="btnContinue" class="host-btn primary-host hidden">Continue to lobby</button>
+    </div>
+
     <p id="lobbyCue" class="cue lobby-cue" role="status">Waiting for the TV…</p>
   </div>
 </main>
@@ -89,6 +96,6 @@
   <p id="padCue" class="cue" role="status"></p>
 </main>
 
-<script type="module" src="/mw/pad/app.js?v=6"></script>
+<script type="module" src="/mw/pad/app.js?v=7"></script>
 </body>
 </html>
