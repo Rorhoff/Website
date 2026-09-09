@@ -231,6 +231,7 @@ body {
 #arena {
   flex: 1;
   width: 100%;
+  min-height: 0;
   display: block;
   cursor: crosshair;
 }
@@ -318,6 +319,91 @@ body {
   color: #e0663f;
   font-size: 0.8rem;
   cursor: pointer;
+}
+
+.sprite-save {
+  width: 100%;
+  margin-top: 12px;
+  padding: 8px 12px;
+  background: #2a4a38;
+  border: 1px solid #7fe3c4;
+  border-radius: 6px;
+  color: #7fe3c4;
+  font: inherit;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.sprite-save:hover {
+  background: #355a48;
+}
+
+.help-dialog {
+  max-width: 560px;
+  width: calc(100% - 32px);
+  padding: 0;
+  border: 1px solid #4a3828;
+  border-radius: 10px;
+  background: #171016;
+  color: #efe4d2;
+}
+
+.help-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.65);
+}
+
+.help-dialog form {
+  padding: 20px 22px;
+}
+
+.help-dialog h2 {
+  margin: 0 0 12px;
+  color: #f2c063;
+  font-size: 1.15rem;
+}
+
+.help-dialog h3 {
+  margin: 14px 0 8px;
+  font-size: 0.95rem;
+  color: #7fe3c4;
+}
+
+.help-body {
+  max-height: min(70vh, 520px);
+  overflow-y: auto;
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
+.help-dialog dl {
+  margin: 0;
+}
+
+.help-dialog dt {
+  font-weight: 600;
+  color: #efe4d2;
+  margin-top: 8px;
+}
+
+.help-dialog dd {
+  margin: 2px 0 0;
+  color: #8b7a66;
+}
+
+.help-close {
+  margin-top: 16px;
+  width: 100%;
+  padding: 8px 12px;
+  background: #2c2119;
+  border: 1px solid #4a3828;
+  border-radius: 6px;
+  color: #efe4d2;
+  font: inherit;
+  cursor: pointer;
+}
+
+.help-close:hover {
+  background: #3d2e22;
 }
 
 @media (max-width: 800px) {

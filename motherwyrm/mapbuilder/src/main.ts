@@ -35,7 +35,7 @@ import {
   syncDocGrid,
   type EditorState,
 } from "./editor/state";
-import { defaultTransform, fitTransform, renderArena, screenToWorld, canvasPointer, type DrawPreview, type ViewTransform } from "./editor/render";
+import { fitTransform, renderArena, screenToWorld, canvasPointer, type DrawPreview, type ViewTransform } from "./editor/render";
 import { createHistory } from "./editor/history";
 import { exportMap, parseMap, serializeMap, snap, snapGem, validateMap } from "./schema";
 import { deleteSprite, fetchMapDraft, flushPendingSprites, publishMap, saveMapDraft, uploadSprite } from "./api";
@@ -101,11 +101,59 @@ function mountApp(root: HTMLElement): void {
       <div class="canvas-wrap">
         <div class="canvas-toolbar">
           <button type="button" id="fitBtn" title="Reset zoom and center the arena in the view">Fit to screen</button>
+          <button type="button" id="helpBtn" title="What do the tools and settings do?">Help</button>
         </div>
         <canvas id="arena" width="960" height="540"></canvas>
         <div id="statusBar" class="status"></div>
       </div>
     </div>
+    <dialog id="helpDialog" class="help-dialog">
+      <form method="dialog">
+        <h2>Map builder guide</h2>
+        <div class="help-body">
+          <section>
+            <h3>File actions</h3>
+            <dl>
+              <dt>New</dt><dd>Blank 1280×720 map with ground floor and hoard slots.</dd>
+              <dt>Load default arena</dt><dd>Replace the map with the bundled starter layout.</dd>
+              <dt>Open / Export JSON</dt><dd>Load or download a map file.</dd>
+              <dt>Save</dt><dd>Store a draft on the server (needs a map id). Character art uploads auto-save when an id is set.</dd>
+              <dt>Publish</dt><dd>Validate and add the map to the TV lobby and random rotation.</dd>
+              <dt>Undo</dt><dd>Revert the last edit.</dd>
+            </dl>
+          </section>
+          <section>
+            <h3>Settings</h3>
+            <dl>
+              <dt>Mirror lock</dt><dd>Edits on the left are mirrored to the right for symmetric arenas.</dd>
+              <dt>Gem gravity</dt><dd>When on, the gem tool shows where an airborne gem will land in-game. Gems are still placed at the click height.</dd>
+              <dt>Snap</dt><dd>Grid size in pixels for platforms, walls, and spawns.</dd>
+            </dl>
+          </section>
+          <section>
+            <h3>Tools</h3>
+            <dl>
+              <dt>Select</dt><dd>Click to select; drag empty space to box-select. Drag items to move.</dd>
+              <dt>Platform</dt><dd>Drag to draw a ledge. Orange arc shows whelp jump reach (green = reachable).</dd>
+              <dt>Wall</dt><dd>Drag to draw a solid wall.</dd>
+              <dt>Gem seam</dt><dd>Click to place a gem spawn. Use gem gravity to preview the landing spot.</dd>
+              <dt>Hoard anchor</dt><dd>Move gem hoard slot anchors.</dd>
+              <dt>Spawns</dt><dd>Drag mother and whelp spawn points. Click empty space to add backup spawns.</dd>
+              <dt>Wyrm path</dt><dd>Drag the cow to set ground height; drag finish-line tops to resize.</dd>
+            </dl>
+          </section>
+          <section>
+            <h3>Canvas</h3>
+            <dl>
+              <dt>Fit to screen</dt><dd>Re-center and zoom the arena to fill the view.</dd>
+              <dt>Scroll wheel</dt><dd>Zoom in/out.</dd>
+              <dt>Alt-drag / middle mouse</dt><dd>Pan the view.</dd>
+            </dl>
+          </section>
+        </div>
+        <button type="submit" class="help-close">Close</button>
+      </form>
+    </dialog>
     <input type="file" id="fileInput" accept="application/json,.json" hidden>
   `;
 
@@ -121,15 +169,42 @@ function mountApp(root: HTMLElement): void {
 
   let state = createEditorState(blankMap());
   const history = createHistory();
-  let view = defaultTransform(canvas.width, canvas.height);
+  let view: ViewTransform = { scale: 1, offsetX: 0, offsetY: 0 };
   let drag: DragMode = null;
   let hover: { x: number; y: number } | null = null;
   let drawPreview: DrawPreview = null;
   let spacePan = false;
+  let userAdjustedView = false;
 
   function fitToScreen(): void {
     view = fitTransform(canvas.width, canvas.height, state.doc.width, state.doc.height);
+    userAdjustedView = false;
     redraw();
+  }
+
+  /** Keep canvas backing store in sync with layout and fit the arena unless the user zoomed. */
+  function resizeCanvas(forceFit = false): void {
+    const wrap = canvas.parentElement!;
+    const w = Math.max(1, wrap.clientWidth);
+    const h = Math.max(400, wrap.clientHeight - statusBar.offsetHeight);
+    const sizeChanged = w !== canvas.width || h !== canvas.height;
+    if (!sizeChanged && !forceFit) return;
+    canvas.width = w;
+    canvas.height = h;
+    if (forceFit || !userAdjustedView) {
+      view = fitTransform(canvas.width, canvas.height, state.doc.width, state.doc.height);
+    }
+    redraw();
+  }
+
+  let resizeQueued = false;
+  function scheduleCanvasResize(): void {
+    if (resizeQueued) return;
+    resizeQueued = true;
+    requestAnimationFrame(() => {
+      resizeQueued = false;
+      resizeCanvas();
+    });
   }
 
   function updateUndoButton(): void {
@@ -199,6 +274,7 @@ function mountApp(root: HTMLElement): void {
   }
 
   function renderProps(): void {
+    scheduleCanvasResize();
     const sel = state.selection;
     if (!sel) {
       propsBody.innerHTML = `
@@ -208,10 +284,12 @@ function mountApp(root: HTMLElement): void {
           <h3>Character art</h3>
           <p class="muted">Upload PNGs per mother frame (idle, dive, claw). Map preview uses idle at spawns. Wyrm feet align to the ground line.</p>
           ${spriteRowsHtml()}
+          <button type="button" id="spriteSaveBtn" class="sprite-save">Save map draft</button>
         </section>
         <p class="muted">Select an object to edit it, or edit map metadata above.</p>`;
       bindMapMeta();
       bindSpriteArt();
+      propsBody.querySelector("#spriteSaveBtn")?.addEventListener("click", () => void doSave());
       return;
     }
 
@@ -599,7 +677,7 @@ function mountApp(root: HTMLElement): void {
     renderProps();
     refreshRecent();
     preloadMapSprites(state.doc, () => redraw(), state.spritePreviews);
-    fitToScreen();
+    resizeCanvas(true);
     persistSession();
   }
 
@@ -741,10 +819,17 @@ function mountApp(root: HTMLElement): void {
   });
 
   root.querySelector("#fitBtn")!.addEventListener("click", () => fitToScreen());
+  const helpDialog = root.querySelector("#helpDialog") as HTMLDialogElement;
+  root.querySelector("#helpBtn")!.addEventListener("click", () => helpDialog.showModal());
+
+  const canvasWrap = canvas.parentElement!;
+  new ResizeObserver(() => scheduleCanvasResize()).observe(canvasWrap);
+  new ResizeObserver(() => scheduleCanvasResize()).observe(root.querySelector("#propsPanel")!);
 
   // Canvas interaction
   canvas.addEventListener("wheel", (e) => {
     e.preventDefault();
+    userAdjustedView = true;
     const { sx, sy } = canvasPointer(canvas, e.clientX, e.clientY);
     const before = screenToWorld(view, sx, sy);
     const factor = e.deltaY < 0 ? 1.1 : 0.9;
@@ -783,6 +868,7 @@ function mountApp(root: HTMLElement): void {
     const world = screenToWorld(view, sx, sy);
 
     if (e.button === 1 || spacePan || (e.button === 0 && e.altKey)) {
+      userAdjustedView = true;
       drag = { kind: "pan", sx, sy, ox: view.offsetX, oy: view.offsetY };
       return;
     }
@@ -1075,14 +1161,9 @@ function mountApp(root: HTMLElement): void {
     redraw();
   });
 
-  window.addEventListener("resize", () => {
-    const wrap = canvas.parentElement!;
-    canvas.width = wrap.clientWidth;
-    canvas.height = Math.max(400, window.innerHeight - 160);
-    redraw();
-  });
+  window.addEventListener("resize", () => scheduleCanvasResize());
 
-  window.dispatchEvent(new Event("resize"));
+  resizeCanvas(true);
   refreshRecent();
   renderProps();
   refreshValidation();
