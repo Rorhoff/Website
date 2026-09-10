@@ -283,6 +283,16 @@ body {
   border-radius: 4px;
 }
 
+.sprite-thumb-empty {
+  background: repeating-linear-gradient(
+    -45deg,
+    #171016,
+    #171016 4px,
+    #1f1824 4px,
+    #1f1824 8px
+  );
+}
+
 .sprite-meta {
   flex: 1;
   min-width: 0;

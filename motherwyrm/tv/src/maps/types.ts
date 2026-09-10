@@ -53,7 +53,8 @@ export type MapData = {
       | "mother_red_claw"
       | "whelp_blue"
       | "whelp_red"
-      | "wyrm",
+      | "wyrm"
+      | "background",
       string
     >
   >;

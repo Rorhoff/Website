@@ -281,8 +281,8 @@ function mountApp(root: HTMLElement): void {
         <label>Map id <input id="mapId" value="${esc(state.doc.id)}"></label>
         <label>Map name <input id="mapName" value="${esc(state.doc.name)}"></label>
         <section class="sprites-panel">
-          <h3>Character art</h3>
-          <p class="muted">Upload PNGs per mother frame (idle, dive, claw). Map preview uses idle at spawns. Cow feet align to the ground line.</p>
+          <h3>Art &amp; scenery</h3>
+          <p class="muted">Upload a 1280×720 background PNG under Scenery, or character PNGs per slot. Map preview uses idle at spawns. Cow feet align to the ground line.</p>
           ${spriteRowsHtml()}
           <button type="button" id="spriteSaveBtn" class="sprite-save">Save map draft</button>
         </section>
@@ -545,9 +545,12 @@ function mountApp(root: HTMLElement): void {
         .map((slot) => {
           const url = resolveSpriteUrl(state.doc, slot, state.spritePreviews);
           const custom = Boolean(state.doc.sprites?.[slot] || state.pendingSprites[slot]);
+          const thumb = url
+            ? `<img class="sprite-thumb" src="${esc(url)}" alt="" width="40" height="40">`
+            : `<div class="sprite-thumb sprite-thumb-empty" aria-hidden="true"></div>`;
           return `
         <div class="sprite-row">
-          <img class="sprite-thumb" src="${esc(url)}" alt="" width="40" height="40">
+          ${thumb}
           <div class="sprite-meta">
             <span class="sprite-label">${SPRITE_LABELS[slot]}</span>
             <label class="sprite-upload">

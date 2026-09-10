@@ -9,6 +9,7 @@ import {
   gemTextureKey,
   getGemAnchor,
   mountBackground,
+  mountMapBackground,
   tryPlayAnim,
   wyrmTextureKey,
 } from '../assets';
@@ -127,7 +128,12 @@ export class Game extends Phaser.Scene {
     this.cameras.main.setBackgroundColor(COLORS.sky);
     this.physics.world.setBounds(0, 0, W, H);
 
-    mountBackground(this);
+    const sceneryUrl = this.arena.map.sprites?.background;
+    if (sceneryUrl) {
+      mountMapBackground(this, sceneryUrl);
+    } else {
+      mountBackground(this);
+    }
     this.collisionGfx = this.add.graphics().setDepth(100).setVisible(false);
 
     this.buildPlatforms();

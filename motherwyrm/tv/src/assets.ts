@@ -7,7 +7,7 @@ import {
   SPRITE_SCALE,
   type AtlasManifestEntry,
 } from "./asset-manifest";
-import { buildProceduralTexture } from "./arena";
+import { buildProceduralTexture, W, H } from "./arena";
 import type { Role, Team } from "./net";
 
 export type AssetLoadState = "loaded" | "procedural" | "pending";
@@ -253,4 +253,41 @@ export function mountBackground(scene: Phaser.Scene): Phaser.GameObjects.Image |
     .setScale(SPRITE_SCALE)
     .setDepth(-100);
   return bg;
+}
+
+function mapBackgroundTextureKey(url: string): string {
+  return `map_bg_${url.replace(/[^a-zA-Z0-9._-]+/g, "_").slice(0, 96)}`;
+}
+
+/** Load a per-map scenery PNG and cover-scale it behind the arena. Falls back to bundled art. */
+export function mountMapBackground(
+  scene: Phaser.Scene,
+  url: string,
+  onReady?: (image: Phaser.GameObjects.Image | null) => void
+): void {
+  const key = mapBackgroundTextureKey(url);
+  const place = (): Phaser.GameObjects.Image | null => {
+    if (!scene.textures.exists(key)) return mountBackground(scene);
+    const bg = scene.add.image(W / 2, H / 2, key).setDepth(-100);
+    const fw = bg.frame.width;
+    const fh = bg.frame.height;
+    bg.setScale(Math.max(W / fw, H / fh));
+    return bg;
+  };
+
+  if (scene.textures.exists(key)) {
+    onReady?.(place());
+    return;
+  }
+
+  scene.load.image(key, url);
+  scene.load.once(Phaser.Loader.Events.COMPLETE, () => {
+    if (!scene.scene.isActive()) return;
+    onReady?.(place());
+  });
+  scene.load.once(Phaser.Loader.Events.FILE_LOAD_ERROR, () => {
+    if (!scene.scene.isActive()) return;
+    onReady?.(mountBackground(scene));
+  });
+  scene.load.start();
 }

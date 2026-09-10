@@ -28,7 +28,12 @@ SPRITE_SLOTS = frozenset({
     "whelp_blue",
     "whelp_red",
     "wyrm",
+    "background",
 })
+
+# Scenery backdrops can be larger than character sprites.
+_SPRITE_MAX_BYTES = 4 * 1024 * 1024
+_BACKGROUND_MAX_BYTES = 8 * 1024 * 1024
 
 _ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$", re.IGNORECASE)
 
@@ -183,8 +188,10 @@ async def upload_sprite(map_id: str, slot: str, file: UploadFile = File(...)) ->
     data = await file.read()
     if not data.startswith(b"\x89PNG\r\n\x1a\n"):
         raise HTTPException(status_code=400, detail="Sprite must be a PNG file.")
-    if len(data) > 4 * 1024 * 1024:
-        raise HTTPException(status_code=400, detail="Sprite PNG must be under 4 MB.")
+    max_bytes = _BACKGROUND_MAX_BYTES if slot_name == "background" else _SPRITE_MAX_BYTES
+    if len(data) > max_bytes:
+        limit_mb = max_bytes // (1024 * 1024)
+        raise HTTPException(status_code=400, detail=f"PNG must be under {limit_mb} MB.")
     dest_dir = _sprite_dir(mid)
     dest_dir.mkdir(parents=True, exist_ok=True)
     dest = dest_dir / f"{slot_name}.png"

@@ -18,6 +18,7 @@ export const DEFAULT_SPRITE_PATHS: Record<MapSpriteSlot, string> = {
   whelp_blue: "/mw/assets/whelp_blue.png",
   whelp_red: "/mw/assets/whelp_red.png",
   wyrm: "/mw/assets/wyrm.png",
+  background: "",
 };
 
 export const SPRITE_SLOTS: MapSpriteSlot[] = [
@@ -32,6 +33,7 @@ export const SPRITE_SLOTS: MapSpriteSlot[] = [
   "whelp_blue",
   "whelp_red",
   "wyrm",
+  "background",
 ];
 
 export const SPRITE_LABELS: Record<MapSpriteSlot, string> = {
@@ -46,9 +48,11 @@ export const SPRITE_LABELS: Record<MapSpriteSlot, string> = {
   whelp_blue: "Wyrm (blue)",
   whelp_red: "Wyrm (red)",
   wyrm: "Cow",
+  background: "Background scenery",
 };
 
 export const SPRITE_GROUPS: Array<{ title: string; slots: MapSpriteSlot[] }> = [
+  { title: "Scenery", slots: ["background"] },
   { title: "Mother (blue)", slots: ["mother_blue_idle", "mother_blue_fly", "mother_blue_dive", "mother_blue_claw"] },
   { title: "Mother (red)", slots: ["mother_red_idle", "mother_red_fly", "mother_red_dive", "mother_red_claw"] },
   { title: "Wyrms", slots: ["whelp_blue", "whelp_red"] },
@@ -75,6 +79,7 @@ export function resolveSpriteDrawSpec(
 ): SpriteDrawSpec {
   const custom = blobOverrides?.[slot] ?? doc.sprites?.[slot];
   if (custom) return { kind: "image", url: custom };
+  if (slot === "background") return { kind: "image", url: "" };
   const frame = DEFAULT_SHEET_FRAMES[slot];
   if (frame) return { kind: "sheet", url: frame.sheet, frame };
   return { kind: "image", url: DEFAULT_SPRITE_PATHS[slot] };
@@ -99,6 +104,7 @@ export function getCachedSprite(spec: SpriteDrawSpec): HTMLImageElement | undefi
 }
 
 export function ensureSpriteLoaded(spec: SpriteDrawSpec, onReady: () => void): HTMLImageElement | undefined {
+  if (!spec.url) return undefined;
   const key = cacheKey(spec);
   const hit = cache.get(key);
   if (hit) return hit;

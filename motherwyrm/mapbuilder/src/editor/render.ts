@@ -102,8 +102,10 @@ export function renderArena(
   ctx.translate(v.offsetX, v.offsetY);
   ctx.scale(v.scale, v.scale);
 
-  ctx.fillStyle = "#171016";
-  ctx.fillRect(0, 0, W, H);
+  if (!drawBackgroundScenery(ctx, state, onSpriteLoad)) {
+    ctx.fillStyle = "#171016";
+    ctx.fillRect(0, 0, W, H);
+  }
 
   drawGrid(ctx, state.doc.grid);
 
@@ -263,6 +265,25 @@ function drawSpawnMarkers(
       drawSpawnCharacter(ctx, state, whelpSlot, pt.x, pt.y, color, sel, String(i + 1), onSpriteLoad, 44);
     });
   }
+}
+
+function drawBackgroundScenery(
+  ctx: CanvasRenderingContext2D,
+  state: EditorState,
+  onSpriteLoad?: () => void
+): boolean {
+  const spec = resolveSpriteDrawSpec(state.doc, "background", state.spritePreviews);
+  if (!spec.url) return false;
+  let img = getCachedSprite(spec);
+  if (!img) {
+    ensureSpriteLoaded(spec, () => onSpriteLoad?.());
+    return false;
+  }
+  const scale = Math.max(W / img.width, H / img.height);
+  const dw = img.width * scale;
+  const dh = img.height * scale;
+  ctx.drawImage(img, (W - dw) / 2, (H - dh) / 2, dw, dh);
+  return true;
 }
 
 function drawMapSprite(

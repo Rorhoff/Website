@@ -80,7 +80,8 @@ export type MapSpriteSlot =
   | "mother_red_claw"
   | "whelp_blue"
   | "whelp_red"
-  | "wyrm";
+  | "wyrm"
+  | "background";
 
 export type MapSprites = Partial<Record<MapSpriteSlot, string>>;
 
