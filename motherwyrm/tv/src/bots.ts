@@ -96,6 +96,10 @@ export function resetBotMemory() {
   memory.clear();
 }
 
+export function forgetBotMemory(pid: number) {
+  memory.delete(pid);
+}
+
 function memoryFor(a: BotActorView, time: number): BotMemory {
   let m = memory.get(a.pid);
   if (!m) {
@@ -159,7 +163,20 @@ function tapAction(input: InputState) {
   input.action = false;
 }
 
-function jumpThrottled(a: BotActorView, m: BotMemory, time: number, ms: number): boolean {
+/** Floor herders must walk the flank — hops land on the cow's back. */
+function blockJumpNearCow(a: BotActorView, cowX: number): boolean {
+  if (Math.abs(a.x - cowX) > 175) return false;
+  return a.y >= WHELP_FLOOR_Y - 130;
+}
+
+function jumpThrottled(
+  a: BotActorView,
+  m: BotMemory,
+  time: number,
+  ms: number,
+  cowX?: number
+): boolean {
+  if (cowX !== undefined && blockJumpNearCow(a, cowX)) return false;
   if (time - m.lastJump < ms) return false;
   m.lastJump = time;
   tapJump(a.input);
@@ -270,7 +287,8 @@ function climbToward(
   m: BotMemory,
   time: number,
   targetX: number,
-  targetY: number
+  targetY: number,
+  cowX?: number
 ): boolean {
   if (!a.onGround) {
     if (!m.climbing) return false;
@@ -316,7 +334,7 @@ function climbToward(
   const aim = clamp(targetX, lo + inset, hi - inset);
 
   // Hop only once lined up under the rung, so the jump has somewhere to land.
-  if (!driveX(a.input, a.x, aim, 8) && jumpThrottled(a, m, time, 380)) {
+  if (!driveX(a.input, a.x, aim, 8) && jumpThrottled(a, m, time, 380, cowX)) {
     m.climbing = true;
     m.climbAim = aim;
   }
@@ -324,14 +342,14 @@ function climbToward(
 }
 
 /** Alternate escape directions with a hop when a bot has stopped moving. */
-function breakout(a: BotActorView, m: BotMemory, time: number) {
+function breakout(a: BotActorView, m: BotMemory, time: number, cowX?: number) {
   if (time > m.breakoutUntil) {
     m.breakoutDir = m.breakoutDir === 1 ? -1 : 1;
     m.breakoutUntil = time + 600;
   }
   a.input.x = m.breakoutDir;
   // Throttled: tapping every frame reads as a bot vibrating on the spot.
-  jumpThrottled(a, m, time, 300);
+  jumpThrottled(a, m, time, 300, cowX);
   // Give the escape a fresh window before it counts as stuck again.
   m.movedAt = time - 200;
 }
@@ -467,35 +485,67 @@ function pickMotherTarget(a: BotActorView, world: BotWorld): MotherTarget {
   return { x: world.wyrmX, y: cowY, press: false };
 }
 
+/** True when a mother has landed on a ledge (not the floor). */
+function motherOnLedge(a: BotActorView): boolean {
+  if (!a.onGround) return false;
+  for (const [px, py, pw] of PLATFORMS) {
+    if (pw >= W * 0.9) continue;
+    if (Math.abs(a.y - py) > 36) continue;
+    if (a.x + 20 < px || a.x - 20 > px + pw) continue;
+    return true;
+  }
+  return false;
+}
+
 function updateMotherBot(a: BotActorView, world: BotWorld, m: BotMemory) {
   const target = pickMotherTarget(a, world);
 
   const dx = target.x - a.x;
   const dy = target.y - a.y;
   const dist = Math.hypot(dx, dy);
+  const targetBelow = dy > 55;
+  const onLedge = motherOnLedge(a);
 
   driveX(a.input, a.x, target.x, 14);
 
-  // Mothers cannot swing upward, so hold station above whatever we are hunting.
-  const hoverY = clamp(target.y - 80, 130, 600);
+  // Stay in open air above the prey — don't perch on the ledge above them.
+  const hoverY = clamp(target.y - 110, 120, 520);
   if (a.y > hoverY + 18 && world.time - m.lastFlap > 180) {
     m.lastFlap = world.time;
     tapJump(a.input);
   }
 
-  // Wedged against geometry: flap free and try the other way.
+  // Parked on a ledge above a lower target: lift off and slide away instead of
+  // swiping horizontally into the platform lip forever.
+  if (onLedge && targetBelow) {
+    if (world.time - m.lastFlap > 120) {
+      m.lastFlap = world.time;
+      tapJump(a.input);
+    }
+    a.input.x = dx >= 0 ? -1 : 1;
+    m.movedAt = world.time - 300;
+    return;
+  }
+
   if (isStuck(m, world.time, 900)) {
     tapJump(a.input);
     m.lastFlap = world.time;
     a.input.x = dx >= 0 ? 1 : -1;
     m.movedAt = world.time - 400;
+    return;
   }
 
-  const inReach = dist < 150 && dy > -40;
+  const canDive = !a.onGround && targetBelow;
+  const inReach = dist < 140 && (canDive ? dy > 25 : Math.abs(dy) < 70);
   if (target.press && inReach && world.time - m.lastAction > 320) {
+    if (a.onGround && targetBelow) return;
     m.lastAction = world.time;
     const len = dist || 1;
-    setStick(a.input, dx / len, Math.max(0, dy / len));
+    if (canDive) {
+      setStick(a.input, dx / len, dy / len);
+    } else {
+      setStick(a.input, dx / len, Math.max(0, dy / len) * 0.25);
+    }
     tapAction(a.input);
   }
 }
@@ -517,14 +567,13 @@ function shouldEscortCow(a: BotActorView, world: BotWorld): boolean {
   const our = world.slotsFilled[a.team];
   const their = world.slotsFilled[OTHER[a.team]];
 
-  // Cow near our finish — any whelp can help.
-  if (Math.abs(world.wyrmX - loseLineX(a.team)) < 300) return true;
-
-  // Otherwise one babysitter per team; the rest keep gem runs.
+  // One herder per team — never stack the whole roster on the cow.
   const mates = world.actors.filter(
     (w) => w.team === a.team && w.role === "whelp" && w.deadUntil <= world.time
   );
   if (mates.length > 1 && !isPrimaryEscort(a, world)) return false;
+
+  if (Math.abs(world.wyrmX - loseLineX(a.team)) < 220) return true;
 
   if (their > our + 3) return true;
   if (world.gems.length === 0) return true;
@@ -542,10 +591,10 @@ function herdFlankX(team: NetTeam, cowX: number) {
 /** Where to walk when herding — detour wide if we are in front of the cow. */
 function herdApproachX(a: BotActorView, cowX: number): number {
   const flankX = herdFlankX(a.team, cowX);
-  const inFront = a.team === "blue" ? a.x > cowX + 18 : a.x < cowX - 18;
-  const nearCow = Math.abs(a.x - cowX) < 150;
+  const inFront = a.team === "blue" ? a.x > cowX + 12 : a.x < cowX - 12;
+  const nearCow = Math.abs(a.x - cowX) < 180;
   if (inFront && nearCow) {
-    return a.team === "blue" ? cowX + 170 : cowX - 170;
+    return a.team === "blue" ? cowX + 200 : cowX - 200;
   }
   return flankX;
 }
@@ -568,7 +617,7 @@ function goToWyrm(a: BotActorView, world: BotWorld, m: BotMemory) {
     const underCow = Math.abs(a.x - cowX) < 100;
     if (descendToward(a, m, aimX)) {
       if (a.onGround && isStuck(m, world.time, 900) && !underCow) {
-        breakout(a, m, world.time);
+        breakout(a, m, world.time, cowX);
       }
     } else if (a.onGround) {
       // On a ledge above the floor — line up over the flank, then walk off.
@@ -622,7 +671,7 @@ function goDeposit(a: BotActorView, world: BotWorld, m: BotMemory) {
   // has to come down first — walking to the slot's x two storeys above it just
   // parks the bot in mid-air with its gem.
   if (a.y < SHELF_STAND_Y - PROGRESS_PX && descendToward(a, m, targetX)) {
-    if (a.onGround && isStuck(m, world.time, 900)) breakout(a, m, world.time);
+    if (a.onGround && isStuck(m, world.time, 900)) breakout(a, m, world.time, world.wyrmX);
     return;
   }
 
@@ -632,11 +681,11 @@ function goDeposit(a: BotActorView, world: BotWorld, m: BotMemory) {
   const [shelfL, shelfR] = shelfSpan(a.team);
   const belowShelf = a.y > SHELF_STAND_Y + 20;
   if (a.onGround && belowShelf && a.x > shelfL && a.x < shelfR) {
-    jumpThrottled(a, m, world.time, 420);
+    jumpThrottled(a, m, world.time, 420, world.wyrmX);
   }
 
   if ((moving || belowShelf) && isStuck(m, world.time, 700)) {
-    breakout(a, m, world.time);
+    breakout(a, m, world.time, world.wyrmX);
   }
 }
 
@@ -678,7 +727,7 @@ function goGetGem(
   // looks like it is within a single hop, and reconsidering there steers off the
   // rung and drops us back on the ledge we started from, over and over.
   if (m.climbing && !a.onGround) {
-    climbToward(a, m, world.time, gem.x, gem.y);
+    climbToward(a, m, world.time, gem.x, gem.y, world.wyrmX);
     return;
   }
 
@@ -686,7 +735,7 @@ function goGetGem(
 
   // Below us: step off the ledge rather than pacing along it out of reach.
   if (dy > PROGRESS_PX && descendToward(a, m, gem.x)) {
-    if (a.onGround && isStuck(m, world.time, 900)) breakout(a, m, world.time);
+    if (a.onGround && isStuck(m, world.time, 900)) breakout(a, m, world.time, world.wyrmX);
     return;
   }
 
@@ -700,8 +749,8 @@ function goGetGem(
     !stand || (gem.x > stand[0] - 10 && gem.x < stand[0] + stand[2] + 10);
   const needsLadder = dy < -MAX_RISE || !overLedge;
   const overhead = Math.abs(gem.x - a.x) < 300;
-  if (dy < -30 && needsLadder && overhead && climbToward(a, m, world.time, gem.x, gem.y)) {
-    if (a.onGround && isStuck(m, world.time, 1200)) breakout(a, m, world.time);
+  if (dy < -30 && needsLadder && overhead && climbToward(a, m, world.time, gem.x, gem.y, world.wyrmX)) {
+    if (a.onGround && isStuck(m, world.time, 1200)) breakout(a, m, world.time, world.wyrmX);
     return;
   }
 
@@ -710,10 +759,10 @@ function goGetGem(
   // Lined up under a gem within reach: hop. Ledges are one-way from below, so
   // this pops through anything in the way too.
   if (a.onGround && dy < -30 && Math.abs(gem.x - a.x) < 60) {
-    jumpThrottled(a, m, world.time, 380);
+    jumpThrottled(a, m, world.time, 380, world.wyrmX);
   }
 
-  if (moving && isStuck(m, world.time, 700)) breakout(a, m, world.time);
+  if (moving && isStuck(m, world.time, 700)) breakout(a, m, world.time, world.wyrmX);
 }
 
 function updateWhelpBot(a: BotActorView, world: BotWorld, m: BotMemory) {

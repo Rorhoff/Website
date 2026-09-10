@@ -30,6 +30,7 @@ export {
   WHELP_FRAME_H,
   WHELP_SPRITE_SCALE,
   displayHeightForRole,
+  renderScaleForRole,
   roleFromSpriteSlot,
 } from "../../shared/sprite-scale";
 export type { ActorRole } from "../../shared/sprite-scale";

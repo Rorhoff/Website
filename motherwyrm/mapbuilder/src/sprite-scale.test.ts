@@ -15,12 +15,12 @@ describe("sprite-scale", () => {
     expect(previewDisplayHeightForRole("mother")).toBe(94);
     expect(previewDisplayHeightForSpriteSlot("mother_blue_idle")).toBe(94);
     expect(previewDisplayHeightForSpriteSlot("whelp_red")).toBe(44);
-    expect(previewDisplayHeightForSpriteSlot("wyrm")).toBe(44);
+    expect(previewDisplayHeightForSpriteSlot("wyrm")).toBe(38);
   });
 
-  it("TV game still uses frame × scale heights", () => {
-    expect(displayHeightForRole("mother")).toBe(256);
-    expect(displayHeightForRole("whelp")).toBe(110);
-    expect(displayHeightForRole("cow")).toBe(110);
+  it("TV game uses the same flat pixel heights as map builder preview", () => {
+    expect(displayHeightForRole("mother")).toBe(94);
+    expect(displayHeightForRole("whelp")).toBe(44);
+    expect(displayHeightForRole("cow")).toBe(38);
   });
 });

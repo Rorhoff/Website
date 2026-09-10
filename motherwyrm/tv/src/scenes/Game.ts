@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { Net, Lobbyist, Team } from '../net';
-import { resetBotMemory, updateBotBrains, type BotWorld } from '../bots';
+import { forgetBotMemory, resetBotMemory, updateBotBrains, type BotWorld } from '../bots';
 import { applyLocalKeyboard } from '../local-input';
 import {
   actorAtlasKey,
@@ -21,7 +21,7 @@ import { builtinArena, hasGroundPlatform, hasLeftWall, hasRightWall, type Loaded
 import {
   W, H, COLORS, TUNING, SLOT_SIZE, slotRect as layoutSlotRect,
   COW_HALF_H, COW_BACK_DY, COW_HEAD_DX, COW_HEAD_DY, COW_PUSH_REACH, COW_BUTT_MIN,
-  COW_SHOULDER_ABOVE_FEET,
+  COW_SHOULDER_ABOVE_FEET, WHELP_HALF,
 } from '../arena';
 
 type Sprite = Phaser.Physics.Arcade.Sprite;
@@ -501,7 +501,12 @@ export class Game extends Phaser.Scene {
     else if (pushing) vx = goalDir * TUNING.wyrmSpeed;
     body.setVelocityX(vx);
 
-    if (a.input.jumpEdge && body.blocked.down) body.setVelocityY(TUNING.whelpJump);
+    const floorY = this.cowFeetY() - WHELP_HALF;
+    const nearCow =
+      Math.abs(this.wyrm.x - a.sprite.x) <= 175 && a.sprite.y >= floorY - 130;
+    if (a.input.jumpEdge && body.blocked.down && !nearCow) {
+      body.setVelocityY(TUNING.whelpJump);
+    }
 
     // Punting and throwing are airborne moves. That is the timing window.
     if (a.input.actionEdge && !body.blocked.down) {
@@ -1075,6 +1080,7 @@ export class Game extends Phaser.Scene {
 
   private killWhelp(t: Actor, time: number, _dir: number, cue?: string) {
     if (t.deadUntil > time) return;
+    forgetBotMemory(t.pid);
     if (t.riding) this.dismount(t, 0);
     this.dropCarried(t);
     t.stunUntil = 0;

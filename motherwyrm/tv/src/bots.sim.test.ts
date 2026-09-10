@@ -172,7 +172,10 @@ class Sim {
         Math.sign(w.input.x) === goalDir;
       const pushing = wouldPush && w.pid === this.activeCowPusherPid;
 
-      if (w.input.jumpEdge && w.onGround) w.vy = TUNING.whelpJump;
+      const floorY = (TUNING.cowGroundY ?? 690) - WHELP_HALF;
+      const nearCow =
+        Math.abs(this.cowX - w.x) <= 175 && w.y >= floorY - 130;
+      if (w.input.jumpEdge && w.onGround && !nearCow) w.vy = TUNING.whelpJump;
 
       let vx = w.input.x * TUNING.whelpSpeed;
       if (wouldPush && !pushing) vx = 0;
