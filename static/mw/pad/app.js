@@ -29,7 +29,7 @@ let selectedMapId = null;
 let selectedMapName = 'Random';
 
 function roleLabel(role) {
-  return role === 'mother' ? '★ Mother Wyrm' : 'Whelp';
+  return role === 'mother' ? '★ Mother Dragon' : 'Wyrm';
 }
 
 function teamLabel(team) {
@@ -265,7 +265,7 @@ function connect(code, name) {
       showLobby();
       el('teamPick').classList.remove('hidden');
       el('lobbyStatus').textContent = 'Pick your team';
-      el('lobbyCue').textContent = 'Choose Blue or Red to join as a whelp.';
+      el('lobbyCue').textContent = 'Choose Blue or Red to join as a wyrm.';
       updateLobbyUi();
       scheduleFitScreens();
       return;
@@ -375,7 +375,7 @@ if (pathCode) el('code').value = pathCode[1].toUpperCase();
 
 el('joinBtn').addEventListener('click', () => {
   const code = el('code').value.trim().toUpperCase();
-  const name = el('name').value.trim() || 'Whelp';
+  const name = el('name').value.trim() || 'Wyrm';
   if (code.length !== 4) { el('joinError').textContent = 'The code is four letters.'; return; }
   el('joinError').textContent = '';
   el('joinBtn').disabled = true;

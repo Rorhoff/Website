@@ -1,4 +1,4 @@
-/** Whelp jump physics — mirrors arena-layout TUNING. */
+/** Wyrm (baby dragon) jump physics — mirrors arena-layout TUNING. */
 export const WHELP_JUMP = -620;
 export const WHELP_SPEED = 195;
 export const GRAVITY = 1400;
@@ -48,18 +48,28 @@ export function sourceFeetY(
   return floorTop - WHELP_HALF;
 }
 
-/** Jump arc from below toward a target platform; tail starts on the arena-center side. */
+function arcTailOnLeft(
+  targetPlat: PlatformRect,
+  arenaW: number,
+  jumpArcFromLeft?: boolean
+): boolean {
+  if (jumpArcFromLeft === true) return true;
+  if (jumpArcFromLeft === false) return false;
+  const cx = targetPlat.x + targetPlat.w / 2;
+  // Auto: platform on the right → approach from the left, and vice versa.
+  return cx > arenaW / 2;
+}
+
+/** Jump arc from below toward a target platform; tail starts on the chosen side. */
 export function jumpArcPoints(
   targetPlat: PlatformRect,
   platforms: PlatformRect[],
   groundFeetY: number,
   arenaW = 1280,
-  steps = 240
+  steps = 240,
+  jumpArcFromLeft?: boolean
 ): Array<{ x: number; y: number }> {
-  const cx = targetPlat.x + targetPlat.w / 2;
-  const onRight = cx > arenaW / 2;
-  // Platform on the right → approach from the left (tail on left), and vice versa.
-  const tailOnLeft = onRight;
+  const tailOnLeft = arcTailOnLeft(targetPlat, arenaW, jumpArcFromLeft);
   const landX = tailOnLeft ? targetPlat.x + targetPlat.w * 0.28 : targetPlat.x + targetPlat.w * 0.72;
   const startX = tailOnLeft ? targetPlat.x - 4 : targetPlat.x + targetPlat.w + 4;
   const startFeetY = sourceFeetY(startX, targetPlat.y, platforms, groundFeetY, targetPlat);
@@ -90,11 +100,10 @@ export function jumpReachable(
   targetPlat: PlatformRect,
   platforms: PlatformRect[],
   groundFeetY: number,
-  arenaW = 1280
+  arenaW = 1280,
+  jumpArcFromLeft?: boolean
 ): boolean {
-  const cx = targetPlat.x + targetPlat.w / 2;
-  const onRight = cx > arenaW / 2;
-  const tailOnLeft = onRight;
+  const tailOnLeft = arcTailOnLeft(targetPlat, arenaW, jumpArcFromLeft);
   const startX = tailOnLeft ? targetPlat.x - 4 : targetPlat.x + targetPlat.w + 4;
   const startFeetY = sourceFeetY(startX, targetPlat.y, platforms, groundFeetY, targetPlat);
   const landFeetY = targetPlat.y - WHELP_HALF;
@@ -106,10 +115,11 @@ export function drawJumpArc(
   plat: PlatformRect,
   platforms: PlatformRect[],
   groundFeetY: number,
-  arenaW = 1280
+  arenaW = 1280,
+  jumpArcFromLeft?: boolean
 ): void {
-  const reachable = jumpReachable(plat, platforms, groundFeetY, arenaW);
-  const pts = jumpArcPoints(plat, platforms, groundFeetY, arenaW);
+  const reachable = jumpReachable(plat, platforms, groundFeetY, arenaW, jumpArcFromLeft);
+  const pts = jumpArcPoints(plat, platforms, groundFeetY, arenaW, 240, jumpArcFromLeft);
   if (pts.length < 2) return;
 
   const stroke = reachable ? "rgba(127, 227, 196, 0.9)" : "rgba(224, 102, 63, 0.85)";
@@ -139,7 +149,7 @@ export function drawJumpArc(
   const rise = Math.round(maxJumpRise());
   ctx.fillStyle = stroke;
   ctx.font = "10px system-ui";
-  ctx.fillText(`whelp peak ~${rise}px`, peak.x + 8, peak.y - 6);
+  ctx.fillText(`wyrm peak ~${rise}px`, peak.x + 8, peak.y - 6);
   ctx.fillText(reachable ? "reachable" : "too high", plat.x + plat.w / 2 - 24, plat.y - 10);
   ctx.restore();
 }

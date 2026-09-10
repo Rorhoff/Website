@@ -44,6 +44,7 @@ export type MapHoardSlot = {
   pairId?: string;
 };
 
+/** Cow herd path — finish lines and ground height (JSON field name kept for compatibility). */
 export type MapWyrmPath = {
   /** Blue finish line x. */
   left: number;
@@ -129,7 +130,6 @@ export type EditorState = {
   doc: MapDocument;
   mirrorLock: boolean;
   /** When true, new/moved gems fall to the nearest platform below. */
-  gemGravity: boolean;
   /** Local blob URLs for sprite previews before upload completes. */
   spritePreviews: MapSprites;
   /** PNG files waiting to upload on save (map id required). */

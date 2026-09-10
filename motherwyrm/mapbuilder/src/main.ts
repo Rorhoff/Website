@@ -70,9 +70,6 @@ function mountApp(root: HTMLElement): void {
         <label class="mirror-toggle">
           <input type="checkbox" id="mirrorLock" checked> Mirror lock
         </label>
-        <label class="mirror-toggle">
-          <input type="checkbox" id="gemGravity"> Gem gravity
-        </label>
         <label class="grid-field" title="Snap size in pixels — 8 means positions snap to every 8px">
           Snap <input type="number" id="gridSize" min="1" max="64" value="${DEFAULT_GRID}"> px
         </label>
@@ -85,7 +82,7 @@ function mountApp(root: HTMLElement): void {
       <button type="button" data-tool="gem">Gem seam</button>
       <button type="button" data-tool="hoard">Hoard anchor</button>
       <button type="button" data-tool="spawn">Spawns</button>
-      <button type="button" data-tool="wyrm">Wyrm path</button>
+      <button type="button" data-tool="wyrm">Cow path</button>
     </div>
     <div class="main">
       <aside class="panel" id="propsPanel">
@@ -126,7 +123,6 @@ function mountApp(root: HTMLElement): void {
             <h3>Settings</h3>
             <dl>
               <dt>Mirror lock</dt><dd>Edits on the left are mirrored to the right for symmetric arenas.</dd>
-              <dt>Gem gravity</dt><dd>When on, the gem tool shows where an airborne gem will land in-game. Gems are still placed at the click height.</dd>
               <dt>Snap</dt><dd>Grid size in pixels for platforms, walls, and spawns.</dd>
             </dl>
           </section>
@@ -134,12 +130,12 @@ function mountApp(root: HTMLElement): void {
             <h3>Tools</h3>
             <dl>
               <dt>Select</dt><dd>Click to select; drag empty space to box-select. Drag items to move.</dd>
-              <dt>Platform</dt><dd>Drag to draw a ledge. Orange arc shows whelp jump reach (green = reachable).</dd>
+              <dt>Platform</dt><dd>Drag to draw a ledge. Jump arc shows wyrm reach (green = reachable). Arc side follows platform position.</dd>
               <dt>Wall</dt><dd>Drag to draw a solid wall.</dd>
-              <dt>Gem seam</dt><dd>Click to place a gem spawn. Use gem gravity to preview the landing spot.</dd>
+              <dt>Gem seam</dt><dd>Click to place a gem — it stays exactly where you put it.</dd>
               <dt>Hoard anchor</dt><dd>Move gem hoard slot anchors.</dd>
-              <dt>Spawns</dt><dd>Drag mother and whelp spawn points. Click empty space to add backup spawns.</dd>
-              <dt>Wyrm path</dt><dd>Drag the cow to set ground height; drag finish-line tops to resize.</dd>
+              <dt>Spawns</dt><dd>Drag mother and wyrm spawn points. Click empty space to add backup spawns.</dd>
+              <dt>Cow path</dt><dd>Drag the cow to set ground height; drag finish-line tops to resize.</dd>
             </dl>
           </section>
           <section>
@@ -163,7 +159,6 @@ function mountApp(root: HTMLElement): void {
   const propsBody = root.querySelector("#propsBody") as HTMLElement;
   const fileInput = root.querySelector("#fileInput") as HTMLInputElement;
   const mirrorLockEl = root.querySelector("#mirrorLock") as HTMLInputElement;
-  const gemGravityEl = root.querySelector("#gemGravity") as HTMLInputElement;
   const gridSizeEl = root.querySelector("#gridSize") as HTMLInputElement;
   const undoBtn = root.querySelector("#undoBtn") as HTMLButtonElement;
 
@@ -176,11 +171,12 @@ function mountApp(root: HTMLElement): void {
   let spacePan = false;
   let userAdjustedView = false;
 
-  /** Match backing-store pixels to the CSS layout box (avoids stretched / wrong fit). */
+  const canvasWrap = canvas.parentElement!;
+
+  /** Size the backing store from the layout box — not getBoundingClientRect (can read 0 mid-layout). */
   function syncCanvasSize(): boolean {
-    const rect = canvas.getBoundingClientRect();
-    const w = Math.max(1, Math.round(rect.width));
-    const h = Math.max(1, Math.round(rect.height));
+    const w = Math.max(320, canvasWrap.clientWidth);
+    const h = Math.max(240, canvasWrap.clientHeight - statusBar.offsetHeight);
     const changed = w !== canvas.width || h !== canvas.height;
     canvas.width = w;
     canvas.height = h;
@@ -188,10 +184,8 @@ function mountApp(root: HTMLElement): void {
   }
 
   function fitToScreen(): void {
-    syncCanvasSize();
-    view = fitTransform(canvas.width, canvas.height, state.doc.width, state.doc.height);
     userAdjustedView = false;
-    redraw();
+    resizeCanvas(true);
   }
 
   /** Keep canvas backing store in sync with layout and fit the arena unless the user zoomed. */
@@ -281,7 +275,6 @@ function mountApp(root: HTMLElement): void {
   }
 
   function renderProps(): void {
-    scheduleCanvasResize();
     const sel = state.selection;
     if (!sel) {
       propsBody.innerHTML = `
@@ -289,7 +282,7 @@ function mountApp(root: HTMLElement): void {
         <label>Map name <input id="mapName" value="${esc(state.doc.name)}"></label>
         <section class="sprites-panel">
           <h3>Character art</h3>
-          <p class="muted">Upload PNGs per mother frame (idle, dive, claw). Map preview uses idle at spawns. Wyrm feet align to the ground line.</p>
+          <p class="muted">Upload PNGs per mother frame (idle, dive, claw). Map preview uses idle at spawns. Cow feet align to the ground line.</p>
           ${spriteRowsHtml()}
           <button type="button" id="spriteSaveBtn" class="sprite-save">Save map draft</button>
         </section>
@@ -320,12 +313,14 @@ function mountApp(root: HTMLElement): void {
       if (!p) return;
       const skins = Object.keys(SKIN_PRESETS);
       const pal = p.palette ?? SKIN_PRESETS[p.skin ?? "soil_default"]!;
+      const arcSide = p.x + p.w / 2 > W / 2 ? "left (platform on right)" : "right (platform on left)";
       propsBody.innerHTML = `
         <p><strong>Platform</strong>${p.ground ? " (ground)" : ""}</p>
         <label>X <input type="number" id="pX" value="${p.x}" ${p.ground ? "disabled" : ""}></label>
         <label>Y <input type="number" id="pY" value="${p.y}" ${p.ground ? "disabled" : ""}></label>
         <label>W <input type="number" id="pW" value="${p.w}" ${p.ground ? "disabled" : ""}></label>
         <label>H <input type="number" id="pH" value="${p.h}" ${p.ground ? "disabled" : ""}></label>
+        <p class="muted">Jump arc previews from the ${arcSide} — move the platform to flip it.</p>
         <label>Skin preset
           <select id="pSkin">${skins.map((s) => `<option value="${s}" ${p.skin === s ? "selected" : ""}>${s}</option>`).join("")}</select>
         </label>
@@ -345,7 +340,7 @@ function mountApp(root: HTMLElement): void {
         <p><strong>Gem seam</strong></p>
         <label>X <input type="number" id="gX" value="${g.x}"></label>
         <label>Y <input type="number" id="gY" value="${g.y}"></label>
-        <p class="muted">${state.gemGravity ? "Gems stay where you click; dashed line shows where they land in-game." : `Snaps to ${state.doc.grid}px grid intersections.`}</p>
+        <p class="muted">Snaps to ${state.doc.grid}px grid intersections. Gems stay exactly where you place them.</p>
         <button type="button" id="delBtn" class="danger">Delete gem</button>`;
       bindGemProps(g.id);
       return;
@@ -411,7 +406,7 @@ function mountApp(root: HTMLElement): void {
     if (sel.kind === "wyrmCow" || sel.kind === "wyrmFinish") {
       const wp = state.doc.wyrmPath;
       propsBody.innerHTML = `
-        <p><strong>Wyrm path & finish lines</strong></p>
+        <p><strong>Cow path & finish lines</strong></p>
         <label>Blue finish (left x) <input type="number" id="wLeft" value="${wp.left}"></label>
         <label>Red finish (right x) <input type="number" id="wRight" value="${wp.right}"></label>
         <label>Cow ground y <input type="number" id="wY" value="${wp.y}"></label>
@@ -676,7 +671,6 @@ function mountApp(root: HTMLElement): void {
   function loadDoc(doc: MapDocument): void {
     state = createEditorState(doc);
     state.mirrorLock = mirrorLockEl.checked;
-    state.gemGravity = gemGravityEl.checked;
     state.grid = Number(gridSizeEl.value) || DEFAULT_GRID;
     syncDocGrid(state);
     history.clear();
@@ -805,12 +799,6 @@ function mountApp(root: HTMLElement): void {
     refreshValidation();
   });
 
-  gemGravityEl.addEventListener("change", () => {
-    state.gemGravity = gemGravityEl.checked;
-    renderProps();
-    redraw();
-  });
-
   gridSizeEl.addEventListener("change", () => {
     state.grid = Math.max(1, Number(gridSizeEl.value) || DEFAULT_GRID);
     syncDocGrid(state);
@@ -829,9 +817,7 @@ function mountApp(root: HTMLElement): void {
   const helpDialog = root.querySelector("#helpDialog") as HTMLDialogElement;
   root.querySelector("#helpBtn")!.addEventListener("click", () => helpDialog.showModal());
 
-  const canvasWrap = canvas.parentElement!;
   new ResizeObserver(() => scheduleCanvasResize()).observe(canvasWrap);
-  new ResizeObserver(() => scheduleCanvasResize()).observe(root.querySelector("#propsPanel")!);
 
   // Canvas interaction
   canvas.addEventListener("wheel", (e) => {

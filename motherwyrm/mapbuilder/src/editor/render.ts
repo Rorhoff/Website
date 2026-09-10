@@ -3,7 +3,7 @@ import { drawJumpArc } from "../jump-arc";
 import { mirrorPointX, snapGem } from "../schema";
 import { resolvePalette } from "../schema";
 import { drawPlatformCap } from "../platform-tile";
-import { allHoardSlots, dropGemY, gemHoverBlocked, type EditorState } from "./state";
+import { allHoardSlots, gemHoverBlocked, type EditorState } from "./state";
 import type { MapSpriteSlot, Selection } from "../types";
 import {
   drawSpriteAtFeet,
@@ -28,10 +28,13 @@ export function fitTransform(
 ): ViewTransform {
   const pad = options?.pad ?? 40;
   const maxScale = options?.maxScale ?? Infinity;
-  const scale = Math.min(
-    (canvasW - pad * 2) / worldW,
-    (canvasH - pad * 2) / worldH,
-    maxScale
+  const scale = Math.max(
+    0.05,
+    Math.min(
+      (canvasW - pad * 2) / worldW,
+      (canvasH - pad * 2) / worldH,
+      maxScale
+    )
   );
   return {
     scale,
@@ -185,7 +188,7 @@ export function renderArena(
 
   const showArc =
     (state.tool === "platform" && (preview?.kind === "platform" || (hover && !preview)))
-    || (state.tool === "select" && selection?.kind === "platform" && selection.ids.length === 1);
+    || (selection?.kind === "platform" && selection.ids.length === 1);
   if (showArc) {
     let plat: { x: number; y: number; w: number; h: number };
     if (preview?.kind === "platform") {
@@ -199,7 +202,7 @@ export function renderArena(
     }
     const platformRects = state.doc.platforms.map((p) => ({ x: p.x, y: p.y, w: p.w, h: p.h }));
     const groundFeetY = state.doc.wyrmPath.y - 24;
-    drawJumpArc(ctx, plat, platformRects, groundFeetY);
+    drawJumpArc(ctx, plat, platformRects, groundFeetY, W);
   }
 
   if (preview?.kind === "platform" || preview?.kind === "wall") {
@@ -231,20 +234,6 @@ export function renderArena(
     const gy = snapGem(hover.y, state.doc.grid);
     const blocked = gemHoverBlocked(state, hover.x, hover.y);
     drawRubyGem(ctx, gx, gy, false, true, blocked ? "blocked" : "ok");
-    if (state.gemGravity) {
-      const landY = dropGemY(state.doc, gx, gy, state.doc.grid);
-      if (landY !== gy) {
-        ctx.strokeStyle = "rgba(127,227,196,0.45)";
-        ctx.lineWidth = 1;
-        ctx.setLineDash([4, 4]);
-        ctx.beginPath();
-        ctx.moveTo(gx, gy);
-        ctx.lineTo(gx, landY);
-        ctx.stroke();
-        ctx.setLineDash([]);
-        drawRubyGem(ctx, gx, landY, false, true, blocked ? "blocked" : "mirror");
-      }
-    }
     if (state.mirrorLock && gx !== mirrorPointX(gx)) {
       drawRubyGem(ctx, mirrorPointX(gx), gy, false, true, blocked ? "blocked" : "mirror");
     }
@@ -271,7 +260,7 @@ function drawSpawnMarkers(
     sp.backup.forEach((pt, i) => {
       const sel =
         selection?.kind === "spawn" && selection.team === team && selection.role === "backup" && selection.index === i;
-      drawSpawnCharacter(ctx, state, whelpSlot, pt.x, pt.y, color, sel, String(i + 1), onSpriteLoad, 36);
+      drawSpawnCharacter(ctx, state, whelpSlot, pt.x, pt.y, color, sel, String(i + 1), onSpriteLoad, 44);
     });
   }
 }

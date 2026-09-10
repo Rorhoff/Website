@@ -95,7 +95,7 @@ export function validateMap(doc: MapDocument, mirrorLock: boolean): ValidationIs
 
   const grounds = doc.platforms.filter((p) => p.ground);
   if (grounds.length === 0) {
-    issues.push({ level: "warn", message: "No ground platform — wyrms/mothers fall through and wrap to the top." });
+    issues.push({ level: "warn", message: "No ground platform — wyrms and mothers fall through and wrap to the top." });
   } else if (grounds.length > 1) {
     issues.push({ level: "warn", message: "Multiple ground platforms defined." });
   }
@@ -115,7 +115,7 @@ export function validateMap(doc: MapDocument, mirrorLock: boolean): ValidationIs
   if (mirrorLock) validateSymmetry(doc, issues);
 
   if (doc.wyrmPath.left >= doc.wyrmPath.right) {
-    issues.push({ level: "error", message: "Wyrm path left finish must be left of right finish." });
+    issues.push({ level: "error", message: "Cow path left finish must be left of right finish." });
   }
 
   return issues;

@@ -25,7 +25,6 @@ export function createEditorState(doc: MapDocument): EditorState {
   return {
     doc,
     mirrorLock: true,
-    gemGravity: false,
     spritePreviews: {},
     pendingSprites: {},
     tool: "select",
