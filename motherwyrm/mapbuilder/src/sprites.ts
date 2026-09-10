@@ -51,6 +51,9 @@ export const SPRITE_LABELS: Record<MapSpriteSlot, string> = {
   background: "Background scenery",
 };
 
+/** Slots exposed in the map builder upload UI (character art is managed elsewhere). */
+export const SCENERY_UPLOAD_SLOTS: MapSpriteSlot[] = ["background"];
+
 export const SPRITE_GROUPS: Array<{ title: string; slots: MapSpriteSlot[] }> = [
   { title: "Scenery", slots: ["background"] },
   { title: "Mother (blue)", slots: ["mother_blue_idle", "mother_blue_fly", "mother_blue_dive", "mother_blue_claw"] },

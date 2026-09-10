@@ -40,7 +40,7 @@ import { createHistory } from "./editor/history";
 import { exportMap, parseMap, serializeMap, snap, snapGem, validateMap } from "./schema";
 import { deleteSprite, fetchMapDraft, flushPendingSprites, publishMap, saveMapDraft, uploadSprite } from "./api";
 import { loadRecentMaps, loadEditorSession, rememberMap, saveEditorSession } from "./storage";
-import { invalidateSpriteCache, preloadMapSprites, resolveSpriteUrl, SPRITE_GROUPS, SPRITE_LABELS } from "./sprites";
+import { invalidateSpriteCache, preloadMapSprites, resolveSpriteUrl, SCENERY_UPLOAD_SLOTS, SPRITE_LABELS } from "./sprites";
 import { singleSelectionId, type MapDocument, type MapSpriteSlot, type PlatformPalette, type Selection } from "./types";
 import "./style.css";
 
@@ -114,7 +114,7 @@ function mountApp(root: HTMLElement): void {
               <dt>New</dt><dd>Blank 1280×720 map with ground floor and hoard slots.</dd>
               <dt>Load default arena</dt><dd>Replace the map with the bundled starter layout.</dd>
               <dt>Open / Export JSON</dt><dd>Load or download a map file.</dd>
-              <dt>Save</dt><dd>Store a draft on the server (needs a map id). Character art uploads auto-save when an id is set.</dd>
+              <dt>Save</dt><dd>Store a draft on the server (needs a map id). Background scenery uploads auto-save when an id is set.</dd>
               <dt>Publish</dt><dd>Validate and add the map to the TV lobby and random rotation.</dd>
               <dt>Undo</dt><dd>Revert the last edit.</dd>
             </dl>
@@ -136,6 +136,13 @@ function mountApp(root: HTMLElement): void {
               <dt>Hoard anchor</dt><dd>Move gem hoard slot anchors.</dd>
               <dt>Spawns</dt><dd>Drag mother and wyrm spawn points. Click empty space to add backup spawns.</dd>
               <dt>Cow path</dt><dd>Drag the cow to set ground height; drag finish-line tops to resize.</dd>
+            </dl>
+          </section>
+          <section>
+            <h3>Platform colors</h3>
+            <dl>
+              <dt>Select a platform</dt><dd>Use the Select tool and click a ledge. The Properties panel shows a skin preset and four palette color pickers (base, shadow, highlight, trim).</dd>
+              <dt>Walls</dt><dd>Wall color is not customizable yet — walls use a fixed brown in preview and gameplay.</dd>
             </dl>
           </section>
           <section>
@@ -281,8 +288,8 @@ function mountApp(root: HTMLElement): void {
         <label>Map id <input id="mapId" value="${esc(state.doc.id)}"></label>
         <label>Map name <input id="mapName" value="${esc(state.doc.name)}"></label>
         <section class="sprites-panel">
-          <h3>Art &amp; scenery</h3>
-          <p class="muted">Upload a 1280×720 background PNG under Scenery, or character PNGs per slot. Map preview uses idle at spawns. Cow feet align to the ground line.</p>
+          <h3>Scenery</h3>
+          <p class="muted">Upload a 1280×720 background PNG. It appears behind the arena in preview and on the TV.</p>
           ${spriteRowsHtml()}
           <button type="button" id="spriteSaveBtn" class="sprite-save">Save map draft</button>
         </section>
@@ -540,15 +547,13 @@ function mountApp(root: HTMLElement): void {
   }
 
   function spriteRowsHtml(): string {
-    return SPRITE_GROUPS.map((group) => {
-      const rows = group.slots
-        .map((slot) => {
-          const url = resolveSpriteUrl(state.doc, slot, state.spritePreviews);
-          const custom = Boolean(state.doc.sprites?.[slot] || state.pendingSprites[slot]);
-          const thumb = url
-            ? `<img class="sprite-thumb" src="${esc(url)}" alt="" width="40" height="40">`
-            : `<div class="sprite-thumb sprite-thumb-empty" aria-hidden="true"></div>`;
-          return `
+    return SCENERY_UPLOAD_SLOTS.map((slot) => {
+      const url = resolveSpriteUrl(state.doc, slot, state.spritePreviews);
+      const custom = Boolean(state.doc.sprites?.[slot] || state.pendingSprites[slot]);
+      const thumb = url
+        ? `<img class="sprite-thumb" src="${esc(url)}" alt="" width="40" height="40">`
+        : `<div class="sprite-thumb sprite-thumb-empty" aria-hidden="true"></div>`;
+      return `
         <div class="sprite-row">
           ${thumb}
           <div class="sprite-meta">
@@ -560,9 +565,6 @@ function mountApp(root: HTMLElement): void {
           </div>
           ${custom ? `<button type="button" class="sprite-clear" data-clear-sprite="${slot}">Reset</button>` : ""}
         </div>`;
-        })
-        .join("");
-      return `<h4 class="sprite-group-title">${group.title}</h4>${rows}`;
     }).join("");
   }
 

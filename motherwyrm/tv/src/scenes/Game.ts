@@ -1219,23 +1219,14 @@ export class Game extends Phaser.Scene {
 
   // ------------------------------------------------------------------- win
 
-  private victoryRosterLines(): string[] {
+  private victoryRosterLines(team: Team): string[] {
     const host = this.net.hostPid;
-    const lines: string[] = [];
-    for (const team of ['blue', 'red'] as Team[]) {
-      const players = [...this.net.players.values()].filter((p) => p.team === team);
-      lines.push(team === 'blue' ? 'Blue team' : 'Red team');
-      if (players.length === 0) {
-        lines.push('  (empty)');
-      } else {
-        for (const p of players) {
-          const crown = p.pid === host ? ' 👑' : '';
-          lines.push(`  ${formatPlayerLabel(p)}${crown}`);
-        }
-      }
-      lines.push('');
-    }
-    return lines;
+    const players = [...this.net.players.values()].filter((p) => p.team === team);
+    if (players.length === 0) return ['(empty)'];
+    return players.map((p) => {
+      const crown = p.pid === host ? ' 👑' : '';
+      return `${formatPlayerLabel(p)}${crown}`;
+    });
   }
 
   private canContinueFromTv(): boolean {
@@ -1271,7 +1262,7 @@ export class Game extends Phaser.Scene {
       this.add.text(W / 2, H / 2 - 72, why, {
         fontFamily: 'system-ui, sans-serif', fontSize: '26px', color: '#efe4d2',
       }).setOrigin(0.5).setDepth(91);
-      this.add.text(W / 2, H / 2 - 16, this.victoryRosterLines().join('\n'), {
+      this.add.text(W / 2, H / 2 - 16, this.victoryRosterLines(team).join('\n'), {
         fontFamily: 'system-ui, sans-serif', fontSize: '20px', color: '#efe4d2',
         align: 'center', lineSpacing: 6,
       }).setOrigin(0.5, 0).setDepth(91);
