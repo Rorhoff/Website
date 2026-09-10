@@ -1,6 +1,6 @@
 /**
- * Shared sprite render scales for the TV game and map builder preview.
- * Gameplay hitboxes may differ; these values control on-screen sprite size.
+ * Shared sprite sizing for the TV game (frame × scale) and map builder preview
+ * (flat pixel heights). Gameplay hitboxes may differ from drawn sprite size.
  */
 
 export const MOTHER_FRAME_H = 128;
@@ -12,9 +12,15 @@ export const MOTHER_SPRITE_SCALE = 2;
 export const WHELP_SPRITE_SCALE = 1;
 export const COW_SPRITE_SCALE = 2.5;
 
+/** Map builder preview — flat drawn heights in world pixels (feet on y). */
+export const PREVIEW_WHELP_DISPLAY_H = 44;
+export const PREVIEW_MOTHER_ABOVE_WHELP = 50;
+export const PREVIEW_MOTHER_DISPLAY_H = PREVIEW_WHELP_DISPLAY_H + PREVIEW_MOTHER_ABOVE_WHELP;
+export const PREVIEW_COW_DISPLAY_H = 44;
+
 export type ActorRole = "mother" | "whelp" | "cow";
 
-/** Drawn sprite height on the 1280×720 arena (feet anchored at y). */
+/** TV game — drawn sprite height on the 1280×720 arena (feet anchored at y). */
 export function displayHeightForRole(role: ActorRole): number {
   switch (role) {
     case "mother":
@@ -37,6 +43,24 @@ export function displayHeightForSpriteSlot(slot: string): number {
   const role = roleFromSpriteSlot(slot);
   if (!role) return WHELP_FRAME_H * WHELP_SPRITE_SCALE;
   return displayHeightForRole(role);
+}
+
+/** Map builder preview — fixed heights, not frame × scale. */
+export function previewDisplayHeightForRole(role: ActorRole): number {
+  switch (role) {
+    case "mother":
+      return PREVIEW_MOTHER_DISPLAY_H;
+    case "whelp":
+      return PREVIEW_WHELP_DISPLAY_H;
+    case "cow":
+      return PREVIEW_COW_DISPLAY_H;
+  }
+}
+
+export function previewDisplayHeightForSpriteSlot(slot: string): number {
+  const role = roleFromSpriteSlot(slot);
+  if (!role) return PREVIEW_WHELP_DISPLAY_H;
+  return previewDisplayHeightForRole(role);
 }
 
 /** 1× source height used for scale math (may differ from trimmed PNG crop). */

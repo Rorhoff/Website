@@ -1,11 +1,11 @@
 import {
-  displayHeightForSpriteSlot,
+  previewDisplayHeightForSpriteSlot,
   sourceHeightForSpriteSlot,
 } from "../../shared/sprite-scale";
 import type { MapDocument, MapSpriteSlot } from "./types";
 import { DEFAULT_SHEET_FRAMES, type SheetFrame } from "./sprite-frames";
 
-export { displayHeightForSpriteSlot };
+export { previewDisplayHeightForSpriteSlot };
 
 export type SpriteDrawSpec =
   | { kind: "image"; url: string }
@@ -163,7 +163,7 @@ export function drawSpriteAtFeet(
   const sourceH = slot ? sourceHeightForSpriteSlot(slot, sh) : sh;
   const scale = targetH / sourceH;
   const w = sw * scale;
-  const h = sh * scale;
+  const h = targetH;
   const smooth = ctx.imageSmoothingEnabled;
   ctx.imageSmoothingEnabled = true;
   ctx.drawImage(img, sx, sy, sw, sh, x - w / 2, y - h, w, h);

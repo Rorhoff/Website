@@ -6,7 +6,7 @@ import { drawPlatformCap } from "../platform-tile";
 import { allHoardSlots, gemHoverBlocked, type EditorState } from "./state";
 import type { MapSpriteSlot, Selection } from "../types";
 import {
-  displayHeightForSpriteSlot,
+  previewDisplayHeightForSpriteSlot,
   drawSpriteAtFeet,
   ensureSpriteLoaded,
   getCachedSprite,
@@ -178,7 +178,7 @@ export function renderArena(
   }
 
   const cowSel = selection?.kind === "wyrmCow";
-  const cowH = displayHeightForSpriteSlot("wyrm");
+  const cowH = previewDisplayHeightForSpriteSlot("wyrm");
   const cowFeetY = wp.y;
   drawMapSprite(ctx, state, "wyrm", W / 2, cowFeetY, onSpriteLoad, cowH);
   if (cowSel) {
@@ -294,7 +294,7 @@ function drawMapSprite(
   x: number,
   y: number,
   onSpriteLoad?: () => void,
-  targetH = displayHeightForSpriteSlot(slot)
+  targetH = previewDisplayHeightForSpriteSlot(slot)
 ): boolean {
   const spec = resolveSpriteDrawSpec(state.doc, slot, state.spritePreviews);
   let img = getCachedSprite(spec);
@@ -316,7 +316,7 @@ function drawSpawnCharacter(
   sel: boolean,
   label: string,
   onSpriteLoad?: () => void,
-  targetH = displayHeightForSpriteSlot(slot)
+  targetH = previewDisplayHeightForSpriteSlot(slot)
 ): void {
   const drew = drawMapSprite(ctx, state, slot, x, y, onSpriteLoad, sel ? targetH * 1.04 : targetH);
   if (!drew) {
