@@ -1,5 +1,7 @@
 /** Arena geometry and tuning — no Phaser dependency (safe for unit tests). */
 
+import { COW_FRAME_H, COW_SPRITE_SCALE } from "./asset-manifest";
+
 export const W = 1280;
 export const H = 720;
 
@@ -15,6 +17,18 @@ export const COLORS = {
   bone: 0xefe4d2,
   dim: 0x8b7a66,
 };
+
+/** Whelp gameplay half-extent (platform/cow math) — smaller than the visible sprite. */
+export const WHELP_HALF = 24;
+/** Cow sprite half-height on screen (centre origin). */
+export const COW_HALF_H = (COW_FRAME_H * COW_SPRITE_SCALE) / 2;
+/** Gameplay offsets derived from cow scale (tuned at COW_SPRITE_SCALE = 2). */
+export const COW_SHOULDER_ABOVE_FEET = 11 * COW_SPRITE_SCALE;
+export const COW_BACK_DY = -11 * COW_SPRITE_SCALE;
+export const COW_HEAD_DX = 22 * COW_SPRITE_SCALE;
+export const COW_HEAD_DY = 10 * COW_SPRITE_SCALE;
+export const COW_PUSH_REACH = 23 * COW_SPRITE_SCALE;
+export const COW_BUTT_MIN = 6 * COW_SPRITE_SCALE;
 
 export const TUNING = {
   gravity: 1400,

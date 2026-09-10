@@ -6,6 +6,7 @@ import { drawPlatformCap } from "../platform-tile";
 import { allHoardSlots, gemHoverBlocked, type EditorState } from "./state";
 import type { MapSpriteSlot, Selection } from "../types";
 import {
+  displayHeightForSpriteSlot,
   drawSpriteAtFeet,
   ensureSpriteLoaded,
   getCachedSprite,
@@ -177,14 +178,14 @@ export function renderArena(
   }
 
   const cowSel = selection?.kind === "wyrmCow";
-  const cowH = cowSel ? 56 : 48;
+  const cowH = displayHeightForSpriteSlot("wyrm");
   const cowFeetY = wp.y;
   drawMapSprite(ctx, state, "wyrm", W / 2, cowFeetY, onSpriteLoad, cowH);
   if (cowSel) {
     ctx.strokeStyle = "#f2c063";
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.arc(W / 2, cowFeetY - cowH / 2, cowH / 2 + 2, 0, Math.PI * 2);
+    ctx.arc(W / 2, cowFeetY - cowH / 2, cowH / 2 + 4, 0, Math.PI * 2);
     ctx.stroke();
   }
 
@@ -262,7 +263,7 @@ function drawSpawnMarkers(
     sp.backup.forEach((pt, i) => {
       const sel =
         selection?.kind === "spawn" && selection.team === team && selection.role === "backup" && selection.index === i;
-      drawSpawnCharacter(ctx, state, whelpSlot, pt.x, pt.y, color, sel, String(i + 1), onSpriteLoad, 44);
+      drawSpawnCharacter(ctx, state, whelpSlot, pt.x, pt.y, color, sel, String(i + 1), onSpriteLoad);
     });
   }
 }
@@ -293,7 +294,7 @@ function drawMapSprite(
   x: number,
   y: number,
   onSpriteLoad?: () => void,
-  targetH = 48
+  targetH = displayHeightForSpriteSlot(slot)
 ): boolean {
   const spec = resolveSpriteDrawSpec(state.doc, slot, state.spritePreviews);
   let img = getCachedSprite(spec);
@@ -301,7 +302,7 @@ function drawMapSprite(
     ensureSpriteLoaded(spec, () => onSpriteLoad?.());
     return false;
   }
-  drawSpriteAtFeet(ctx, spec, img, x, y, targetH);
+  drawSpriteAtFeet(ctx, spec, img, x, y, targetH, slot);
   return true;
 }
 
@@ -315,9 +316,9 @@ function drawSpawnCharacter(
   sel: boolean,
   label: string,
   onSpriteLoad?: () => void,
-  targetH = 48
+  targetH = displayHeightForSpriteSlot(slot)
 ): void {
-  const drew = drawMapSprite(ctx, state, slot, x, y, onSpriteLoad, sel ? targetH + 4 : targetH);
+  const drew = drawMapSprite(ctx, state, slot, x, y, onSpriteLoad, sel ? targetH * 1.04 : targetH);
   if (!drew) {
     drawSpawnDot(ctx, x, y, color, sel, label);
     return;

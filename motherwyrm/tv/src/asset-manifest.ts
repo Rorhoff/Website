@@ -22,6 +22,18 @@ export const REMOTE_ART_ENABLED = true;
 /** Pixel-art sprites render at 2×; world coords stay 1280×720. */
 export const SPRITE_SCALE = 2;
 
+export {
+  COW_FRAME_H,
+  COW_SPRITE_SCALE,
+  MOTHER_FRAME_H,
+  MOTHER_SPRITE_SCALE,
+  WHELP_FRAME_H,
+  WHELP_SPRITE_SCALE,
+  displayHeightForRole,
+  roleFromSpriteSlot,
+} from "../../shared/sprite-scale";
+export type { ActorRole } from "../../shared/sprite-scale";
+
 /** Fallback gem attach point (1× canvas px) when gem_anchor slice is absent. */
 export const GEM_ANCHOR_FALLBACK = { x: 14, y: -8 };
 

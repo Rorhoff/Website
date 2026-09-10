@@ -5,7 +5,8 @@ import { applyLocalKeyboard } from '../local-input';
 import {
   actorAtlasKey,
   actorTextureKey,
-  applySpriteScale,
+  applyActorScale,
+  applyCowScale,
   gemTextureKey,
   getGemAnchor,
   mountBackground,
@@ -19,6 +20,8 @@ import { mothersClash, pickWhelpRespawn } from '../spawn';
 import { builtinArena, hasGroundPlatform, hasLeftWall, hasRightWall, type LoadedArena } from '../maps/apply';
 import {
   W, H, COLORS, TUNING, SLOT_SIZE, slotRect as layoutSlotRect,
+  COW_HALF_H, COW_BACK_DY, COW_HEAD_DX, COW_HEAD_DY, COW_PUSH_REACH, COW_BUTT_MIN,
+  COW_SHOULDER_ABOVE_FEET,
 } from '../arena';
 
 type Sprite = Phaser.Physics.Arcade.Sprite;
@@ -48,22 +51,6 @@ interface Actor extends Lobbyist {
   disconnected: boolean;
   label: Phaser.GameObjects.Text;
 }
-
-/**
- * Cow art is a 56×44 frame at 2×, drawn feet-on-the-baseline and facing right.
- * These are the offsets from its centre that the mount point and stomp reach
- * are measured against.
- */
-const COW_HALF_H = 44;
-/** Top of the back, below the centre by this much. */
-const COW_BACK_DY = -22;
-/** Head in the charge pose, relative to centre and before facing is applied. */
-const COW_HEAD_DX = 44;
-const COW_HEAD_DY = 20;
-/** How close a herder on the ground has to be to nip the cow's flank. */
-const COW_PUSH_REACH = 46;
-/** Herder must be behind the cow's head, not in front of it. */
-const COW_BUTT_MIN = 12;
 
 const OTHER: Record<Team, Team> = { blue: 'red', red: 'blue' };
 const HEX: Record<Team, string> = { blue: '#4aa3d8', red: '#e0663f' };
@@ -234,7 +221,7 @@ export class Game extends Phaser.Scene {
     this.wyrm = this.physics.add
       .sprite(W / 2, feetY - COW_HALF_H, key)
       .setDepth(12);
-    applySpriteScale(this.wyrm);
+    applyCowScale(this.wyrm);
     const wb = this.wyrm.body as Phaser.Physics.Arcade.Body;
     wb.setSize(52, 40);
     wb.setAllowGravity(false);
@@ -281,7 +268,7 @@ export class Game extends Phaser.Scene {
       const key = actorTextureKey(p.role, p.team);
       const spawn = this.arena.spawns[p.team].main;
       const sprite = this.physics.add.sprite(spawn.x, spawn.y, key);
-      applySpriteScale(sprite);
+      applyActorScale(sprite, p.role);
       sprite.setCollideWorldBounds(p.role !== 'mother');
       const body = sprite.body as Phaser.Physics.Arcade.Body;
       body.setGravityY(
@@ -497,7 +484,7 @@ export class Game extends Phaser.Scene {
 
   private updateWhelp(a: Actor, time: number, body: Phaser.Physics.Arcade.Body) {
     const goalDir: 1 | -1 = a.team === 'blue' ? -1 : 1;
-    const shoulderY = this.cowFeetY() - 22;
+    const shoulderY = this.cowFeetY() - COW_SHOULDER_ABOVE_FEET;
     const dx = this.wyrm.x - a.sprite.x;
     const behind = goalDir < 0 ? dx > COW_BUTT_MIN : dx < -COW_BUTT_MIN;
     const wouldPush =
@@ -690,7 +677,7 @@ export class Game extends Phaser.Scene {
     const dx = a.sprite.x - cx;
     const forward = face > 0 ? dx : -dx;
     if (forward < 10 || forward > 90) return false;
-    if (Math.abs(a.sprite.y - (feetY - 22)) > 34) return false;
+    if (Math.abs(a.sprite.y - (feetY - COW_SHOULDER_ABOVE_FEET)) > 34) return false;
     const body = a.sprite.body as Phaser.Physics.Arcade.Body;
     return body.blocked.down || body.touching.down || a.sprite.y >= feetY - 40;
   }
@@ -698,7 +685,7 @@ export class Game extends Phaser.Scene {
   /** Herder at the cow's rear flank — draw behind the cow so the head can stomp. */
   private whelpBehindCow(a: Actor): boolean {
     if (a.role !== 'whelp' || a.deadUntil > this.time.now) return false;
-    const shoulderY = this.cowFeetY() - 22;
+    const shoulderY = this.cowFeetY() - COW_SHOULDER_ABOVE_FEET;
     const dx = this.wyrm.x - a.sprite.x;
     const goalDir: 1 | -1 = a.team === 'blue' ? -1 : 1;
     const behind = goalDir < 0 ? dx > COW_BUTT_MIN : dx < -COW_BUTT_MIN;
@@ -819,7 +806,7 @@ export class Game extends Phaser.Scene {
    */
   private cowPushers(): Actor[] {
     const now = this.time.now;
-    const shoulderY = this.cowFeetY() - 22;
+    const shoulderY = this.cowFeetY() - COW_SHOULDER_ABOVE_FEET;
     const out: Actor[] = [];
 
     for (const a of this.actors) {

@@ -14,22 +14,19 @@ import {
   SLOT_COLS,
   TUNING,
   W,
+  WHELP_HALF,
+  COW_HALF_H,
+  COW_PUSH_REACH,
+  COW_BUTT_MIN,
+  COW_SHOULDER_ABOVE_FEET,
   slotRect,
 } from "./arena-layout";
 import { blankInput, type Team } from "./net";
 import { resetBotMemory, updateBotBrains, type BotActorView, type BotWorld } from "./bots";
 
 const DT = 1 / 60;
-const WHELP_HALF = 24;
 const GEM_HALF = 10;
-/**
- * Centre of the mount window, from Game.ts: the cow sits COW_HALF_H above its
- * feet, its back is 22px above that, and a rider stands a half-whelp higher.
- */
-const COW_BACK_Y = (TUNING.cowGroundY ?? 690) - 44 - 22 - WHELP_HALF;
-const COW_PUSH_REACH = 46;
-const COW_BUTT_MIN = 12;
-const COW_SHOULDER_Y = (TUNING.cowGroundY ?? 690) - 22;
+const COW_SHOULDER_Y = (TUNING.cowGroundY ?? 690) - COW_SHOULDER_ABOVE_FEET;
 
 type SimGem = { x: number; y: number; alive: boolean };
 
@@ -396,7 +393,8 @@ describe("gem hunter makes progress", () => {
 
 /** Blue nips from the left flank, red from the right — matches bots.ts herdFlankX. */
 function herdFlankX(team: Team, cowX: number) {
-  return cowX + (team === "blue" ? -42 : 42);
+  const offset = WHELP_HALF * 0.85;
+  return cowX + (team === "blue" ? -offset : offset);
 }
 
 describe("escort reaches the cow", () => {

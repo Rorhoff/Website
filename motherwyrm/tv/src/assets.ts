@@ -4,7 +4,10 @@ import {
   GEM_ANCHOR_FALLBACK,
   IMAGE_MANIFEST,
   REMOTE_ART_ENABLED,
+  COW_SPRITE_SCALE,
+  MOTHER_SPRITE_SCALE,
   SPRITE_SCALE,
+  WHELP_SPRITE_SCALE,
   type AtlasManifestEntry,
 } from "./asset-manifest";
 import { buildProceduralTexture, W, H } from "./arena";
@@ -226,6 +229,14 @@ export function gemTextureKey(): string {
 
 export function applySpriteScale(sprite: Phaser.GameObjects.Sprite | Phaser.GameObjects.Image) {
   sprite.setScale(SPRITE_SCALE);
+}
+
+export function applyActorScale(sprite: Phaser.GameObjects.Sprite, role: Role) {
+  sprite.setScale(role === "mother" ? MOTHER_SPRITE_SCALE : WHELP_SPRITE_SCALE);
+}
+
+export function applyCowScale(sprite: Phaser.GameObjects.Sprite | Phaser.GameObjects.Image) {
+  sprite.setScale(COW_SPRITE_SCALE);
 }
 
 export function tryPlayAnim(

@@ -1,10 +1,13 @@
 import {
+  COW_PUSH_REACH,
+  COW_SHOULDER_ABOVE_FEET,
   HOARD_SHELF_Y,
   HOARD_WIDTH,
   HOARD_X,
   PLATFORMS,
   TUNING,
   W,
+  WHELP_HALF,
 } from "./arena-layout";
 import type { InputState, Team as NetTeam } from "./net";
 
@@ -43,12 +46,10 @@ export type BotWorld = {
 
 const OTHER: Record<NetTeam, NetTeam> = { blue: "red", red: "blue" };
 const GROUND_Y = TUNING.cowGroundY ?? 690;
-const COW_SHOULDER_Y = GROUND_Y - 22;
-const COW_PUSH_REACH = 46;
+const COW_SHOULDER_Y = GROUND_Y - COW_SHOULDER_ABOVE_FEET;
+const WHELP_FLOOR_Y = GROUND_Y - WHELP_HALF;
 /** Center platform stack — gems tucked under it are awkward to reach. */
 const CENTER_LEDGE = { xMin: 500, xMax: 780, yTop: 570 };
-/** Half a whelp body: 24px art at 2x, matching the sprites Game.ts builds. */
-const WHELP_HALF = 24;
 /** How far below the shelf lip a whelp's centre sits when stood on it. */
 const SHELF_STAND_Y = HOARD_SHELF_Y - WHELP_HALF;
 /**
@@ -516,31 +517,63 @@ function shouldEscortCow(a: BotActorView, world: BotWorld): boolean {
   const our = world.slotsFilled[a.team];
   const their = world.slotsFilled[OTHER[a.team]];
 
+  // Cow near our finish — any whelp can help.
   if (Math.abs(world.wyrmX - loseLineX(a.team)) < 300) return true;
+
+  // Otherwise one babysitter per team; the rest keep gem runs.
+  const mates = world.actors.filter(
+    (w) => w.team === a.team && w.role === "whelp" && w.deadUntil <= world.time
+  );
+  if (mates.length > 1 && !isPrimaryEscort(a, world)) return false;
+
   if (their > our + 3) return true;
   if (world.gems.length === 0) return true;
   if (world.gems.length <= 4 && our >= 4) return true;
-  if (our >= 5 && isPrimaryEscort(a, world)) return true;
+  if (our >= 5) return true;
   return false;
 }
 
 function herdFlankX(team: NetTeam, cowX: number) {
   // Stand on the rear flank toward your finish — blue nips from the left, red from the right.
-  return cowX + (team === "blue" ? -42 : 42);
+  const offset = WHELP_HALF * 0.85;
+  return cowX + (team === "blue" ? -offset : offset);
+}
+
+/** Where to walk when herding — detour wide if we are in front of the cow. */
+function herdApproachX(a: BotActorView, cowX: number): number {
+  const flankX = herdFlankX(a.team, cowX);
+  const inFront = a.team === "blue" ? a.x > cowX + 18 : a.x < cowX - 18;
+  const nearCow = Math.abs(a.x - cowX) < 150;
+  if (inFront && nearCow) {
+    return a.team === "blue" ? cowX + 170 : cowX - 170;
+  }
+  return flankX;
 }
 
 function goToWyrm(a: BotActorView, world: BotWorld, m: BotMemory) {
   const claimable = !world.cowTeam || world.cowTeam === a.team;
-  const flankX = herdFlankX(a.team, world.wyrmX);
+  const cowX = world.wyrmX;
+  const flankX = herdFlankX(a.team, cowX);
+  const aimX = herdApproachX(a, cowX);
+  const onFloor = a.y >= WHELP_FLOOR_Y - 28;
+  const nearCow = Math.abs(a.x - cowX) < 160;
   const inPushContact =
     a.onGround &&
-    Math.abs(a.x - flankX) < 24 &&
-    Math.abs(a.y - (GROUND_Y - WHELP_HALF)) < 40;
+    onFloor &&
+    Math.abs(a.x - flankX) < 28 &&
+    Math.abs(a.y - WHELP_FLOOR_Y) < 36;
 
-  // The cow only ever walks the floor, so an escort up the ladder has to come
-  // down. Pacing to the cow's x two storeys above it reaches nothing.
-  if (a.y < GROUND_Y - WHELP_HALF - PROGRESS_PX && descendToward(a, m, flankX)) {
-    if (a.onGround && isStuck(m, world.time, 900)) breakout(a, m, world.time);
+  // The cow only ever walks the floor — come down first, never hop onto it.
+  if (!onFloor) {
+    const underCow = Math.abs(a.x - cowX) < 100;
+    if (descendToward(a, m, aimX)) {
+      if (a.onGround && isStuck(m, world.time, 900) && !underCow) {
+        breakout(a, m, world.time);
+      }
+    } else if (a.onGround) {
+      // On a ledge above the floor — line up over the flank, then walk off.
+      driveX(a.input, a.x, aimX, 10);
+    }
     return;
   }
 
@@ -563,9 +596,17 @@ function goToWyrm(a: BotActorView, world: BotWorld, m: BotMemory) {
     return;
   }
 
-  const moving = driveX(a.input, a.x, flankX, 8);
+  const moving = driveX(a.input, a.x, aimX, 10);
 
-  if (moving && isStuck(m, world.time, 800)) breakout(a, m, world.time);
+  // Herding is floor-only: sidestep when stuck, never jump onto the cow.
+  if (moving && isStuck(m, world.time, 800) && !nearCow) {
+    if (world.time > m.breakoutUntil) {
+      m.breakoutDir = m.breakoutDir === 1 ? -1 : 1;
+      m.breakoutUntil = world.time + 600;
+    }
+    a.input.x = m.breakoutDir;
+    m.movedAt = world.time - 200;
+  }
 }
 
 function goDeposit(a: BotActorView, world: BotWorld, m: BotMemory) {

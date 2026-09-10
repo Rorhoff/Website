@@ -1,5 +1,11 @@
+import {
+  displayHeightForSpriteSlot,
+  sourceHeightForSpriteSlot,
+} from "../../shared/sprite-scale";
 import type { MapDocument, MapSpriteSlot } from "./types";
 import { DEFAULT_SHEET_FRAMES, type SheetFrame } from "./sprite-frames";
+
+export { displayHeightForSpriteSlot };
 
 export type SpriteDrawSpec =
   | { kind: "image"; url: string }
@@ -134,14 +140,15 @@ export function preloadMapSprites(
   }
 }
 
-/** Draw sprite with feet anchored at (x, y). */
+/** Draw sprite with feet anchored at (x, y). Uses smooth scaling for detailed PNG art. */
 export function drawSpriteAtFeet(
   ctx: CanvasRenderingContext2D,
   spec: SpriteDrawSpec,
   img: HTMLImageElement,
   x: number,
   y: number,
-  targetH = 48
+  targetH = 48,
+  slot?: MapSpriteSlot
 ): void {
   let sw = img.width;
   let sh = img.height;
@@ -153,10 +160,14 @@ export function drawSpriteAtFeet(
     sw = spec.frame.w;
     sh = spec.frame.h;
   }
-  const scale = targetH / sh;
+  const sourceH = slot ? sourceHeightForSpriteSlot(slot, sh) : sh;
+  const scale = targetH / sourceH;
   const w = sw * scale;
   const h = sh * scale;
+  const smooth = ctx.imageSmoothingEnabled;
+  ctx.imageSmoothingEnabled = true;
   ctx.drawImage(img, sx, sy, sw, sh, x - w / 2, y - h, w, h);
+  ctx.imageSmoothingEnabled = smooth;
 }
 
 export function invalidateSpriteCache(url?: string): void {
