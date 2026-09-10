@@ -11,14 +11,43 @@ import {
 import { WHELP_ALT_SPAWNS } from "../spawn";
 import type { LoadedArena, MapData } from "./types";
 
+/** Union ground segments at the same y so mothers/wyrms do not fall through gaps. */
+export function mergeGroundPlatforms(platforms: MapData["platforms"]): MapData["platforms"] {
+  const rest = platforms.filter((p) => !p.ground);
+  const byTop = new Map<number, MapData["platforms"]>();
+  for (const p of platforms.filter((p) => p.ground)) {
+    const row = byTop.get(p.y) ?? [];
+    row.push(p);
+    byTop.set(p.y, row);
+  }
+  const merged: MapData["platforms"] = [];
+  for (const segs of byTop.values()) {
+    const x0 = Math.min(...segs.map((s) => s.x));
+    const x1 = Math.max(...segs.map((s) => s.x + s.w));
+    merged.push({
+      ...segs[0]!,
+      x: x0,
+      w: x1 - x0,
+      ground: true,
+    });
+  }
+  return [...merged, ...rest];
+}
+
 export function mapToArena(map: MapData): LoadedArena {
-  const platforms: [number, number, number, number][] = map.platforms.map((p) => [p.x, p.y, p.w, p.h]);
+  const mergedPlatforms = mergeGroundPlatforms(map.platforms);
+  const platforms: [number, number, number, number][] = mergedPlatforms.map((p) => [
+    p.x,
+    p.y,
+    p.w,
+    p.h,
+  ]);
   const gemSpawns: [number, number][] = map.gemSeams.map((g) => [g.x, g.y]);
   const walls: [number, number, number, number][] = map.walls.map((w) => [w.x, w.y, w.w, w.h]);
   const slotCount = Math.max(map.hoardSlots.blue.length, map.hoardSlots.red.length, TUNING.slotsToWin);
 
   return {
-    map,
+    map: { ...map, platforms: mergedPlatforms },
     platforms,
     gemSpawns,
     walls,

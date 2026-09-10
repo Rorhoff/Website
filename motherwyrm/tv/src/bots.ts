@@ -1,14 +1,5 @@
-import {
-  COW_PUSH_REACH,
-  COW_SHOULDER_ABOVE_FEET,
-  HOARD_SHELF_Y,
-  HOARD_WIDTH,
-  HOARD_X,
-  PLATFORMS,
-  TUNING,
-  W,
-  WHELP_HALF,
-} from "./arena-layout";
+import { TUNING, W, WHELP_HALF } from "./arena-layout";
+import { defaultBotArena, type BotArena } from "./bot-arena";
 import type { InputState, Team as NetTeam } from "./net";
 
 export type BotActorView = {
@@ -42,16 +33,43 @@ export type BotWorld = {
   /** Centre x of each still-empty hoard slot, so a carrier aims at a real gap. */
   openSlots?: Record<NetTeam, number[]>;
   gems: Array<{ x: number; y: number }>;
+  /** Loaded map geometry — bots must not assume the built-in arena layout. */
+  arena: BotArena;
 };
 
 const OTHER: Record<NetTeam, NetTeam> = { blue: "red", red: "blue" };
-const GROUND_Y = TUNING.cowGroundY ?? 690;
-const COW_SHOULDER_Y = GROUND_Y - COW_SHOULDER_ABOVE_FEET;
-const WHELP_FLOOR_Y = GROUND_Y - WHELP_HALF;
-/** Center platform stack — gems tucked under it are awkward to reach. */
+/** Center stack on the shipped arena — penalty only applies there. */
 const CENTER_LEDGE = { xMin: 500, xMax: 780, yTop: 570 };
-/** How far below the shelf lip a whelp's centre sits when stood on it. */
-const SHELF_STAND_Y = HOARD_SHELF_Y - WHELP_HALF;
+
+let activeArena: BotArena = defaultBotArena();
+
+function bindArena(world: BotWorld) {
+  activeArena = world.arena;
+}
+
+function groundFeetY() {
+  return activeArena.groundFeetY;
+}
+
+function loseLineX(team: NetTeam): number {
+  return team === "blue" ? activeArena.wyrmWin.red : activeArena.wyrmWin.blue;
+}
+
+function hoardCenterX(team: NetTeam): number {
+  return activeArena.hoardCenterX[team];
+}
+
+function shelfSpan(team: NetTeam): [number, number] {
+  return activeArena.hoardSpan[team];
+}
+
+function shelfStandY() {
+  return activeArena.hoardShelfY - WHELP_HALF;
+}
+
+function isFloorPlat(pw: number) {
+  return pw >= activeArena.worldW * 0.9;
+}
 /**
  * Time making no headway toward a gem before we accept we cannot route to it.
  * This has to measure stalling, not elapsed time: climbing three rungs is
@@ -166,7 +184,7 @@ function tapAction(input: InputState) {
 /** Floor herders must walk the flank — hops land on the cow's back. */
 function blockJumpNearCow(a: BotActorView, cowX: number): boolean {
   if (Math.abs(a.x - cowX) > 175) return false;
-  return a.y >= WHELP_FLOOR_Y - 130;
+  return a.y >= groundFeetY() - 130;
 }
 
 function jumpThrottled(
@@ -183,19 +201,6 @@ function jumpThrottled(
   return true;
 }
 
-function hoardCenterX(team: NetTeam): number {
-  return HOARD_X[team] + HOARD_WIDTH / 2;
-}
-
-/** Horizontal reach of the shelf the slots stand on, hoard width plus its lip. */
-function shelfSpan(team: NetTeam): [number, number] {
-  return [HOARD_X[team] - 14, HOARD_X[team] + HOARD_WIDTH + 14];
-}
-
-function loseLineX(team: NetTeam): number {
-  return team === "blue" ? TUNING.wyrmWin.red : TUNING.wyrmWin.blue;
-}
-
 /** Full-strength horizontal drive. Returns false once inside the tolerance. */
 function driveX(input: InputState, fromX: number, toX: number, tol = 12): boolean {
   const dx = toX - fromX;
@@ -210,9 +215,9 @@ function driveX(input: InputState, fromX: number, toX: number, tol = 12): boolea
 /** The ledge a whelp is stood on, or null when airborne or on the floor. */
 function footing(a: BotActorView): [number, number, number, number] | null {
   if (!a.onGround) return null;
-  for (const p of PLATFORMS) {
+  for (const p of activeArena.platforms) {
     const [px, py, pw] = p;
-    if (pw >= W * 0.9) continue; // the floor — nothing below it
+    if (isFloorPlat(pw)) continue; // the floor — nothing below it
     if (Math.abs(a.y + WHELP_HALF - py) > 8) continue;
     if (a.x + WHELP_HALF <= px || a.x - WHELP_HALF >= px + pw) continue;
     return p;
@@ -254,8 +259,8 @@ function descendToward(a: BotActorView, m: BotMemory, targetX: number): boolean 
 function ceilingAbove(a: BotActorView): number | null {
   const feet = a.y + WHELP_HALF;
   let best: number | null = null;
-  for (const [px, py, pw] of PLATFORMS) {
-    if (pw >= W * 0.9) continue;
+  for (const [px, py, pw] of activeArena.platforms) {
+    if (isFloorPlat(pw)) continue;
     if (py >= feet) continue;
     if (feet - py > MAX_RISE) continue;
     if (a.x + WHELP_HALF <= px || a.x - WHELP_HALF >= px + pw) continue;
@@ -302,12 +307,12 @@ function climbToward(
 
   // No ledge underfoot means the floor, which spans the whole arena.
   const stand = footing(a);
-  const [sx, sy, sw] = stand ?? [0, GROUND_Y, W, 0];
+  const [sx, sy, sw] = stand ?? [0, activeArena.cowGroundY, activeArena.worldW, 0];
 
   let best: [number, number, number, number] | null = null;
-  for (const p of PLATFORMS) {
+  for (const p of activeArena.platforms) {
     const [px, py, pw] = p;
-    if (pw >= W * 0.9) continue;
+    if (isFloorPlat(pw)) continue;
     if (py >= sy) continue; // not above us
     if (sy - py > MAX_RISE) continue; // out of reach in one hop
     if (py + 8 < targetY) continue; // would carry us past the target
@@ -362,7 +367,8 @@ export function pickBestGem(
   gems: Array<{ x: number; y: number }>,
   x: number,
   y: number,
-  accept?: (gem: { x: number; y: number }) => boolean
+  accept?: (gem: { x: number; y: number }) => boolean,
+  tieBreak = 0
 ): { x: number; y: number } | null {
   let best: { x: number; y: number } | null = null;
   let bestScore = Infinity;
@@ -374,11 +380,12 @@ export function pickBestGem(
     const climb = dy < 0 ? -dy : 0;
     const drop = dy > 0 ? dy : 0;
 
-    let score = dx + climb * 2.6 + drop * 0.5;
+    let score = dx + climb * 2.6 + drop * 0.5 + ((g.x + g.y + tieBreak) % 19) * 0.02;
     // More than one hop up: only worth it when nothing else is close.
     if (climb > 170) score += 900;
     // Gems tucked under the center stack when we are already below it.
     if (
+      activeArena.builtinArena &&
       y > CENTER_LEDGE.yTop &&
       g.y > CENTER_LEDGE.yTop + 40 &&
       g.x > CENTER_LEDGE.xMin &&
@@ -418,6 +425,7 @@ function nearestGemDistance(world: BotWorld, x: number, y: number): number {
 }
 
 export function updateBotBrains(world: BotWorld) {
+  bindArena(world);
   for (const a of world.actors) {
     if (!a.bot) continue;
 
@@ -452,7 +460,7 @@ type MotherTarget = { x: number; y: number; press: boolean };
  */
 function pickMotherTarget(a: BotActorView, world: BotWorld): MotherTarget {
   const enemies = livingEnemyWhelps(world, a.team);
-  const cowY = GROUND_Y - 60;
+  const cowY = activeArena.cowGroundY - 60;
 
   if (
     world.cowTeam === OTHER[a.team] &&
@@ -483,17 +491,17 @@ function pickMotherTarget(a: BotActorView, world: BotWorld): MotherTarget {
 
   if (enemies.length === 0) {
     // Area clear — patrol above our hoard, not the center ledge over the cow.
-    return { x: hoardCenterX(a.team), y: GROUND_Y - 200, press: false };
+    return { x: hoardCenterX(a.team), y: activeArena.cowGroundY - 200, press: false };
   }
 
-  return { x: world.wyrmX, y: GROUND_Y - 200, press: false };
+  return { x: world.wyrmX, y: activeArena.cowGroundY - 200, press: false };
 }
 
 /** True when a mother has landed on a ledge (not the floor). y is feet. */
 function motherOnLedge(a: BotActorView): boolean {
   if (!a.onGround) return false;
-  for (const [px, py, pw] of PLATFORMS) {
-    if (pw >= W * 0.9) continue;
+  for (const [px, py, pw] of activeArena.platforms) {
+    if (isFloorPlat(pw)) continue;
     if (Math.abs(a.y - py) > 14) continue;
     if (a.x + 20 < px || a.x - 20 > px + pw) continue;
     return true;
@@ -563,9 +571,9 @@ function isPrimaryEscort(a: BotActorView, world: BotWorld): boolean {
     (w) => w.team === a.team && w.role === "whelp" && w.deadUntil <= world.time
   );
   if (mates.length <= 1) return false;
-  let lowest = mates[0];
-  for (const w of mates) if (w.pid < lowest.pid) lowest = w;
-  return lowest.pid === a.pid;
+  mates.sort((x, y) => x.pid - y.pid);
+  const escort = a.team === "blue" ? mates[0]! : mates[mates.length - 1]!;
+  return escort.pid === a.pid;
 }
 
 function shouldEscortCow(a: BotActorView, world: BotWorld): boolean {
@@ -609,13 +617,13 @@ function goToWyrm(a: BotActorView, world: BotWorld, m: BotMemory) {
   const cowX = world.wyrmX;
   const flankX = herdFlankX(a.team, cowX);
   const aimX = herdApproachX(a, cowX);
-  const onFloor = a.y >= WHELP_FLOOR_Y - 28;
+  const onFloor = a.y >= groundFeetY() - 28;
   const nearCow = Math.abs(a.x - cowX) < 160;
   const inPushContact =
     a.onGround &&
     onFloor &&
     Math.abs(a.x - flankX) < 28 &&
-    Math.abs(a.y - WHELP_FLOOR_Y) < 36;
+    Math.abs(a.y - groundFeetY()) < 36;
 
   // The cow only ever walks the floor — come down first, never hop onto it.
   if (!onFloor) {
@@ -653,7 +661,7 @@ function goToWyrm(a: BotActorView, world: BotWorld, m: BotMemory) {
   const onCowBody =
     onFloor &&
     Math.abs(a.x - cowX) < 44 &&
-    Math.abs(a.y - WHELP_FLOOR_Y) < 36;
+    Math.abs(a.y - groundFeetY()) < 36;
   if (onCowBody) {
     driveX(a.input, a.x, aimX, 8);
     return;
@@ -684,7 +692,7 @@ function goDeposit(a: BotActorView, world: BotWorld, m: BotMemory) {
   // Height before aim. The slots sit on the shelf, so a carrier up the ladder
   // has to come down first — walking to the slot's x two storeys above it just
   // parks the bot in mid-air with its gem.
-  if (a.y < SHELF_STAND_Y - PROGRESS_PX && descendToward(a, m, targetX)) {
+  if (a.y < shelfStandY() - PROGRESS_PX && descendToward(a, m, targetX)) {
     if (a.onGround && isStuck(m, world.time, 900)) breakout(a, m, world.time, world.wyrmX);
     return;
   }
@@ -693,7 +701,7 @@ function goDeposit(a: BotActorView, world: BotWorld, m: BotMemory) {
 
   // On the floor under the shelf — hop up once we are actually beneath it.
   const [shelfL, shelfR] = shelfSpan(a.team);
-  const belowShelf = a.y > SHELF_STAND_Y + 20;
+  const belowShelf = a.y > shelfStandY() + 20;
   if (a.onGround && belowShelf && a.x > shelfL && a.x < shelfR) {
     jumpThrottled(a, m, world.time, 420, world.wyrmX);
   }
@@ -790,13 +798,13 @@ function updateWhelpBot(a: BotActorView, world: BotWorld, m: BotMemory) {
     return;
   }
 
-  const gem = pickBestGem(world.gems, a.x, a.y, (g) => {
-    if (isAvoided(m, g, world.time)) return false;
-    const botSide = a.x - W / 2;
-    const gemSide = g.x - W / 2;
-    if (Math.abs(botSide) < 80) return true;
-    return Math.sign(gemSide) === Math.sign(botSide);
-  });
+  const gem = pickBestGem(
+    world.gems,
+    a.x,
+    a.y,
+    (g) => !isAvoided(m, g, world.time),
+    a.pid
+  );
   if (gem) {
     goGetGem(a, world, m, gem);
     return;

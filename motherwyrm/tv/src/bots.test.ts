@@ -11,6 +11,7 @@ vi.mock("./arena", () => ({
   HOARD_WIDTH: 240,
 }));
 
+import { defaultBotArena } from "./bot-arena";
 import { pickBestGem, updateBotBrains, type BotWorld } from "./bots";
 
 function blankInput(): InputState {
@@ -28,6 +29,7 @@ function world(partial: Partial<BotWorld> & Pick<BotWorld, "actors">): BotWorld 
     wyrmX: 640,
     slotsFilled: { blue: 0, red: 0 },
     gems: [],
+    arena: defaultBotArena(),
     ...partial,
   };
 }

@@ -17,6 +17,7 @@ import {
 import { drawCollisionOverlay } from '../collision-overlay';
 import { formatPlayerLabel } from '../roster';
 import { mothersClash, pickWhelpRespawn } from '../spawn';
+import { botArenaFromLoaded } from '../bot-arena';
 import { builtinArena, hasGroundPlatform, hasLeftWall, hasRightWall, type LoadedArena } from '../maps/apply';
 import {
   W, H, COLORS, TUNING, SLOT_SIZE, slotRect as layoutSlotRect,
@@ -195,13 +196,16 @@ export class Game extends Phaser.Scene {
 
   private buildPlatforms() {
     this.platforms = this.physics.add.staticGroup();
-    this.arena.platforms.forEach(([x, y, w, h], idx) => {
+    this.arena.map.platforms.forEach((plat) => {
+      const { x, y, w, h, ground } = plat;
       const r = this.add.rectangle(x + w / 2, y + h / 2, w, h, COLORS.soil)
         .setStrokeStyle(2, COLORS.soilLip);
       this.platforms.add(r);
       const body = r.body as Phaser.Physics.Arcade.StaticBody;
       body.updateFromGameObject();
-      if (idx > 0) {
+      if (!ground) {
+        // One-way ledges — only land from above; wings must not snag the lip.
+        body.checkCollision.up = false;
         body.checkCollision.down = false;
         body.checkCollision.left = false;
         body.checkCollision.right = false;
@@ -372,6 +376,7 @@ export class Game extends Phaser.Scene {
       slotsFilled: { blue: slotCount('blue'), red: slotCount('red') },
       openSlots: { blue: openSlotXs('blue'), red: openSlotXs('red') },
       gems,
+      arena: botArenaFromLoaded(this.arena),
       actors: this.actors.map((a) => {
         const body = a.sprite.body as Phaser.Physics.Arcade.Body;
         return {
@@ -638,8 +643,28 @@ export class Game extends Phaser.Scene {
       }
     }
 
+    this.snapMotherToPlatforms(a, body);
     this.wrapSpriteX(a.sprite);
     this.wrapSpriteY(a.sprite);
+  }
+
+  /** Prevent fast dives from tunneling through thin one-way ledges. */
+  private snapMotherToPlatforms(a: Actor, body: Phaser.Physics.Arcade.Body) {
+    if (a.role !== 'mother' || body.velocity.y < -80) return;
+    const feetY = a.sprite.y;
+    const halfW = 14;
+    let surface: number | null = null;
+    for (const [px, py, pw] of this.arena.platforms) {
+      if (feetY < py - 12 || feetY > py + 28) continue;
+      if (a.sprite.x < px - halfW || a.sprite.x > px + pw + halfW) continue;
+      if (body.velocity.y > 0 || feetY > py + 2) {
+        if (surface === null || py < surface) surface = py;
+      }
+    }
+    if (surface !== null && feetY > surface + 0.5) {
+      a.sprite.y = surface;
+      if (body.velocity.y > 0) body.setVelocityY(0);
+    }
   }
 
   private wrapSpriteY(sprite: Phaser.Physics.Arcade.Sprite) {

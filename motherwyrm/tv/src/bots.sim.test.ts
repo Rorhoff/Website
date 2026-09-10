@@ -22,6 +22,7 @@ import {
   slotRect,
 } from "./arena-layout";
 import { blankInput, type Team } from "./net";
+import { defaultBotArena } from "./bot-arena";
 import { resetBotMemory, updateBotBrains, type BotActorView, type BotWorld } from "./bots";
 
 const DT = 1 / 60;
@@ -115,6 +116,7 @@ class Sim {
       },
       openSlots: { blue: openSlotXs("blue"), red: openSlotXs("red") },
       gems: this.gems.filter((g) => g.alive).map((g) => ({ x: g.x, y: g.y })),
+      arena: defaultBotArena(),
       actors: this.whelps,
     };
   }
