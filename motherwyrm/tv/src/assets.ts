@@ -231,6 +231,10 @@ export function applySpriteScale(sprite: Phaser.GameObjects.Sprite | Phaser.Game
 
 export function applyActorScale(sprite: Phaser.GameObjects.Sprite, role: Role) {
   sprite.setScale(renderScaleForRole(role));
+  if (role === "mother") {
+    // Feet anchor — matches map builder and keeps art on top of ledges.
+    sprite.setOrigin(0.5, 1);
+  }
 }
 
 export function applyCowScale(sprite: Phaser.GameObjects.Sprite | Phaser.GameObjects.Image) {

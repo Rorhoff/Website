@@ -275,9 +275,9 @@ export class Game extends Phaser.Scene {
         p.role === 'mother' ? TUNING.motherGravity - TUNING.gravity : 0
       );
       if (p.role === 'mother') {
-        // Narrower than the 40px art so she fits the shafts, but exactly as tall
-        // as the frame — any extra height parks her feet above the floor.
-        body.setSize(28, 32, true);
+        // Hitbox sits above the feet anchor (origin 0.5, 1).
+        body.setSize(28, 36);
+        body.setOffset(-14, -36);
       }
       this.physics.add.collider(sprite, this.platforms);
 
@@ -442,7 +442,11 @@ export class Game extends Phaser.Scene {
       }
     }
 
-    a.label.setVisible(true).setPosition(a.sprite.x, a.sprite.y - a.sprite.displayHeight / 2 - 4);
+    const labelY =
+      a.role === 'mother'
+        ? a.sprite.y - a.sprite.displayHeight - 4
+        : a.sprite.y - a.sprite.displayHeight / 2 - 4;
+    a.label.setVisible(true).setPosition(a.sprite.x, labelY);
     const baseAlpha = a.disconnected ? 0.45 : 1;
     a.sprite.setAlpha(a.invulnUntil > time ? Math.min(baseAlpha, 0.55) : baseAlpha);
 
@@ -499,6 +503,15 @@ export class Game extends Phaser.Scene {
     let vx = a.input.x * TUNING.whelpSpeed;
     if (wouldPush && !pushing) vx = 0;
     else if (pushing) vx = goalDir * TUNING.wyrmSpeed;
+    else if (
+      (body.blocked.down || body.touching.down) &&
+      Math.abs(a.sprite.y - (this.cowFeetY() - WHELP_HALF)) < 36 &&
+      Math.abs(a.sprite.x - this.wyrm.x) < 44 &&
+      !behind
+    ) {
+      // On the cow's back or head — step to the rear flank instead of stacking.
+      vx = (a.team === 'blue' ? -1 : 1) * TUNING.whelpSpeed;
+    }
     body.setVelocityX(vx);
 
     const floorY = this.cowFeetY() - WHELP_HALF;

@@ -481,16 +481,20 @@ function pickMotherTarget(a: BotActorView, world: BotWorld): MotherTarget {
   const rival = enemyMother(world, a.team);
   if (rival) return { x: rival.x, y: rival.y, press: true };
 
-  // Nothing to hunt — sit over the cow so we can contest it instantly.
-  return { x: world.wyrmX, y: cowY, press: false };
+  if (enemies.length === 0) {
+    // Area clear — patrol above our hoard, not the center ledge over the cow.
+    return { x: hoardCenterX(a.team), y: GROUND_Y - 200, press: false };
+  }
+
+  return { x: world.wyrmX, y: GROUND_Y - 200, press: false };
 }
 
-/** True when a mother has landed on a ledge (not the floor). */
+/** True when a mother has landed on a ledge (not the floor). y is feet. */
 function motherOnLedge(a: BotActorView): boolean {
   if (!a.onGround) return false;
   for (const [px, py, pw] of PLATFORMS) {
     if (pw >= W * 0.9) continue;
-    if (Math.abs(a.y - py) > 36) continue;
+    if (Math.abs(a.y - py) > 14) continue;
     if (a.x + 20 < px || a.x - 20 > px + pw) continue;
     return true;
   }
@@ -508,23 +512,24 @@ function updateMotherBot(a: BotActorView, world: BotWorld, m: BotMemory) {
 
   driveX(a.input, a.x, target.x, 14);
 
-  // Stay in open air above the prey — don't perch on the ledge above them.
-  const hoverY = clamp(target.y - 110, 120, 520);
-  if (a.y > hoverY + 18 && world.time - m.lastFlap > 180) {
-    m.lastFlap = world.time;
-    tapJump(a.input);
-  }
-
-  // Parked on a ledge above a lower target: lift off and slide away instead of
-  // swiping horizontally into the platform lip forever.
-  if (onLedge && targetBelow) {
-    if (world.time - m.lastFlap > 120) {
+  // Mothers never rest on ledges — lift off immediately or feet clip through art.
+  if (onLedge) {
+    if (world.time - m.lastFlap > 100) {
       m.lastFlap = world.time;
       tapJump(a.input);
     }
-    a.input.x = dx >= 0 ? -1 : 1;
-    m.movedAt = world.time - 300;
-    return;
+    if (targetBelow || !target.press) {
+      a.input.x = a.x < W / 2 ? -1 : 1;
+      m.movedAt = world.time - 300;
+      return;
+    }
+  }
+
+  // Stay in open air above the prey.
+  const hoverY = clamp(target.y - 120, 140, 480);
+  if (a.y > hoverY + 18 && world.time - m.lastFlap > 180) {
+    m.lastFlap = world.time;
+    tapJump(a.input);
   }
 
   if (isStuck(m, world.time, 900)) {
@@ -642,6 +647,15 @@ function goToWyrm(a: BotActorView, world: BotWorld, m: BotMemory) {
       return;
     }
     a.input.x = a.team === "blue" ? -1 : 1;
+    return;
+  }
+
+  const onCowBody =
+    onFloor &&
+    Math.abs(a.x - cowX) < 44 &&
+    Math.abs(a.y - WHELP_FLOOR_Y) < 36;
+  if (onCowBody) {
+    driveX(a.input, a.x, aimX, 8);
     return;
   }
 
@@ -788,5 +802,6 @@ function updateWhelpBot(a: BotActorView, world: BotWorld, m: BotMemory) {
     return;
   }
 
-  goToWyrm(a, world, m);
+  // Non-escorts keep working the hoard side — never mob the cow by default.
+  driveX(a.input, a.x, hoardCenterX(a.team), 20);
 }
