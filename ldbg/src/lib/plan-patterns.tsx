@@ -1,5 +1,7 @@
 /** SVG pattern definitions for plan drawing textures. */
 
+import { withBasePath } from "@/lib/paths";
+
 type PatternDefProps = { id: string };
 
 export function ExistingHatchPattern({ id }: PatternDefProps) {
@@ -52,6 +54,34 @@ export function GravelPattern({ id }: PatternDefProps) {
   );
 }
 
+const GRAVEL_TILE_PX = 88;
+
+export function DarkGravelImagePattern({ id }: PatternDefProps) {
+  return (
+    <pattern id={id} patternUnits="userSpaceOnUse" width={GRAVEL_TILE_PX} height={GRAVEL_TILE_PX}>
+      <image
+        href={withBasePath("/textures/dark-gravel.png")}
+        width={GRAVEL_TILE_PX}
+        height={GRAVEL_TILE_PX}
+        preserveAspectRatio="xMidYMid slice"
+      />
+    </pattern>
+  );
+}
+
+export function LightGravelImagePattern({ id }: PatternDefProps) {
+  return (
+    <pattern id={id} patternUnits="userSpaceOnUse" width={GRAVEL_TILE_PX} height={GRAVEL_TILE_PX}>
+      <image
+        href={withBasePath("/textures/light-gravel.png")}
+        width={GRAVEL_TILE_PX}
+        height={GRAVEL_TILE_PX}
+        preserveAspectRatio="xMidYMid slice"
+      />
+    </pattern>
+  );
+}
+
 export function MulchPattern({ id }: PatternDefProps) {
   return (
     <pattern id={id} patternUnits="userSpaceOnUse" width="14" height="14">
@@ -95,6 +125,10 @@ export function PlanPatternById({ id, patternId }: { id: string; patternId: stri
       return <PaverRunningBondPattern id={id} />;
     case "gravel":
       return <GravelPattern id={id} />;
+    case "dark-gravel":
+      return <DarkGravelImagePattern id={id} />;
+    case "light-gravel":
+      return <LightGravelImagePattern id={id} />;
     case "mulch":
       return <MulchPattern id={id} />;
     case "water":
@@ -111,6 +145,8 @@ export function PlanPatternDefs() {
       <TurfStipplePattern id="turf-stipple" />
       <PaverRunningBondPattern id="paver-running-bond" />
       <GravelPattern id="gravel" />
+      <DarkGravelImagePattern id="dark-gravel" />
+      <LightGravelImagePattern id="light-gravel" />
       <MulchPattern id="mulch" />
       <WaterPattern id="water" />
 

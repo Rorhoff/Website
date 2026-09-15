@@ -248,6 +248,8 @@ function grassTicks(
   const clusterCount = 8 + Math.floor(rand() * 14);
   const ticks: ReactElement[] = [];
 
+  const clipId = `ink-grass-clip-${f.id.replace(/[^a-zA-Z0-9_-]/g, "")}`;
+
   for (let i = 0; i < clusterCount; i++) {
     const cx = minX + rand() * (maxX - minX);
     const cy = minY + rand() * (maxY - minY);
@@ -266,13 +268,37 @@ function grassTicks(
           stroke={INK}
           strokeWidth={baseW * (0.8 + rand() * 0.5)}
           strokeLinecap="round"
+          clipPath={`url(#${clipId})`}
           opacity={0.85}
         />
       );
     }
   }
 
-  return <g key={f.id}>{ticks}</g>;
+  const boundary = handDrawnPath(
+    pxPts,
+    `${f.id}-grass-edge`,
+    Math.max(1, spanPx * 0.0018),
+    Math.max(1.2, spanPx * 0.0018)
+  );
+
+  return (
+    <g key={f.id}>
+      <defs>
+        <clipPath id={clipId}>
+          <polygon points={pxPointsAttr(pxPts)} />
+        </clipPath>
+      </defs>
+      {ticks}
+      <path
+        d={boundary.d}
+        fill="none"
+        stroke={INK}
+        strokeWidth={boundary.strokeWidth}
+        strokeLinejoin="round"
+      />
+    </g>
+  );
 }
 
 function boulderStoneInk(

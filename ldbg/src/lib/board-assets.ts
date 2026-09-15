@@ -30,6 +30,7 @@ const PLANT_PHOTO_FILES: Record<string, string> = {
   "blue-grama-grass": "blue-grama-grass.png",
   "sagebrush-wyoming": "sagebrush-wyoming.png",
   "quaking-aspen": "quaking-aspen.png",
+  "red-maple-sunset": "red-maple-sunset.png",
   rabbitbrush: "rabbitbrush.png",
   manzanita: "manzanita.png",
   lantana: "lantana.png",
@@ -61,6 +62,8 @@ export function resolvePlantPaletteId(commonName: string): string | undefined {
   if (base.includes("daylily")) return "daylily";
   if (base.includes("sagebrush")) return "sagebrush-wyoming";
   if (base.includes("grama")) return "blue-grama-grass";
+  if (base.includes("red maple") && base.includes("sunset")) return "red-maple-sunset";
+  if (base.includes("sunset") && base.includes("maple")) return "red-maple-sunset";
   return undefined;
 }
 

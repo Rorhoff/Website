@@ -94,6 +94,15 @@ export const UTAH_PLANT_PALETTE: UtahPlant[] = [
     water: "Moderate",
   },
   {
+    id: "red-maple-sunset",
+    commonName: "Red Maple Sunset",
+    botanicalName: "Acer rubrum 'Sunset'",
+    featureType: "tree_specimen",
+    canopyDiameterFt: 6,
+    sun: "Full sun",
+    water: "Moderate",
+  },
+  {
     id: "crabapple",
     commonName: "Crabapple",
     botanicalName: "Malus spp.",

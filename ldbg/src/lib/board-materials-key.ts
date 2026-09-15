@@ -1,6 +1,6 @@
 import type { LegendEntry } from "@/config/legend";
 import { isPlantPointFeatureType } from "@/config/utah-plants";
-import { labelForFeatureType } from "@/lib/feature-styles";
+import { labelForFeatureType, styleForFeature } from "@/lib/feature-styles";
 import type { InterpretFeature } from "@/lib/interpret-schema";
 
 export type MaterialsKeyRow = {
@@ -24,20 +24,30 @@ export function buildMaterialsKeyRows(
       f.geometry.kind !== "point"
   );
 
-  return design.map((f) => {
-    const entry = legend.find((e) => e.featureType === f.featureType);
+  const rows: MaterialsKeyRow[] = design.map((f) => {
+    const style = styleForFeature(f, legend);
     const label = f.label || labelForFeatureType(f.featureType, legend);
     const fill =
-      entry?.renderStyle.fill && entry.renderStyle.fill !== "none"
-        ? entry.renderStyle.fill
+      style.fill && style.fill !== "none" && style.fill !== "transparent"
+        ? style.fill
         : "#e7e5e4";
 
     return {
       featureId: f.id,
       label,
       fill,
-      stroke: entry?.renderStyle.stroke,
-      patternId: entry?.renderStyle.patternId,
+      stroke: style.stroke,
+      patternId: style.patternId,
     };
   });
+
+  const seen = new Set<string>();
+  const unique: MaterialsKeyRow[] = [];
+  for (const row of rows) {
+    const key = row.label.trim().toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(row);
+  }
+  return unique;
 }

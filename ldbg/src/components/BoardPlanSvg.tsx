@@ -1,7 +1,7 @@
 import type { LegendEntry } from "@/config/legend";
 import type { GeorefDisplayContext } from "@/lib/georef-display";
 import { geometryRadiusPx, geometryToPxPoints } from "@/lib/feature-georef";
-import { labelForFeatureType, styleForFeatureType } from "@/lib/feature-styles";
+import { labelForFeatureType, styleForFeature } from "@/lib/feature-styles";
 import type { InterpretFeature } from "@/lib/interpret-schema";
 import { computePlanContentBounds } from "@/lib/plan-bounds";
 import {
@@ -78,7 +78,7 @@ function renderFeature(
   h: number,
   georefCtx?: GeorefDisplayContext
 ) {
-  const style = styleForFeatureType(f.featureType, legend, f.existing);
+  const style = styleForFeature(f, legend);
   const stroke = style.stroke;
   const strokeWidth = f.existing ? Math.max(0.75, style.strokeWidth ?? 1) : (style.strokeWidth ?? 1.5);
   const fillBase = style.fill;

@@ -7,7 +7,7 @@ import {
   geometryRadiusPx,
   geometryToPxPoints,
 } from "@/lib/feature-georef";
-import { labelForFeatureType, styleForFeatureType } from "@/lib/feature-styles";
+import { labelForFeatureType, styleForFeature } from "@/lib/feature-styles";
 import { isDecorativeObjectFeatureType } from "@/config/decorative-objects";
 import { DecorativeObjectSvg } from "@/lib/decorative-object-render";
 import type { InterpretFeature } from "@/lib/interpret-schema";
@@ -95,7 +95,7 @@ function renderFeature(
   georefCtx?: GeorefDisplayContext,
   fitScale = 1
 ) {
-  const style = styleForFeatureType(f.featureType, legend, f.existing);
+  const style = styleForFeature(f, legend);
   const stroke = style.stroke;
   const strokeWidth = f.existing
     ? Math.max(0.5, (style.strokeWidth * SHEET_DPI) / 72 / fitScale)
