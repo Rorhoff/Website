@@ -15,6 +15,10 @@ import {
   LEGEND_ESTIMATE_DISCLAIMER,
 } from "@/lib/legend-display";
 import { patternUrl, PlanPatternDefs } from "@/lib/plan-patterns";
+import {
+  featureToRenderPolygonsPx,
+  polylineStripWidthFt,
+} from "@/lib/polyline-buffer";
 import type { PlanSettings } from "@/lib/project-schema";
 import type { FeatureFillEntry } from "@/lib/feature-fill-schema";
 import {
@@ -76,7 +80,8 @@ function renderFeature(
   legend: LegendEntry[],
   w: number,
   h: number,
-  georefCtx?: GeorefDisplayContext
+  georefCtx?: GeorefDisplayContext,
+  pixelsPerFoot?: number
 ) {
   const style = styleForFeature(f, legend);
   const stroke = style.stroke;
@@ -108,6 +113,23 @@ function renderFeature(
   }
 
   if (f.geometry.kind === "polyline") {
+    const widthFt = polylineStripWidthFt(f, legend);
+    const strip = featureToRenderPolygonsPx(f, w, h, widthFt, pixelsPerFoot, georefCtx)[0];
+    if (strip && strip.length >= 3) {
+      const stripFill =
+        pat ??
+        (fillBase !== "none" && fillBase !== "transparent" ? fillBase : "#e7e5e4");
+      return (
+        <polygon
+          key={f.id}
+          points={pxPointsAttr(strip)}
+          fill={stripFill}
+          stroke={stroke}
+          strokeWidth={strokeWidth}
+          opacity={opacity}
+        />
+      );
+    }
     return (
       <polyline
         key={f.id}
@@ -203,7 +225,10 @@ export function BoardPlanSvg({
 
   const bounds = useFullFrame
     ? { x: 0, y: 0, width: imageWidth, height: imageHeight }
-    : computePlanContentBounds(planFeaturesForBounds, imageWidth, imageHeight, georefCtx);
+    : computePlanContentBounds(planFeaturesForBounds, imageWidth, imageHeight, georefCtx, {
+        legend,
+        pixelsPerFoot,
+      });
   const planSpan = useFullFrame
     ? Math.min(imageWidth, imageHeight)
     : Math.min(bounds.width, bounds.height);
@@ -266,14 +291,18 @@ export function BoardPlanSvg({
       )}
 
       {baseMode === "white"
-        ? existingFeatures.filter(isHouseExisting).map((f) => renderFeature(f, legend, imageWidth, imageHeight, georefCtx))
+        ? existingFeatures
+            .filter(isHouseExisting)
+            .map((f) => renderFeature(f, legend, imageWidth, imageHeight, georefCtx, pixelsPerFoot))
         : null}
       {baseMode === "orthophoto"
-        ? existingFeatures.map((f) => renderFeature(f, legend, imageWidth, imageHeight, georefCtx))
+        ? existingFeatures.map((f) =>
+            renderFeature(f, legend, imageWidth, imageHeight, georefCtx, pixelsPerFoot)
+          )
         : null}
       {designFeatures
         .filter((f) => !filledFeatureIds.has(f.id))
-        .map((f) => renderFeature(f, legend, imageWidth, imageHeight, georefCtx))}
+        .map((f) => renderFeature(f, legend, imageWidth, imageHeight, georefCtx, pixelsPerFoot))}
 
       <ClippedFeatureFills
         features={designFeatures}
@@ -281,6 +310,8 @@ export function BoardPlanSvg({
         imageW={imageWidth}
         imageH={imageHeight}
         georefCtx={georefCtx}
+        legend={legend}
+        pixelsPerFoot={pixelsPerFoot}
         showOutlines={showOutlines}
         fitScale={1}
       />

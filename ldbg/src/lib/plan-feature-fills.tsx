@@ -4,6 +4,34 @@ import type { FeatureFillEntry } from "@/lib/feature-fill-schema";
 import type { InterpretFeature } from "@/lib/interpret-schema";
 import type { GeorefDisplayContext } from "@/lib/georef-display";
 import { pxPointsAttr } from "@/lib/plan-layout";
+import {
+  featureToRenderPolygonsPx,
+  polylineStripWidthFt,
+} from "@/lib/polyline-buffer";
+
+function featureFillClipPoints(
+  f: InterpretFeature,
+  imageW: number,
+  imageH: number,
+  georefCtx: GeorefDisplayContext | undefined,
+  legend: LegendEntry[] | undefined,
+  pixelsPerFoot: number | undefined
+): { x: number; y: number }[] | null {
+  if (f.geometry.kind === "polyline" && legend) {
+    const widthFt = polylineStripWidthFt(f, legend);
+    const ring = featureToRenderPolygonsPx(
+      f,
+      imageW,
+      imageH,
+      widthFt,
+      pixelsPerFoot,
+      georefCtx
+    )[0];
+    return ring && ring.length >= 3 ? ring : null;
+  }
+  const pxPts = geometryToPxPoints(f, imageW, imageH, georefCtx);
+  return pxPts.length >= 3 ? pxPts : null;
+}
 
 export type FeatureFillLayer = {
   featureId: string;
@@ -39,6 +67,8 @@ export function ClippedFeatureFills({
   imageW,
   imageH,
   georefCtx,
+  legend,
+  pixelsPerFoot,
   showOutlines,
   fitScale = 1,
 }: {
@@ -47,6 +77,8 @@ export function ClippedFeatureFills({
   imageW: number;
   imageH: number;
   georefCtx?: GeorefDisplayContext;
+  legend?: LegendEntry[];
+  pixelsPerFoot?: number;
   showOutlines?: boolean;
   fitScale?: number;
 }) {
@@ -62,8 +94,15 @@ export function ClippedFeatureFills({
           <feGaussianBlur in="SourceGraphic" stdDeviation={FEATHER_PX / fitScale} />
         </filter>
         {filledFeatures.map((f) => {
-          const pxPts = geometryToPxPoints(f, imageW, imageH, georefCtx);
-          if (f.geometry.kind === "polyline" || pxPts.length < 3) return null;
+          const pxPts = featureFillClipPoints(
+            f,
+            imageW,
+            imageH,
+            georefCtx,
+            legend,
+            pixelsPerFoot
+          );
+          if (!pxPts) return null;
           return (
             <clipPath key={`clip-${f.id}`} id={`feature-fill-clip-${f.id}`}>
               <polygon points={pxPointsAttr(pxPts)} />
@@ -74,9 +113,16 @@ export function ClippedFeatureFills({
 
       {filledFeatures.map((f) => {
         const layer = layerById.get(f.id);
-        if (!layer || f.geometry.kind === "polyline") return null;
-        const pxPts = geometryToPxPoints(f, imageW, imageH, georefCtx);
-        if (pxPts.length < 3) return null;
+        if (!layer) return null;
+        const pxPts = featureFillClipPoints(
+          f,
+          imageW,
+          imageH,
+          georefCtx,
+          legend,
+          pixelsPerFoot
+        );
+        if (!pxPts) return null;
         const { cropBox, url } = layer;
         return (
           <g key={`fill-${f.id}`} clipPath={`url(#feature-fill-clip-${f.id})`}>
@@ -94,9 +140,15 @@ export function ClippedFeatureFills({
 
       {showOutlines
         ? filledFeatures.map((f) => {
-            if (f.geometry.kind === "polyline") return null;
-            const pxPts = geometryToPxPoints(f, imageW, imageH, georefCtx);
-            if (pxPts.length < 3) return null;
+            const pxPts = featureFillClipPoints(
+              f,
+              imageW,
+              imageH,
+              georefCtx,
+              legend,
+              pixelsPerFoot
+            );
+            if (!pxPts) return null;
             return (
               <polygon
                 key={`outline-${f.id}`}

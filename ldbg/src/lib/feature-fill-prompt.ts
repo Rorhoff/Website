@@ -22,7 +22,10 @@ export function buildFeatureFillPrompt(
   georefCtx?: GeorefDisplayContext
 ): string {
   const material = materialDescriptionForFeature(feature, legend);
-  const bounds = computeFeaturePxBounds(feature, imageW, imageH, georefCtx);
+  const bounds = computeFeaturePxBounds(feature, imageW, imageH, georefCtx, {
+    legend,
+    pixelsPerFoot,
+  });
   const area = featureAreaSqFt(feature, imageW, imageH, pixelsPerFoot, georefCtx);
 
   let scaleHint = "";

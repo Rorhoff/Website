@@ -1,7 +1,11 @@
 import sharp from "sharp";
+import type { LegendEntry } from "@/config/legend";
 import type { GeorefDisplayContext } from "@/lib/georef-display";
 import type { InterpretFeature } from "@/lib/interpret-schema";
-import { computeFeaturePxBounds, type PlanContentBounds } from "@/lib/plan-bounds";
+import {
+  computeFeaturePxBounds,
+  type PlanContentBounds,
+} from "@/lib/plan-bounds";
 
 export type FeatureCropBox = {
   x: number;
@@ -30,9 +34,10 @@ export function computeFeatureCropBox(
   imageW: number,
   imageH: number,
   georefCtx?: GeorefDisplayContext,
-  marginFraction = 0.1
+  marginFraction = 0.1,
+  layout?: { legend?: LegendEntry[]; pixelsPerFoot?: number }
 ): FeatureCropBox {
-  const bounds = computeFeaturePxBounds(feature, imageW, imageH, georefCtx);
+  const bounds = computeFeaturePxBounds(feature, imageW, imageH, georefCtx, layout);
   return expandFeatureBounds(bounds, imageW, imageH, marginFraction);
 }
 

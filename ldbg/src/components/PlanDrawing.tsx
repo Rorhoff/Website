@@ -23,6 +23,10 @@ import {
   type CalloutObstacle,
 } from "@/lib/plan-layout";
 import { patternUrl, PlanPatternDefs } from "@/lib/plan-patterns";
+import {
+  featureToRenderPolygonsPx,
+  polylineStripWidthFt,
+} from "@/lib/polyline-buffer";
 import type { PlanSettings } from "@/lib/project-schema";
 import type { FeatureFillEntry } from "@/lib/feature-fill-schema";
 import {
@@ -93,7 +97,8 @@ function renderFeature(
   w: number,
   h: number,
   georefCtx?: GeorefDisplayContext,
-  fitScale = 1
+  fitScale = 1,
+  pixelsPerFoot?: number
 ) {
   const style = styleForFeature(f, legend);
   const stroke = style.stroke;
@@ -166,6 +171,24 @@ function renderFeature(
   }
 
   if (f.geometry.kind === "polyline") {
+    const widthFt = polylineStripWidthFt(f, legend);
+    const strip = featureToRenderPolygonsPx(f, w, h, widthFt, pixelsPerFoot, georefCtx)[0];
+    if (strip && strip.length >= 3) {
+      const stripFill =
+        pat ??
+        (fillBase !== "none" && fillBase !== "transparent" ? fillBase : "#e7e5e4");
+      return (
+        <polygon
+          key={f.id}
+          points={pxPointsAttr(strip)}
+          fill={stripFill}
+          stroke={stroke}
+          strokeWidth={strokeWidth}
+          opacity={opacity}
+          {...strokeProps}
+        />
+      );
+    }
     return (
       <polyline
         key={f.id}
@@ -361,8 +384,12 @@ export function PlanDrawing({
   }, [designFeatures, existingFeatures, baseMode, fitToContent]);
 
   const contentBounds = useMemo(
-    () => computePlanContentBounds(planFeaturesForBounds, planW, planH, georefCtx),
-    [planFeaturesForBounds, planW, planH, georefCtx]
+    () =>
+      computePlanContentBounds(planFeaturesForBounds, planW, planH, georefCtx, {
+        legend,
+        pixelsPerFoot,
+      }),
+    [planFeaturesForBounds, planW, planH, georefCtx, legend, pixelsPerFoot]
   );
 
   const planAreaX = PLAN_MARGIN;
@@ -522,19 +549,21 @@ export function PlanDrawing({
 
       {baseMode === "white"
         ? existingFeatures.filter(isHouseExisting).map((f) =>
-            renderFeature(f, legend, planW, planH, georefCtx, renderFitScale)
+            renderFeature(f, legend, planW, planH, georefCtx, renderFitScale, pixelsPerFoot)
           )
         : null}
 
       {baseMode === "orthophoto"
         ? existingFeatures.map((f) =>
-            renderFeature(f, legend, planW, planH, georefCtx, renderFitScale)
+            renderFeature(f, legend, planW, planH, georefCtx, renderFitScale, pixelsPerFoot)
           )
         : null}
 
       {designFeatures
         .filter((f) => !filledFeatureIds.has(f.id))
-        .map((f) => renderFeature(f, legend, planW, planH, georefCtx, renderFitScale))}
+        .map((f) =>
+          renderFeature(f, legend, planW, planH, georefCtx, renderFitScale, pixelsPerFoot)
+        )}
 
       {!hideFillsWhenStyled ? (
         <ClippedFeatureFills
@@ -543,6 +572,8 @@ export function PlanDrawing({
           imageW={planW}
           imageH={planH}
           georefCtx={georefCtx}
+          legend={legend}
+          pixelsPerFoot={pixelsPerFoot}
           showOutlines={showOutlines}
           fitScale={renderFitScale}
         />

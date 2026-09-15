@@ -73,8 +73,13 @@ export async function previewFeatureCrop(
   const feature = features.find((f) => f.id === featureId);
   if (!feature || feature.existing) throw new Error("Feature not found");
 
+  const legend = await getLegend();
+  const pixelsPerFoot = getPixelsPerFoot(project);
   const georefCtx = getGeorefDisplayContext(project, clean.width, clean.height);
-  const cropBox = computeFeatureCropBox(feature, clean.width, clean.height, georefCtx);
+  const cropBox = computeFeatureCropBox(feature, clean.width, clean.height, georefCtx, 0.1, {
+    legend,
+    pixelsPerFoot,
+  });
   const cleanBuf = await storage.readProjectFile(projectId, clean.filename);
   if (!cleanBuf) throw new Error("Clean orthophoto file missing");
 
@@ -122,7 +127,10 @@ export async function fillFeature(
   const georefCtx = getGeorefDisplayContext(project, clean.width, clean.height);
   const cropBox =
     project.featureFills?.[featureId]?.cropBox ??
-    computeFeatureCropBox(feature, clean.width, clean.height, georefCtx);
+    computeFeatureCropBox(feature, clean.width, clean.height, georefCtx, 0.1, {
+      legend,
+      pixelsPerFoot,
+    });
   const prompt = buildFeatureFillPrompt(
     feature,
     legend,

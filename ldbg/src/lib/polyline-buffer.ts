@@ -1,8 +1,23 @@
+import type { LegendEntry } from "@/config/legend";
+import { isLinearFeatureType } from "@/config/legend";
 import type { GeorefDisplayContext } from "@/lib/georef-display";
 import { geometryToPxPoints } from "@/lib/feature-georef";
 import type { InterpretFeature } from "@/lib/interpret-schema";
 
 export type PxPoint = { x: number; y: number };
+
+/** Strip width for fences, edging, paths — used for plan draw + feature-fill crops. */
+export function polylineStripWidthFt(
+  feature: InterpretFeature,
+  legend: LegendEntry[]
+): number {
+  if (feature.widthFt != null && feature.widthFt > 0) return feature.widthFt;
+  const entry = legend.find((e) => e.featureType === feature.featureType);
+  if (entry?.defaultWidthFt != null && entry.defaultWidthFt > 0) {
+    return entry.defaultWidthFt;
+  }
+  return isLinearFeatureType(feature.featureType) ? 0.75 : 4;
+}
 
 /** Half-width in pixels for a polyline feature (centerline → strip polygon). */
 export function polylineHalfWidthPx(
@@ -74,15 +89,14 @@ export function featureToRenderPolygonsPx(
   feature: InterpretFeature,
   imageW: number,
   imageH: number,
+  widthFt: number,
   pixelsPerFoot?: number,
-  georefCtx?: GeorefDisplayContext,
-  widthFt?: number
+  georefCtx?: GeorefDisplayContext
 ): PxPoint[][] {
   const pts = geometryToPxPoints(feature, imageW, imageH, georefCtx);
 
   if (feature.geometry.kind === "polyline") {
-    const w = widthFt ?? 4;
-    const half = polylineHalfWidthPx(feature, w, imageW, imageH, pixelsPerFoot, georefCtx);
+    const half = polylineHalfWidthPx(feature, widthFt, imageW, imageH, pixelsPerFoot, georefCtx);
     const buf = bufferPolylinePx(pts, half);
     return buf.length >= 3 ? [buf] : [];
   }
