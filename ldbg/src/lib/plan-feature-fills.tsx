@@ -1,4 +1,5 @@
 import type { LegendEntry } from "@/config/legend";
+import { shouldExcludePlanMaterialFill } from "@/lib/feature-styles";
 import { geometryToPxPoints } from "@/lib/feature-georef";
 import type { FeatureFillEntry } from "@/lib/feature-fill-schema";
 import type { InterpretFeature } from "@/lib/interpret-schema";
@@ -42,12 +43,14 @@ export type FeatureFillLayer = {
 export function buildFeatureFillLayers(
   features: InterpretFeature[],
   fills: Record<string, FeatureFillEntry> | undefined,
-  imageUrl: (filename: string) => string
+  imageUrl: (filename: string) => string,
+  legend?: LegendEntry[]
 ): FeatureFillLayer[] {
   if (!fills) return [];
   const layers: FeatureFillLayer[] = [];
   for (const f of features) {
     if (f.existing) continue;
+    if (legend && shouldExcludePlanMaterialFill(f, legend)) continue;
     const entry = fills[f.id];
     if (entry?.status !== "filled" || !entry.imageFilename || !entry.cropBox) continue;
     layers.push({
@@ -85,7 +88,11 @@ export function ClippedFeatureFills({
   if (layers.length === 0) return null;
 
   const layerById = new Map(layers.map((l) => [l.featureId, l]));
-  const filledFeatures = features.filter((f) => layerById.has(f.id));
+  const filledFeatures = features.filter(
+    (f) =>
+      layerById.has(f.id) &&
+      !(legend && shouldExcludePlanMaterialFill(f, legend))
+  );
 
   return (
     <>

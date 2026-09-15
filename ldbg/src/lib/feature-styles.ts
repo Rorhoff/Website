@@ -1,5 +1,8 @@
 import type { LegendEntry } from "@/config/legend";
-import { DEFAULT_EXISTING_RENDER_STYLE } from "@/config/legend";
+import {
+  DEFAULT_EXISTING_RENDER_STYLE,
+  isLinearFeature,
+} from "@/config/legend";
 import type { InterpretFeature } from "@/lib/interpret-schema";
 
 const FALLBACK = {
@@ -80,6 +83,38 @@ export function styleForFeatureType(
 
 export function styleForFeature(f: InterpretFeature, legend: LegendEntry[]): FeatureRenderStyle {
   return styleForFeatureType(f.featureType, legend, f.existing, f.label);
+}
+
+function planLineMaterialHint(f: InterpretFeature): string {
+  return `${f.featureType} ${f.label ?? ""}`.toLowerCase().replace(/[_-]/g, " ");
+}
+
+/** LF edging/fence — stroke-only on plan (matches feature editor; no gray strip or AI fill). */
+export function isStrokeOnlyPlanPolyline(
+  f: InterpretFeature,
+  legend: LegendEntry[]
+): boolean {
+  if (f.geometry.kind !== "polyline") return false;
+  const style = styleForFeature(f, legend);
+  if (style.patternId) return false;
+  if (isLinearFeature(f.featureType, legend)) return true;
+  const hay = planLineMaterialHint(f);
+  if (/vinyl fence|steel edging|steel ed|fence line|landscape edging/.test(hay)) {
+    return true;
+  }
+  return style.fill === "transparent";
+}
+
+/** No AI fill raster or filled strip — fences/edging stay linework like the editor. */
+export function shouldExcludePlanMaterialFill(
+  f: InterpretFeature,
+  legend: LegendEntry[]
+): boolean {
+  if (isStrokeOnlyPlanPolyline(f, legend)) return true;
+  const hay = planLineMaterialHint(f);
+  if (/vinyl fence|steel edging|steel ed/.test(hay)) return true;
+  if (isLinearFeature(f.featureType, legend)) return true;
+  return false;
 }
 
 export function labelForFeatureType(featureType: string, legend: LegendEntry[]): string {

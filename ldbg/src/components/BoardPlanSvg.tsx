@@ -1,7 +1,12 @@
 import type { LegendEntry } from "@/config/legend";
 import type { GeorefDisplayContext } from "@/lib/georef-display";
 import { geometryRadiusPx, geometryToPxPoints } from "@/lib/feature-georef";
-import { labelForFeatureType, styleForFeature } from "@/lib/feature-styles";
+import {
+  isStrokeOnlyPlanPolyline,
+  labelForFeatureType,
+  shouldExcludePlanMaterialFill,
+  styleForFeature,
+} from "@/lib/feature-styles";
 import type { InterpretFeature } from "@/lib/interpret-schema";
 import { computePlanContentBounds } from "@/lib/plan-bounds";
 import {
@@ -17,6 +22,7 @@ import {
 import { patternUrl, PlanPatternDefs } from "@/lib/plan-patterns";
 import {
   featureToRenderPolygonsPx,
+  polylineHalfWidthPx,
   polylineStripWidthFt,
 } from "@/lib/polyline-buffer";
 import type { PlanSettings } from "@/lib/project-schema";
@@ -114,11 +120,44 @@ function renderFeature(
 
   if (f.geometry.kind === "polyline") {
     const widthFt = polylineStripWidthFt(f, legend);
+    const strokeOnly = isStrokeOnlyPlanPolyline(f, legend);
+    if (strokeOnly) {
+      const half = polylineHalfWidthPx(f, widthFt, w, h, pixelsPerFoot, georefCtx);
+      const lineW = Math.max(strokeWidth, half * 2);
+      return (
+        <polyline
+          key={f.id}
+          points={pxPointsAttr(pxPts)}
+          fill="none"
+          stroke={stroke}
+          strokeWidth={lineW}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          opacity={opacity}
+        />
+      );
+    }
     const strip = featureToRenderPolygonsPx(f, w, h, widthFt, pixelsPerFoot, georefCtx)[0];
     if (strip && strip.length >= 3) {
-      const stripFill =
-        pat ??
-        (fillBase !== "none" && fillBase !== "transparent" ? fillBase : "#e7e5e4");
+      const solidFill =
+        fillBase !== "none" && fillBase !== "transparent" ? fillBase : undefined;
+      const stripFill = pat ?? solidFill;
+      if (!stripFill) {
+        const half = polylineHalfWidthPx(f, widthFt, w, h, pixelsPerFoot, georefCtx);
+        const lineW = Math.max(strokeWidth, half * 2);
+        return (
+          <polyline
+            key={f.id}
+            points={pxPointsAttr(pxPts)}
+            fill="none"
+            stroke={stroke}
+            strokeWidth={lineW}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            opacity={opacity}
+          />
+        );
+      }
       return (
         <polygon
           key={f.id}
@@ -142,11 +181,13 @@ function renderFeature(
     );
   }
 
+  const lineMaterial = shouldExcludePlanMaterialFill(f, legend);
+
   return (
     <polygon
       key={f.id}
       points={pxPointsAttr(pxPts)}
-      fill={pat ?? fillBase}
+      fill={lineMaterial ? "none" : pat ?? fillBase}
       stroke={stroke}
       strokeWidth={strokeWidth}
       opacity={opacity}
@@ -258,7 +299,7 @@ export function BoardPlanSvg({
 
   const fillLayers =
     featureFills && featureFillImageUrl
-      ? buildFeatureFillLayers(designFeatures, featureFills, featureFillImageUrl)
+      ? buildFeatureFillLayers(designFeatures, featureFills, featureFillImageUrl, legend)
       : [];
 
   const showOutlines = planSettings?.showFeatureOutlines ?? true;
@@ -301,7 +342,10 @@ export function BoardPlanSvg({
           )
         : null}
       {designFeatures
-        .filter((f) => !filledFeatureIds.has(f.id))
+        .filter(
+          (f) =>
+            !filledFeatureIds.has(f.id) || shouldExcludePlanMaterialFill(f, legend)
+        )
         .map((f) => renderFeature(f, legend, imageWidth, imageHeight, georefCtx, pixelsPerFoot))}
 
       <ClippedFeatureFills

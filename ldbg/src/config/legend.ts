@@ -410,6 +410,13 @@ export function isLinearFeatureType(featureType: string): boolean {
   return LINEAR_FEATURE_TYPES.has(featureType);
 }
 
+/** LF edging/fences — includes custom legend entries with unit `lf`. */
+export function isLinearFeature(featureType: string, legend: LegendEntry[]): boolean {
+  if (LINEAR_FEATURE_TYPES.has(featureType)) return true;
+  const entry = legend.find((e) => e.featureType === featureType);
+  return entry?.unit === "lf";
+}
+
 export function legendToPromptTable(entries: LegendEntry[]): string {
   return entries
     .map(

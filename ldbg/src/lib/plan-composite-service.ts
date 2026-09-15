@@ -3,7 +3,9 @@ import fs from "fs/promises";
 import path from "path";
 import sharp from "sharp";
 import type { Project } from "@/lib/project-schema";
-import { getStorage } from "@/lib/storage";
+import { shouldExcludePlanMaterialFill } from "@/lib/feature-styles";
+import type { InterpretFeature } from "@/lib/interpret-schema";
+import { getLegend, getStorage } from "@/lib/storage";
 
 /** Stage 3 — raster composite: clean orthophoto + filled feature crops at crop boxes. */
 export async function buildPlanCompositePng(
@@ -24,8 +26,16 @@ export async function buildPlanCompositePng(
   const overlays: sharp.OverlayOptions[] = [];
   const fillParts: unknown[] = [];
 
+  const legend = await getLegend();
+  const features: InterpretFeature[] = project.features?.length
+    ? project.features
+    : project.interpretation?.features ?? [];
+  const featureById = new Map(features.map((f) => [f.id, f]));
+
   for (const [featureId, entry] of Object.entries(project.featureFills ?? {})) {
     if (entry.status !== "filled" || !entry.imageFilename || !entry.cropBox) continue;
+    const feature = featureById.get(featureId);
+    if (feature && shouldExcludePlanMaterialFill(feature, legend)) continue;
     const fillBuf = await storage.readProjectFile(projectId, entry.imageFilename);
     if (!fillBuf) continue;
     const box = entry.cropBox;
