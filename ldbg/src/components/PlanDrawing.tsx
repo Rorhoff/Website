@@ -10,9 +10,12 @@ import {
 import {
   isStrokeOnlyPlanPolyline,
   labelForFeatureType,
+  planLineMaterialStrokeWidthPx,
+  planStrokeForLineMaterial,
   shouldExcludePlanMaterialFill,
   styleForFeature,
 } from "@/lib/feature-styles";
+import { PlanLineMaterialPolyline } from "@/lib/plan-line-material-svg";
 import { isDecorativeObjectFeatureType } from "@/config/decorative-objects";
 import { DecorativeObjectSvg } from "@/lib/decorative-object-render";
 import type { InterpretFeature } from "@/lib/interpret-schema";
@@ -30,7 +33,6 @@ import {
 import { patternUrl, PlanPatternDefs } from "@/lib/plan-patterns";
 import {
   featureToRenderPolygonsPx,
-  polylineHalfWidthPx,
   polylineStripWidthFt,
 } from "@/lib/polyline-buffer";
 import type { PlanSettings } from "@/lib/project-schema";
@@ -180,19 +182,14 @@ function renderFeature(
     const widthFt = polylineStripWidthFt(f, legend);
     const strokeOnly = isStrokeOnlyPlanPolyline(f, legend);
     if (strokeOnly) {
-      const half = polylineHalfWidthPx(f, widthFt, w, h, pixelsPerFoot, georefCtx);
-      const lineW = Math.max(strokeWidth, half * 2);
       return (
-        <polyline
-          key={f.id}
+        <PlanLineMaterialPolyline
+          f={f}
           points={pxPointsAttr(pxPts)}
-          fill="none"
-          stroke={stroke}
-          strokeWidth={lineW}
-          strokeLinecap="round"
-          strokeLinejoin="round"
+          fallbackStroke={stroke}
+          areaOutlineStrokeWidth={strokeWidth}
           opacity={opacity}
-          {...strokeProps}
+          strokeProps={strokeProps}
         />
       );
     }
@@ -202,14 +199,25 @@ function renderFeature(
         fillBase !== "none" && fillBase !== "transparent" ? fillBase : undefined;
       const stripFill = pat ?? solidFill;
       if (!stripFill) {
-        const half = polylineHalfWidthPx(f, widthFt, w, h, pixelsPerFoot, georefCtx);
-        const lineW = Math.max(strokeWidth, half * 2);
+        if (shouldExcludePlanMaterialFill(f, legend)) {
+          return (
+            <PlanLineMaterialPolyline
+              f={f}
+              points={pxPointsAttr(pxPts)}
+              fallbackStroke={stroke}
+              areaOutlineStrokeWidth={strokeWidth}
+              opacity={opacity}
+              strokeProps={strokeProps}
+            />
+          );
+        }
+        const lineW = planLineMaterialStrokeWidthPx(strokeWidth);
         return (
           <polyline
             key={f.id}
             points={pxPointsAttr(pxPts)}
             fill="none"
-            stroke={stroke}
+            stroke={planStrokeForLineMaterial(f, stroke)}
             strokeWidth={lineW}
             strokeLinecap="round"
             strokeLinejoin="round"
@@ -244,14 +252,18 @@ function renderFeature(
   }
 
   const lineMaterial = shouldExcludePlanMaterialFill(f, legend);
+  const lineStroke = lineMaterial ? planStrokeForLineMaterial(f, stroke) : stroke;
+  const lineW = lineMaterial
+    ? planLineMaterialStrokeWidthPx(strokeWidth)
+    : strokeWidth;
 
   return (
     <polygon
       key={f.id}
       points={pxPointsAttr(pxPts)}
       fill={lineMaterial ? "none" : pat ?? fillBase}
-      stroke={stroke}
-      strokeWidth={strokeWidth}
+      stroke={lineStroke}
+      strokeWidth={lineW}
       opacity={opacity}
       {...strokeProps}
     />

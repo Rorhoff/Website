@@ -89,6 +89,39 @@ function planLineMaterialHint(f: InterpretFeature): string {
   return `${f.featureType} ${f.label ?? ""}`.toLowerCase().replace(/[_-]/g, " ");
 }
 
+export const PLAN_COPPER_STROKE = "#B87333";
+export const PLAN_FENCE_STROKE = "#ffffff";
+export const PLAN_FENCE_HALO_STROKE = "#292524";
+
+export function isPlanFenceFeature(f: InterpretFeature): boolean {
+  const hay = planLineMaterialHint(f);
+  if (/steel edging|steel ed|landscape edging|edging/.test(hay) && !/fence/.test(hay)) {
+    return false;
+  }
+  if (/vinyl fence|\bfence\b/.test(hay)) return true;
+  return f.featureType.includes("fence") && !f.featureType.includes("edging");
+}
+
+export function isPlanSteelEdgingFeature(f: InterpretFeature): boolean {
+  const hay = planLineMaterialHint(f);
+  if (/steel edging|steel ed/.test(hay)) return true;
+  return f.featureType === "steel_edging" || f.featureType.includes("steel_edging");
+}
+
+/** LF symbols on plan — slightly heavier than gravel/lawn outlines, not install width in feet. */
+export function planLineMaterialStrokeWidthPx(areaOutlineStrokeWidth: number): number {
+  return areaOutlineStrokeWidth + 1.25;
+}
+
+export function planStrokeForLineMaterial(
+  f: InterpretFeature,
+  fallbackStroke: string
+): string {
+  if (isPlanSteelEdgingFeature(f)) return PLAN_COPPER_STROKE;
+  if (isPlanFenceFeature(f)) return PLAN_FENCE_STROKE;
+  return fallbackStroke;
+}
+
 /** LF edging/fence — stroke-only on plan (matches feature editor; no gray strip or AI fill). */
 export function isStrokeOnlyPlanPolyline(
   f: InterpretFeature,
@@ -112,7 +145,7 @@ export function shouldExcludePlanMaterialFill(
 ): boolean {
   if (isStrokeOnlyPlanPolyline(f, legend)) return true;
   const hay = planLineMaterialHint(f);
-  if (/vinyl fence|steel edging|steel ed/.test(hay)) return true;
+  if (/vinyl fence|\bfence\b|steel edging|steel ed/.test(hay)) return true;
   if (isLinearFeature(f.featureType, legend)) return true;
   return false;
 }
